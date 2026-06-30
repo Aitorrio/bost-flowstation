@@ -269,7 +269,16 @@ impl ActiveCall {
     #[inline]
     pub(super) fn call_timeout_expired(&self, now: TdmaTime) -> bool {
         match call_timeout_to_timeslots(self.call_timeout) {
-            Some(timeout) => self.last_activity_at.age(now) > timeout,
+            // ETSI EN 300 392-2 §14: the call time-out timer bounds the MAXIMUM duration of a
+            // call, measured from call establishment. It is an absolute ceiling that the SwMI
+            // applies regardless of ongoing traffic — when it expires the call is released
+            // (D-RELEASE) so a traffic channel can never be held indefinitely. Measuring it from
+            // `last_activity_at` (refreshed on every inbound network voice frame) let an
+            // endlessly-streaming Brew call reset the ceiling forever and pin the timeslot, which
+            // is NOT ETSI compliant. Inactivity-based reclaim — a talker going quiet, or a network
+            // media stream dying without a GROUP_IDLE — is handled separately by the hang-time and
+            // network-media-inactivity timers, not by stretching this absolute cap.
+            Some(timeout) => self.created_at.age(now) > timeout,
             None => false,
         }
     }
