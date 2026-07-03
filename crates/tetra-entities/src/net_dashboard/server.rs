@@ -3811,6 +3811,82 @@ fn serve_html(mut stream: TcpStream) {
     let _ = stream.write_all(body);
 }
 
+/// The placeholder characters the secret maskers emit — U+2022 BULLET (`mask_secret`/`mask_token`
+/// for short secrets) and U+2026 HORIZONTAL ELLIPSIS (the `head…tail` form). A posted secret value
+/// containing either is the mask echoed back unchanged by the editor, not a freshly typed secret.
+fn value_is_masked_secret(value: &str) -> bool {
+    value.contains('\u{2022}') || value.contains('\u{2026}')
+}
+
+/// Is `key` one of the secrets that `mask_config_secrets` masks before sending config to the browser?
+fn is_masked_secret_key(key: &str) -> bool {
+    matches!(key, "password" | "bot_token" | "rwth_core_authkey" | "ami_password")
+}
+
+/// Split a `key = "value"` TOML line into `(key, inner)`, mirroring `mask_toml_secret_line`: only a
+/// bare quoted-string assignment matches; comments and everything else return `None`. `inner` is the
+/// raw (still TOML-escaped) text between the quotes, so it can be re-wrapped verbatim.
+fn split_toml_str_assignment(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with('#') {
+        return None;
+    }
+    let eq = line.find('=')?;
+    let key = line[..eq].trim();
+    let rhs = line[eq + 1..].trim();
+    let inner = rhs.strip_prefix('"').and_then(|s| s.strip_suffix('"'))?;
+    Some((key, inner))
+}
+
+/// Restore secret values that the editor posted back still masked, from the currently-stored config.
+///
+/// `serve_config_get` masks secrets (`password`, `bot_token`, `rwth_core_authkey`, `ami_password`)
+/// with bullets/ellipsis before serving the config file to the browser, so cleartext never leaves the
+/// host. If the operator saves without retyping a secret, the editor posts that mask back verbatim —
+/// writing it would overwrite the real credential with placeholder characters and lock the operator
+/// out (the reported "passwords corrupted with random symbols" bug). Here we walk the posted `body`,
+/// and for any secret line whose value is still the mask, substitute the plaintext from the same
+/// `[section] key` in `current` (the on-disk config). Genuinely retyped secrets are left untouched.
+///
+/// Matching is section-aware so `[dashboard] password` and `[brew] password` — same bare key — are
+/// never crossed. A masked secret with no stored counterpart is left as-is (no worse than before).
+fn unmask_config_secrets(body: &str, current: &str) -> String {
+    // (section header, key) -> stored raw (escaped) value, for masked secret keys only.
+    let mut stored: std::collections::HashMap<(String, String), String> = std::collections::HashMap::new();
+    let mut section = String::new();
+    for line in current.lines() {
+        let t = line.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            section = t.to_string();
+        } else if let Some((key, inner)) = split_toml_str_assignment(line) {
+            if is_masked_secret_key(key) {
+                stored.insert((section.clone(), key.to_string()), inner.to_string());
+            }
+        }
+    }
+
+    let mut out = String::with_capacity(body.len());
+    let mut section = String::new();
+    for line in body.lines() {
+        let t = line.trim();
+        if t.starts_with('[') && t.ends_with(']') {
+            section = t.to_string();
+        } else if let Some((key, inner)) = split_toml_str_assignment(line) {
+            if is_masked_secret_key(key) && value_is_masked_secret(inner) {
+                if let Some(orig) = stored.get(&(section.clone(), key.to_string())) {
+                    let indent_len = line.len() - line.trim_start().len();
+                    out.push_str(&format!("{}{} = \"{}\"", &line[..indent_len], key, orig));
+                    out.push('\n');
+                    continue;
+                }
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 /// Persist a posted config.toml after a dry-run parse + validate.
 ///
 /// Writing garbage here is what would brick the base station: the service restarts to apply config,
@@ -3821,6 +3897,13 @@ fn serve_html(mut stream: TcpStream) {
 ///
 /// Returns `Ok(())` on success, or `Err((http_code, message))` for the caller to relay.
 fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, String)> {
+    // Secrets are served to the editor masked; restore any still-masked value from the stored config
+    // so a save that didn't retype a password keeps the real one instead of persisting the mask.
+    let body = match std::fs::read_to_string(config_path) {
+        Ok(current) => unmask_config_secrets(body, &current),
+        Err(_) => body.to_string(),
+    };
+    let body = body.as_str();
     match tetra_config::bluestation::parsing::from_toml_str(body) {
         Ok(cfg) => {
             if let Err(e) = cfg.validate() {
@@ -5569,5 +5652,63 @@ enabled = true
         // No usable hash baked in -> cannot tell.
         assert_eq!(binary_built_from("unknown", head), None);
         assert_eq!(binary_built_from("", head), None);
+    }
+
+    /// The reported "passwords corrupted with random symbols" bug: secrets are served masked, and a
+    /// save that doesn't retype them must restore the stored plaintext instead of persisting the
+    /// mask. This is the full round-trip: mask on read → post the masked body back (only a non-secret
+    /// field changed) → the real secrets survive. Section-aware, so `[dashboard] password` and
+    /// `[brew] password` (identical bare key) are never crossed.
+    #[test]
+    fn config_save_restores_unchanged_masked_secrets() {
+        use super::{mask_config_secrets, unmask_config_secrets};
+
+        let stored = "\
+[telegram_alerts]
+bot_token = \"123456:ABCdefGHIjklMNOpqrsWXYZ\"
+
+[dashboard]
+username = \"admin\"
+password = \"dashRealPw\"
+
+[brew]
+password = \"brewRealPw!\"
+enabled = true
+";
+        // What the browser's editor receives — cleartext never leaves the host.
+        let served = mask_config_secrets(stored);
+        assert!(!served.contains("dashRealPw"));
+        assert!(!served.contains("brewRealPw!"));
+        assert!(!served.contains("123456:ABCdefGHIjklMNOpqrsWXYZ"));
+
+        // Operator flips a non-secret field and posts the (still-masked) body back.
+        let posted = served.replace("enabled = true", "enabled = false");
+        let resolved = unmask_config_secrets(&posted, stored);
+
+        // Each real secret is restored to its own section — dashboard and brew not crossed.
+        assert!(resolved.contains("password = \"dashRealPw\""), "dashboard password restored");
+        assert!(resolved.contains("password = \"brewRealPw!\""), "brew password restored");
+        assert!(
+            resolved.contains("bot_token = \"123456:ABCdefGHIjklMNOpqrsWXYZ\""),
+            "bot token restored"
+        );
+        assert!(resolved.contains("enabled = false"), "non-secret edit preserved");
+        // No mask placeholder characters are ever written to disk.
+        assert!(
+            !resolved.contains('\u{2022}') && !resolved.contains('\u{2026}'),
+            "mask characters must not be persisted"
+        );
+    }
+
+    /// A genuinely retyped secret (no mask characters) must overwrite the stored one — otherwise the
+    /// operator could never change a password.
+    #[test]
+    fn config_save_keeps_freshly_typed_secret() {
+        use super::unmask_config_secrets;
+        let stored = "[dashboard]\npassword = \"old-pw\"\n";
+        let posted = "[dashboard]\npassword = \"brandNewPw\"\n";
+        let resolved = unmask_config_secrets(posted, stored);
+        assert!(resolved.contains("password = \"brandNewPw\""), "new password overwrites old");
+        assert!(!resolved.contains("old-pw"), "old password gone once retyped");
     }
 }
