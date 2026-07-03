@@ -90,8 +90,23 @@ impl RxTxDevSoapySdr {
             .bs_phase_mod_carriers()
             .expect("validated carrier configuration should compute");
         let bs_carrier_numbers = bs_carriers.iter().map(|(carrier_num, _, _)| *carrier_num).collect::<Vec<_>>();
-        let bs_dl_frequencies = bs_carriers.iter().map(|(_, dl_hz, _)| *dl_hz as f64).collect::<Vec<_>>();
-        let bs_ul_frequencies = bs_carriers.iter().map(|(_, _, ul_hz)| *ul_hz as f64).collect::<Vec<_>>();
+        // PPM-correct the per-carrier frequencies fed to the DSP channelizer, exactly as the SDR
+        // centre frequency is corrected before tuning (soapyio.rs). This is essential, not cosmetic:
+        // the FCFB places each carrier at bin offset `carrier - centre`, and `centre` is read back
+        // from the (already ppm-corrected) hardware LO. If the carriers stayed uncorrected the bin
+        // offset would absorb an equal-and-opposite `-err`, cancelling the LO correction so the net
+        // emitted/received RF never moved — the "changing ppm_err does nothing" bug. Correcting the
+        // carriers too makes net RF = carrier·(1+ppm/1e6), the intended calibration, and is robust to
+        // LO tuning quantisation since `centre` is the actual readback. NOTE: ppm_err is only read
+        // here at PHY construction, so a dashboard change still needs a stack restart to take effect.
+        let bs_dl_frequencies = bs_carriers
+            .iter()
+            .map(|(_, dl_hz, _)| soapy_cfg.correct_frequency(*dl_hz as f64).0)
+            .collect::<Vec<_>>();
+        let bs_ul_frequencies = bs_carriers
+            .iter()
+            .map(|(_, _, ul_hz)| soapy_cfg.correct_frequency(*ul_hz as f64).0)
+            .collect::<Vec<_>>();
 
         let phy_config = soapy_dev::PhyConfig {
             monitor_frequencies: &[],
