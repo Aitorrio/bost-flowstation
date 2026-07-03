@@ -38,9 +38,23 @@ impl GroupDeassignment {
     }
 
     pub fn to_bitbuf(&self, buf: &mut BitBuffer) -> Result<(), PduParseErr> {
+        // Group SSI and group extension are 24-bit fields; reject a wider value as InvalidValue
+        // rather than letting write_bits' range assertion panic the cell (defence in depth).
+        if self.group_ssi > 0xFF_FFFF {
+            return Err(PduParseErr::InvalidValue {
+                field: "group_ssi",
+                value: self.group_ssi as u64,
+            });
+        }
         buf.write_bits(self.group_ssi as u64, 24);
         buf.write_bits(self.group_extension.is_some() as u64, 1);
         if let Some(ext) = self.group_extension {
+            if ext > 0xFF_FFFF {
+                return Err(PduParseErr::InvalidValue {
+                    field: "group_extension",
+                    value: ext as u64,
+                });
+            }
             buf.write_bits(ext as u64, 24);
         }
         Ok(())
@@ -54,5 +68,35 @@ impl fmt::Display for GroupDeassignment {
             "GroupDeassignment {{ group_ssi: {} group_extension: {:?} }}",
             self.group_ssi, self.group_extension
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A GSSI is a 24-bit field; a wider value used to panic the whole cell in the bit writer and
+    /// must now be a recoverable InvalidValue.
+    #[test]
+    fn to_bitbuf_rejects_out_of_range_gssi_instead_of_panicking() {
+        let mut buf = BitBuffer::new_autoexpand(8);
+        let de = GroupDeassignment {
+            group_ssi: 0x100_0000,
+            group_extension: None,
+        };
+        assert!(matches!(
+            de.to_bitbuf(&mut buf),
+            Err(PduParseErr::InvalidValue { field: "group_ssi", .. })
+        ));
+    }
+
+    #[test]
+    fn to_bitbuf_accepts_max_valid_gssi() {
+        let mut buf = BitBuffer::new_autoexpand(8);
+        let de = GroupDeassignment {
+            group_ssi: 0xFF_FFFF,
+            group_extension: None,
+        };
+        assert!(de.to_bitbuf(&mut buf).is_ok());
     }
 }

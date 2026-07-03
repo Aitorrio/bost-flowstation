@@ -12,6 +12,7 @@ use tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl;
 use tetra_pdus::mm::pdus::d_attach_detach_group_identity::DAttachDetachGroupIdentity;
 use tetra_pdus::mm::pdus::d_mm_status::DMmStatus;
 use tetra_pdus::mm::pdus::u_location_update_demand::ULocationUpdateDemand;
+use tetra_saps::control::brew::BrewSubscriberAction;
 use tetra_saps::lmm::LmmMleUnitdataInd;
 use tetra_saps::sapmsg::{SapMsg, SapMsgInner};
 
@@ -270,6 +271,114 @@ fn test_dgna_assign_affiliates_and_requests_ss_dgna() {
             .attached_groups_of(TEST_ISSI)
             .contains(&TEST_GSSI),
         "DGNA assign must affiliate the GSSI in the subscriber registry"
+    );
+}
+
+/// A DGNA request whose GSSI does not fit the 24-bit SS-DGNA field must be rejected at the MM
+/// funnel — no affiliation and no SS-DGNA emission — and must NOT panic. Pre-fix the oversized GSSI
+/// reached the PDU serializer's `write_bits` assertion and took down the whole cell.
+#[test]
+fn test_dgna_assign_rejects_out_of_range_gssi() {
+    debug::setup_logging_verbose();
+    const TEST_ISSI: u32 = 2260599;
+    const BAD_GSSI: u32 = 0x100_0000; // 16_777_216 — one past the 24-bit max
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let (dispatcher, endpoint) = make_control_link();
+    let mm = MmBs::new(test.get_shared_config(), None, Some(endpoint));
+    test.register_entity(mm);
+    register_terminal(&mut test, TEST_ISSI);
+    let _ = test.dump_sinks();
+
+    dispatcher.send(ControlCommand::Dgna {
+        issi: TEST_ISSI,
+        gssi: BAD_GSSI,
+        mnemonic: None,
+        attachment_mode: 0,
+        attach: true,
+    });
+    test.run_stack(Some(2)); // must not panic
+
+    let msgs = test.dump_sinks();
+    assert!(
+        find_ss_dgna_request(&msgs).is_none(),
+        "an out-of-range GSSI must not produce an SS-DGNA request"
+    );
+    assert!(
+        !test
+            .config
+            .state_read()
+            .subscribers
+            .attached_groups_of(TEST_ISSI)
+            .contains(&BAD_GSSI),
+        "an out-of-range GSSI must not be affiliated"
+    );
+}
+
+/// Regression: a RoamingLocationUpdating from a radio that is already registered and affiliated (the
+/// routine Sepura/Motorola post-PTT re-registration) must NOT tear the radio down. Previously MM ran
+/// a Deaffiliate -> Deregister -> Register -> Affiliate "reset" that transiently zeroed CMCE's group
+/// listeners — dropping the radio's active group call and opening an "unknown subscriber" window the
+/// terminal reads as a network error, disconnecting it ("radio constantly disconnects from the BTS").
+#[test]
+fn test_roaming_reregistration_keeps_present_radio_affiliated() {
+    debug::setup_logging_verbose();
+    const TEST_ISSI: u32 = 2260601;
+    const TEST_GSSI: u32 = 100;
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let (dispatcher, endpoint) = make_control_link();
+    let mm = MmBs::new(test.get_shared_config(), None, Some(endpoint));
+    test.register_entity(mm);
+
+    // Register the radio and affiliate it to a group.
+    register_terminal(&mut test, TEST_ISSI);
+    dispatcher.send(ControlCommand::Dgna {
+        issi: TEST_ISSI,
+        gssi: TEST_GSSI,
+        mnemonic: None,
+        attachment_mode: 0,
+        attach: true,
+    });
+    test.run_stack(Some(2));
+    let _ = test.dump_sinks(); // discard the registration + affiliation traffic
+    assert!(
+        test.config.state_read().subscribers.attached_groups_of(TEST_ISSI).contains(&TEST_GSSI),
+        "precondition: radio must be affiliated before re-registration"
+    );
+
+    // The radio re-registers (RoamingLocationUpdating after a PTT — the exact reported trigger).
+    register_terminal(&mut test, TEST_ISSI);
+    let msgs = test.dump_sinks();
+
+    // It must NOT emit a Deregister or Deaffiliate toward CMCE — either would transiently drop the
+    // radio's group listeners (and its active group call) and disconnect a present terminal.
+    let destructive: Vec<BrewSubscriberAction> = msgs
+        .iter()
+        .filter_map(|m| match &m.msg {
+            SapMsgInner::MmSubscriberUpdate(u)
+                if matches!(
+                    u.action,
+                    BrewSubscriberAction::Deregister | BrewSubscriberAction::Deaffiliate
+                ) =>
+            {
+                Some(u.action)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        destructive.is_empty(),
+        "re-registration of a present radio must not tear it down, but emitted {:?}",
+        destructive
+    );
+
+    // And the affiliation must still be intact afterwards.
+    assert!(
+        test.config.state_read().subscribers.attached_groups_of(TEST_ISSI).contains(&TEST_GSSI),
+        "affiliation must survive a routine re-registration"
     );
 }
 

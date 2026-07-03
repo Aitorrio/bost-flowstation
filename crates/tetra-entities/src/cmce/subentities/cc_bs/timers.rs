@@ -8,6 +8,19 @@ use super::*;
 /// (6 s / (170/12 ms per slot) ≈ 423 timeslots.)
 pub(super) const EE_DSETUP_FALLBACK_TS: i32 = 423;
 
+/// Network (Brew) downlink media-inactivity guard, the downlink analogue of UMAC's UL stuck-
+/// transmitter timer. A network-originated group call carries no local uplink, so UMAC never arms
+/// the UL-inactivity timer for it (umac_bs.rs), and it only drops into hang-time when the backhaul
+/// signals GROUP_IDLE. If that GROUP_IDLE is lost — or a gateway keeps streaming / holds the call
+/// open — the call stays `Transmitting` with its traffic slot allocated until the absolute call
+/// time-out (and forever when that is configured Infinite). When no network media has refreshed
+/// `last_activity_at` for this long while a network speaker is nominally active, the stream is
+/// treated as dead and the call is released so the timeslot is reclaimed. Chosen well above the
+/// ~1 s media-activity signalling granularity and the continuous frame spacing of a live
+/// transmission, so a live stream is never cut — only a dead one. (10 s × 72 timeslots/s = 720;
+/// 72 = 18 frames × 4 slots.)
+pub(super) const NETWORK_MEDIA_INACTIVITY_TS: i32 = 10 * 18 * 4;
+
 impl CcBsSubentity {
     pub fn tick_start(&mut self, queue: &mut MessageQueue, dltime: TdmaTime) {
         self.dltime = dltime;
@@ -18,6 +31,8 @@ impl CcBsSubentity {
         self.check_individual_setup_timeout(queue);
         // Check hangtime expiry for active local calls
         self.check_hangtime_expiry(queue);
+        // Reclaim a network group-call timeslot whose backhaul media died without a GROUP_IDLE.
+        self.check_network_media_inactivity(queue);
 
         // Energy-economy group-call announce batching: re-emit the group D-SETUP across the
         // union of affiliated EE members' wake frames so members on a different sleep phase
@@ -501,6 +516,43 @@ impl CcBsSubentity {
 
         for call_id in expired {
             tracing::info!("Hangtime expired for call_id={}, releasing", call_id);
+            self.release_group_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
+        }
+    }
+
+    /// Reclaim a network group-call traffic slot whose backhaul media has gone silent without a
+    /// GROUP_IDLE (lost end-of-call signal, or a stuck/zombie gateway stream). See
+    /// [`NETWORK_MEDIA_INACTIVITY_TS`]. Only network-origin calls with a speaker still nominally
+    /// transmitting are eligible: once GROUP_IDLE arrives the call drops to hang-time
+    /// (`tx_active == false`) and the hang-time timer owns its teardown, and local calls never
+    /// refresh `last_activity_at` so they are excluded by the origin filter (their stuck-floor
+    /// case is covered by UMAC's UL-inactivity timer).
+    pub(super) fn check_network_media_inactivity(&mut self, queue: &mut MessageQueue) {
+        let stale: Vec<(u16, CallOrigin, u32)> = self
+            .active_calls
+            .iter()
+            .filter(|(_, call)| {
+                matches!(call.origin, CallOrigin::Network { .. })
+                    && call.tx_active
+                    && call.last_activity_at.age(self.dltime) > NETWORK_MEDIA_INACTIVITY_TS
+            })
+            .map(|(&call_id, call)| (call_id, call.origin.clone(), call.dest_gssi))
+            .collect();
+
+        for (call_id, origin, gssi) in stale {
+            tracing::info!(
+                "CMCE: releasing network group call_id={} gssi={} — no backhaul media for >{}s (lost GROUP_IDLE / dead stream)",
+                call_id,
+                gssi,
+                NETWORK_MEDIA_INACTIVITY_TS / (18 * 4)
+            );
+            // Mirror drop_group_calls_if_unlistened: tell the backhaul the call is over before we
+            // tear down locally, so a half-open Brew session doesn't keep us as a phantom leg.
+            if let CallOrigin::Network { brew_uuid } = origin {
+                if brew::is_brew_gssi_routable(&self.config, gssi) {
+                    self.notify_network_call_end(queue, brew_uuid);
+                }
+            }
             self.release_group_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
         }
     }

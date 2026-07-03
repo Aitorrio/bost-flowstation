@@ -1137,18 +1137,9 @@ fn test_network_group_speaker_change_uses_remote_floor_grant() {
     );
 }
 
-#[test]
-fn test_network_group_call_timeout_refreshes_on_media_activity() {
-    debug::setup_logging_verbose();
-
-    let gssi = 220;
-    let local_issi = 9012003;
-    let source_issi = 2200010;
-    let brew_uuid = uuid::Uuid::new_v4();
-
-    let mut config = default_test_config_bs();
-    config.cell.call_timeout_secs = 30;
-    config.brew = Some(CfgBrew {
+/// Build a CfgBrew suitable for the network-call timeout tests.
+fn test_brew_cfg() -> CfgBrew {
+    CfgBrew {
         host: "127.0.0.1".into(),
         port: 0,
         tls: false,
@@ -1160,7 +1151,100 @@ fn test_network_group_call_timeout_refreshes_on_media_activity() {
         whitelisted_ssis: None,
         feature_rssi_export: false,
         pbx_gateway_issis: None,
+    }
+}
+
+/// ETSI EN 300 392-2 §14: the call time-out timer is an ABSOLUTE maximum call duration measured
+/// from call establishment. Ongoing network media must NOT push it out — a previous change measured
+/// it from the last media frame, letting an endlessly-streaming Brew call pin the traffic timeslot
+/// forever. Here we keep media flowing (gaps below the media-inactivity window) and assert the call
+/// is still released at created_at + call_timeout, never extended.
+#[test]
+fn test_network_group_call_absolute_timeout_is_not_extended_by_media() {
+    debug::setup_logging_verbose();
+
+    let gssi = 220;
+    let local_issi = 9012003;
+    let source_issi = 2200010;
+    let brew_uuid = uuid::Uuid::new_v4();
+
+    let mut config = default_test_config_bs();
+    config.cell.call_timeout_secs = 30; // 30 s = 2160 timeslots
+    config.brew = Some(test_brew_cfg());
+
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+    register_subscriber(&mut test, local_issi, gssi);
+
+    let media_activity = |test: &mut ComponentTest| {
+        test.submit_message(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Brew,
+            dest: TetraEntity::Cmce,
+            msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallMediaActivity { brew_uuid }),
+        });
+    };
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid,
+            source_issi,
+            dest_gssi: gssi,
+            priority: 1,
+        }),
     });
+    test.run_stack(Some(5));
+    test.dump_sinks();
+
+    // Keep media flowing with gaps (600 ts ≈ 8.3 s) below the 720 ts media-inactivity window, so the
+    // only thing that can end the call is the absolute cap. After ~1800 ts we are still below the
+    // 2160 ts cap → the call must still be up.
+    for _ in 0..3 {
+        media_activity(&mut test);
+        test.run_stack(Some(600));
+    }
+    let mid = test.dump_sinks();
+    assert!(
+        !mid.iter()
+            .any(|msg| matches!(&msg.msg, SapMsgInner::CmceCallControl(CallControl::CallEnded { .. }))),
+        "call must stay up while media flows and the absolute call time-out has not yet elapsed"
+    );
+
+    // Keep media flowing and cross the 2160 ts absolute cap. Pre-fix the late media would have
+    // pushed release out to ~1800+2160 ts; ETSI-compliant behaviour releases at the absolute cap.
+    media_activity(&mut test);
+    test.run_stack(Some(600));
+    let after = test.dump_sinks();
+    assert!(
+        after
+            .iter()
+            .any(|msg| matches!(&msg.msg, SapMsgInner::CmceCallControl(CallControl::CallEnded { .. }))),
+        "ETSI: call must be released at the absolute call time-out regardless of ongoing media"
+    );
+}
+
+/// A network (Brew) group call carries no local uplink, so UMAC never arms a UL-inactivity timer
+/// and the call only drops to hang-time on a GROUP_IDLE. If the backhaul media simply dies (lost
+/// GROUP_IDLE / zombie gateway stream), the downlink media-inactivity guard must reclaim the
+/// traffic timeslot — this is the "timeslot stays busy after the radio/stream is gone" regression.
+#[test]
+fn test_network_group_call_released_when_backhaul_media_dies() {
+    debug::setup_logging_verbose();
+
+    let gssi = 220;
+    let local_issi = 9012003;
+    let source_issi = 2200010;
+    let brew_uuid = uuid::Uuid::new_v4();
+
+    let mut config = default_test_config_bs();
+    config.cell.call_timeout_secs = 120; // long, so the absolute cap can't mask the inactivity guard
+    config.brew = Some(test_brew_cfg());
 
     let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
     test.populate_entities(
@@ -1180,37 +1264,32 @@ fn test_network_group_call_timeout_refreshes_on_media_activity() {
             priority: 1,
         }),
     });
-    test.run_stack(Some(1));
+    test.run_stack(Some(5));
     test.dump_sinks();
 
-    test.run_stack(Some(2000));
-    test.dump_sinks();
+    // The traffic slot is busy while the call is up.
+    {
+        let shared = test.get_shared_config();
+        assert!(
+            shared.state_read().active_call_ts.contains_key(&gssi),
+            "network group call should occupy a traffic timeslot once established"
+        );
+    }
 
-    test.submit_message(SapMsg {
-        sap: Sap::Control,
-        src: TetraEntity::Brew,
-        dest: TetraEntity::Cmce,
-        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallMediaActivity { brew_uuid }),
-    });
-    test.run_stack(Some(1));
-    test.dump_sinks();
-
-    test.run_stack(Some(400));
-    let still_active_msgs = test.dump_sinks();
+    // No further media arrives (lost GROUP_IDLE). Run past the 720 ts (10 s) inactivity window.
+    test.run_stack(Some(800));
+    let msgs = test.dump_sinks();
     assert!(
-        !still_active_msgs
-            .iter()
+        msgs.iter()
             .any(|msg| matches!(&msg.msg, SapMsgInner::CmceCallControl(CallControl::CallEnded { .. }))),
-        "network call must not end at the original timeout if Brew media refreshed it"
+        "network call with dead backhaul media must be released by the media-inactivity guard"
     );
 
-    test.run_stack(Some(2200));
-    let release_msgs = test.dump_sinks();
+    // …and the timeslot must be reclaimed — the actual operator-visible symptom.
+    let shared = test.get_shared_config();
     assert!(
-        release_msgs
-            .iter()
-            .any(|msg| matches!(&msg.msg, SapMsgInner::CmceCallControl(CallControl::CallEnded { .. }))),
-        "network call should release after the refreshed timeout window expires"
+        !shared.state_read().active_call_ts.contains_key(&gssi),
+        "traffic timeslot must be reclaimed (active_call_ts cleared) after media-inactivity release"
     );
 }
 

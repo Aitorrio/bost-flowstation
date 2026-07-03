@@ -526,6 +526,21 @@ impl SdsBsSubentity {
             v.extend_from_slice(&payload);
             v
         };
+        // The SDS-TL Type-4 length field is 16 bits (length in bits). A wrapped payload larger than
+        // u16::MAX/8 bytes would wrap the cast below and put a bogus length on the air — silent
+        // corruption. Real SDS text is far shorter; reject anything that cannot be represented
+        // rather than sending a malformed SDU (a non-browser control client could submit any size).
+        const MAX_SDS_PAYLOAD_BYTES: usize = (u16::MAX / 8) as usize; // 8191 bytes, incl. 4-byte header
+        if wrapped_payload.len() > MAX_SDS_PAYLOAD_BYTES {
+            tracing::warn!(
+                "SDS: refusing oversized message {}->{} ({} bytes wrapped, max {})",
+                source_ssi,
+                dest_ssi,
+                wrapped_payload.len(),
+                MAX_SDS_PAYLOAD_BYTES
+            );
+            return false;
+        }
         let wrapped_len_bits = (wrapped_payload.len() * 8) as u16;
         let sds_data = SdsUserData::Type4(wrapped_len_bits, wrapped_payload);
 

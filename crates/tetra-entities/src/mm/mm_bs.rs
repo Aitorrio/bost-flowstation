@@ -111,6 +111,27 @@ impl MmBs {
             {
                 let mut state = self.config.state_write();
                 for group in rec.dgna_groups {
+                    // The recovery cache is on-disk and may be stale or corrupt. Validate each
+                    // persisted DGNA group before it re-enters the registry: an out-of-range GSSI
+                    // would later panic the 24-bit SS-DGNA PDU serializer, and an out-of-range
+                    // attachment mode would be silently coerced to a different mode. Skip bad entries.
+                    if group.gssi == 0 || group.gssi > 0xFF_FFFF {
+                        tracing::warn!(
+                            "MM: skipping restored DGNA group with out-of-range GSSI {} for ISSI {}",
+                            group.gssi,
+                            rec.issi
+                        );
+                        continue;
+                    }
+                    if GroupIdentityAttachmentMode::try_from(group.attachment_mode as u64).is_err() {
+                        tracing::warn!(
+                            "MM: skipping restored DGNA group GSSI {} for ISSI {} with invalid attachment mode {}",
+                            group.gssi,
+                            rec.issi,
+                            group.attachment_mode
+                        );
+                        continue;
+                    }
                     state
                         .subscribers
                         .remember_dgna_group(rec.issi, group.gssi, group.mnemonic, group.attachment_mode);
@@ -279,64 +300,6 @@ impl MmBs {
         );
         // handle = 0: addressed by ISSI on the MCCH (see send_d_location_update_command).
         Self::send_d_location_update_command(queue, issi, 0);
-    }
-
-    /// Force CMCE to release any individual P2P calls involving the given ISSI,
-    /// without touching Brew affiliations. Used on soft re-attach (e.g. MTP3550
-    /// 2s RF dropout) to prevent "PTT denied" caused by stale call state in CMCE.
-    ///
-    /// Implementation: sends Deregister to CMCE only (not Brew), then re-sends
-    /// Register + Affiliate so subscriber_groups and group_listener counts are
-    /// restored. Brew is not informed because the MS is still considered registered.
-    fn emit_individual_call_release_for_issi(&mut self, queue: &mut MessageQueue, issi: u32) {
-        let groups: Vec<u32> = self
-            .client_mgr
-            .get_client_by_issi(issi)
-            .map(|c| c.groups.iter().copied().collect())
-            .unwrap_or_default();
-
-        // CMCE Deregister: releases individual_calls + drops group_listener counts
-        let dereg = MmSubscriberUpdate {
-            issi,
-            groups: Vec::new(),
-            action: BrewSubscriberAction::Deregister,
-        };
-        queue.push_back(SapMsg {
-            sap: Sap::Control,
-            src: TetraEntity::Mm,
-            dest: TetraEntity::Cmce,
-            msg: SapMsgInner::MmSubscriberUpdate(dereg),
-        });
-
-        // CMCE Register: re-introduces the ISSI as known
-        let reg = MmSubscriberUpdate {
-            issi,
-            groups: Vec::new(),
-            action: BrewSubscriberAction::Register,
-        };
-        queue.push_back(SapMsg {
-            sap: Sap::Control,
-            src: TetraEntity::Mm,
-            dest: TetraEntity::Cmce,
-            msg: SapMsgInner::MmSubscriberUpdate(reg),
-        });
-
-        // CMCE Affiliate: restores group_listener counts so group calls still route
-        if !groups.is_empty() {
-            let aff = MmSubscriberUpdate {
-                issi,
-                groups,
-                action: BrewSubscriberAction::Affiliate,
-            };
-            queue.push_back(SapMsg {
-                sap: Sap::Control,
-                src: TetraEntity::Mm,
-                dest: TetraEntity::Cmce,
-                msg: SapMsgInner::MmSubscriberUpdate(aff),
-            });
-        }
-
-        tracing::info!("MM: forced individual call release for ISSI {} (soft re-attach)", issi);
     }
 
     fn emit_subscriber_update(&self, queue: &mut MessageQueue, issi: u32, groups: Vec<u32>, action: BrewSubscriberAction) {
@@ -537,87 +500,21 @@ impl MmBs {
         // affiliate() would otherwise recreate the registry entry and mask the drop.
         let was_dropped = !is_new && !self.config.state_read().subscribers.is_registered(issi);
         if !is_new {
-            // MS is re-registering while already known. Three cases:
+            // The terminal is re-registering while already known: a RoamingLocationUpdating after
+            // a PTT/RF blip (Sepura/Motorola do this routinely), a PeriodicLocationUpdating renewing
+            // T351, or a DemandLocationUpdating answering our COMMAND. In every case the radio is
+            // PRESENT, so we must NOT tear down its registration or group affiliations here.
             //
-            // A) RoamingLocationUpdating â€” MS re-registered from scratch (RF loss / reboot /
-            //    power-cycle, no prior U-ITSI-DETACH). Clean up stale state so CMCE releases
-            //    any ghost calls and group_listeners stays accurate.
-            //
-            // B) PeriodicLocationUpdating â€” healthy MS renewing its T351 timer. No cleanup.
-            //
-            // C) DemandLocationUpdating â€” MS responding to our D-LOCATION-UPDATE-COMMAND.
-            //    This is the second message in the normal registration flow; the first message
-            //    already registered+affiliated the MS. Do NOT clean up here.
-            let needs_cleanup = if pdu.location_update_type == LocationUpdateType::RoamingLocationUpdating
-                || pdu.location_update_type == LocationUpdateType::ServiceRestorationRoamingLocationUpdating
-            {
-                // Some terminals (e.g. Sepura) send RoamingLocationUpdating after every PTT
-                // release, not just on power-cycle or RF loss. If we treat this as a full reboot
-                // and do deregisterâ†’register, CMCE has a brief window where it doesn't know the
-                // terminal â€” a PTT press in that window gets "no listeners" and the terminal
-                // interprets it as a network error and fully disconnects.
-                //
-                // Heuristic: treat RoamingLocationUpdating as a soft re-attach (no cleanup) if
-                // the terminal registered less than 120 seconds ago.
-                let recently_registered = self
-                    .client_mgr
-                    .get_client_by_issi(issi)
-                    .map(|c| c.last_registration_time.elapsed().as_secs() < 120)
-                    .unwrap_or(false);
-                if recently_registered {
-                    tracing::debug!(
-                        "MM: ISSI {} RoamingLocationUpdating within 120s of last register â€” treating as soft re-attach (Sepura post-PTT)",
-                        issi
-                    );
-                    // Even on soft re-attach, force CMCE to release any individual P2P calls
-                    // involving this ISSI. Terminals (e.g. Motorola MTP3550) that drop RF for
-                    // 2s and re-attach lose call state but BS keeps the call alive â€” next PTT
-                    // is rejected ("PTT denied") because the terminal doesn't recognize the call_id
-                    // in our D-TX-GRANTED. Releasing the individual call here forces a clean U-SETUP
-                    // on the next PTT.
-                    self.emit_individual_call_release_for_issi(queue, issi);
-                    false
-                } else {
-                    true
-                }
-            } else {
-                false
-            };
-
-            // needs_cleanup: Roaming = MS rebooted, need full CMCE/Brew reset (deregister+register).
-            // was_pending: the MS is answering our T351 COMMAND â€” Brew still holds the subscriber
-            // (teardown is deferred to the confirmed-gone second expiry, which this answer prevents),
-            // so no Brew action is needed; CMCE is re-affiliated via the coverage-return path below.
-            if needs_cleanup {
-                let old_groups: Vec<u32> = self
-                    .client_mgr
-                    .get_client_by_issi(issi)
-                    .map(|c| c.groups.iter().copied().collect())
-                    .unwrap_or_default();
-                if !old_groups.is_empty() {
-                    self.emit_subscriber_update(queue, issi, old_groups.clone(), BrewSubscriberAction::Deaffiliate);
-                }
-                self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
-                self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Register);
-                // The Deregister above wipes this subscriber's group affiliations in CMCE/Brew, but
-                // client_mgr still holds them. A roaming MS with persistent attachment
-                // (attachment_lifetime=0) re-reports its groups with group_identity_attach_detach_mode=0
-                // â€” which is a no-op in client_mgr (the group is already present), so
-                // try_attach_detach_groups emits NO Affiliate and CMCE is left with zero listeners.
-                // The next group PTT is then rejected "no listeners" and inbound group calls are dropped
-                // (observed for a Motorola MTP on RoamingLocationUpdating). Re-affiliate the stored
-                // groups now so CMCE/Brew stay in sync with client_mgr across the reset; the
-                // group-identity processing below then only needs to add genuinely new groups.
-                if !old_groups.is_empty() {
-                    {
-                        let mut state = self.config.state_write();
-                        for &gssi in &old_groups {
-                            state.subscribers.affiliate(issi, gssi);
-                        }
-                    }
-                    self.emit_subscriber_update(queue, issi, old_groups, BrewSubscriberAction::Affiliate);
-                }
-            } else if was_pending {
+            // A previous version treated a RoamingLocationUpdating older than 120s as a reboot and
+            // ran a Deaffiliate -> Deregister -> Register -> Affiliate "reset". That reset was
+            // net-harmful: the transient group_listeners -> 0 made CMCE drop the radio's ACTIVE
+            // group call (drop_group_calls_if_unlistened), and the brief "unknown subscriber" window
+            // made a PTT in that gap hit "no listeners" -- which the terminal reads as a network
+            // error and fully disconnects (the "radio constantly disconnects from the BTS" report).
+            // It re-affiliated the SAME groups immediately afterwards, so the reset only ever flapped
+            // the call. Genuine group-set changes are reconciled by the group-identity processing
+            // further down and by explicit U-ATTACH-DETACH, so no reset is needed here.
+            if was_pending {
                 tracing::info!("MM: ISSI {} re-registered after T351 COMMAND (Brew already holds it)", issi);
             }
             // Always reset the registration timer on any re-registration
@@ -1532,6 +1429,31 @@ impl MmBs {
         let is_dynamic = self.config.state_read().subscribers.has_dgna_group(issi, gssi);
         let is_attached = self.config.state_read().subscribers.attached_groups_of(issi).contains(&gssi);
         let route_gssi_hint = (!attach && is_attached).then_some(gssi);
+
+        // A GSSI is a 24-bit TETRA SSI. The SS-DGNA D-FACILITY encodes it into a 24-bit field, so a
+        // wider value would overflow the PDU serializer's `write_bits` assertion and panic the whole
+        // cell (the entities run on one un-isolated stack thread). This is the single MM funnel for
+        // every DGNA request — including unvalidated dashboard input — so reject an out-of-range
+        // group identity here, before any state mutation or PDU build. (0 is the "no group"
+        // sentinel used across the call/voice paths, so it is rejected too.)
+        const MAX_TETRA_SSI: u32 = 0xFF_FFFF;
+        if gssi == 0 || gssi > MAX_TETRA_SSI {
+            tracing::warn!(
+                "DGNA: refusing {} of out-of-range GSSI {} for ISSI {} (must be 1..=16777215)",
+                verb,
+                gssi,
+                issi
+            );
+            self.emit_dgna_status(
+                issi,
+                gssi,
+                attach,
+                false,
+                "MM",
+                format!("Rejected: GSSI {} out of range (must be 1..=16777215)", gssi),
+            );
+            return false;
+        }
 
         // The terminal must be registered on the cell â€” we cannot regroup a radio that is not here.
         if !self.client_mgr.client_is_known(issi) {

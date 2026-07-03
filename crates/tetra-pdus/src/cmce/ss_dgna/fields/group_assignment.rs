@@ -119,10 +119,24 @@ impl GroupAssignment {
             }
         }
 
-        // Fixed (type-1) region.
+        // Fixed (type-1) region. Group SSI and group extension are 24-bit fields; a wider value
+        // would trip write_bits' range assertion and panic, so reject it as an InvalidValue before
+        // it reaches the bit writer (defence in depth — callers should range-check their input).
+        if self.group_ssi > 0xFF_FFFF {
+            return Err(PduParseErr::InvalidValue {
+                field: "group_ssi",
+                value: self.group_ssi as u64,
+            });
+        }
         buf.write_bits(self.group_ssi as u64, 24);
         buf.write_bits(self.group_extension.is_some() as u64, 1);
         if let Some(ext) = self.group_extension {
+            if ext > 0xFF_FFFF {
+                return Err(PduParseErr::InvalidValue {
+                    field: "group_extension",
+                    value: ext as u64,
+                });
+            }
             buf.write_bits(ext as u64, 24);
         }
         buf.write_bits(self.attachment_mode.into_raw(), 3);
@@ -291,5 +305,51 @@ impl fmt::Display for GroupAssignment {
             self.additional_group_information,
             self.vgssi
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(group_ssi: u32) -> GroupAssignment {
+        GroupAssignment {
+            group_ssi,
+            group_extension: None,
+            attachment_mode: GroupIdentityAttachmentMode::AttachedPermanently,
+            class_of_usage: None,
+            mnemonic: None,
+            security_related_information: None,
+            additional_group_information: None,
+            vgssi: None,
+        }
+    }
+
+    /// A GSSI is a 24-bit field. A wider value used to abort the entire base station via the
+    /// write_bits range assertion; it must now be reported as a recoverable InvalidValue.
+    #[test]
+    fn to_bitbuf_rejects_out_of_range_gssi_instead_of_panicking() {
+        let mut buf = BitBuffer::new_autoexpand(16);
+        assert!(matches!(
+            sample(0x100_0000).to_bitbuf(&mut buf),
+            Err(PduParseErr::InvalidValue { field: "group_ssi", .. })
+        ));
+    }
+
+    #[test]
+    fn to_bitbuf_accepts_max_valid_gssi() {
+        let mut buf = BitBuffer::new_autoexpand(16);
+        assert!(sample(0xFF_FFFF).to_bitbuf(&mut buf).is_ok());
+    }
+
+    #[test]
+    fn to_bitbuf_rejects_out_of_range_group_extension() {
+        let mut ga = sample(1);
+        ga.group_extension = Some(0x100_0000);
+        let mut buf = BitBuffer::new_autoexpand(16);
+        assert!(matches!(
+            ga.to_bitbuf(&mut buf),
+            Err(PduParseErr::InvalidValue { field: "group_extension", .. })
+        ));
     }
 }
