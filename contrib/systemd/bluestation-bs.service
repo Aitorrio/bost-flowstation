@@ -22,6 +22,13 @@ Description=TETRA BlueStation base station service
 # not just "declared active" like network.target.
 After=network-online.target
 Wants=network-online.target
+# Cap restarts so a startup that keeps failing (e.g. an SDR still held for a
+# moment after a software restart) stops after a burst and lands in a visible
+# "failed" state instead of crash-looping forever. Generous enough that a
+# legitimate web-triggered restart and the in-process SDR-open retries never
+# trip it; recover with a power cycle + `systemctl start`, or `systemctl reset-failed`.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 User=user
@@ -48,10 +55,6 @@ KillSignal=SIGINT
 # Does NOT restart on clean exit (systemctl stop) or SIGINT (graceful shutdown).
 Restart=on-failure
 RestartSec=10
-
-# Remove start rate limiting entirely — let RestartSec govern the pace.
-# Without this, systemd stops trying after 5 restarts in 10s (the default).
-StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target
