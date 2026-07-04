@@ -52,6 +52,51 @@ pub struct RxTxDevSoapySdr {
 
 type FftPlanner = rustfft::FftPlanner<RealSample>;
 
+/// Open the SDR, retrying briefly before giving up.
+///
+/// A *software* restart (e.g. the dashboard "Restart" button, which exits the process so systemd
+/// restarts it) can momentarily leave the USB SDR still held / mid-re-enumeration when the new
+/// process comes up, so the first open right after the old process exits often fails. Panicking on
+/// that first failure turned an ordinary restart into a systemd crash-loop ("web restart causes
+/// infinite crash loop"): every retry hit the same not-yet-released device. Retrying in-process
+/// lets the radio settle within this one process instead of bouncing the whole service. A genuinely
+/// absent or misconfigured radio still aborts after the window (and the unit's StartLimit then caps
+/// the systemd-level retries so it can't loop forever).
+fn open_sdr_with_retry(cfg: &SharedConfig) -> soapyio::SoapyIo {
+    const ATTEMPTS: u32 = 6;
+    const DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+    for attempt in 1..=ATTEMPTS {
+        match soapyio::SoapyIo::new(cfg) {
+            Ok(sdr) => return sdr,
+            Err(e) if attempt < ATTEMPTS => {
+                tracing::warn!(
+                    "Failed to open SDR device (attempt {}/{}): {}. Retrying in {}s \
+                     (device may still be releasing after a restart)...",
+                    attempt,
+                    ATTEMPTS,
+                    e,
+                    DELAY.as_secs()
+                );
+                std::thread::sleep(DELAY);
+            }
+            Err(e) => {
+                // Out of attempts — nothing to transmit on, so this is fatal. Surface the actual
+                // cause and the usual culprits so log-only debugging is possible.
+                tracing::error!(
+                    "Failed to open SDR device after {} attempts: {}. Check that the SDR is plugged \
+                     in, not held by another process (SoapySDRUtil/GQRX/another bluestation-bs), and \
+                     that the device driver in [phy_io.soapysdr] matches the hardware. Cannot start \
+                     without a radio.",
+                    ATTEMPTS,
+                    e
+                );
+                panic!("Failed to open SDR device after {ATTEMPTS} attempts: {e}");
+            }
+        }
+    }
+    unreachable!("the loop returns on success or panics on the final attempt")
+}
+
 impl RxTxDevSoapySdr {
     pub fn new(cfg: &SharedConfig) -> Self {
         Self::with_telemetry(cfg, None)
@@ -116,24 +161,9 @@ impl RxTxDevSoapySdr {
             bs_carrier_numbers: &bs_carrier_numbers,
         };
 
-        let mut sdr = match soapyio::SoapyIo::new(cfg) {
-            Ok(sdr) => sdr,
-            Err(e) => {
-                // Failing to open the SDR at boot is fatal — there's nothing to transmit
-                // on. A panic here is acceptable (and systemd will retry), but the default
-                // .unwrap() message ("called Result::unwrap() on an Err...soapy_dev.rs:90")
-                // tells the operator nothing. Surface the actual cause and the usual
-                // culprits so log-only debugging is possible.
-                tracing::error!(
-                    "Failed to open SDR device: {}. Check that the SDR is plugged in, \
-                     not held by another process (SoapySDRUtil/GQRX/another bluestation-bs), \
-                     and that the device driver in [phy_io.soapysdr] matches the hardware. \
-                     Cannot start without a radio.",
-                    e
-                );
-                panic!("Failed to open SDR device: {e}");
-            }
-        };
+        // Retry the open briefly rather than panicking on the first failure — a software restart
+        // can leave the USB SDR held for a moment, which otherwise crash-loops the service.
+        let mut sdr = open_sdr_with_retry(cfg);
 
         let health_telemetry = telemetry.clone();
 

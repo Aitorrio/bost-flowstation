@@ -3,6 +3,14 @@ Description=FlowStation TETRA base station
 Documentation=https://github.com/razvanzeces/flowstation
 After=network-online.target
 Wants=network-online.target
+# Cap restarts so a startup that keeps failing — e.g. the SDR still held for a
+# moment after a *software* (web) restart — stops after a burst and lands in a
+# visible "failed" state instead of crash-looping forever. The window is generous:
+# legitimate web-triggered restarts and the in-process SDR-open retries never trip
+# it. If it does trip, recover with a power cycle + `systemctl start` (a hard power
+# cycle clears an SDR that a software restart couldn't), or `systemctl reset-failed`.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -13,8 +21,6 @@ CPUSchedulingPriority=73
 KillSignal=SIGINT
 Restart=on-failure
 RestartSec=10
-# Let RestartSec govern the pace instead of systemd's 5-in-10s default.
-StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target
