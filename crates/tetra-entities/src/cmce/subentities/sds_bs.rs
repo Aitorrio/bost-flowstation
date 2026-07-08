@@ -526,11 +526,14 @@ impl SdsBsSubentity {
             v.extend_from_slice(&payload);
             v
         };
-        // The SDS-TL Type-4 length field is 16 bits (length in bits). A wrapped payload larger than
-        // u16::MAX/8 bytes would wrap the cast below and put a bogus length on the air — silent
-        // corruption. Real SDS text is far shorter; reject anything that cannot be represented
-        // rather than sending a malformed SDU (a non-browser control client could submit any size).
-        const MAX_SDS_PAYLOAD_BYTES: usize = (u16::MAX / 8) as usize; // 8191 bytes, incl. 4-byte header
+        // The SDS-TL Type-4 length field is 11 bits (length in bits), so it can encode at most
+        // 2047 bits = 255 bytes (INCLUDING the 4-byte SDS-TL header). A wrapped payload larger than
+        // that would overflow the 11-bit field and trip write_bits' range assertion in
+        // DSdsData::to_bitbuf — panicking the whole single-threaded stack, not just corrupting one
+        // frame. Real SDS text is far shorter; reject anything that cannot be represented rather than
+        // crashing the cell (a non-browser control client can submit any size). The 8191-byte cap
+        // used previously was wrong: it assumed a 16-bit field.
+        const MAX_SDS_PAYLOAD_BYTES: usize = 2047 / 8; // 255 bytes, incl. 4-byte SDS-TL header
         if wrapped_payload.len() > MAX_SDS_PAYLOAD_BYTES {
             tracing::warn!(
                 "SDS: refusing oversized message {}->{} ({} bytes wrapped, max {})",
@@ -625,6 +628,20 @@ impl SdsBsSubentity {
             dest_is_group.then(|| "GSSI").unwrap_or("ISSI"),
             len_bits
         );
+
+        // The Type-4 length indicator is an 11-bit field (max 2047 bits = 255 bytes). A wider value
+        // would overflow the field and panic the serializer (DSdsData::to_bitbuf). This raw path
+        // (DAPNET / GeoAlarm / TPG2200 call-outs) had no size guard at all; reject oversized SDUs
+        // here rather than crashing the cell, mirroring rx_sds_from_control.
+        if len_bits > 2047 {
+            tracing::warn!(
+                "SDS: refusing oversized raw Type-4 {}->{} ({} bits, max 2047)",
+                source_ssi,
+                dest_ssi,
+                len_bits
+            );
+            return false;
+        }
 
         // Deliver the payload exactly as supplied — it is already a full Type-4 SDU. No SDS-TL wrap.
         let sds_data = SdsUserData::Type4(len_bits, payload);

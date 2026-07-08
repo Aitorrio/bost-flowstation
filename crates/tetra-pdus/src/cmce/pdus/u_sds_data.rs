@@ -146,14 +146,25 @@ impl USdsData {
             SdsUserData::Type2(value) => buffer.write_bits(*value as u64, 32),
             SdsUserData::Type3(value) => buffer.write_bits(*value, 64),
             SdsUserData::Type4(len_bits, data) => {
+                // The SDS-TL Type-4 length indicator is an 11-bit field (max 2047 bits ≈ 255 bytes).
+                // A wider value would trip write_bits' range assertion and panic; reject it as
+                // InvalidValue before the writer (defence in depth, matching d_sds_data.rs).
+                if *len_bits > 2047 {
+                    return Err(PduParseErr::InvalidValue {
+                        field: "sds_type4_length_bits",
+                        value: *len_bits as u64,
+                    });
+                }
+                // Defensive: never index past the payload, even if len_bits over-claims the length.
+                let used_bits = (*len_bits as usize).min(data.len() * 8);
                 buffer.write_bits(*len_bits as u64, 11);
-                let full_bytes = (*len_bits as usize) / 8;
-                let remaining_bits = len_bits % 8;
+                let full_bytes = used_bits / 8;
+                let remaining_bits = used_bits % 8;
                 for i in 0..full_bytes {
                     buffer.write_bits(data[i] as u64, 8);
                 }
                 if remaining_bits > 0 {
-                    buffer.write_bits((data[full_bytes] >> (8 - remaining_bits)) as u64, remaining_bits as usize);
+                    buffer.write_bits((data[full_bytes] >> (8 - remaining_bits)) as u64, remaining_bits);
                 }
             }
         }

@@ -123,6 +123,17 @@ impl DSdsData {
             SdsUserData::Type2(value) => buffer.write_bits(*value as u64, 32),
             SdsUserData::Type3(value) => buffer.write_bits(*value, 64),
             SdsUserData::Type4(len_bits, data) => {
+                // The SDS-TL Type-4 length indicator is an 11-bit field (max 2047 bits ≈ 255 bytes).
+                // A wider value would trip write_bits' range assertion and panic the whole stack, so
+                // reject it as InvalidValue before it reaches the bit writer (defence in depth,
+                // mirroring the GSSI guard in ss_dgna/fields/group_assignment.rs). Callers building
+                // SDS from control/dashboard/integration input must range-check the length first.
+                if *len_bits > 2047 {
+                    return Err(PduParseErr::InvalidValue {
+                        field: "sds_type4_length_bits",
+                        value: *len_bits as u64,
+                    });
+                }
                 // Defensive: never index past the payload, even if len_bits over-claims
                 // the length. The Brew ingress path (worker.rs) already rejects such
                 // frames; this guards any other caller from an out-of-bounds panic.
@@ -202,6 +213,42 @@ mod tests {
         let mut buf = BitBuffer::new_autoexpand(512);
         // The point of this test is simply that this returns instead of panicking.
         let _ = pdu.to_bitbuf(&mut buf);
+    }
+
+    /// Regression: a Type4 length that exceeds the real 11-bit field width (>= 2048) must be
+    /// REJECTED (Err) by the serializer, not panic the whole stack via write_bits' range assertion.
+    /// The oversized-SDS guard in sds_bs.rs previously capped at u16::MAX/8 = 8191 bytes (assuming a
+    /// 16-bit field), so a 256..8191-byte payload reached here and crashed the cell.
+    #[test]
+    fn type4_length_over_11bit_field_is_rejected_not_panic() {
+        let pdu = DSdsData {
+            calling_party_type_identifier: PartyTypeIdentifier::Ssi,
+            calling_party_address_ssi: Some(1000001),
+            calling_party_extension: None,
+            // 256-byte payload => 2048 bits, one over the 11-bit field maximum (2047).
+            user_defined_data: SdsUserData::Type4(2048, vec![0xABu8; 256]),
+            external_subscriber_number: None,
+            dm_ms_address: None,
+        };
+        let mut buf = BitBuffer::new_autoexpand(4096);
+        let err = pdu.to_bitbuf(&mut buf);
+        assert!(matches!(err, Err(PduParseErr::InvalidValue { field: "sds_type4_length_bits", .. })));
+    }
+
+    /// The exact boundary: 2047 bits (255 bytes) is the largest value the 11-bit field can hold and
+    /// must still serialize cleanly.
+    #[test]
+    fn type4_length_at_11bit_field_max_is_ok() {
+        let pdu = DSdsData {
+            calling_party_type_identifier: PartyTypeIdentifier::Ssi,
+            calling_party_address_ssi: Some(1000001),
+            calling_party_extension: None,
+            user_defined_data: SdsUserData::Type4(2047, vec![0xABu8; 256]),
+            external_subscriber_number: None,
+            dm_ms_address: None,
+        };
+        let mut buf = BitBuffer::new_autoexpand(4096);
+        assert!(pdu.to_bitbuf(&mut buf).is_ok());
     }
 
     #[test]
