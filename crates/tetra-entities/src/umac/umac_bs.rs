@@ -1328,7 +1328,12 @@ impl UmacBs {
 
         // Handle reservation if present
         // TODO implement slightly different handling since enum is not the same.
-        unimplemented!();
+        //
+        // Until reservation handling exists, do NOT panic: this handler is reachable from any
+        // uplink SCH/F block a radio classifies as MAC-U-BLCK, so a bare `unimplemented!()` here
+        // let a single (even conformant) uplink burst abort the whole single-threaded stack. Log
+        // and drop the PDU instead, matching the sibling MAC-FRAG-UL path above.
+        unimplemented_log!("rx_ul_mac_u_blck: reservation handling not implemented -- dropping MAC-U-BLCK");
     }
 
     fn rx_ul_tma_unitdata_req(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
