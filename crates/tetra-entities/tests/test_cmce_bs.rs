@@ -1945,6 +1945,40 @@ fn test_group_d_release_uses_unacknowledged_llc() {
 
 // â”€â”€â”€ FH FIX 1 guard: call-lifecycle telemetry must reach the dashboard sink â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+/// Regression: a local group-call U-SETUP must notify UMAC of the floor grant (a
+/// `CallControl::FloorGranted` addressed to `TetraEntity::Umac`), so UMAC arms the originator's
+/// UL-inactivity ("stuck transmitter") timer at set-up. This grant previously passed
+/// `notify_umac = false`, so a caller who set up a group call and then dropped BEFORE transmitting a
+/// single UL frame was never timed out and the traffic slot leaked — permanently with
+/// `call_timeout_secs = 0`.
+#[test]
+fn test_group_setup_notifies_umac_floor_grant() {
+    debug::setup_logging_verbose();
+
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    assert!(
+        msgs.iter().any(|msg| msg.dest == TetraEntity::Umac
+            && matches!(
+                &msg.msg,
+                SapMsgInner::CmceCallControl(CallControl::FloorGranted { source_issi, dest_gssi, .. })
+                    if *source_issi == TEST_ISSI && *dest_gssi == TEST_GSSI
+            )),
+        "local group setup must send FloorGranted to UMAC so the originator's UL-inactivity timer is armed"
+    );
+}
+
 #[test]
 fn test_group_call_emits_started_and_ended_telemetry() {
     use tetra_entities::cmce::cmce_bs::CmceBs;
