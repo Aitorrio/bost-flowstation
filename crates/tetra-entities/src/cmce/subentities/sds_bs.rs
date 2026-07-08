@@ -738,6 +738,13 @@ impl SdsBsSubentity {
         if dest_ssi != 9999 {
             match pdu.pre_coded_status {
                 PreCodedStatus::Emergency => self.emergency_enter(source_ssi, dest_ssi),
+                // An SDS-TL short/delivery report (ETSI 29.4.2.3) also arrives as a U-STATUS with
+                // dest != 9999, and is handled as a delivery confirmation further below. It is NOT a
+                // "user cancelled emergency" signal — a radio in emergency that auto-ACKs a received
+                // text would otherwise clear its own emergency session, causing a spurious
+                // EmergencyCancel → re-alarm flap on the next periodic Emergency re-send. Route it
+                // through without touching emergency state.
+                PreCodedStatus::SdsTl(_) => {}
                 _ => self.emergency_clear(source_ssi, "non-emergency status"),
             }
         }
