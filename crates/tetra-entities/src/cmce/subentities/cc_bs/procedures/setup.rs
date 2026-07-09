@@ -294,6 +294,13 @@ impl CcBsSubentity {
             priority: pdu.call_priority,
         });
 
+        // notify_umac = true: the originator holds the floor from set-up, so UMAC must arm its
+        // UL-inactivity ("stuck transmitter") timer and record the speaker now — every other floor
+        // grant does this. rx_control_circuit_open deliberately does NOT arm the timer, and UMAC
+        // otherwise only arms it on the first real UL voice frame; leaving this `false` meant a
+        // caller who set up a group call and then dropped BEFORE transmitting a single UL frame was
+        // never timed out, pinning the traffic slot until the absolute call time-out — and with
+        // call_timeout_secs = 0 (unlimited) that slot leaked permanently.
         self.notify_floor_granted(
             queue,
             GroupFloorGrant {
@@ -304,7 +311,7 @@ impl CcBsSubentity {
                 ts: circuit.ts,
                 is_group: true,
             },
-            false,
+            true,
             BrewNotification::IfGroupRoutable(dest_gssi),
         );
     }

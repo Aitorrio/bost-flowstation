@@ -1068,3 +1068,51 @@ fn test_emergency_status_forwarded_to_brew_when_opted_in() {
         "emergency status must be forwarded to Brew when forward_to_brew is true"
     );
 }
+
+/// Regression: an SDS-TL delivery short report (a U-STATUS with pre-coded status in the SDS-TL
+/// range, dest != 9999) must NOT clear an active emergency. A radio in emergency that auto-ACKs a
+/// received text would otherwise cancel its own emergency session, flapping cancel → re-alarm on the
+/// next periodic Emergency re-send. The clear must fire only for a genuine non-emergency user status.
+#[test]
+fn test_emergency_not_cleared_by_sds_tl_delivery_report() {
+    use tetra_entities::net_telemetry::{TelemetryEvent, telemetry_channel};
+
+    debug::setup_logging_verbose();
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let config = brew_test_config();
+    let mut test = ComponentTest::from_config(config, Some(dltime));
+    // Build the sinks but wire a telemetry-enabled CMCE ourselves so we can observe emergency events.
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Brew]);
+    let (sink, source) = telemetry_channel();
+    let cmce = CmceBs::new(test.get_shared_config(), Some(sink), None);
+    test.register_entity(cmce);
+
+    let radio = 1000001;
+
+    // Radio enters emergency (pre-coded status 0) to the emergency address.
+    test.submit_message(build_u_status_msg(radio, 9, 0));
+    test.run_stack(Some(1));
+    test.dump_sinks();
+    let mut alarmed = false;
+    while let Some(ev) = source.try_recv() {
+        match ev {
+            TelemetryEvent::EmergencyAlarm { source_issi, .. } if source_issi == radio => alarmed = true,
+            TelemetryEvent::EmergencyCancel { .. } => panic!("emergency must not be cancelled on entry"),
+            _ => {}
+        }
+    }
+    assert!(alarmed, "radio should have entered an emergency session");
+
+    // Radio auto-ACKs a received text as an SDS-TL delivery short report: pre-coded status
+    // 0b011111_00_00000000 = 31744 (short_report_type MessageReceived, message_reference 0), which
+    // From<u16> decodes to PreCodedStatus::SdsTl. This must NOT clear the emergency.
+    const SDS_TL_SHORT_REPORT_STATUS: u16 = 31744;
+    test.submit_message(build_u_status_msg(radio, 9, SDS_TL_SHORT_REPORT_STATUS));
+    test.run_stack(Some(1));
+    test.dump_sinks();
+    while let Some(ev) = source.try_recv() {
+        if let TelemetryEvent::EmergencyCancel { source_issi } = ev {
+            panic!("SDS-TL delivery report cleared the emergency for ISSI {source_issi} — it must not");
+        }
+    }
+}

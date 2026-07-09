@@ -235,6 +235,14 @@ impl<T: NetworkTransport> BrewWorker<T> {
         tracing::info!("BrewWorker: starting");
 
         loop {
+            // A (re)connection to the core starts with a clean registration slate: the core may have
+            // restarted while we were disconnected and no longer knows any of our subscribers.
+            // Clearing this map makes the post-reconnect resync (BrewEntity::resync_subscribers) emit
+            // REGISTER — not REREGISTER — for every subscriber, so a REREGISTER-for-unknown is never
+            // sent to a fresh core (which can leave local MS unregistered until a power-cycle). The
+            // entity re-drives all affiliations right after Connected, so no group state is lost.
+            self.subscriber_groups.clear();
+
             // Attempt connection via transport
             match self.transport.connect() {
                 Ok(()) => {

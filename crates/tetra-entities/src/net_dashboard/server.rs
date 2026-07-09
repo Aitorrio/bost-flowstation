@@ -3742,6 +3742,28 @@ fn save_config_profile(config_path: &str, profile_name: &str, content: &str) -> 
         return Err("cannot overwrite active config via profile editor — use the Config editor tab".to_string());
     }
 
+    // Secrets are served to the profile editor masked (serve_config_profile_get → mask_config_secrets).
+    // If the operator saves without retyping a secret, the editor posts the mask (`••••`/`…`) back
+    // verbatim; restore the real value from the profile's OWN on-disk content so we never persist the
+    // placeholder over a real credential — the same corruption write_config_validated guards against
+    // for the active config, which the profile path previously skipped.
+    let content = match std::fs::read_to_string(&profile_path) {
+        Ok(current) => unmask_config_secrets(content, &current),
+        Err(_) => content.to_string(),
+    };
+
+    // Validate before writing. A malformed profile that is later Activated overwrites the live config
+    // with an unparseable file and crash-loops the stack on the next restart (startup abort under
+    // systemd). Reject it here, exactly like write_config_validated does for the active config.
+    match tetra_config::bluestation::parsing::from_toml_str(&content) {
+        Ok(cfg) => {
+            if let Err(e) = cfg.validate() {
+                return Err(format!("config is invalid: {e}"));
+            }
+        }
+        Err(e) => return Err(format!("config does not parse: {e}")),
+    }
+
     std::fs::write(&profile_path, content.as_bytes()).map_err(|e| format!("failed to write profile: {}", e))
 }
 
@@ -3790,6 +3812,20 @@ fn activate_config_profile(config_path: &str, profile_name: &str) -> Result<(), 
         return Err(format!("profile '{}' not found", profile_name));
     }
 
+    // Validate the profile parses + passes validation before it becomes the live config. Activating an
+    // unparseable/invalid profile bricks the cell on the next restart (startup abort under systemd →
+    // crash-loop with no valid .fallback) — the exact failure write_config_validated exists to
+    // prevent, so guard the activate path too rather than trusting whatever is on disk.
+    let profile_content = std::fs::read_to_string(&profile_path).map_err(|e| format!("failed to read profile: {}", e))?;
+    match tetra_config::bluestation::parsing::from_toml_str(&profile_content) {
+        Ok(cfg) => {
+            if let Err(e) = cfg.validate() {
+                return Err(format!("profile '{}' is invalid: {e}", profile_name));
+            }
+        }
+        Err(e) => return Err(format!("profile '{}' does not parse: {e}", profile_name)),
+    }
+
     // Backup current config before switching
     let backup_path = format!("{}.bak", config_path);
     if let Err(e) = std::fs::copy(config_path, &backup_path) {
@@ -3820,7 +3856,10 @@ fn value_is_masked_secret(value: &str) -> bool {
 
 /// Is `key` one of the secrets that `mask_config_secrets` masks before sending config to the browser?
 fn is_masked_secret_key(key: &str) -> bool {
-    matches!(key, "password" | "bot_token" | "rwth_core_authkey" | "ami_password")
+    // `token` is the [tpg2200_action] ActionURL token — the sole credential guarding the pre-auth
+    // public /api/action/tpg2200 endpoint. It is the only `token` key in the config schema, so a
+    // bare-key match cannot collide with anything else.
+    matches!(key, "password" | "bot_token" | "rwth_core_authkey" | "ami_password" | "token")
 }
 
 /// Split a `key = "value"` TOML line into `(key, inner)`, mirroring `mask_toml_secret_line`: only a
@@ -3951,7 +3990,7 @@ fn mask_config_secrets(content: &str) -> String {
     fn mask_for_key(key: &str, value: &str) -> Option<String> {
         match key {
             "bot_token" => Some(mask_token(value)),
-            "password" | "rwth_core_authkey" | "ami_password" => Some(mask_secret(value)),
+            "password" | "rwth_core_authkey" | "ami_password" | "token" => Some(mask_secret(value)),
             _ => None,
         }
     }
@@ -5520,7 +5559,10 @@ fn serve_dapnet_send(
 
 #[cfg(test)]
 mod tests {
-    use super::{DashboardServer, binary_built_from, mask_config_secrets, normalize_mojibake_html, write_config_validated};
+    use super::{
+        DashboardServer, activate_config_profile, binary_built_from, is_masked_secret_key, mask_config_secrets,
+        normalize_mojibake_html, save_config_profile, write_config_validated,
+    };
     use crate::net_telemetry::TelemetryEvent;
 
     /// A minimal config.toml that parses + validates (mirrors tetra-config's own minimal fixture).
@@ -5597,6 +5639,76 @@ enabled = true
         assert!(masked.contains("[telegram_alerts]"));
         assert!(masked.contains("enabled = true"));
         assert!(masked.contains("# password = \"commented-should-stay\""), "comments untouched");
+    }
+
+    /// The [tpg2200_action] ActionURL token is the sole credential guarding the pre-auth public
+    /// /api/action/tpg2200 endpoint. It must be masked in raw config reads/backups like every other
+    /// secret — it was previously leaked in cleartext because `token` was not in the mask set.
+    #[test]
+    fn config_get_masks_tpg2200_token() {
+        let raw = "\
+[tpg2200_action]
+enabled = true
+token = \"long-random-secret-token\"
+dest_issi = 2632585
+";
+        let masked = mask_config_secrets(raw);
+        assert!(!masked.contains("long-random-secret-token"), "tpg2200 token cleartext leaked");
+        assert!(is_masked_secret_key("token"), "token must be treated as a masked secret key");
+        // Non-secret values / structure survive untouched.
+        assert!(masked.contains("[tpg2200_action]"));
+        assert!(masked.contains("dest_issi = 2632585"));
+    }
+
+    /// A malformed config profile must be rejected at save time and never written — otherwise it can
+    /// later be Activated over the live config and crash-loop the stack on the next restart. A valid
+    /// profile is accepted.
+    #[test]
+    fn profile_save_validates_before_writing() {
+        let dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let cfg = dir.join(format!("fs_prof_active_{pid}.toml"));
+        std::fs::write(&cfg, MINIMAL_CONFIG).expect("seed active config");
+        let cfg_str = cfg.to_str().unwrap();
+
+        let bad_name = format!("fs_prof_bad_{pid}.toml");
+        let bad_res = save_config_profile(cfg_str, &bad_name, "this is not = valid toml [[[");
+        assert!(bad_res.is_err(), "malformed profile must be rejected");
+        assert!(!dir.join(&bad_name).exists(), "rejected profile must not be written to disk");
+
+        let ok_name = format!("fs_prof_ok_{pid}.toml");
+        save_config_profile(cfg_str, &ok_name, MINIMAL_CONFIG).expect("valid profile accepted");
+        assert!(dir.join(&ok_name).exists(), "valid profile is written");
+
+        let _ = std::fs::remove_file(&cfg);
+        let _ = std::fs::remove_file(dir.join(&ok_name));
+    }
+
+    /// Activating a profile that does not parse/validate must be refused and must leave the live
+    /// config untouched — the whole point of the fallback design is defeated if a bad profile can be
+    /// copied over config.toml unchecked.
+    #[test]
+    fn profile_activate_rejects_invalid_and_preserves_live_config() {
+        let dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let cfg = dir.join(format!("fs_actprof_active_{pid}.toml"));
+        std::fs::write(&cfg, MINIMAL_CONFIG).expect("seed active config");
+        let cfg_str = cfg.to_str().unwrap();
+
+        // A pre-existing malformed profile sitting on disk next to the config.
+        let bad_name = format!("fs_actprof_bad_{pid}.toml");
+        std::fs::write(dir.join(&bad_name), "not = valid [[[").expect("seed bad profile");
+
+        let res = activate_config_profile(cfg_str, &bad_name);
+        assert!(res.is_err(), "activating an unparseable profile must be rejected");
+        assert_eq!(
+            std::fs::read_to_string(&cfg).unwrap(),
+            MINIMAL_CONFIG,
+            "live config must be untouched when activation is rejected"
+        );
+
+        let _ = std::fs::remove_file(&cfg);
+        let _ = std::fs::remove_file(dir.join(&bad_name));
     }
 
     #[test]
