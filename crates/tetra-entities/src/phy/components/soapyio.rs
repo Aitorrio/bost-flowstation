@@ -35,6 +35,13 @@ pub struct SoapyIo {
     /// is unacceptably slow or not supported.
     use_get_hardware_time: bool,
 
+    /// Number of recoverable RX stream errors (overflow / timeout) since start,
+    /// and the next time we are allowed to warn about them. These are an everyday
+    /// event on a loaded RPi + LimeSDR over USB, so logging every one would flood
+    /// the journal and cost more time than the overflow itself.
+    rx_recoverable_errors: u64,
+    rx_recoverable_next_log: std::time::Instant,
+
     dev: soapysdr::Device,
     /// Receive stream. None if receiving is disabled.
     rx: Option<soapysdr::RxStream<StreamType>>,
@@ -45,6 +52,48 @@ pub struct SoapyIo {
 /// Soapy/Lime timestamps can occasionally jitter by a single sample.
 /// Treat tiny deltas as contiguous to avoid triggering large block realignments downstream.
 const RX_TIMESTAMP_JITTER_TOLERANCE_SAMPLES: SampleCount = 1;
+
+/// How many times a read is retried after a SOAPY_SDR_OVERFLOW before giving up.
+/// An overflow returns immediately (it does not wait out the timeout), so retrying
+/// is cheap, and it only means the driver's buffer filled and some samples were
+/// dropped -- the stream itself is still alive.
+const RX_OVERFLOW_RETRIES: u32 = 4;
+
+/// Minimum interval between warnings about recoverable RX errors.
+const RX_RECOVERABLE_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Lowest sample rate we accept from the device readback. The DSP derives its
+/// FCFB size from it (fft_size = fs/500) and soapy_time divides by it, so a
+/// degenerate readback (0, or a driver that does not implement the getter)
+/// turns into a zero-size rustfft panic or a failed assert far from the cause.
+/// A single 25 kHz TETRA carrier cannot live below this anyway.
+const MIN_SAMPLE_RATE: f64 = 100e3;
+
+/// Overflow and timeout mean "samples were lost" or "nothing arrived in time",
+/// not "the device is gone": the caller can resync and carry on with the next tick.
+/// Anything else (corruption, stream error, an unplugged radio) is a real failure.
+fn is_recoverable_rx_error(code: soapysdr::ErrorCode) -> bool {
+    matches!(code, soapysdr::ErrorCode::Overflow | soapysdr::ErrorCode::Timeout)
+}
+
+/// Reject a nonsensical sample rate right after the device readback, where we
+/// still know which direction it came from, instead of letting it blow up
+/// downstream in the FFT planner or a timing assert.
+fn check_sample_rate(direction: &str, fs: f64) -> Result<(), soapysdr::Error> {
+    if !fs.is_finite() || fs < MIN_SAMPLE_RATE {
+        let message = format!(
+            "SDR reported an unusable {direction} sample rate of {fs} Hz (minimum {MIN_SAMPLE_RATE} Hz). \
+             The driver may not support the configured rate or may not implement the rate readback; \
+             set an explicit sample rate the hardware supports in [phy_io.soapysdr]."
+        );
+        tracing::error!("{}", message);
+        return Err(soapysdr::Error {
+            code: soapysdr::ErrorCode::Other,
+            message,
+        });
+    }
+    Ok(())
+}
 
 /// It is annoying to repeat error handling so do that in a macro.
 /// ? could be used but then it could not print which SoapySDR call failed.
@@ -109,6 +158,14 @@ impl SoapyIo {
                 dev.set_sample_rate(soapysdr::Direction::Tx, tx_ch, sdr_settings.fs)
             );
             tx_fs = soapycheck!("get TX sample rate", dev.sample_rate(soapysdr::Direction::Tx, tx_ch));
+        }
+
+        // Validate the readbacks before anything derives FFT sizes or timing from them.
+        if rx_enabled {
+            check_sample_rate("RX", rx_fs)?;
+        }
+        if tx_enabled {
+            check_sample_rate("TX", tx_fs)?;
         }
 
         if rx_enabled {
@@ -184,19 +241,57 @@ impl SoapyIo {
             rx_next_count: 0,
             prev_time_ns: -1,
             use_get_hardware_time: sdr_settings.use_get_hardware_time,
+            rx_recoverable_errors: 0,
+            rx_recoverable_next_log: std::time::Instant::now(),
             dev,
             rx,
             tx,
         })
     }
 
+    /// Log a recoverable RX stream error, rate-limited so a burst of overflows
+    /// cannot flood the log (or steal time from the PHY thread doing so).
+    fn note_recoverable_rx_error(&mut self, what: &str, count: u64) {
+        self.rx_recoverable_errors += count;
+        let now = std::time::Instant::now();
+        if now >= self.rx_recoverable_next_log {
+            self.rx_recoverable_next_log = now + RX_RECOVERABLE_LOG_INTERVAL;
+            tracing::warn!(
+                "SoapySDR: recoverable RX {} ({} total since start). Samples were lost, the stream continues.",
+                what,
+                self.rx_recoverable_errors
+            );
+        } else {
+            tracing::debug!("SoapySDR: recoverable RX {}", what);
+        }
+    }
+
     pub fn receive(&mut self, buffer: &mut [StreamType]) -> Result<RxResult, RxTxDevError> {
         if let Some(rx) = &mut self.rx {
-            // RX is enabled
-            match rx.read(&mut [buffer], 1000000) {
-                Ok(len) => {
+            // RX is enabled.
+            // An overflow ('O') is routine on a loaded RPi + LimeSDR: the driver's buffer
+            // filled and some samples were dropped, but the device is fine and the read
+            // returns immediately, so retry it a few times rather than losing the timeslot.
+            // Whatever was dropped shows up as a timestamp jump in the read that succeeds,
+            // and the lost-sample resync in receive_block takes it from there.
+            let mut overflows = 0u32;
+            let read = loop {
+                match rx.read(&mut [&mut *buffer], 1000000) {
+                    // Read the timestamp here, while the stream is still borrowed.
+                    Ok(len) => break Ok((len, rx.time_ns())),
+                    Err(err) if err.code == soapysdr::ErrorCode::Overflow && overflows < RX_OVERFLOW_RETRIES => {
+                        overflows += 1;
+                    }
+                    Err(err) => break Err(err),
+                }
+            };
+            if overflows > 0 {
+                self.note_recoverable_rx_error("overflow", overflows as u64);
+            }
+
+            match read {
+                Ok((len, time)) => {
                     // Get timestamp, set initial time if not yet set
-                    let time = rx.time_ns();
                     // rust-soapysdr does not let us if a timestamp was available
                     // so we have to guess by checking whether it has changed from its previous value.
                     let timestamp_available = time != self.prev_time_ns;
@@ -241,7 +336,16 @@ impl SoapyIo {
 
                     Ok(RxResult { len, count })
                 }
-                Err(_) => Err(RxTxDevError::RxReadError),
+                Err(err) => {
+                    // Still recoverable at the caller level -- it skips this tick and
+                    // resyncs on the next one. Only a genuine device problem is loud.
+                    if is_recoverable_rx_error(err.code) {
+                        self.note_recoverable_rx_error(&format!("{:?} (retries exhausted)", err.code), 1);
+                    } else {
+                        tracing::error!("SoapySDR: RX read failed: {}", err);
+                    }
+                    Err(RxTxDevError::RxReadError)
+                }
             }
         } else {
             // RX is disabled
