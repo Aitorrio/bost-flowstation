@@ -1,7 +1,7 @@
 use core::fmt;
 
-use tetra_core::BitBuffer;
 use tetra_core::pdu_parse_error::PduParseErr;
+use tetra_core::{BitBuffer, expect_value};
 
 use crate::umac::enums::reservation_requirement::ReservationRequirement;
 
@@ -20,9 +20,9 @@ pub struct MacEndHu {
 
 impl MacEndHu {
     pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
-        // required constant mac_pdu_type
+        // required constant mac_pdu_type. Uplink is attacker-controlled -- error out, never panic.
         let mac_pdu_type = buf.read_field(1, "mac_pdu_type")?;
-        assert!(mac_pdu_type == 1);
+        expect_value!(mac_pdu_type, 1)?;
         let fill_bits = buf.read_field(1, "fill_bits")? != 0;
 
         let length_ind_or_cap_req = buf.read_field(1, "length_ind_or_cap_req")?;

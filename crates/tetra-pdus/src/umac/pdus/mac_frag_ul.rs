@@ -1,7 +1,7 @@
 use core::fmt;
 
-use tetra_core::BitBuffer;
 use tetra_core::pdu_parse_error::PduParseErr;
+use tetra_core::{BitBuffer, expect_value};
 
 /// Clause 21.4.2.4 MAC-FRAG (uplink)
 #[derive(Debug, Clone)]
@@ -12,12 +12,11 @@ pub struct MacFragUl {
 
 impl MacFragUl {
     pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
-        // required constant mac_pdu_type
+        // required constants. Uplink is attacker-controlled -- error out, never panic.
         let mac_pdu_type = buf.read_field(2, "mac_pdu_type")?;
-        assert!(mac_pdu_type == 1);
-        // required constant pdu_subtype
+        expect_value!(mac_pdu_type, 1)?;
         let pdu_subtype = buf.read_field(1, "pdu_subtype")?;
-        assert!(pdu_subtype == 0);
+        expect_value!(pdu_subtype, 0)?;
         let fill_bits = buf.read_field(1, "fill_bits")? != 0;
 
         Ok(MacFragUl { fill_bits })

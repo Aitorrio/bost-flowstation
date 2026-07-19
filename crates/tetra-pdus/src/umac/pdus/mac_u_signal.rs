@@ -1,7 +1,7 @@
 use core::fmt;
 
-use tetra_core::BitBuffer;
 use tetra_core::pdu_parse_error::PduParseErr;
+use tetra_core::{BitBuffer, expect_value};
 
 /// Clause 21.4.5 MAC-U-SIGNAL
 #[derive(Debug, Clone)]
@@ -12,9 +12,9 @@ pub struct MacUSignal {
 
 impl MacUSignal {
     pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
-        // required constant mac_pdu_type
+        // required constant mac_pdu_type. Uplink is attacker-controlled -- error out, never panic.
         let mac_pdu_type = buf.read_field(2, "mac_pdu_type")?;
-        assert!(mac_pdu_type == 3);
+        expect_value!(mac_pdu_type, 3)?;
         let second_half_stolen = buf.read_field(1, "second_half_stolen")? != 0;
 
         Ok(MacUSignal { second_half_stolen })

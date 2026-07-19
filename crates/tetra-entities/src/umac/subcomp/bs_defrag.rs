@@ -1,11 +1,17 @@
 use std::collections::HashMap;
 
-use tetra_core::{BitBuffer, TdmaTime, TetraAddress, Todo};
+use tetra_core::{BitBuffer, TdmaTime, TetraAddress, Todo, multiframes};
 
 use crate::umac::subcomp::defrag::{DefragBuffer, DefragBufferState};
 
 const DEFRAG_BUF_MAX_LEN: usize = 4096;
-const DEFRAG_TS_BEFORE_TIMEOUT: i32 = 10 * 4; // TODO check documentation. 10 frames.
+/// One multiframe. A granting delay may push the next fragment up to 13 opportunities
+/// (~13 frames) out, so anything shorter can drop a legitimately slow burst mid-reassembly.
+const DEFRAG_TS_BEFORE_TIMEOUT: i32 = multiframes!(1);
+/// Max concurrent reassembly contexts per timeslot. The uplink schedule is 18 frames deep,
+/// so a handful of MSes can legitimately be reassembling at once; the cap only bounds the
+/// map against an MS (or attacker) starting bursts it never finishes.
+const DEFRAG_MAX_CONTEXTS_PER_TS: usize = 32;
 
 /// Defragmenter suitable for BS use
 /// Maintains a set of DefragBuffers per timeslot, indexed by SSI.
@@ -27,14 +33,18 @@ impl BsDefrag {
         }
     }
 
+    /// Drops reassembly contexts that have gone quiet. Called every tick from the UMAC.
     pub fn age_buffers(&mut self, t: TdmaTime) {
         for map in &mut self.buffers {
-            for buffer in map.values_mut() {
-                if buffer.state != DefragBufferState::Inactive && t.diff(buffer.t_last) > DEFRAG_TS_BEFORE_TIMEOUT {
-                    tracing::info!("defrag_buffer for {} timed out", buffer.t_last.t);
-                    buffer.reset();
+            // Remove the key, don't just reset the buffer: uplink SSIs are attacker-chosen,
+            // so leaving a reset entry behind still lets the map grow without bound.
+            map.retain(|ssi, buffer| {
+                let stale = t.diff(buffer.t_last) > DEFRAG_TS_BEFORE_TIMEOUT;
+                if stale {
+                    tracing::debug!("defrag_buffer for ssi {} last seen {} timed out, dropping", ssi, buffer.t_last);
                 }
-            }
+                !stale
+            });
         }
     }
 
@@ -78,6 +88,17 @@ impl BsDefrag {
             buf.num_frags,
             buf.buffer.dump_bin()
         );
+
+        // Bound the number of concurrent contexts per timeslot, evicting the least recently
+        // fed one. Aging alone is not enough: a flood of starts with a rotating SSI can add
+        // thousands of entries within a single timeout window.
+        while self.buffers[ts].len() >= DEFRAG_MAX_CONTEXTS_PER_TS {
+            let Some(oldest) = self.buffers[ts].iter().max_by_key(|(_, b)| t.diff(b.t_last)).map(|(k, _)| *k) else {
+                break;
+            };
+            tracing::warn!("defrag_buffer: ts {} at capacity, evicting oldest context ssi {}", t.t, oldest);
+            self.buffers[ts].remove(&oldest);
+        }
 
         self.buffers[ts].insert(ssi, buf);
     }
