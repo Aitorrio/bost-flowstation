@@ -19,6 +19,18 @@ use super::{NetworkAddress, NetworkError, NetworkMessage, NetworkTransport};
 
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// Write timeout on the live WebSocket stream. Without one a peer that stops reading blocks
+/// `send` forever inside the single-threaded worker, which then never reaches its heartbeat
+/// check and never reconnects. Failing fast lets the existing reconnect logic run.
+const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Maximum WebSocket frames drained per [`WebSocketTransport::receive_reliable`] call.
+///
+/// The worker only services its command channel *after* this returns, so an unbounded drain
+/// lets a continuously-sending peer starve outbound REGISTER / voice / CALL_RELEASE while
+/// `last_activity_at` keeps being refreshed — the link looks healthy but is one-way. Capping
+/// the batch hands the turn back to the worker; whatever is left is read on the next pass.
+const MAX_FRAMES_PER_RECEIVE: usize = 32;
 
 // ─── Configuration ────────────────────────────────────────────────
 
@@ -551,11 +563,13 @@ impl NetworkTransport for WebSocketTransport {
         match ws.get_ref() {
             MaybeTlsStream::Plain(stream) => {
                 let _ = stream.set_read_timeout(Some(Duration::from_millis(10)));
+                let _ = stream.set_write_timeout(Some(DEFAULT_WRITE_TIMEOUT));
                 let _ = stream.set_nodelay(true);
             }
             MaybeTlsStream::Rustls(tls_stream) => {
                 let tcp = tls_stream.get_ref();
                 let _ = tcp.set_read_timeout(Some(Duration::from_millis(10)));
+                let _ = tcp.set_write_timeout(Some(DEFAULT_WRITE_TIMEOUT));
                 let _ = tcp.set_nodelay(true);
             }
             _ => {}
@@ -621,7 +635,15 @@ impl NetworkTransport for WebSocketTransport {
             address: format!("{}:{}", self.config.host, self.config.port),
         };
 
+        let mut frames = 0usize;
         loop {
+            if frames >= MAX_FRAMES_PER_RECEIVE {
+                // Yield to the worker so queued commands (REGISTER, voice, CALL_RELEASE) go
+                // out; the rest of the peer's backlog is drained on the next call.
+                tracing::trace!("WebSocketTransport: frame budget reached, yielding to command servicing");
+                break;
+            }
+            frames += 1;
             match ws.read() {
                 Ok(Message::Binary(data)) => {
                     self.last_activity_at = Instant::now();

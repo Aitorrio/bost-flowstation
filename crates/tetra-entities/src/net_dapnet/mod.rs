@@ -3,9 +3,17 @@
 //! The receiver uses the DAPNET RWTH core transmitter TCP protocol. It does not transmit POCSAG;
 //! it only consumes incoming calls from the core feed, acknowledges them, normalizes the message,
 //! and forwards it through existing FlowStation paths.
+//!
+//! SECURITY — the RWTH core transmitter protocol is **plaintext TCP with no transport security**:
+//! `rwth_core_authkey` goes out in the clear on login and every inbound message is unauthenticated
+//! and MITM-able. The text it carries ends up in over-the-air SDS / Call-Out PDUs, so it is treated
+//! as hostile input here: lines are length-capped (`RWTH_LINE_MAX_BYTES`) and message text is
+//! stripped of control characters and truncated (`DAPNET_TEXT_MAX_CHARS`) before it can reach a
+//! PDU builder. Enabling `rwth_core_enabled` is an explicit opt-in to that exposure; the worker
+//! logs a warning on every connect so it cannot be enabled unnoticed.
 
 use std::collections::{HashSet, VecDeque};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
@@ -21,6 +29,13 @@ type CmdSender = crossbeam_channel::Sender<ControlCommand>;
 
 const TCP_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const CALLOUT_TEXT_MAX_CHARS: usize = 80;
+/// Hard cap on one RWTH core protocol line. The feed is unauthenticated plaintext, so an
+/// unbounded `read_line` is an OOM handle for a hostile or MITM'd upstream. Real lines are a
+/// couple of hundred bytes; anything past this is a protocol violation and drops the connection.
+const RWTH_LINE_MAX_BYTES: usize = 4096;
+/// Hard cap on message text kept from the feed. It is forwarded into over-the-air SDS and
+/// Call-Out PDUs, so it is bounded here, once, before any of those paths can see it.
+const DAPNET_TEXT_MAX_CHARS: usize = 200;
 
 #[derive(Debug, Clone)]
 struct DapnetMessage {
@@ -174,6 +189,13 @@ impl DapnetWorker {
 
         let addr = format!("{}:{}", host, dapnet.rwth_core_port);
         tracing::info!("DAPNET: connecting to RWTH core {} as {}", addr, callsign);
+        // The RWTH core protocol has no TLS mode: the authkey and every message travel in the
+        // clear and the peer is unauthenticated. Say so on every connect — this feed can inject
+        // paging text into over-the-air SDS.
+        tracing::warn!(
+            "DAPNET: RWTH core link to {} is plaintext and unauthenticated — authkey is sent in the clear and inbound text reaches the air interface",
+            addr
+        );
         let mut stream = TcpStream::connect(&addr).map_err(|e| format!("connect {} failed: {}", addr, e))?;
         self.refresh_status(dapnet, "connected", None, None);
         if let Err(err) = stream.set_read_timeout(Some(TCP_READ_TIMEOUT)) {
@@ -187,16 +209,28 @@ impl DapnetWorker {
         let mut reader = BufReader::new(reader_stream);
         let mut logged_in = false;
 
+        // `line` lives across iterations on purpose: the read timeout can fire mid-line, and a
+        // fresh buffer each pass would silently drop the bytes already consumed. The remaining
+        // budget shrinks as it fills, so a peer that never sends a newline is cut off instead of
+        // being buffered without limit.
+        let mut line = String::new();
         loop {
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
+            let remaining = RWTH_LINE_MAX_BYTES.saturating_sub(line.len());
+            if remaining == 0 {
+                return Err(format!("RWTH core line exceeded {} bytes", RWTH_LINE_MAX_BYTES));
+            }
+            match reader.by_ref().take(remaining as u64).read_line(&mut line) {
                 Ok(0) => return Err("RWTH core closed connection".to_string()),
                 Ok(_) => {
-                    let line = line.trim_end_matches(|c| c == '\r' || c == '\n');
-                    if line.is_empty() {
+                    if !line.ends_with('\n') {
+                        continue; // partial line — keep buffering (or hit the cap above)
+                    }
+                    let complete = line.trim_end_matches(|c| c == '\r' || c == '\n').to_string();
+                    line.clear();
+                    if complete.is_empty() {
                         continue;
                     }
-                    match self.handle_rwth_line(dapnet, &mut stream, line, &mut logged_in) {
+                    match self.handle_rwth_line(dapnet, &mut stream, &complete, &mut logged_in) {
                         Ok(()) => {}
                         Err(err) => return Err(err),
                     }
@@ -553,7 +587,13 @@ fn parse_rwth_message(line: &str) -> Result<DapnetMessage, String> {
     let speed = parts[1].parse::<u8>().ok();
     let ric = u32::from_str_radix(parts[2], 16).ok();
     let function = parts[3].parse::<u8>().ok();
-    let text = decode_dapnet_text(&normalize_text(parts[4]));
+    // This text is about to be forwarded verbatim into over-the-air SDS / Call-Out PDUs from an
+    // unauthenticated plaintext feed: normalize_text drops control characters, and the cap keeps
+    // an oversized paging message from reaching a PDU builder at all.
+    let (text, truncated) = truncate_chars(&decode_dapnet_text(&normalize_text(parts[4])), DAPNET_TEXT_MAX_CHARS);
+    if truncated {
+        tracing::warn!("DAPNET: message text truncated to {} chars", DAPNET_TEXT_MAX_CHARS);
+    }
     if text.is_empty() {
         return Err("empty message text".to_string());
     }
@@ -734,8 +774,8 @@ fn sanitize_log_line(line: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        dapnet_version, decode_dapnet_text, extract_callsign, format_plain_message, parse_rwth_message, prefixed_text,
-        resolve_sds_destination, ric_allowed, rwth_ack_line, truncate_chars,
+        DAPNET_TEXT_MAX_CHARS, dapnet_version, decode_dapnet_text, extract_callsign, format_plain_message, parse_rwth_message,
+        prefixed_text, resolve_sds_destination, ric_allowed, rwth_ack_line, truncate_chars,
     };
     use tetra_config::bluestation::CfgDapnet;
 
@@ -791,6 +831,13 @@ mod tests {
             "5357.0 EA5FIV von DL4MFF um 1933z"
         );
         assert_eq!(decode_dapnet_text("XTIME=1702220626"), "XTIME=1702220626");
+    }
+
+    #[test]
+    fn oversized_message_text_is_bounded_before_it_can_reach_the_air() {
+        let flood = "A".repeat(4000);
+        let msg = parse_rwth_message(&format!("#00 6:1:3EC:3:{flood}")).unwrap();
+        assert_eq!(msg.text.chars().count(), DAPNET_TEXT_MAX_CHARS);
     }
 
     #[test]

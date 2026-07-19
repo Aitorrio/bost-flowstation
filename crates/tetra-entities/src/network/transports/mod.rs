@@ -14,6 +14,37 @@ pub mod websocket;
 /// Basic TCP transport implementation
 pub mod tcp;
 
+/// Largest accepted length-prefixed message on the stream transports (TCP, QUIC reliable).
+pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
+
+/// Pull every complete `u32-BE length + payload` frame out of `buf`, leaving any partial
+/// tail in place for the next read.
+///
+/// Stream reads split frames across calls whenever a message spans TCP segments. Consuming
+/// those partial bytes and then discarding them — what `read_exact` on a non-blocking socket
+/// does — desyncs the framing permanently, so the buffer has to survive between calls.
+/// An over-long length prefix means the stream is already desynced: the caller is told to
+/// drop the connection rather than try to resynchronise.
+pub(crate) fn drain_length_prefixed(buf: &mut Vec<u8>) -> Result<Vec<Vec<u8>>, String> {
+    let mut frames = Vec::new();
+    loop {
+        if buf.len() < 4 {
+            return Ok(frames);
+        }
+        let mut len_bytes = [0u8; 4];
+        len_bytes.copy_from_slice(&buf[..4]);
+        let payload_len = u32::from_be_bytes(len_bytes) as usize;
+        if payload_len > MAX_FRAME_BYTES {
+            return Err(format!("framing desync: message length {} bytes", payload_len));
+        }
+        if buf.len() < 4 + payload_len {
+            return Ok(frames); // incomplete — keep the tail buffered
+        }
+        frames.push(buf[4..4 + payload_len].to_vec());
+        buf.drain(..4 + payload_len);
+    }
+}
+
 /// Network transport abstraction for Entity-to-network external communications
 ///
 /// This trait defines a unified interface for both reliable (TCP, QUIC streams)
@@ -112,3 +143,42 @@ impl std::fmt::Display for NetworkError {
 }
 
 impl std::error::Error for NetworkError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn framing_survives_a_split_read() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&4u32.to_be_bytes());
+        buf.extend_from_slice(&[1, 2]); // only half the payload arrived
+
+        assert!(drain_length_prefixed(&mut buf).unwrap().is_empty());
+        assert_eq!(buf.len(), 6, "partial frame must stay buffered");
+
+        buf.extend_from_slice(&[3, 4]);
+        assert_eq!(drain_length_prefixed(&mut buf).unwrap(), vec![vec![1, 2, 3, 4]]);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn framing_handles_several_frames_in_one_read() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&2u32.to_be_bytes());
+        buf.extend_from_slice(&[9, 9]);
+        buf.extend_from_slice(&1u32.to_be_bytes());
+        buf.extend_from_slice(&[7]);
+        buf.extend_from_slice(&5u32.to_be_bytes()); // header of a frame that has not arrived
+
+        assert_eq!(drain_length_prefixed(&mut buf).unwrap(), vec![vec![9, 9], vec![7]]);
+        assert_eq!(buf.len(), 4);
+    }
+
+    #[test]
+    fn framing_rejects_an_absurd_length_prefix() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&u32::MAX.to_be_bytes());
+        assert!(drain_length_prefixed(&mut buf).is_err());
+    }
+}

@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 use tetra_saps::control::enums::sds_user_data::SdsUserData;
 use tetra_saps::control::sds::CmceSdsData;
 use uuid::Uuid;
@@ -25,10 +25,31 @@ use tetra_saps::{
     tmd::TmdCircuitDataReq,
 };
 
-use super::worker::{BrewCommand, BrewEvent, BrewWorker};
+use super::worker::{BREW_EVENT_CHANNEL_CAPACITY, BrewCommand, BrewEvent, BrewWorker};
 
 /// Hangtime before releasing group call circuit to allow reuse without re-signaling.
 const GROUP_CALL_HANGTIME_DEFAULT_SECS: u64 = 5;
+
+/// Upper bound on worker events handled in a single TDMA tick.
+///
+/// Everything here runs on the one entity thread with a hard tick budget: a core that
+/// streams faster than we consume must never be able to monopolise a tick (the watchdog
+/// restarts the cell on a core stall). Leftover events stay queued for the next tick —
+/// ~70 ticks/s means this is still ~4500 events/s, far above any legitimate load.
+pub(crate) const MAX_EVENTS_PER_TICK: usize = 64;
+
+/// Maximum concurrent inbound (Brew-originated) calls we will track.
+///
+/// Each one holds a CMCE circuit and a jitter buffer; without a cap a core sending
+/// GROUP_TX with ever-fresh UUIDs would leak timeslots until the cell has none left.
+const MAX_INBOUND_ACTIVE_CALLS: usize = 8;
+
+/// Release an inbound call whose media/keepalive has been silent this long.
+///
+/// GROUP_IDLE is the normal way a call ends, but a buggy or hostile core can simply stop
+/// talking — the entry (and the CMCE circuit behind it) would then live forever. Mirrors
+/// the 30s stale `pending_sds` reaper in the worker.
+const INBOUND_CALL_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ─── Active call tracking ─────────────────────────────────────────
 
@@ -53,6 +74,9 @@ struct ActiveCall {
     frame_count: u64,
     /// Last downlink TDMA time at which we told CMCE this call still had network media.
     last_media_activity_signal: Option<TdmaTime>,
+    /// Wall clock of the last GROUP_TX / voice frame seen for this call — drives the
+    /// inactivity reaper so a call the core never idles cannot leak its CMCE circuit.
+    last_network_activity: Instant,
 }
 
 /// Group call in hangtime with circuit still allocated.
@@ -167,8 +191,11 @@ impl BrewEntity {
     /// The transport is moved into a worker thread. Any [`NetworkTransport`]
     /// implementation can be used (WebSocket, QUIC, TCP, …).
     pub fn new<T: NetworkTransport + 'static>(config: SharedConfig, transport: T) -> Self {
-        // Create channels
-        let (event_sender, event_receiver) = unbounded::<BrewEvent>();
+        // Create channels. The worker→entity direction is BOUNDED (see
+        // BREW_EVENT_CHANNEL_CAPACITY): it is fed by the remote core, so it is the one an
+        // attacker controls. The entity→worker direction is driven by our own tick, so it
+        // is naturally rate limited and stays unbounded.
+        let (event_sender, event_receiver) = bounded::<BrewEvent>(BREW_EVENT_CHANNEL_CAPACITY);
         let (command_sender, command_receiver) = unbounded::<BrewCommand>();
 
         // Spawn worker thread with the provided transport
@@ -212,9 +239,12 @@ impl BrewEntity {
         self.telemetry_sink = Some(sink);
     }
 
-    /// Process all pending events from the worker thread
+    /// Process pending events from the worker thread, at most MAX_EVENTS_PER_TICK of them.
     fn process_events(&mut self, queue: &mut MessageQueue) {
-        while let Ok(event) = self.event_receiver.try_recv() {
+        let mut processed = 0usize;
+        while processed < MAX_EVENTS_PER_TICK {
+            let Ok(event) = self.event_receiver.try_recv() else { break };
+            processed += 1;
             match event {
                 BrewEvent::Connected { server_version } => {
                     tracing::debug!("BrewEntity: connected to TetraPack server (Brew v{})", server_version);
@@ -468,6 +498,50 @@ impl BrewEntity {
                 }
             }
         }
+
+        if processed == MAX_EVENTS_PER_TICK {
+            tracing::trace!("BrewEntity: hit the per-tick event cap, {} left for the next tick", processed);
+        }
+    }
+
+    /// Release inbound calls that have gone silent (no GROUP_TX/voice within the window).
+    ///
+    /// Without this a core that starts calls and never sends GROUP_IDLE — buggy, or hostile
+    /// with a fresh UUID per frame — leaks an `active_calls`/`dl_jitter` entry and the CMCE
+    /// timeslot behind it for every one of them.
+    fn reap_idle_calls(&mut self, queue: &mut MessageQueue) {
+        let stale: Vec<(Uuid, bool)> = self
+            .active_calls
+            .iter()
+            .filter(|(_, call)| call.last_network_activity.elapsed() >= INBOUND_CALL_IDLE_TIMEOUT)
+            .map(|(uuid, call)| (*uuid, call.dest_gssi == 0))
+            .collect();
+
+        for (uuid, is_circuit) in stale {
+            tracing::warn!(
+                "BrewEntity: reaping inbound call uuid={} — no network media for {}s",
+                uuid,
+                INBOUND_CALL_IDLE_TIMEOUT.as_secs()
+            );
+            if is_circuit {
+                // Individual/circuit call (registered by NetworkCircuitMediaReady, gssi 0):
+                // release it the same way an inbound CALL_RELEASE would.
+                queue.push_back(SapMsg {
+                    sap: Sap::Control,
+                    src: TetraEntity::Brew,
+                    dest: TetraEntity::Cmce,
+                    msg: SapMsgInner::CmceCallControl(CallControl::NetworkCircuitRelease { brew_uuid: uuid, cause: 0 }),
+                });
+                if self.connected {
+                    let _ = self.command_sender.send(BrewCommand::SendCallRelease { uuid, cause: 0 });
+                }
+                self.drop_network_circuit(uuid);
+            } else {
+                // Group call: take exactly the GROUP_IDLE path we never received, so the
+                // circuit still gets its normal hangtime reuse window.
+                self.handle_group_call_end(queue, uuid, 0);
+            }
+        }
     }
 
     fn queue_external_subscriber_update(
@@ -684,6 +758,8 @@ impl BrewEntity {
     fn handle_group_call_start(&mut self, queue: &mut MessageQueue, uuid: Uuid, source_issi: u32, dest_gssi: u32, priority: u8) {
         // Check if this call is already active (speaker change or repeated GROUP_TX)
         if let Some(call) = self.active_calls.get_mut(&uuid) {
+            // A repeated GROUP_TX is also a keepalive — it must hold off the idle reaper.
+            call.last_network_activity = Instant::now();
             // Only notify CMCE if the speaker actually changed
             if call.source_issi != source_issi {
                 tracing::info!(
@@ -727,6 +803,20 @@ impl BrewEntity {
             return;
         }
 
+        // Admission control: every tracked call pins a CMCE circuit and a jitter buffer, so a
+        // core that opens calls with ever-fresh UUIDs must not be able to exhaust them. Reuse
+        // of a hanging circuit is checked first below — this only gates genuinely new calls.
+        if !self.hanging_calls.contains_key(&dest_gssi) && self.active_calls.len() >= MAX_INBOUND_ACTIVE_CALLS {
+            tracing::warn!(
+                "BrewEntity: refusing GROUP_TX uuid={} gssi={} — {} inbound calls already active (cap {})",
+                uuid,
+                dest_gssi,
+                self.active_calls.len(),
+                MAX_INBOUND_ACTIVE_CALLS
+            );
+            return;
+        }
+
         // Check if there's a hanging call we can reuse
         if let Some(hanging) = self.hanging_calls.remove(&dest_gssi) {
             tracing::info!(
@@ -752,6 +842,7 @@ impl BrewEntity {
                 dest_gssi,
                 frame_count: hanging.frame_count,
                 last_media_activity_signal: None,
+                last_network_activity: Instant::now(),
             };
             self.active_calls.insert(uuid, call);
             self.dl_jitter
@@ -792,6 +883,7 @@ impl BrewEntity {
             dest_gssi,
             frame_count: 0,
             last_media_activity_signal: None,
+            last_network_activity: Instant::now(),
         };
         self.active_calls.insert(uuid, call);
         self.dl_jitter
@@ -910,6 +1002,7 @@ impl BrewEntity {
         };
 
         call.frame_count += 1;
+        call.last_network_activity = Instant::now();
         let frame_count = call.frame_count;
         const NETWORK_CALL_ACTIVITY_REFRESH_TS: i32 = 72; // ~1 second
         let should_refresh_activity = call.dest_gssi != 0
@@ -1195,6 +1288,8 @@ impl TetraEntityTrait for BrewEntity {
         self.drain_jitter_playout(queue);
         // Expire hanging calls that have exceeded hangtime
         self.expire_hanging_calls(queue);
+        // Release inbound calls the core stopped feeding without ever sending GROUP_IDLE
+        self.reap_idle_calls(queue);
     }
 
     fn rx_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
@@ -1354,6 +1449,7 @@ impl TetraEntityTrait for BrewEntity {
                     dest_gssi: 0,
                     frame_count: 0,
                     last_media_activity_signal: None,
+                    last_network_activity: Instant::now(),
                 });
                 self.dl_jitter
                     .entry(brew_uuid)
