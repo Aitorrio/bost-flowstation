@@ -12,9 +12,9 @@ use tetra_pdus::cmce::enums::{
 };
 use tetra_pdus::cmce::fields::basic_service_information::BasicServiceInformation;
 use tetra_pdus::cmce::pdus::{
-    d_connect::DConnect, d_connect_acknowledge::DConnectAcknowledge, d_release::DRelease, d_setup::DSetup, d_tx_ceased::DTxCeased,
-    d_tx_granted::DTxGranted, u_connect::UConnect, u_disconnect::UDisconnect, u_setup::USetup, u_tx_ceased::UTxCeased,
-    u_tx_demand::UTxDemand,
+    d_call_restore::DCallRestore, d_connect::DConnect, d_connect_acknowledge::DConnectAcknowledge, d_release::DRelease, d_setup::DSetup,
+    d_tx_ceased::DTxCeased, d_tx_granted::DTxGranted, u_call_restore::UCallRestore, u_connect::UConnect, u_disconnect::UDisconnect,
+    u_setup::USetup, u_tx_ceased::UTxCeased, u_tx_demand::UTxDemand,
 };
 use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
 use tetra_saps::control::call_control::{CallControl, NetworkCircuitCall};
@@ -321,6 +321,27 @@ fn build_u_disconnect_msg(sender_issi: u32, call_id: u16) -> SapMsg {
 
     let mut sdu = BitBuffer::new_autoexpand(80);
     u_disconnect.to_bitbuf(&mut sdu).expect("Failed to serialize UDisconnect");
+    sdu.seek(0);
+    lcmc_ind(sender_issi, sdu)
+}
+
+/// Helper: build a U-CALL RESTORE for `call_id`, optionally asking for the floor.
+fn build_u_call_restore_msg(sender_issi: u32, call_id: u16, other_party_ssi: u32, request_to_transmit: bool) -> SapMsg {
+    let u_call_restore = UCallRestore {
+        call_identifier: call_id,
+        request_to_transmit_send_data: request_to_transmit,
+        other_party_type_identifier: 1, // SSI
+        other_party_short_number_address: None,
+        other_party_ssi: Some(other_party_ssi as u64),
+        other_party_extension: None,
+        basic_service_information: None,
+        facility: None,
+        dm_ms_address: None,
+        proprietary: None,
+    };
+
+    let mut sdu = BitBuffer::new_autoexpand(80);
+    u_call_restore.to_bitbuf(&mut sdu).expect("Failed to serialize UCallRestore");
     sdu.seek(0);
     lcmc_ind(sender_issi, sdu)
 }
@@ -2441,4 +2462,131 @@ mod ss_dgna_tests {
             "an SS-DGNA ASSIGN ACK must be consumed, not answered with D-CMCE-FUNCTION-NOT-SUPPORTED"
         );
     }
+}
+
+/// Regression: a group U-CALL RESTORE that asks for the floor flips the call back to Transmitting,
+/// so it must also tell UMAC (FloorGranted) — that is what arms the UL-inactivity watchdog. Without
+/// it a restored talker that goes silent pins the traffic timeslot until the absolute call time-out
+/// (never, for a duplex/Infinite call), and repeats exhaust every traffic channel on the cell.
+#[test]
+fn test_group_call_restore_grant_notifies_umac_floor_grant() {
+    debug::setup_logging_verbose();
+
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let setup_msgs = test.dump_sinks();
+    let call_id = first_d_setup_call_id(&setup_msgs, TEST_GSSI);
+
+    // The talking MS restores the call after a break and asks to keep transmitting.
+    test.submit_message(build_u_call_restore_msg(TEST_ISSI, call_id, TEST_GSSI, true));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let (mut sdu, _) = find_lcmc_req(&msgs, TEST_ISSI, CmcePduTypeDl::DCallRestore).expect("Expected D-CALL RESTORE to the restoring MS");
+    let d_call_restore = DCallRestore::from_bitbuf(&mut sdu).expect("Failed to parse DCallRestore");
+    assert_eq!(d_call_restore.call_identifier, call_id);
+    assert_eq!(
+        d_call_restore.transmission_grant,
+        TransmissionGrant::Granted.into_raw() as u8,
+        "the restoring speaker should get the floor back"
+    );
+
+    assert!(
+        msgs.iter().any(|msg| msg.dest == TetraEntity::Umac
+            && matches!(
+                &msg.msg,
+                SapMsgInner::CmceCallControl(CallControl::FloorGranted { source_issi, dest_gssi, .. })
+                    if *source_issi == TEST_ISSI && *dest_gssi == TEST_GSSI
+            )),
+        "a group call restore that grants the floor must send FloorGranted to UMAC, else the UL-inactivity timer never arms"
+    );
+}
+
+/// Regression: an individual simplex U-CALL RESTORE must not hand the floor to a party while the
+/// peer still holds it — two simultaneous transmitters and a stale floor holder the UL-inactivity
+/// watchdog would never cease.
+#[test]
+fn test_individual_restore_does_not_steal_floor_from_peer() {
+    debug::setup_logging_verbose();
+
+    let calling_issi = 1000001;
+    let called_issi = 1000002;
+    // After connect the calling MS holds the floor (see the initial-floor test above).
+    let (mut test, call_id, _msgs) = connected_simplex_individual_call(calling_issi, called_issi);
+
+    // The other party restores and asks to transmit while the caller is still talking.
+    test.submit_message(build_u_call_restore_msg(called_issi, call_id, calling_issi, true));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let (mut sdu, _) =
+        find_lcmc_req(&msgs, called_issi, CmcePduTypeDl::DCallRestore).expect("Expected D-CALL RESTORE to the restoring MS");
+    let d_call_restore = DCallRestore::from_bitbuf(&mut sdu).expect("Failed to parse DCallRestore");
+    assert_eq!(d_call_restore.call_identifier, call_id);
+    assert_eq!(
+        d_call_restore.transmission_grant,
+        TransmissionGrant::GrantedToOtherUser.into_raw() as u8,
+        "restoring while the peer holds the floor must not grant transmission"
+    );
+}
+
+/// Regression: a second U-SETUP to a GSSI that already has an active call is LATE ENTRY
+/// (ETSI EN 300 392-2 clause 14, one call per group), not a second call. Allocating a parallel
+/// call burns another scarce traffic timeslot and orphans one of the two GSSI-keyed circuits.
+#[test]
+fn test_second_group_setup_to_active_gssi_is_late_entry() {
+    debug::setup_logging_verbose();
+
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    let joiner_issi = TEST_ISSI + 1;
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    register_subscriber(&mut test, joiner_issi, TEST_GSSI);
+
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let setup_msgs = test.dump_sinks();
+    let call_id = first_d_setup_call_id(&setup_msgs, TEST_GSSI);
+    let free_slots_after_first = test.config.state_read().timeslot_alloc.free_count();
+
+    // Second U-SETUP from another member of the same, already-active group.
+    test.submit_message(build_u_setup_msg(joiner_issi, TEST_GSSI));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    assert_eq!(
+        test.config.state_read().timeslot_alloc.free_count(),
+        free_slots_after_first,
+        "late entry must not allocate a second traffic timeslot for the same GSSI"
+    );
+    let opened = msgs
+        .iter()
+        .filter(|m| matches!(&m.msg, SapMsgInner::CmceCallControl(CallControl::Open(_))))
+        .count();
+    assert_eq!(opened, 0, "late entry must not open a second circuit");
+
+    // The joiner is attached to the ongoing call: same call_id, and it does not own the call.
+    let (mut sdu, _) = find_lcmc_req(&msgs, joiner_issi, CmcePduTypeDl::DConnect).expect("Expected D-CONNECT to the late joiner");
+    let d_connect = DConnect::from_bitbuf(&mut sdu).expect("Failed to parse DConnect");
+    assert_eq!(d_connect.call_identifier, call_id, "the joiner must be attached to the ongoing call");
+    assert!(!d_connect.call_ownership, "a late joiner does not take call ownership");
+    assert_eq!(
+        d_connect.transmission_grant,
+        TransmissionGrant::GrantedToOtherUser,
+        "the ongoing speaker keeps the floor"
+    );
 }

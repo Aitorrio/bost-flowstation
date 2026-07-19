@@ -765,6 +765,11 @@ impl CcBsSubentity {
             return;
         }
 
+        // Emergency / pre-emptive priority: free a traffic channel by releasing a lower-priority
+        // call before allocating, as the local group set-up path does (ETSI EN 300 392-2 clause
+        // 14.8). No-op for ordinary priority.
+        self.ensure_timeslots_for_priority(queue, 1, priority);
+
         // New network call - allocate circuit
         let circuit = match {
             let mut state = self.config.state_write();
@@ -779,6 +784,9 @@ impl CcBsSubentity {
             Ok(c) => c.clone(),
             Err(err) => {
                 tracing::warn!("CMCE: failed to allocate circuit for network call: {:?}", err);
+                // Like the sibling early-exits above: without this the backhaul keeps the session
+                // open with no CMCE call behind it — a phantom leg until the remote times out.
+                self.notify_network_call_end(queue, brew_uuid);
                 return;
             }
         };

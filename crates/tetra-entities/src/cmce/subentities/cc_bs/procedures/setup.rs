@@ -94,6 +94,20 @@ impl CcBsSubentity {
             return;
         }
 
+        // ETSI EN 300 392-2 clause 14: one call per group. A U-SETUP to a GSSI that already has an
+        // active call is LATE ENTRY, not a second call — the network-initiated path already treats
+        // it that way. Allocating a parallel call would burn a second traffic timeslot and leave
+        // one of the two circuits orphaned, since every GSSI-keyed lookup only ever finds one.
+        if let Some(active_call_id) = self
+            .active_calls
+            .iter()
+            .find(|(_, call)| call.dest_gssi == dest_gssi)
+            .map(|(call_id, _)| *call_id)
+        {
+            self.fsm_group_late_entry(queue, message, pdu, calling_party, active_call_id);
+            return;
+        }
+
         if is_emergency_priority(pdu.call_priority) {
             tracing::info!(
                 "CMCE: EMERGENCY group call set-up from ISSI {} to GSSI {} (priority {})",
@@ -309,6 +323,128 @@ impl CcBsSubentity {
                 dest_gssi,
                 carrier_num: circuit.carrier_num,
                 ts: circuit.ts,
+                is_group: true,
+            },
+            true,
+            BrewNotification::IfGroupRoutable(dest_gssi),
+        );
+    }
+
+    /// Late entry (ETSI EN 300 392-2 clause 14): attach a U-SETUP caller to the group call already
+    /// running on its GSSI instead of setting up a parallel one. No circuit is allocated — the
+    /// joiner is pointed at the existing call's traffic channel with a D-CONNECT.
+    fn fsm_group_late_entry(
+        &mut self,
+        queue: &mut MessageQueue,
+        message: &SapMsg,
+        pdu: &USetup,
+        calling_party: TetraAddress,
+        call_id: u16,
+    ) {
+        let Some(call) = self.active_calls.get(&call_id) else {
+            return;
+        };
+        let dest_gssi = call.dest_gssi;
+        let carrier_num = call.carrier_num;
+        let ts = call.ts;
+        let usage = call.usage;
+        let call_timeout = call.call_timeout;
+        // Hand the floor to the joiner only when nobody is speaking (call in hangtime), exactly as
+        // a U-TX DEMAND would; an ongoing speaker keeps it.
+        let grant_floor = !call.is_tx_active();
+
+        let SapMsgInner::LcmcMleUnitdataInd(prim) = &message.msg else {
+            panic!()
+        };
+        let ul_handle = prim.handle;
+        let ul_link_id = prim.link_id;
+        let ul_endpoint_id = prim.endpoint_id;
+
+        tracing::info!(
+            "CMCE: LATE ENTRY of ISSI {} into active call_id={} on GSSI {} ts={} (no second circuit, floor_granted={})",
+            calling_party.ssi,
+            call_id,
+            dest_gssi,
+            ts,
+            grant_floor
+        );
+
+        self.send_d_call_proceeding(queue, message, pdu, call_id, CallTimeoutSetupPhase::T10s, pdu.hook_method_selection);
+
+        let mut timeslots = [false; 4];
+        timeslots[ts as usize - 1] = true;
+
+        let d_connect = DConnect {
+            call_identifier: call_id,
+            call_time_out: call_timeout,
+            hook_method_selection: pdu.hook_method_selection,
+            simplex_duplex_selection: pdu.simplex_duplex_selection,
+            transmission_grant: if grant_floor {
+                TransmissionGrant::Granted
+            } else {
+                TransmissionGrant::GrantedToOtherUser
+            },
+            transmission_request_permission: false,
+            // The ongoing call keeps its owner; a late joiner never takes ownership.
+            call_ownership: false,
+            call_priority: None,
+            basic_service_information: None,
+            temporary_address: None,
+            notification_indicator: None,
+            facility: None,
+            proprietary: None,
+        };
+
+        tracing::info!("-> {:?}", d_connect);
+        let mut connect_sdu = BitBuffer::new_autoexpand(30);
+        d_connect.to_bitbuf(&mut connect_sdu).expect("Failed to serialize DConnect");
+        connect_sdu.seek(0);
+
+        queue.push_back(SapMsg {
+            sap: Sap::LcmcSap,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Mle,
+            msg: SapMsgInner::LcmcMleUnitdataReq(LcmcMleUnitdataReq {
+                sdu: connect_sdu,
+                handle: ul_handle,
+                endpoint_id: ul_endpoint_id,
+                link_id: ul_link_id,
+                // Same class as the D-CONNECT in the normal group set-up path (FH FIX 2).
+                layer2service: Layer2Service::Unacknowledged,
+                pdu_prio: 0,
+                layer2_qos: 0,
+                stealing_permission: false,
+                stealing_repeats_flag: false,
+                chan_alloc: Some(CmceChanAllocReq {
+                    usage: Some(usage),
+                    alloc_type: ChanAllocType::Replace,
+                    carrier: Some(carrier_num),
+                    timeslots,
+                    ul_dl_assigned: UlDlAssignment::Both,
+                }),
+                main_address: calling_party,
+                tx_reporter: None,
+            }),
+        });
+
+        if !grant_floor {
+            return;
+        }
+
+        if let Some(call) = self.active_calls.get_mut(&call_id) {
+            call.grant_floor(calling_party.ssi, Some(calling_party));
+        }
+        self.send_d_tx_granted_facch(queue, call_id, calling_party.ssi, dest_gssi, carrier_num, ts);
+        // notify_umac = true for the same reason as the set-up path above: the joiner now holds the
+        // floor, so UMAC must arm its UL-inactivity timer or a silent joiner pins the slot.
+        self.notify_floor_granted(
+            queue,
+            GroupFloorGrant {
+                call_id,
+                source_issi: calling_party.ssi,
+                dest_gssi,
+                carrier_num,
+                ts,
                 is_group: true,
             },
             true,
