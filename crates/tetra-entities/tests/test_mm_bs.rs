@@ -11,6 +11,7 @@ use tetra_pdus::mm::enums::location_update_type::LocationUpdateType;
 use tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl;
 use tetra_pdus::mm::pdus::d_attach_detach_group_identity::DAttachDetachGroupIdentity;
 use tetra_pdus::mm::pdus::d_mm_status::DMmStatus;
+use tetra_pdus::mm::pdus::u_itsi_detach::UItsiDetach;
 use tetra_pdus::mm::pdus::u_location_update_demand::ULocationUpdateDemand;
 use tetra_saps::control::brew::BrewSubscriberAction;
 use tetra_saps::lmm::LmmMleUnitdataInd;
@@ -26,8 +27,14 @@ use crate::common::ComponentTest;
 /// (RoamingLocationUpdating) as if it arrived from `issi`. After this the MS is "known" and
 /// eligible for DGNA.
 fn register_terminal(test: &mut ComponentTest, issi: u32) {
+    submit_location_update(test, issi, 0, LocationUpdateType::RoamingLocationUpdating);
+}
+
+/// Submit a U-LOCATION-UPDATE-DEMAND of `lu_type` as if it arrived from `issi` on L2 `handle`.
+/// The handle is what a teardown is bound to, so tests can forge a mismatched L2 context.
+fn submit_location_update(test: &mut ComponentTest, issi: u32, handle: u32, lu_type: LocationUpdateType) {
     let demand = ULocationUpdateDemand {
-        location_update_type: LocationUpdateType::RoamingLocationUpdating,
+        location_update_type: lu_type,
         request_to_append_la: false,
         cipher_control: false,
         ciphering_parameters: None,
@@ -47,7 +54,7 @@ fn register_terminal(test: &mut ComponentTest, issi: u32) {
     sdu.seek(0);
     let prim = LmmMleUnitdataInd {
         sdu,
-        handle: 0,
+        handle,
         received_address: TetraAddress {
             ssi_type: SsiType::Issi,
             ssi: issi,
@@ -60,6 +67,66 @@ fn register_terminal(test: &mut ComponentTest, issi: u32) {
         msg: SapMsgInner::LmmMleUnitdataInd(prim),
     });
     test.run_stack(Some(2));
+}
+
+/// Submit a U-ITSI-DETACH claiming to come from `issi` on L2 `handle`. Uplink is unauthenticated,
+/// so this is exactly what an attacker can put on the air with a victim's (on-air observable) ISSI.
+fn submit_itsi_detach(test: &mut ComponentTest, issi: u32, handle: u32) {
+    let detach = UItsiDetach {
+        address_extension: None,
+        proprietary: None,
+    };
+    let mut sdu = BitBuffer::new_autoexpand(16);
+    detach.to_bitbuf(&mut sdu).expect("serialize U-ITSI-DETACH");
+    sdu.seek(0);
+    let prim = LmmMleUnitdataInd {
+        sdu,
+        handle,
+        received_address: TetraAddress {
+            ssi_type: SsiType::Issi,
+            ssi: issi,
+        },
+    };
+    test.submit_message(SapMsg {
+        sap: Sap::LmmSap,
+        src: TetraEntity::Mle,
+        dest: TetraEntity::Mm,
+        msg: SapMsgInner::LmmMleUnitdataInd(prim),
+    });
+    test.run_stack(Some(2));
+}
+
+/// Pull (addressed ISSI, reject cause) of the first D-LOCATION-UPDATE-REJECT out of a batch of
+/// captured MLE messages. Decoded by hand off the fixed leading fields (pdu type / location update
+/// type / reject cause) â€” the PDU's own `from_bitbuf` is an `unimplemented!()` stub.
+fn find_location_update_reject(msgs: &[SapMsg]) -> Option<(u32, u8)> {
+    let want = MmPduTypeDl::DLocationUpdateReject.into_raw();
+    for m in msgs {
+        if let SapMsgInner::LmmMleUnitdataReq(ref req) = m.msg {
+            let mut sdu = BitBuffer::from_bitstr(&req.sdu.to_bitstr());
+            if sdu.read_field(4, "pdu_type").is_ok_and(|t| t == want) {
+                sdu.read_field(3, "location_update_type").ok()?;
+                let cause = sdu.read_field(5, "reject_cause").ok()? as u8;
+                return Some((req.address.ssi, cause));
+            }
+        }
+    }
+    None
+}
+
+/// True if the batch carries a Deregister or Deaffiliate for `issi` â€” i.e. MM tore that
+/// subscriber down toward CMCE/Brew.
+fn tore_down(msgs: &[SapMsg], issi: u32) -> bool {
+    msgs.iter().any(|m| match &m.msg {
+        SapMsgInner::MmSubscriberUpdate(u) => {
+            u.issi == issi
+                && matches!(
+                    u.action,
+                    BrewSubscriberAction::Deregister | BrewSubscriberAction::Deaffiliate
+                )
+        }
+        _ => false,
+    })
 }
 
 /// Pull the first MM->CMCE `CmceSsDgnaAssign` SAP request out of a batch of captured messages.
@@ -212,6 +279,302 @@ fn test_reactive_recovery_rate_limits_repeat_bursts() {
     assert!(
         find_location_update_command(&test.dump_sinks()).is_none(),
         "a repeat burst inside the cooldown must not re-key the same ISSI"
+    );
+}
+
+/// Forged teardown: a U-ITSI-DETACH whose source is NOT registered must not tear anything down.
+/// ISSIs are observable on air and the uplink is unauthenticated, so a detach carrying someone
+/// else's ISSI is trivially forgeable; honouring it knocked the claimed radio off Brew, local
+/// call/SDS delivery and the dashboard, and a replay kept it off.
+#[test]
+fn test_forged_itsi_detach_for_unregistered_source_is_ignored() {
+    debug::setup_logging_verbose();
+    const VICTIM: u32 = 2260801;
+    const STRANGER: u32 = 2260802;
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    register_terminal(&mut test, VICTIM);
+    let _ = test.dump_sinks();
+
+    // A detach claiming an ISSI that never registered here.
+    submit_itsi_detach(&mut test, STRANGER, 0);
+    let msgs = test.dump_sinks();
+    assert!(!tore_down(&msgs, STRANGER), "a detach from an unregistered source must not tear anything down");
+    assert!(
+        test.config.state_read().subscribers.is_registered(VICTIM),
+        "the registered radio must be untouched"
+    );
+}
+
+/// The teardown is bound to the L2 context the registration used: a detach arriving on a different
+/// handle than the one the radio registered on is refused.
+#[test]
+fn test_itsi_detach_on_mismatched_l2_context_is_ignored() {
+    debug::setup_logging_verbose();
+    const VICTIM: u32 = 2260803;
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    submit_location_update(&mut test, VICTIM, 7, LocationUpdateType::RoamingLocationUpdating);
+    let _ = test.dump_sinks();
+    assert!(test.config.state_read().subscribers.is_registered(VICTIM), "precondition: registered");
+
+    submit_itsi_detach(&mut test, VICTIM, 0); // registered on handle 7, detach claims handle 0
+    let msgs = test.dump_sinks();
+    assert!(!tore_down(&msgs, VICTIM), "a detach on a foreign L2 context must not tear the radio down");
+    assert!(
+        test.config.state_read().subscribers.is_registered(VICTIM),
+        "the victim must stay registered"
+    );
+}
+
+/// The operator kill-switch: with `honour_unauthenticated_detach = false` even a well-formed
+/// detach from the registered radio itself is refused, because it cannot be authenticated.
+#[test]
+fn test_itsi_detach_refused_when_disabled_by_config() {
+    debug::setup_logging_verbose();
+    const VICTIM: u32 = 2260804;
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.security.honour_unauthenticated_detach = false;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    register_terminal(&mut test, VICTIM);
+    let _ = test.dump_sinks();
+
+    submit_itsi_detach(&mut test, VICTIM, 0);
+    let msgs = test.dump_sinks();
+    assert!(!tore_down(&msgs, VICTIM), "detach must not be honoured when the operator disabled it");
+    assert!(test.config.state_read().subscribers.is_registered(VICTIM));
+}
+
+/// A migrating U-LOCATION-UPDATE-DEMAND from a non-whitelisted ISSI must be rejected BEFORE any
+/// Brew/registry mutation. The whitelist check used to sit after the migration release, so a
+/// barred radio could still knock a registered subscriber down with a forged migration.
+#[test]
+fn test_migration_from_non_whitelisted_issi_tears_nothing_down() {
+    debug::setup_logging_verbose();
+    const ALLOWED: u32 = 2260805;
+    const BARRED: u32 = 2260806;
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.security.issi_whitelist = vec![ALLOWED, BARRED];
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    register_terminal(&mut test, ALLOWED);
+    let _ = test.dump_sinks();
+
+    // Drop BARRED from the whitelist at runtime, then have it claim a migration.
+    test.config.state_write().issi_whitelist_override = Some(vec![ALLOWED]);
+    submit_location_update(&mut test, BARRED, 0, LocationUpdateType::MigratingLocationUpdating);
+    let msgs = test.dump_sinks();
+
+    assert!(!tore_down(&msgs, BARRED), "a barred ISSI must not mutate any state");
+    let (_, cause) = find_location_update_reject(&msgs).expect("a barred ISSI must be rejected");
+    assert_eq!(
+        cause,
+        tetra_pdus::mm::enums::reject_cause::RejectCause::ItsiAtsiUnknown as u8,
+        "the whitelist branch must win over the migration branch and use an access-control cause"
+    );
+    assert!(test.config.state_read().subscribers.is_registered(ALLOWED));
+}
+
+/// A whitelist-denied registration must carry an access-control cause, NOT "migration not
+/// supported" (12). The latter tells a conformant terminal it may attach to a DIFFERENT network,
+/// so a barred radio goes hunting for another cell instead of staying off, and the user never sees
+/// an access-denied.
+#[test]
+fn test_whitelist_reject_uses_access_control_cause() {
+    debug::setup_logging_verbose();
+    const ALLOWED: u32 = 2260807;
+    const BARRED: u32 = 2260808;
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.security.issi_whitelist = vec![ALLOWED];
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    register_terminal(&mut test, BARRED);
+    let msgs = test.dump_sinks();
+
+    let (issi, cause) = find_location_update_reject(&msgs)
+        .unwrap_or_else(|| panic!("a non-whitelisted registration must be rejected, got {} msgs", msgs.len()));
+    assert_eq!(issi, BARRED);
+    assert_ne!(
+        cause,
+        tetra_pdus::mm::enums::reject_cause::RejectCause::MigrationNotSupported as u8,
+        "a barred radio must not be told migration is unsupported"
+    );
+    assert_eq!(
+        cause,
+        tetra_pdus::mm::enums::reject_cause::RejectCause::ItsiAtsiUnknown as u8
+    );
+    assert!(
+        !test.config.state_read().subscribers.is_registered(BARRED),
+        "a barred radio must never enter the subscriber registry"
+    );
+}
+
+/// The genuine migration path keeps "migration not supported" (12) so a real migrating terminal
+/// still knows to try the other network.
+#[test]
+fn test_migration_reject_keeps_migration_cause() {
+    debug::setup_logging_verbose();
+    const ROAMER: u32 = 2260809;
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    register_terminal(&mut test, ROAMER);
+    let _ = test.dump_sinks();
+
+    submit_location_update(&mut test, ROAMER, 0, LocationUpdateType::MigratingLocationUpdating);
+    let msgs = test.dump_sinks();
+
+    let (issi, cause) = find_location_update_reject(&msgs).expect("a migrating update must be rejected");
+    assert_eq!(issi, ROAMER);
+    assert_eq!(
+        cause,
+        tetra_pdus::mm::enums::reject_cause::RejectCause::MigrationNotSupported as u8
+    );
+}
+
+/// SHIP-BLOCKER regression: the client registry must stay bounded under an RF-unauthenticated
+/// registration flood. An attacker cycles the source ISSI across the 24-bit space; every distinct
+/// value used to add a permanent client + subscriber + dashboard entry, so days of uptime meant
+/// unbounded heap growth and an OOM-kill of the whole cell. A radio holding a group affiliation
+/// must survive the flood untouched.
+#[test]
+fn test_registration_flood_does_not_grow_the_registry() {
+    debug::setup_logging_verbose();
+    const MEMBER: u32 = 2260810;
+    const MEMBER_GSSI: u32 = 42;
+    const CAP: usize = 8;
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.security.max_registered_clients = CAP;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let (dispatcher, endpoint) = make_control_link();
+    let mm = MmBs::new(test.get_shared_config(), None, Some(endpoint));
+    test.register_entity(mm);
+
+    // A legitimate, affiliated member of the fleet.
+    register_terminal(&mut test, MEMBER);
+    dispatcher.send(ControlCommand::Dgna {
+        issi: MEMBER,
+        gssi: MEMBER_GSSI,
+        mnemonic: None,
+        attachment_mode: 0,
+        attach: true,
+    });
+    test.run_stack(Some(2));
+    let _ = test.dump_sinks();
+
+    // Flood: 200 distinct forged source ISSIs, each registering once.
+    for i in 0..200u32 {
+        register_terminal(&mut test, 3_000_000 + i);
+        let _ = test.dump_sinks();
+    }
+
+    let state = test.config.state_read();
+    let registered = state.subscribers.all_registered_issis().count();
+    assert!(
+        registered <= CAP,
+        "the registry must stay bounded by the {CAP} cap under a flood, holds {registered}"
+    );
+    assert!(
+        state.subscribers.is_registered(MEMBER),
+        "an affiliated member must never be evicted to make room for a flood"
+    );
+    assert!(
+        state.subscribers.attached_groups_of(MEMBER).contains(&MEMBER_GSSI),
+        "the member's affiliation must survive the flood"
+    );
+}
+
+/// The per-source-ISSI rate limit: one ISSI cannot churn the registry by re-registering in a loop.
+/// Beyond the configured budget the location update is dropped silently (answering would itself be
+/// an amplifier), so no ACCEPT comes back.
+#[test]
+fn test_registration_rate_limit_drops_repeat_flood_from_one_issi() {
+    debug::setup_logging_verbose();
+    const NOISY: u32 = 2260811;
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.security.registration_rate_limit_per_min = 3;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    // Burn the budget.
+    for _ in 0..3 {
+        register_terminal(&mut test, NOISY);
+        let _ = test.dump_sinks();
+    }
+    // The next one must produce no downlink at all.
+    register_terminal(&mut test, NOISY);
+    let msgs = test.dump_sinks();
+    assert!(
+        !msgs
+            .iter()
+            .any(|m| matches!(m.msg, SapMsgInner::LmmMleUnitdataReq(_))),
+        "a registration past the rate limit must be dropped, got {} downlink msg(s)",
+        msgs.len()
+    );
+}
+
+/// ETSI EN 300 392-2 cl. 16.9.2.2: the accept must preserve the accepted location update type.
+/// Answering an ItsiAttach with PeriodicLocationUpdating leaves radios that key attach-completion
+/// off the accept type believing the attach never completed.
+#[test]
+fn test_itsi_attach_accept_preserves_accept_type() {
+    debug::setup_logging_verbose();
+    const ATTACHER: u32 = 2260812;
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.cell.periodic_registration_secs = 300;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    submit_location_update(&mut test, ATTACHER, 0, LocationUpdateType::ItsiAttach);
+    let msgs = test.dump_sinks();
+
+    let want = MmPduTypeDl::DLocationUpdateAccept.into_raw();
+    let accept_type = msgs.iter().find_map(|m| {
+        let SapMsgInner::LmmMleUnitdataReq(ref req) = m.msg else {
+            return None;
+        };
+        let mut sdu = BitBuffer::from_bitstr(&req.sdu.to_bitstr());
+        if !sdu.read_field(4, "pdu_type").is_ok_and(|t| t == want) {
+            return None;
+        }
+        sdu.read_field(3, "location_update_accept_type").ok()
+    });
+    assert_eq!(
+        accept_type,
+        Some(LocationUpdateType::ItsiAttach.into_raw()),
+        "an ItsiAttach must be accepted as an ItsiAttach"
     );
 }
 

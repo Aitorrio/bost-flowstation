@@ -119,9 +119,25 @@ fn may_attach(_issi: u32, _gssi: u32) -> bool {
     return true;
 }
 
+/// Safety cap on the per-ISSI registration-rate table so a churn of distinct forged ISSIs can't
+/// grow it without bound; lapsed windows are pruned once this many are held.
+const REGISTRATION_RATE_TABLE_CAP: usize = 8192;
+/// Window the per-ISSI registration counter is measured over.
+const REGISTRATION_RATE_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub struct MmClientMgr {
     clients: HashMap<u32, MmClientProperties>,
     telemetry_sink: Option<TelemetrySink>,
+    /// Hard cap on `clients` (0 = unlimited). Uplink is unauthenticated, so any radio can claim
+    /// any of the 2^24 ISSIs: without a cap a registration flood grows this map (plus the
+    /// subscriber registry and the dashboard) until the cell is OOM-killed. See
+    /// `enforce_client_cap` / `at_capacity`.
+    max_clients: usize,
+    /// Per-ISSI accepted-registration counter: (window start, count in window). Bounds the churn
+    /// one source ISSI can inflict on the table even when it stays under the cap.
+    registration_rate: HashMap<u32, (std::time::Instant, u32)>,
+    /// Accepted registrations per ISSI per [`REGISTRATION_RATE_WINDOW`] (0 = disabled).
+    registrations_per_window: u32,
 }
 
 impl MmClientMgr {
@@ -133,7 +149,95 @@ impl MmClientMgr {
         MmClientMgr {
             clients: HashMap::new(),
             telemetry_sink,
+            max_clients: tetra_config::bluestation::DEFAULT_MAX_REGISTERED_CLIENTS,
+            registration_rate: HashMap::new(),
+            registrations_per_window: tetra_config::bluestation::DEFAULT_REGISTRATION_RATE_LIMIT_PER_MIN,
         }
+    }
+
+    /// Apply the operator's `[security]` bounds. Called by MmBs at construction and whenever the
+    /// config is swapped, so the caps are never left at the compiled-in defaults.
+    pub fn set_limits(&mut self, max_clients: usize, registrations_per_window: u32) {
+        self.max_clients = max_clients;
+        self.registrations_per_window = registrations_per_window;
+    }
+
+    /// Number of clients currently held. Exposed for the flood-bound regression test and logging.
+    pub fn client_count(&self) -> usize {
+        self.clients.len()
+    }
+
+    /// True when the registry is full and a *new* ISSI must not be admitted. Only meaningful
+    /// after `enforce_client_cap` has had its chance to make room.
+    pub fn at_capacity(&self) -> bool {
+        self.max_clients != 0 && self.clients.len() >= self.max_clients
+    }
+
+    /// Per-source-ISSI registration rate limit. Returns false when this registration must be
+    /// dropped; counts the attempt when it is accepted. A real radio registers a handful of times
+    /// a minute (T351 plus a post-PTT roaming update), so this only bites on a flood.
+    pub fn allow_registration(&mut self, issi: u32) -> bool {
+        if self.registrations_per_window == 0 {
+            return true;
+        }
+        let now = std::time::Instant::now();
+        // Prune lapsed windows before growing the table past its safety cap.
+        if self.registration_rate.len() >= REGISTRATION_RATE_TABLE_CAP {
+            self.registration_rate
+                .retain(|_, (start, _)| now.duration_since(*start) < REGISTRATION_RATE_WINDOW);
+        }
+        let entry = self.registration_rate.entry(issi).or_insert((now, 0));
+        if now.duration_since(entry.0) >= REGISTRATION_RATE_WINDOW {
+            *entry = (now, 0);
+        }
+        if entry.1 >= self.registrations_per_window {
+            return false;
+        }
+        entry.1 += 1;
+        true
+    }
+
+    /// LRU-style eviction so the registry stays bounded under an RF-unauthenticated registration
+    /// flood. Evicts the least-recently-heard clients that are demonstrably doing nothing:
+    ///   - no group affiliation (nothing for the coverage-return re-affiliation to restore), and
+    ///   - not in `protected` — the caller passes the ISSIs it knows are mid-call/PTT.
+    /// An affiliated or in-call radio is never evicted, however old. Returns the evicted ISSIs so
+    /// the caller can tear their subscriber-registry / Brew / dashboard entries down too.
+    ///
+    /// NB: a present but never-affiliated radio (e.g. a receive-only pager) is evictable under a
+    /// flood. It is re-admitted on its next registration or by reactive recovery — the alternative
+    /// is unbounded growth and an OOM-kill of the whole cell.
+    pub fn enforce_client_cap(&mut self, protected: &HashSet<u32>) -> Vec<u32> {
+        let mut evicted = Vec::new();
+        if self.max_clients == 0 || self.clients.len() < self.max_clients {
+            return evicted;
+        }
+        // Evict a batch (~6% of the cap, at least one) so the O(n) scan is amortised over many
+        // registrations rather than run for every PDU of a flood.
+        let batch = (self.max_clients / 16).max(1);
+        let target = self.max_clients.saturating_sub(batch).max(1);
+        let mut candidates: Vec<(std::time::Instant, u32)> = self
+            .clients
+            .values()
+            .filter(|c| c.groups.is_empty() && !protected.contains(&c.issi))
+            .map(|c| (c.last_uplink_time, c.issi))
+            .collect();
+        candidates.sort_unstable_by_key(|&(t, _)| t); // least recently heard first
+        for (_, issi) in candidates {
+            if self.clients.len() <= target {
+                break;
+            }
+            self.remove_client(issi);
+            evicted.push(issi);
+        }
+        if !evicted.is_empty() {
+            tracing::warn!(
+                "MM: client registry hit the {} cap — evicted {} idle unaffiliated client(s)",
+                self.max_clients,
+                evicted.len()
+            );
+        }
+        evicted
     }
 
     pub fn get_client_by_issi(&mut self, issi: u32) -> Option<&MmClientProperties> {
@@ -142,6 +246,20 @@ impl MmClientMgr {
 
     pub fn client_is_known(&self, issi: u32) -> bool {
         self.clients.contains_key(&issi)
+    }
+
+    /// True when `issi` is currently attached AND the request arrived on the same L2 handle the
+    /// registration used. This is the strongest binding available without air-interface
+    /// authentication (EN 300 392-7 TEA is not implemented, so the source SSI of an uplink PDU is
+    /// unverifiable): a teardown may only act on live state that this same link established.
+    /// The handle is inert in this stack today (MLE addresses by ISSI and hands up handle 0), so
+    /// in practice this is the "is actually registered" half — but it binds to the link the day
+    /// MLE carries a real one.
+    pub fn is_registered_on_handle(&self, issi: u32, handle: u32) -> bool {
+        self.clients
+            .get(&issi)
+            .map(|c| c.state == MmClientState::Attached && c.last_handle == handle)
+            .unwrap_or(false)
     }
 
     pub fn set_client_state(&mut self, issi: u32, state: MmClientState) -> Result<(), ClientMgrErr> {
