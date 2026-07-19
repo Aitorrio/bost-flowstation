@@ -135,19 +135,35 @@ impl BitBuffer {
     }
 
     /// Takes slice as parameter for output. Reads slice.len() bits from bitbuf[pos], and writes to output slice. 1 bit per byte.
-    pub fn to_bitarr(&mut self, buf: &mut [u8]) {
-        // TODO bounds check here, optimize performance
+    /// Returns None without advancing if fewer than `buf.len()` bits remain in the window.
+    #[must_use]
+    pub fn try_to_bitarr(&mut self, buf: &mut [u8]) -> Option<()> {
+        // Bounds check up front so the reads below cannot fail halfway through
+        if self.get_len_remaining() < buf.len() {
+            return None;
+        }
+
+        // TODO optimize performance
         let num_bits = buf.len();
         let mut bits_remaining = num_bits;
         while bits_remaining > 0 {
             let bits_to_read = usize::min(bits_remaining, 64);
-            let v = self.read_bits(bits_to_read).unwrap(); // Guaranteed
+            let v = self.read_bits(bits_to_read)?; // Guaranteed by the check above
             for i in 0..bits_to_read {
                 let bit = ((v >> (bits_to_read - 1 - i)) & 0x1) as u8;
                 buf[buf.len() - bits_remaining + i] = bit;
             }
             bits_remaining -= bits_to_read;
         }
+        Some(())
+    }
+
+    /// Takes slice as parameter for output. Reads slice.len() bits from bitbuf[pos], and writes to output slice. 1 bit per byte.
+    /// Panics if fewer than `buf.len()` bits remain: only for fixed-size blocks, anything
+    /// sized by wire data must use `try_to_bitarr`.
+    pub fn to_bitarr(&mut self, buf: &mut [u8]) {
+        self.try_to_bitarr(buf)
+            .expect("to_bitarr: not enough bits remaining in window");
     }
 
     /// Convert the entire window (start to end) into a String of '0'/'1' characters.
@@ -173,15 +189,17 @@ impl BitBuffer {
         // let abs_offset = self.pos as isize + offset;
         // tracing::trace!("peek_bits_posoffset: {} bits at {}", num_bits, self.pos as isize + offset);
         // println!("peek_bits_offset: {} bits at {}", num_bits, self.pos as isize + offset);
-        let start_offset = self.pos - self.start + offset as usize;
+        // Checked: a negative or oversized offset must return None, not wrap into a huge usize
+        let start_offset = (self.pos - self.start).checked_add_signed(offset)?;
         self.peek_bits_startoffset(start_offset, num_bits)
     }
 
     /// Peek `num_bits` with offset from window start, without advancing.
     /// Returns None on overflow or if `num_bits>64`.
     pub fn peek_bits_startoffset(&self, offset: usize, num_bits: usize) -> Option<u64> {
-        let abs_pos = self.start + offset;
-        if num_bits > 64 || self.start + offset + num_bits > self.end {
+        // Checked adds: `offset` may come from wire data, and overflowing here panics on debug builds
+        let abs_pos = self.start.checked_add(offset)?;
+        if num_bits > 64 || abs_pos.checked_add(num_bits)? > self.end {
             return None;
         }
 
@@ -211,7 +229,11 @@ impl BitBuffer {
     /// Read `num_bits` at the current pos, advancing pos, and write them into the provided output slice as bytes
     pub fn read_bits_into_slice(&mut self, num_bits: usize, buf: &mut [u8]) -> Option<()> {
         let num_bytes = num_bits.div_ceil(8);
-        assert!(buf.len() >= num_bytes, "output buffer too small for num_bits");
+        // `num_bits` is typically wire-derived (e.g. SDS user data length), so a too-small
+        // output buffer is a decode failure, not a bug: return None instead of panicking
+        if buf.len() < num_bytes {
+            return None;
+        }
 
         let mut bits_remaining = num_bits;
         for i in 0..num_bytes {
@@ -480,30 +502,56 @@ impl BitBuffer {
     }
 
     /// Seek `pos` to `offset` (relative to window start).
+    /// Returns None and leaves `pos` untouched if the target lies outside the window.
+    /// Use this, not `seek`, for any offset derived from wire data.
+    #[must_use]
+    pub fn try_seek(&mut self, offset: usize) -> Option<()> {
+        let abs = self.start.checked_add(offset)?;
+        if abs > self.end {
+            return None;
+        }
+        self.pos = abs;
+        Some(())
+    }
+
+    /// Seek `pos` to `offset` (relative to window start).
+    /// Panics if out of window: only for provably-in-range offsets, wire-derived
+    /// offsets must go through `try_seek`.
     pub fn seek(&mut self, offset: usize) {
-        let abs = self.start + offset;
         assert!(
-            abs <= self.end,
+            self.try_seek(offset).is_some(),
             "seek out of window: got {}, allowed [{},{}]",
-            abs,
+            self.start.wrapping_add(offset),
             self.start,
             self.end
         );
-        self.pos = abs;
+    }
+
+    /// Move the current bit-pointer by `offset` bits (can be negative).
+    /// Returns None and leaves `pos` untouched if the resulting position would lie
+    /// outside the window `[start..=end]`.
+    /// Use this, not `seek_rel`, for any offset derived from wire data.
+    #[must_use]
+    pub fn try_seek_rel(&mut self, offset: isize) -> Option<()> {
+        let new_pos = self.pos.checked_add_signed(offset)?;
+        if new_pos < self.start || new_pos > self.end {
+            return None;
+        }
+        self.pos = new_pos;
+        Some(())
     }
 
     /// Move the current bit‐pointer by `offset` bits (can be negative).
     /// Panics if the resulting position would lie outside the window `[start..=end]`.
+    /// Only for provably-in-range offsets: wire-derived offsets must go through `try_seek_rel`.
     pub fn seek_rel(&mut self, offset: isize) {
-        let new_pos = (self.pos as isize + offset) as usize;
         assert!(
-            new_pos >= self.start && new_pos <= self.end,
+            self.try_seek_rel(offset).is_some(),
             "seek out of window: got {}, allowed [{},{}]",
-            new_pos,
+            (self.pos as isize).wrapping_add(offset),
             self.start,
             self.end
         );
-        self.pos = new_pos;
     }
 
     // Raw operations that do not take start, end cursors into account ///////////////////////////////////////
@@ -872,6 +920,44 @@ mod tests {
         let mut arr = vec![0u8; 8];
         bb.to_bitarr(&mut arr);
         assert_eq!(arr, vec![1, 0, 1, 1, 0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn test_try_seek_out_of_window() {
+        let mut bb = BitBuffer::from_bitstr("10110011");
+        bb.seek(4);
+
+        // Past the end, before the start, and a wrapping-huge offset all fail without moving pos
+        assert!(bb.try_seek_rel(5).is_none());
+        assert!(bb.try_seek_rel(-5).is_none());
+        assert!(bb.try_seek_rel(isize::MIN).is_none());
+        assert!(bb.try_seek(9).is_none());
+        assert_eq!(bb.get_pos(), 4);
+
+        // Landing exactly on the end is allowed
+        assert!(bb.try_seek_rel(4).is_some());
+        assert_eq!(bb.get_pos(), 8);
+        assert!(bb.try_seek(0).is_some());
+        assert_eq!(bb.get_pos(), 0);
+    }
+
+    #[test]
+    fn test_try_to_bitarr_short_buffer() {
+        let mut bb = BitBuffer::from_bitstr("1011");
+        let mut arr = [0u8; 8];
+        assert!(bb.try_to_bitarr(&mut arr).is_none());
+        assert_eq!(bb.get_pos(), 0);
+        assert!(bb.try_to_bitarr(&mut arr[0..4]).is_some());
+        assert_eq!(arr, [1, 0, 1, 1, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_read_bits_into_slice_short_buffer() {
+        let mut bb = BitBuffer::from_bitstr("10110011011");
+        let mut out = [0u8; 1];
+        // Output slice too small for a (wire-derived) length: None instead of a panic
+        assert!(bb.read_bits_into_slice(11, &mut out).is_none());
+        assert_eq!(bb.get_pos(), 0);
     }
 
     #[test]

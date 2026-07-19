@@ -226,6 +226,15 @@ pub mod typed {
             }
         };
 
+        // The length indicator is attacker-controlled: if it claims more bits than the SDU
+        // actually holds, bail out here. Otherwise the skip-forward below would seek past the
+        // window end and panic the entity.
+        if len_bits > buffer.get_len_remaining() {
+            return Err(PduParseErr::BufferEnded {
+                field: Some("parse_type3_generic data"),
+            });
+        }
+
         // Read up to 128 bits of payload. BitBuffer::read_bits is u64-only, so for
         // lengths over 64 we split into two reads (high half first, then low half).
         let read_bits = if len_bits > 128 { 128 } else { len_bits };
@@ -263,7 +272,11 @@ pub mod typed {
         // Seek forward past any bits beyond what we stored (>128 bits).
         if len_bits > 128 {
             tracing::warn!("Type3 element {} length {} exceeds 128 bits, data truncated", id, len_bits);
-            buffer.seek_rel(len_bits as isize - 128);
+            if buffer.try_seek_rel(len_bits as isize - 128).is_none() {
+                return Err(PduParseErr::BufferEnded {
+                    field: Some("parse_type3_generic skip"),
+                });
+            }
         }
 
         Ok(Some(Type3FieldGeneric {
@@ -468,7 +481,23 @@ pub mod typed {
             buffer.dump_bin()
         );
 
-        Ok(Some((num_elems, len_bits - 6)))
+        // The wire length covers the 6-bit element counter plus the payload. Anything below 6 is
+        // malformed and would underflow the subtraction (panic on overflow-checked builds, huge
+        // value otherwise, feeding the seek in parse_type4_generic).
+        let payload_bits = len_bits.checked_sub(6).ok_or(PduParseErr::InconsistentLength {
+            expected: 6,
+            found: len_bits,
+        })?;
+
+        // Attacker-controlled length: reject anything longer than the SDU actually holds, so
+        // callers can never seek or read past the window end.
+        if payload_bits > buffer.get_len_remaining() {
+            return Err(PduParseErr::BufferEnded {
+                field: Some("parse_type4_header payload"),
+            });
+        }
+
+        Ok(Some((num_elems, payload_bits)))
     }
 
     /// Parse a Type-4 element into a Vec of structs that implement `from_bitbuf`.
@@ -554,7 +583,11 @@ pub mod typed {
                 // Seek forward to end of element, if larger than 64 bits
                 if len_bits > 64 {
                     tracing::warn!("Type4 element {} length {} exceeds 64 bits, data truncated", id, len_bits);
-                    buffer.seek_rel(len_bits as isize - 64);
+                    if buffer.try_seek_rel(len_bits as isize - 64).is_none() {
+                        return Err(PduParseErr::BufferEnded {
+                            field: Some("parse_type4_generic skip"),
+                        });
+                    }
                 }
 
                 // Parsed and expected length matches, return result
@@ -642,5 +675,143 @@ pub mod typed {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::typed::{parse_type3_generic, parse_type4_generic};
+    use super::{Type3FieldGeneric, Type4FieldGeneric};
+    use crate::{bitbuffer::BitBuffer, pdu_parse_error::PduParseErr};
+
+    /// Build a Type-3 element on the wire: m-bit + 4-bit id + 11-bit length + payload
+    fn type3_elem(id: u64, len_bits: usize, payload: &str) -> BitBuffer {
+        BitBuffer::from_bitstr(&format!("1{:04b}{:011b}{}", id, len_bits, payload))
+    }
+
+    /// Build a Type-4 element on the wire: m-bit + 4-bit id + 11-bit length + 6-bit count + payload
+    fn type4_elem(id: u64, len_bits: usize, num_elems: usize, payload: &str) -> BitBuffer {
+        BitBuffer::from_bitstr(&format!("1{:04b}{:011b}{:06b}{}", id, len_bits, num_elems, payload))
+    }
+
+    #[test]
+    fn test_type3_length_exceeds_buffer_errors() {
+        // 128 payload bits present, wire claims 129: must error, not panic on the skip-forward
+        let mut buf = type3_elem(1, 129, &"0".repeat(128));
+        assert_eq!(
+            parse_type3_generic(true, &mut buf, 1u64),
+            Err(PduParseErr::BufferEnded {
+                field: Some("parse_type3_generic data")
+            })
+        );
+    }
+
+    #[test]
+    fn test_type3_long_length_exceeds_buffer_errors() {
+        // Same, but on the >128 bit truncation path: 130 bits present, 160 claimed
+        let mut buf = type3_elem(1, 160, &"1".repeat(130));
+        assert_eq!(
+            parse_type3_generic(true, &mut buf, 1u64),
+            Err(PduParseErr::BufferEnded {
+                field: Some("parse_type3_generic data")
+            })
+        );
+    }
+
+    #[test]
+    fn test_type3_length_exactly_remaining_parses() {
+        // Short element, length exactly matches what is present
+        let mut buf = type3_elem(1, 8, "10101010");
+        assert_eq!(
+            parse_type3_generic(true, &mut buf, 1u64),
+            Ok(Some(Type3FieldGeneric {
+                field_id: 1,
+                len: 8,
+                data: 0xAA,
+            }))
+        );
+        assert_eq!(buf.get_len_remaining(), 0);
+
+        // Boundary of the two-read path: exactly 128 bits present and claimed
+        let mut buf = type3_elem(2, 128, &format!("{}1", "0".repeat(127)));
+        assert_eq!(
+            parse_type3_generic(true, &mut buf, 2u64),
+            Ok(Some(Type3FieldGeneric {
+                field_id: 2,
+                len: 128,
+                data: 1,
+            }))
+        );
+        assert_eq!(buf.get_len_remaining(), 0);
+    }
+
+    #[test]
+    fn test_type3_over_128_bits_truncates_and_skips() {
+        // 160 bits present and claimed: keep the first 128, skip the rest
+        let mut buf = type3_elem(3, 160, &"1".repeat(160));
+        assert_eq!(
+            parse_type3_generic(true, &mut buf, 3u64),
+            Ok(Some(Type3FieldGeneric {
+                field_id: 3,
+                len: 160,
+                data: u128::MAX,
+            }))
+        );
+        assert_eq!(buf.get_len_remaining(), 0);
+    }
+
+    #[test]
+    fn test_type4_length_below_header_errors() {
+        // Length under 6 used to underflow `len_bits - 6`
+        for len_bits in 0..6 {
+            let mut buf = type4_elem(2, len_bits, 1, &"0".repeat(64));
+            assert_eq!(
+                parse_type4_generic(true, &mut buf, 2u64),
+                Err(PduParseErr::InconsistentLength {
+                    expected: 6,
+                    found: len_bits
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn test_type4_length_exceeds_buffer_errors() {
+        // Claims 80 payload bits, only 40 present: must error, not seek past the window end
+        let mut buf = type4_elem(2, 6 + 80, 1, &"1".repeat(40));
+        assert_eq!(
+            parse_type4_generic(true, &mut buf, 2u64),
+            Err(PduParseErr::BufferEnded {
+                field: Some("parse_type4_header payload")
+            })
+        );
+    }
+
+    #[test]
+    fn test_type4_length_exactly_remaining_parses() {
+        let mut buf = type4_elem(2, 6 + 8, 2, "11110000");
+        assert_eq!(
+            parse_type4_generic(true, &mut buf, 2u64),
+            Ok(Some(Type4FieldGeneric {
+                field_id: 2,
+                len: 8,
+                elems: 2,
+                data: 0xF0,
+            }))
+        );
+        assert_eq!(buf.get_len_remaining(), 0);
+
+        // Boundary of the truncation path: 80 bits present and claimed
+        let mut buf = type4_elem(3, 6 + 80, 1, &"1".repeat(80));
+        assert_eq!(
+            parse_type4_generic(true, &mut buf, 3u64),
+            Ok(Some(Type4FieldGeneric {
+                field_id: 3,
+                len: 80,
+                elems: 1,
+                data: u64::MAX,
+            }))
+        );
+        assert_eq!(buf.get_len_remaining(), 0);
     }
 }
