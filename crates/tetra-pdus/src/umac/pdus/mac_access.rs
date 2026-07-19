@@ -1,6 +1,6 @@
 use core::fmt;
 
-use tetra_core::{BitBuffer, SsiType, TetraAddress, pdu_parse_error::PduParseErr};
+use tetra_core::{BitBuffer, SsiType, TetraAddress, expect_failed, expect_value, pdu_parse_error::PduParseErr};
 
 use crate::umac::{enums::reservation_requirement::ReservationRequirement, fields::EventLabel};
 
@@ -33,9 +33,10 @@ pub struct MacAccess {
 
 impl MacAccess {
     pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
-        // required constant mac_pdu_type
+        // required constant mac_pdu_type. Uplink is attacker-controlled, so return an error
+        // rather than asserting -- a panic here takes down the whole cell.
         let mac_pdu_type = buf.read_field(1, "mac_pdu_type")?;
-        assert!(mac_pdu_type == 0);
+        expect_value!(mac_pdu_type, 0)?;
         let fill_bits = buf.read_field(1, "fill_bits")? != 0;
         let encrypted = buf.read_field(1, "encrypted")? != 0;
 
@@ -67,7 +68,7 @@ impl MacAccess {
                 (Some(address), None)
             }
             _ => {
-                panic!();
+                return expect_failed!(addr_type as u64, "addr_type");
             }
         };
 

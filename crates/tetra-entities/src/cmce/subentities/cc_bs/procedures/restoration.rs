@@ -23,10 +23,19 @@ impl CcBsSubentity {
                 return;
             }
             call.active_timer_started = Some(self.dltime);
-            let grant = if pdu.request_to_transmit_send_data {
+            // Only grant when the floor is free or the sender already holds it (same decision as
+            // the U-TX DEMAND path). Granting while the peer is talking gives two simultaneous
+            // transmitters and a stale floor_holder the UL-inactivity watchdog never ceases.
+            // Duplex calls keep floor_holder = None, so they still always grant.
+            let grant = if !pdu.request_to_transmit_send_data {
+                TransmissionGrant::NotGranted
+            } else if call.floor_holder.is_none() || call.is_floor_held_by(sender.ssi) {
+                if call.is_simplex() {
+                    call.grant_floor(sender);
+                }
                 TransmissionGrant::Granted
             } else {
-                TransmissionGrant::NotGranted
+                TransmissionGrant::GrantedToOtherUser
             };
             call.complete_restore();
             self.send_d_call_restore(queue, sender, handle, link_id, endpoint_id, call_id, grant);
@@ -48,7 +57,24 @@ impl CcBsSubentity {
             };
 
             call.complete_restore();
+            let floor = (grant == TransmissionGrant::Granted).then_some(GroupFloorGrant {
+                call_id,
+                source_issi: sender.ssi,
+                dest_gssi: call.dest_gssi,
+                carrier_num: call.carrier_num,
+                ts: call.ts,
+                is_group: true,
+            });
             self.send_d_call_restore(queue, sender, handle, link_id, endpoint_id, call_id, grant);
+
+            // A restore that hands over the floor must arm UMAC's UL-inactivity timer exactly like
+            // every other grant path (see setup.rs / U-TX DEMAND): without the FloorGranted a
+            // restored talker that then goes silent pins the traffic slot until the absolute call
+            // time-out — forever for a duplex/Infinite call, so repeats exhaust the cell.
+            if let Some(floor) = floor {
+                self.send_d_tx_granted_facch(queue, call_id, floor.source_issi, floor.dest_gssi, floor.carrier_num, floor.ts);
+                self.notify_floor_granted(queue, floor, true, BrewNotification::IfGroupRoutable(floor.dest_gssi));
+            }
             return;
         }
 

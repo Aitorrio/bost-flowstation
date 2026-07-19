@@ -4,6 +4,9 @@ use tetra_config::bluestation::StackMode;
 use tetra_core::Direction;
 use tetra_core::tetra_entities::TetraEntity;
 use tetra_core::{BitBuffer, Layer2Service, PhyBlockNum, Sap, SsiType, TdmaTime, TetraAddress, debug};
+use tetra_entities::umac::umac_bs::UmacBs;
+use tetra_pdus::umac::enums::basic_slotgrant_granting_delay::BasicSlotgrantGrantingDelay;
+use tetra_pdus::umac::enums::reservation_requirement::ReservationRequirement;
 use tetra_pdus::umac::pdus::mac_access::MacAccess;
 use tetra_pdus::umac::pdus::mac_resource::MacResource;
 use tetra_pdus::umac::pdus::mac_u_signal::MacUSignal;
@@ -988,4 +991,131 @@ fn test_stealing_large_sdu_fragments_without_panic() {
     test.run_stack(Some(8));
 
     tracing::info!("stealing large SDU fragmented across STCH half-slots without panic");
+}
+
+/// Number of reassembly contexts currently held by the BS defragmenter, across all timeslots.
+fn defrag_context_count(test: &mut ComponentTest) -> usize {
+    let umac = test
+        .router
+        .get_entity(TetraEntity::Umac)
+        .expect("umac registered")
+        .as_any_mut()
+        .downcast_mut::<UmacBs>()
+        .expect("entity is UmacBs");
+    umac.defrag.buffers.iter().map(|map| map.len()).sum()
+}
+
+/// Builds a MAC-ACCESS fragmentation start (no MAC-END will ever follow) for `ssi`,
+/// padded out to a SCH/HU block.
+fn frag_start_access(ssi: u32) -> SapMsg {
+    let addr = TetraAddress {
+        ssi,
+        ssi_type: SsiType::Issi,
+    };
+    let mut uplink = BitBuffer::new_autoexpand(92);
+    MacAccess {
+        fill_bits: false,
+        encrypted: false,
+        addr: Some(addr),
+        event_label: None,
+        length_ind: None,
+        frag_flag: Some(true),
+        reservation_req: Some(ReservationRequirement::Req1Subslot),
+    }
+    .to_bitbuf(&mut uplink);
+    uplink.write_bits(0, 56);
+    uplink.seek(0);
+
+    SapMsg {
+        sap: Sap::TmvSap,
+        src: TetraEntity::Lmac,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmvUnitdataInd(TmvUnitdataInd {
+            carrier_num: MAIN_CARRIER,
+            pdu: uplink,
+            block_num: PhyBlockNum::Block1,
+            logical_channel: LogicalChannel::SchHu,
+            crc_pass: true,
+            scrambling_code: 864282631,
+            rssi_dbfs: f32::NEG_INFINITY,
+        }),
+    }
+}
+
+#[test]
+fn test_defrag_map_is_bounded_under_frag_start_flood() {
+    // An MS can start a fragmented uplink burst with any 24-bit SSI and never send the
+    // MAC-END. The defrag map must stay bounded and must drop the stale contexts again.
+    debug::setup_logging_verbose();
+
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 3 }; // uplink message time is ts1 (MCCH)
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Lmac]);
+
+    for i in 0..200u32 {
+        test.submit_message(frag_start_access(2200000 + i));
+    }
+    test.run_stack(Some(1));
+
+    let held = defrag_context_count(&mut test);
+    assert!(
+        held > 0 && held <= 32,
+        "defrag map must be capped per timeslot, holds {} contexts after 200 unfinished starts",
+        held
+    );
+
+    // Nothing more arrives: every context must age out and have its map key removed.
+    test.run_stack(Some(100));
+    assert_eq!(
+        defrag_context_count(&mut test),
+        0,
+        "stale reassembly contexts must be removed, not just reset"
+    );
+}
+
+#[test]
+fn test_granting_delay_never_encodes_reserved_or_truncated_code() {
+    // The granting delay is a 4-bit field, valid N 1..13 (EN 300 392-2 cl. 21.5.6).
+    // Fill the uplink schedule so the required delay runs past 13 and check that the BS
+    // never emits 14/15 (reserved) or a value that truncates.
+    debug::setup_logging_verbose();
+
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Lmac]);
+    test.run_stack(Some(1)); // let the scheduler adopt the current time
+
+    let umac = test
+        .router
+        .get_entity(TetraEntity::Umac)
+        .expect("umac registered")
+        .as_any_mut()
+        .downcast_mut::<UmacBs>()
+        .expect("entity is UmacBs");
+
+    let mut deferred = false;
+    for i in 0..18u32 {
+        let addr = TetraAddress {
+            ssi: 2300000 + i,
+            ssi_type: SsiType::Issi,
+        };
+        match umac
+            .channel_scheduler
+            .ul_process_cap_req(1, addr, &ReservationRequirement::Req1Slot)
+        {
+            Some((grant, _)) => match grant.granting_delay {
+                BasicSlotgrantGrantingDelay::CapAllocAtNextOpportunity => {}
+                BasicSlotgrantGrantingDelay::DelayNOpportunities(n) => {
+                    assert!((1..=13).contains(&n), "granting delay {} is outside the encodable range", n);
+                }
+                other => panic!("reserved granting delay code emitted: {}", other),
+            },
+            None => deferred = true,
+        }
+    }
+
+    assert!(
+        deferred,
+        "a request needing a delay beyond the 4-bit field must be deferred, not encoded"
+    );
 }

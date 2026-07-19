@@ -1,7 +1,7 @@
 use core::fmt;
 
-use tetra_core::BitBuffer;
 use tetra_core::pdu_parse_error::PduParseErr;
+use tetra_core::{BitBuffer, expect_value};
 
 /// Clause 21.4.2.5 MAC-U-BLCK
 #[derive(Debug, Clone)]
@@ -18,12 +18,11 @@ pub struct MacUBlck {
 
 impl MacUBlck {
     pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
-        // required constant mac_pdu_type
+        // required constants. Uplink is attacker-controlled -- error out, never panic.
         let mac_pdu_type = buf.read_field(2, "mac_pdu_type")?;
-        assert!(mac_pdu_type == 3);
-        // required constant supp_pdu_subtype
+        expect_value!(mac_pdu_type, 3)?;
         let supp_pdu_subtype = buf.read_field(1, "supp_pdu_subtype")?;
-        assert!(supp_pdu_subtype == 0);
+        expect_value!(supp_pdu_subtype, 0)?;
         let fill_bits = buf.read_field(1, "fill_bits")? != 0;
         let encrypted = buf.read_field(1, "encrypted")? != 0;
         let event_label = buf.read_field(10, "event_label")? as u16;

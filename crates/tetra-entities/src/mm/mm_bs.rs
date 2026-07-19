@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 use crate::mm::components::recovery_cache::{RecoveryCache, TerminalRecord};
@@ -70,7 +70,24 @@ const REACTIVE_RECOVERY_COOLDOWN_CAP: usize = 4096;
 
 impl MmBs {
     pub fn new(config: SharedConfig, telemetry: Option<TelemetrySink>, control: Option<ControlEndpoint>) -> Self {
-        let client_mgr = MmClientMgr::new(telemetry.clone());
+        let mut client_mgr = MmClientMgr::new(telemetry.clone());
+        {
+            let cfg = config.config();
+            let sec = &cfg.security;
+            client_mgr.set_limits(sec.max_registered_clients, sec.registration_rate_limit_per_min);
+            // State the effective posture in the operator log. There is no way to read it off the
+            // TOML alone (an empty issi_whitelist means "open" under the legacy default), and the
+            // air interface is unauthenticated regardless — so say both, once, unmissably.
+            tracing::warn!(
+                "MM: access control posture: {} | air-interface authentication (EN 300 392-7 TEA) is NOT implemented — any radio can claim any ISSI; the whitelist is the only gate",
+                sec.access_control_posture()
+            );
+            if sec.honour_unauthenticated_detach {
+                tracing::warn!(
+                    "MM: honouring unauthenticated U-ITSI-DETACH / migration teardown (only from an ISSI registered on the same link) — set [security] honour_unauthenticated_detach = false to refuse it entirely"
+                );
+            }
+        }
         Self {
             config,
             telemetry,
@@ -345,6 +362,51 @@ impl MmBs {
         queue.push_back(msg);
     }
 
+    /// ISSI whitelist gate. The dashboard can override the config whitelist at runtime (the state
+    /// override takes precedence so edits apply without a restart); the configured
+    /// `whitelist_mode` governs how whichever list is effective is read — in particular whether an
+    /// empty list means "open network" or "deny all".
+    fn issi_allowed(&self, issi: u32) -> bool {
+        let state = self.config.state_read();
+        self.config.config().security.allows(issi, state.issi_whitelist_override.as_deref())
+    }
+
+    /// May an unauthenticated teardown (U-ITSI-DETACH, or the migrating-location-update release)
+    /// claiming `issi` on L2 `handle` be honoured?
+    ///
+    /// TETRA air-interface authentication (EN 300 392-7) is not implemented, so the source SSI of
+    /// an uplink PDU is unverifiable and ISSIs are observable on air — a forged detach carrying a
+    /// victim's ISSI would otherwise knock that radio off Brew, local call/SDS delivery and the
+    /// dashboard, and a replay keeps it off. Two gates remain available: the operator may refuse
+    /// to honour unauthenticated teardown at all, and the claimed ISSI must currently be
+    /// registered on the same L2 context its registration used.
+    fn teardown_authorized(&self, issi: u32, handle: u32, what: &str) -> bool {
+        if !self.config.config().security.honour_unauthenticated_detach {
+            tracing::warn!(
+                "MM: ignoring {} for ISSI {} — [security] honour_unauthenticated_detach = false",
+                what,
+                issi
+            );
+            return false;
+        }
+        if !self.client_mgr.is_registered_on_handle(issi, handle) {
+            tracing::warn!(
+                "MM: ignoring {} for ISSI {} — not registered on this L2 context (forged or replayed teardown?)",
+                what,
+                issi
+            );
+            return false;
+        }
+        true
+    }
+
+    /// ISSIs that must never be evicted to make room in the client registry: anything CMCE
+    /// currently has on a traffic channel (individual-call participants are keyed by ISSI in
+    /// `active_call_ts`, so a radio mid-call/PTT is protected).
+    fn call_protected_issis(&self) -> HashSet<u32> {
+        self.config.state_read().active_call_ts.keys().copied().collect()
+    }
+
     fn rx_u_itsi_detach(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_itsi_detach");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
@@ -370,6 +432,17 @@ impl MmBs {
         }
 
         let ssi = prim.received_address.ssi;
+        // Access control BEFORE any state mutation: a non-whitelisted ISSI must never be able to
+        // touch the registry, Brew or the dashboard, not even to tear something down.
+        if !self.issi_allowed(ssi) {
+            tracing::warn!("MM: ISSI {} not in whitelist, ignoring UItsiDetach", ssi);
+            return;
+        }
+        // Unauthenticated teardown gate — see teardown_authorized.
+        if !self.teardown_authorized(ssi, prim.handle, "U-ITSI-DETACH") {
+            return;
+        }
+
         let detached_client = self.client_mgr.remove_client(ssi);
         if let Some(client) = detached_client {
             self.config.state_write().subscribers.deregister(ssi);
@@ -403,11 +476,34 @@ impl MmBs {
             }
         };
 
+        let issi = prim.received_address.ssi;
+        let handle = prim.handle;
+
+        // ISSI whitelist check â€” FIRST, ahead of every Brew/registry mutation below (including the
+        // migration release), so a non-whitelisted ISSI can never mutate state. It used to sit
+        // after the migration branch, which let a barred radio tear a victim down before the gate
+        // was ever consulted.
+        if !self.issi_allowed(issi) {
+            tracing::warn!("MM: ISSI {} not in whitelist, rejecting registration", issi);
+            // Access-control cause, NOT MigrationNotSupported: telling a barred radio "migration
+            // not supported" sends a conformant terminal hunting for another cell instead of
+            // staying off, and never shows the user an access-denied.
+            Self::send_d_location_update_reject_cause(
+                queue,
+                issi,
+                handle,
+                pdu.location_update_type,
+                pdu.address_extension,
+                RejectCause::ItsiAtsiUnknown,
+            );
+            return;
+        }
+
         // The terminal answered with a location update â€” stop the restart-recovery replay to it
         // regardless of how this update is handled below (migration reject, whitelist reject, or
         // normal registration). Hoisted above all early-returns so a migrating/rejected terminal
         // isn't replayed to forever. No-op when recovery is disabled / ISSI not pending.
-        self.recovery_confirm(prim.received_address.ssi);
+        self.recovery_confirm(issi);
 
         // Migration not supported: ETSI 16.4.1.1 case b) requires identity exchange via
         // D-LOCATION-UPDATE-PROCEEDING which we don't implement. Reject with cause
@@ -420,19 +516,33 @@ impl MmBs {
             // so we can't accept migration formally. But we MUST release the terminal from Brew
             // so the destination network can register it without identity conflict.
             // Send REJECT so terminal knows to try the other network, but first deregister from Brew.
-            let issi = prim.received_address.ssi;
-            tracing::info!("MM: ISSI {} migrating to another network â€” releasing from Brew", issi);
-            let detached = self.client_mgr.remove_client(issi);
-            if let Some(client) = detached {
-                self.config.state_write().subscribers.deregister(issi);
-                if !client.groups.is_empty() {
-                    let groups: Vec<u32> = client.groups.iter().copied().collect();
-                    self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
+            //
+            // The release is a teardown keyed purely off the (unauthenticated) source SSI, so it
+            // goes through the same gate as U-ITSI-DETACH: a forged migrating update carrying a
+            // victim's ISSI must not release that victim. The REJECT itself is always sent â€” it
+            // mutates nothing.
+            if self.teardown_authorized(issi, handle, "migrating location update") {
+                tracing::info!("MM: ISSI {} migrating to another network â€” releasing from Brew", issi);
+                let detached = self.client_mgr.remove_client(issi);
+                if let Some(client) = detached {
+                    self.config.state_write().subscribers.deregister(issi);
+                    if !client.groups.is_empty() {
+                        let groups: Vec<u32> = client.groups.iter().copied().collect();
+                        self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
+                    }
+                    self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
                 }
-                self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
+                self.recovery_mark_dirty();
             }
-            self.recovery_mark_dirty();
-            Self::send_d_location_update_reject(queue, issi, prim.handle, pdu.location_update_type, pdu.address_extension);
+            Self::send_d_location_update_reject_migration(queue, issi, handle, pdu.location_update_type, pdu.address_extension);
+            return;
+        }
+
+        // Per-source-ISSI registration rate limit. A flood cannot churn the registry (or the
+        // dashboard, or Brew) faster than this even while it stays under the size cap. Dropped
+        // silently: answering would itself be an amplifier.
+        if !self.client_mgr.allow_registration(issi) {
+            tracing::warn!("MM: ISSI {} exceeded the registration rate limit â€” dropping this location update", issi);
             return;
         }
 
@@ -457,33 +567,37 @@ impl MmBs {
         // If the terminal omits ESM from the PDU (common after T351 expiry),
         // reuse the previously granted mode so the terminal stays in EE mode.
         // We no longer filter out StayAlive â€” if that's what was granted before, keep it.
-        let prior_esm = self
-            .client_mgr
-            .get_client_by_issi(prim.received_address.ssi)
-            .map(|c| c.energy_saving_mode);
+        let prior_esm = self.client_mgr.get_client_by_issi(issi).map(|c| c.energy_saving_mode);
         let effective_esm_request = pdu.energy_saving_mode.or(prior_esm);
 
-        let esi = effective_esm_request.map(|esm| Self::grant_energy_saving(prim.received_address.ssi, esm));
+        let esi = effective_esm_request.map(|esm| Self::grant_energy_saving(issi, esm));
 
-        // Try to register the client
-        let issi = prim.received_address.ssi;
-        let handle = prim.handle;
-
-        // ISSI whitelist check â€” reject if whitelist is non-empty and ISSI not in it.
-        // The dashboard can override the config whitelist at runtime (state override takes
-        // precedence so edits apply without a restart); fall back to the config value when
-        // no override is set. An empty list (in either place) means "open network".
-        let issi_allowed = {
-            let state = self.config.state_read();
-            match &state.issi_whitelist_override {
-                Some(list) => list.is_empty() || list.contains(&issi),
-                None => self.config.config().security.is_issi_allowed(issi),
+        // Registry cap. A new ISSI may only be admitted once there is room: first make room by
+        // evicting idle unaffiliated clients (LRU, never a radio mid-call or with affiliations),
+        // and if the registry is still full refuse with Congestion rather than growing the heap
+        // until the cell is OOM-killed. Known ISSIs are unaffected â€” they re-register in place.
+        if !self.client_mgr.client_is_known(issi) {
+            let protected = self.call_protected_issis();
+            for evicted in self.client_mgr.enforce_client_cap(&protected) {
+                self.config.state_write().subscribers.deregister(evicted);
+                self.emit_subscriber_update(queue, evicted, Vec::new(), BrewSubscriberAction::Deregister);
             }
-        };
-        if !issi_allowed {
-            tracing::warn!("MM: ISSI {} not in whitelist, rejecting registration", issi);
-            Self::send_d_location_update_reject(queue, issi, handle, pdu.location_update_type, pdu.address_extension);
-            return;
+            if self.client_mgr.at_capacity() {
+                tracing::warn!(
+                    "MM: client registry full ({} clients) â€” refusing registration of ISSI {} with Congestion",
+                    self.client_mgr.client_count(),
+                    issi
+                );
+                Self::send_d_location_update_reject_cause(
+                    queue,
+                    issi,
+                    handle,
+                    pdu.location_update_type,
+                    pdu.address_extension,
+                    RejectCause::Congestion,
+                );
+                return;
+            }
         }
 
         // Restart recovery: this terminal answered (re-registered), so stop replaying
@@ -692,10 +806,15 @@ impl MmBs {
         // Registration / affiliation / EE state changed â€” persist for restart recovery (debounced).
         self.recovery_mark_dirty();
 
-        // Use PeriodicLocationUpdating accept type when periodic registration is enabled.
-        // This signals to the MS that it must re-register within the configured interval.
+        // Preserve the accepted location update type (EN 300 392-2 cl. 16.9.2.2): some radios key
+        // attach-completion off the accept type, so answering an ItsiAttach with
+        // PeriodicLocationUpdating leaves them believing the attach never completed. The periodic
+        // interval is not carried in D-LOCATION-UPDATE-ACCEPT anyway â€” it is signalled by the
+        // broadcast timers, and this stack re-attracts radios with an explicit
+        // D-LOCATION-UPDATE-COMMAND at T351 expiry (see tick_start), which is what the terminals
+        // in the field actually respond to.
         let periodic_secs = self.config.config().cell.periodic_registration_secs;
-        let accept_type = if periodic_secs > 0 {
+        let accept_type = if periodic_secs > 0 && pdu.location_update_type != LocationUpdateType::ItsiAttach {
             LocationUpdateType::PeriodicLocationUpdating
         } else {
             pdu.location_update_type
@@ -1019,14 +1138,7 @@ impl MmBs {
         // (rx_u_location_update_demand). Without this, an unknown ISSI can self-register
         // via the group-attach path below, bypassing the whitelist and growing the client
         // registry without bound.
-        let issi_allowed = {
-            let state = self.config.state_read();
-            match &state.issi_whitelist_override {
-                Some(list) => list.is_empty() || list.contains(&issi),
-                None => self.config.config().security.is_issi_allowed(issi),
-            }
-        };
-        if !issi_allowed {
+        if !self.issi_allowed(issi) {
             tracing::warn!("MM: ISSI {} not in whitelist, rejecting group attach/detach", issi);
             self.send_d_attach_detach_ack_reject(queue, issi, prim.handle);
             return;
@@ -1738,8 +1850,11 @@ impl MmBs {
         queue.push_back(msg);
     }
 
-    /// Sends a D-LOCATION UPDATE REJECT PDU (ETSI clause 16.9.2.9)
-    fn send_d_location_update_reject(
+    /// Sends a D-LOCATION UPDATE REJECT PDU (ETSI clause 16.9.2.9) with cause "Migration not
+    /// supported". Only for the genuine migration path â€” an access-control refusal must carry an
+    /// access-control cause instead (see `send_d_location_update_reject_cause`), or a barred radio
+    /// is told to go find another network.
+    fn send_d_location_update_reject_migration(
         queue: &mut MessageQueue,
         issi: u32,
         handle: u32,
@@ -1940,6 +2055,10 @@ impl TetraEntityTrait for MmBs {
     }
 
     fn set_config(&mut self, config: SharedConfig) {
+        // Re-apply the [security] registry bounds so a config swap can't leave the caps behind.
+        let sec = config.config();
+        self.client_mgr
+            .set_limits(sec.security.max_registered_clients, sec.security.registration_rate_limit_per_min);
         self.config = config;
     }
 
@@ -2073,6 +2192,25 @@ impl TetraEntityTrait for MmBs {
                     if let Some(sink) = &self.telemetry {
                         sink.send(crate::net_telemetry::TelemetryEvent::MsTimeoutDrop { issi });
                     }
+                }
+                // Confirmed gone and holding nothing worth preserving â€” FULLY remove it. Keeping
+                // every client forever is what let an RF-unauthenticated registration flood grow
+                // the registry without bound (each forged ISSI was a permanent entry). Only a
+                // client with no group affiliations (nothing for coverage-return re-affiliation to
+                // restore) and no call in flight is dropped; an affiliated or mid-call radio is
+                // still kept exactly as before.
+                let has_groups = self
+                    .client_mgr
+                    .get_client_by_issi(issi)
+                    .map(|c| !c.groups.is_empty())
+                    .unwrap_or(false);
+                let in_call = self.config.state_read().active_call_ts.contains_key(&issi);
+                if !has_groups && !in_call {
+                    tracing::info!("MM: ISSI {} confirmed gone with no groups or calls â€” removing from the client registry", issi);
+                    self.client_mgr.remove_client(issi);
+                    self.config.state_write().subscribers.deregister(issi);
+                    self.recovery_mark_dirty();
+                    continue;
                 }
                 self.client_mgr.reset_registration_timer(issi);
                 self.recovery_mark_dirty();

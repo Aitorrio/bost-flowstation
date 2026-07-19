@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use quinn::{Connection, Endpoint, RecvStream, SendStream, VarInt};
+#[cfg(test)]
 use rustls::pki_types::{CertificateDer, ServerName};
 
-use super::{NetworkAddress, NetworkError, NetworkMessage, NetworkTransport};
+use super::{MAX_FRAME_BYTES, NetworkAddress, NetworkError, NetworkMessage, NetworkTransport, drain_length_prefixed};
 
 /// Channel type for QUIC streams
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +24,8 @@ pub struct QuicTransportConfig {
     pub server_addr: NetworkAddress,
     /// Connection timeout
     pub connect_timeout: Duration,
-    /// Skip certificate verification (testing only)
+    /// Skip certificate verification. TEST BUILDS ONLY — the all-accepting verifier is not
+    /// compiled into release binaries, so setting this outside `cfg(test)` fails the connect.
     pub skip_cert_verification: bool,
     /// Tokio runtime handle for async operations
     pub runtime: tokio::runtime::Handle,
@@ -40,7 +42,8 @@ impl QuicTransportConfig {
         }
     }
 
-    /// Create an insecure QUIC transport configuration (for testing)
+    /// Create an insecure QUIC transport configuration. Only usable in test builds — see
+    /// [`QuicTransportConfig::skip_cert_verification`].
     pub fn insecure(server_addr: NetworkAddress, runtime: tokio::runtime::Handle) -> Self {
         Self {
             server_addr,
@@ -68,6 +71,12 @@ pub struct QuicTransport {
     /// Cached reliable bi-directional stream for signalling
     reliable_send: Option<SendStream>,
     reliable_recv: Option<RecvStream>,
+    /// Bytes read from the reliable stream that do not yet form a complete frame. Kept across
+    /// calls: the read below is cancelled by its short timeout, and anything already consumed
+    /// would otherwise be dropped, desyncing the length-prefixed framing.
+    reliable_rx_buf: Vec<u8>,
+    /// Frames decoded but not yet handed to the caller (one `receive_reliable` = one message)
+    reliable_pending: std::collections::VecDeque<Vec<u8>>,
     /// Tokio runtime handle for async operations
     runtime: tokio::runtime::Runtime,
 }
@@ -127,6 +136,8 @@ impl QuicTransport {
             connect_timeout,
             reliable_send: None,
             reliable_recv: None,
+            reliable_rx_buf: Vec::new(),
+            reliable_pending: std::collections::VecDeque::new(),
             runtime,
         })
     }
@@ -165,7 +176,18 @@ impl QuicTransport {
             .map_err(|e| NetworkError::ConnectionFailed(format!("Failed to build QUIC config: {}", e)))?)
     }
 
+    /// Release builds must not be able to skip certificate validation at all: the
+    /// all-accepting verifier below is `cfg(test)`-only, so asking for it here fails loudly
+    /// instead of silently connecting to whoever answers.
+    #[cfg(not(test))]
+    fn configure_insecure_client() -> Result<quinn::crypto::rustls::QuicClientConfig, NetworkError> {
+        Err(NetworkError::ConnectionFailed(
+            "skip_cert_verification is only available in test builds".to_string(),
+        ))
+    }
+
     /// Configure insecure client (skip certificate verification - testing only)
+    #[cfg(test)]
     fn configure_insecure_client() -> Result<quinn::crypto::rustls::QuicClientConfig, NetworkError> {
         let mut crypto = rustls::ClientConfig::builder()
             .dangerous()
@@ -228,30 +250,40 @@ impl QuicTransport {
 
         match channel {
             QuicChannelType::Reliable => {
-                if let Some(ref mut recv) = self.reliable_recv {
-                    // Try to read length prefix with a short timeout so this
-                    // stays non-blocking when no data is available.
-                    let mut len_buf = [0u8; 4];
-                    match tokio::time::timeout(Duration::from_millis(10), recv.read_exact(&mut len_buf)).await {
-                        Ok(Ok(())) => {
-                            let len = u32::from_be_bytes(len_buf) as usize;
-
-                            if len > 1024 * 1024 {
-                                return Err(NetworkError::ReceiveFailed("Message too large".to_string()));
-                            }
-
-                            let mut payload = vec![0u8; len];
-                            match recv.read_exact(&mut payload).await {
-                                Ok(()) => Ok(Some(payload)),
-                                Err(_) => Ok(None), // Stream finished
-                            }
-                        }
-                        Ok(Err(_)) => Ok(None), // Stream finished or error
-                        Err(_) => Ok(None),     // Timeout — no data available
-                    }
-                } else {
-                    Ok(None)
+                // Anything already decoded goes out first.
+                if let Some(frame) = self.reliable_pending.pop_front() {
+                    return Ok(Some(frame));
                 }
+
+                // One bounded read into our own buffer. `read_exact` was used here before, but
+                // it is not cancel-safe: when the 10 ms timeout fired mid-message the bytes it
+                // had consumed were thrown away and the framing never recovered.
+                let mut chunk = vec![0u8; 8192];
+                let read = match self.reliable_recv.as_mut() {
+                    Some(recv) => match tokio::time::timeout(Duration::from_millis(10), recv.read(&mut chunk)).await {
+                        Ok(Ok(Some(n))) => Some(n),
+                        Ok(Ok(None)) => None,  // Stream finished
+                        Ok(Err(_)) => return Ok(None), // Stream error
+                        Err(_) => None,        // Timeout — nothing new this call
+                    },
+                    None => return Ok(None),
+                };
+                if let Some(n) = read {
+                    self.reliable_rx_buf.extend_from_slice(&chunk[..n]);
+                    if self.reliable_rx_buf.len() > 2 * MAX_FRAME_BYTES {
+                        self.reliable_rx_buf.clear();
+                        return Err(NetworkError::ReceiveFailed("reliable stream desynced, buffer reset".to_string()));
+                    }
+                }
+
+                match drain_length_prefixed(&mut self.reliable_rx_buf) {
+                    Ok(frames) => self.reliable_pending.extend(frames),
+                    Err(e) => {
+                        self.reliable_rx_buf.clear();
+                        return Err(NetworkError::ReceiveFailed(e));
+                    }
+                }
+                Ok(self.reliable_pending.pop_front())
             }
             QuicChannelType::Unreliable => {
                 // Receive datagram
@@ -270,6 +302,9 @@ impl QuicTransport {
             let _ = send.finish();
         }
         self.reliable_recv = None;
+        // Buffered bytes belong to the stream we just closed.
+        self.reliable_rx_buf.clear();
+        self.reliable_pending.clear();
     }
 }
 
@@ -383,10 +418,13 @@ impl Drop for QuicTransport {
     }
 }
 
-/// Certificate verifier that accepts any certificate (INSECURE - testing only)
+/// Certificate verifier that accepts any certificate (INSECURE - testing only).
+/// Deliberately `cfg(test)`: it must never exist in a shipped binary.
+#[cfg(test)]
 #[derive(Debug)]
 struct SkipServerVerification;
 
+#[cfg(test)]
 impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(
         &self,

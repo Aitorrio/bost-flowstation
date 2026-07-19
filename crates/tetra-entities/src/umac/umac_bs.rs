@@ -51,7 +51,8 @@ pub struct UmacBs {
     endpoint_id: u32,
 
     /// Subcomponents
-    defrag: BsDefrag,
+    /// Uplink reassembly contexts. Public access is used only by testing code
+    pub defrag: BsDefrag,
     /// Pending STCH MAC-DATA spanning block1+block2 (length_ind=0b111110), keyed by timeslot.
     pending_stch: Option<PendingStch>,
     // event_label_store: EventLabelStore,
@@ -1054,7 +1055,8 @@ impl UmacBs {
             return;
         };
         if let Some(_aie_info) = self.defrag.get_aie_info(slot_owner, msg_dltime) {
-            unimplemented!("rx_mac_end_ul: Encryption not supported");
+            unimplemented_log!("rx_mac_end_ul: Encryption not supported");
+            return;
         }
 
         // Insert last fragment and retrieve finalized block
@@ -1181,7 +1183,8 @@ impl UmacBs {
             return;
         };
         if let Some(_aie_info) = self.defrag.get_aie_info(slot_owner, msg_dltime) {
-            unimplemented!("rx_mac_end_hu: Encryption not supported");
+            unimplemented_log!("rx_mac_end_hu: Encryption not supported");
+            return;
         }
 
         // Insert last fragment and retrieve finalized block
@@ -2126,7 +2129,7 @@ impl TetraEntityTrait for UmacBs {
                 self.rx_tlmb_prim(queue, message);
             }
             Sap::TlmcSap => {
-                unimplemented!();
+                unimplemented_log!("rx_prim: TLMC SAP not implemented -- dropping message");
             }
             Sap::Control => {
                 self.rx_control(queue, message);
@@ -2141,6 +2144,11 @@ impl TetraEntityTrait for UmacBs {
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.dltime = ts;
         self.refresh_system_wide_services();
+
+        // Expire stale uplink reassembly contexts. Without this the defrag map only ever
+        // grows: entries are added per uplink SSI on a fragmentation start and removed only
+        // by a matching MAC-END, which an MS (or an attacker) is free to never send.
+        self.defrag.age_buffers(ts);
 
         if self.channel_scheduler.cur_dltime != ts && self.channel_scheduler.cur_dltime == (TdmaTime { t: 0, f: 0, m: 0, h: 0 }) {
             // Upon start of the system, we need to set the dl time for the channel scheduler

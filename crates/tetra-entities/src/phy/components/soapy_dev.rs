@@ -380,8 +380,17 @@ impl RxDsp {
                 self.rx_buffer_i = 0;
 
                 // Repeat reads until the correct number of samples has been skipped.
+                // samples_to_skip lands in [new, 2*new) but rx_buffer only holds
+                // new+overlap (= 4/3*new with Overlap::O1_4), so it can be larger than
+                // the buffer. We are only discarding samples here, so clamp each read to
+                // the buffer and let the loop take more than one pass.
+                debug_assert!(
+                    !self.rx_buffer.is_empty(),
+                    "rx_buffer must be non-empty, otherwise skipping never makes progress"
+                );
                 while samples_to_skip > 0 {
-                    let result = sdr.receive(&mut self.rx_buffer[0..samples_to_skip as usize])?;
+                    let skip_now = (samples_to_skip as usize).min(self.rx_buffer.len());
+                    let result = sdr.receive(&mut self.rx_buffer[0..skip_now])?;
                     samples_to_skip -= result.len as SampleCount;
                 }
             } else {

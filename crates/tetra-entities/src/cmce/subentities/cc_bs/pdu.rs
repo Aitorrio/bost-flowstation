@@ -1152,14 +1152,15 @@ impl CcBsSubentity {
     /// eligible. Only calls of *strictly lower* priority than `incoming_priority` may be
     /// pre-empted (equal priority keeps the channel — first come, first served). Among eligible
     /// calls the victim is chosen by: lowest priority first; then a call that is not actively
-    /// transmitting (a group call in hangtime / a P2P call still in set-up — least disruptive to
-    /// release); then the lowest call_id, purely for deterministic behaviour. `exclude` holds
-    /// call_ids already released this round so the loop always makes progress.
+    /// transmitting (a group call in hangtime / a P2P call still in set-up or with no floor
+    /// holder — least disruptive to release); then the call freeing the most timeslots; then the
+    /// lowest call_id, purely for deterministic behaviour. `exclude` holds call_ids already
+    /// released this round so the loop always makes progress.
     fn select_preemption_victim(&self, incoming_priority: u8, exclude: &[u16]) -> Option<PreemptVictim> {
-        let mut candidates: Vec<(u8, u16, PreemptVictim, usize)> = Vec::new();
+        let mut candidates: Vec<(u8, bool, u16, PreemptVictim, usize)> = Vec::new();
         for (id, call) in self.active_calls.iter() {
             if call.priority < incoming_priority && !exclude.contains(id) {
-                candidates.push((call.priority, *id, PreemptVictim::Group(*id), 1));
+                candidates.push((call.priority, call.is_tx_active(), *id, PreemptVictim::Group(*id), 1));
             }
         }
         for (id, call) in self.individual_calls.iter() {
@@ -1169,13 +1170,16 @@ impl CcBsSubentity {
                 } else {
                     2
                 };
-                candidates.push((call.priority, *id, PreemptVictim::Individual(*id), slots));
+                // A call still in set-up carries no speech; a connected simplex call only does
+                // while someone holds the floor. Duplex is two-way as soon as it is active.
+                let transmitting = call.is_active() && (!call.is_simplex() || call.floor_holder.is_some());
+                candidates.push((call.priority, transmitting, *id, PreemptVictim::Individual(*id), slots));
             }
         }
         candidates
             .into_iter()
-            .min_by_key(|(priority, call_id, _, slots)| (*priority, usize::MAX - *slots, *call_id))
-            .map(|(_, _, victim, _)| victim)
+            .min_by_key(|(priority, transmitting, call_id, _, slots)| (*priority, *transmitting, usize::MAX - *slots, *call_id))
+            .map(|(_, _, _, victim, _)| victim)
     }
 
     /// ETSI EN 300 392-2 clause 14.8 pre-emptive priority handling. When a call requested at a

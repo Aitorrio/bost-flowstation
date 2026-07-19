@@ -33,6 +33,26 @@ pub struct PhyBs<D: RxTxDev> {
     rxtxdev: D,
 
     tick: u64,
+
+    /// Next time a device/file error may be logged at warn level. These fire per
+    /// timeslot (~70/s), so an unfiltered warning would bury the journal.
+    err_log_next: std::time::Instant,
+}
+
+/// Minimum interval between warnings about a failing timeslot.
+const ERR_LOG_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// True if a recurring error may be logged at warn level now. Callers log at debug
+/// otherwise, so nothing is lost when tracing is turned up. Takes the deadline by
+/// reference rather than &mut self so it can be called while the RX/TX device is borrowed.
+fn may_warn(next: &mut std::time::Instant) -> bool {
+    let now = std::time::Instant::now();
+    if now >= *next {
+        *next = now + ERR_LOG_INTERVAL;
+        true
+    } else {
+        false
+    }
 }
 
 impl<D: RxTxDev> PhyBs<D> {
@@ -68,6 +88,7 @@ impl<D: RxTxDev> PhyBs<D> {
             ul_input_file,
             rxtxdev,
             tick: 0,
+            err_log_next: std::time::Instant::now(),
         }
     }
 
@@ -184,7 +205,15 @@ impl<D: RxTxDev> PhyBs<D> {
     fn build_dl_burst(&mut self, prim: tetra_saps::tp::TpUnitdataReqSlot) -> Option<[u8; TIMESLOT_TYPE4_BITS]> {
         let mut dl_burst = [0u8; TIMESLOT_TYPE4_BITS];
         if let Some(dl_input_file) = &mut self.dl_input_file {
-            dl_input_file.read_block(&mut dl_burst).expect("Failed to read dl_input_file data");
+            if let Err(e) = dl_input_file.read_block(&mut dl_burst) {
+                // Replay is a testing mode; a bad input file must not take the cell down.
+                if may_warn(&mut self.err_log_next) {
+                    tracing::warn!("PHY: failed to read dl_input_file ({:?}), dropping burst", e);
+                } else {
+                    tracing::debug!("PHY: failed to read dl_input_file ({:?}), dropping burst", e);
+                }
+                return None;
+            }
             return Some(dl_burst);
         }
 
@@ -273,7 +302,21 @@ impl<D: RxTxDev> PhyBs<D> {
             }
         }
 
-        let rx = self.rxtxdev.rxtx_timeslot(&tx_slots).expect("Got error from rxtx_timeslot");
+        // A failed timeslot must never unwind: everything runs on one thread with no
+        // catch_unwind, so a panic here kills the whole cell and systemd crash-loops it.
+        // An RX overflow on a loaded RPi + LimeSDR is an everyday event -- drop this
+        // timeslot's RX and let the next tick resync. TX has already been queued above.
+        let rx = match self.rxtxdev.rxtx_timeslot(&tx_slots) {
+            Ok(rx) => rx,
+            Err(e) => {
+                if may_warn(&mut self.err_log_next) {
+                    tracing::warn!(ts=%self.dltime, "rxtx_timeslot failed ({:?}), skipping this timeslot", e);
+                } else {
+                    tracing::debug!(ts=%self.dltime, "rxtx_timeslot failed ({:?}), skipping this timeslot", e);
+                }
+                return;
+            }
+        };
 
         for rx_slot in rx {
             if let Some(rx_slot) = rx_slot {

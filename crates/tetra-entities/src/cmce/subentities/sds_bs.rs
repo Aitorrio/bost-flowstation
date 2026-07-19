@@ -57,6 +57,30 @@ pub struct PendingSds {
 /// rather than arrive long after the sender's radio already declared it undelivered.
 const SDS_DEFER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// A TETRA SSI is a 24-bit identity. `DSdsData::to_bitbuf` writes both addresses with
+/// `write_bits(ssi, 24)`, whose range assertion aborts the calling thread — and the entities all
+/// share one un-isolated stack thread, so a wider SSI takes the whole cell down.
+const MAX_TETRA_SSI: u32 = 0xFF_FFFF;
+
+/// Defence in depth for the control-originated SDS paths: the dashboard now range-checks SSIs at
+/// its own boundary, but *any* control client can submit a `SendSds`/`SendRawSdsType4`, so refuse
+/// an unserializable identity here too rather than letting it reach `write_bits` and panic. Same
+/// guard the MM DGNA funnel applies to GSSIs. 0 is the "no identity" sentinel, so it is out too.
+fn ssi_pair_is_valid(what: &str, source_ssi: u32, dest_ssi: u32) -> bool {
+    let ok = |ssi: u32| ssi != 0 && ssi <= MAX_TETRA_SSI;
+    if !ok(source_ssi) || !ok(dest_ssi) {
+        tracing::warn!(
+            "{}: refusing out-of-range SSI {} -> {} (must be 1..={})",
+            what,
+            source_ssi,
+            dest_ssi,
+            MAX_TETRA_SSI
+        );
+        return false;
+    }
+    true
+}
+
 /// SDS-TL delivery-report "delivery status" octet signalling a negative outcome (could not be
 /// delivered), sent to the originator when we give up on a deferred SDS. NOTE: confirm on-air that
 /// the field terminals (Motorola MXP600/MTP6750) render this as "not delivered" — it is
@@ -505,6 +529,10 @@ impl SdsBsSubentity {
             len_bits
         );
 
+        if !ssi_pair_is_valid("SDS", source_ssi, dest_ssi) {
+            return false;
+        }
+
         // SDS-TL Simple Text Message — format verificat din tetraflow-sds-bot:
         //   Byte 0: 0x82  — Protocol Identifier (SDS-TL text messaging)
         //   Byte 1: 0x04  — Message Type (Simple Text, cu TL-ACK request)
@@ -628,6 +656,10 @@ impl SdsBsSubentity {
             dest_is_group.then(|| "GSSI").unwrap_or("ISSI"),
             len_bits
         );
+
+        if !ssi_pair_is_valid("SDS raw Type-4", source_ssi, dest_ssi) {
+            return false;
+        }
 
         // The Type-4 length indicator is an 11-bit field (max 2047 bits = 255 bytes). A wider value
         // would overflow the field and panic the serializer (DSdsData::to_bitbuf). This raw path

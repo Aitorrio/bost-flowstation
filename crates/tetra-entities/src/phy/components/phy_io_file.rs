@@ -65,6 +65,7 @@ impl PhyIoFile {
     pub fn read_block(&mut self, buffer: &mut [u8]) -> Result<(), PhyIoError> {
         let block_size = buffer.len();
         let mut bytes_read = 0;
+        let mut rewinds = 0;
 
         while bytes_read < block_size {
             match self.file.read(&mut buffer[bytes_read..]) {
@@ -77,6 +78,17 @@ impl PhyIoFile {
                         PhyIoFileMode::ReadRepeat => {
                             // Seek back to beginning and continue reading
                             self.file.seek(SeekFrom::Start(0))?;
+                            rewinds += 1;
+
+                            // A file holding at least one full block needs at most one rewind
+                            // per call. A second one means the file is shorter than a block --
+                            // an empty file being the obvious case, where read() returns Ok(0)
+                            // for ever and this loop spins the PHY thread with no way out.
+                            if rewinds > 1 {
+                                return Err(PhyIoError::Io(format!(
+                                    "input file is shorter than one {block_size}-byte block, cannot repeat it"
+                                )));
+                            }
 
                             // If we had a partial block, it means the file doesn't contain
                             // an integer number of blocks. In this case, discard the partial
@@ -274,6 +286,34 @@ mod tests {
         // Third read should also work
         assert!(reader.read_block(&mut buffer).is_ok());
         assert_eq!(buffer, [1, 2, 3, 4]);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_empty_file_repeat_bails_out() {
+        // An empty file used to rewind for ever and spin the PHY thread.
+        let (_filename, path) = create_temp_file(&[]);
+
+        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::ReadRepeat).unwrap();
+        let mut buffer = [0u8; 8];
+
+        assert!(matches!(reader.read_block(&mut buffer), Err(PhyIoError::Io(_))));
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_shorter_than_block_repeat_bails_out() {
+        // Same failure mode: a file that never contains a full block.
+        let (_filename, path) = create_temp_file(&[1u8, 2, 3]);
+
+        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::ReadRepeat).unwrap();
+        let mut buffer = [0u8; 8];
+
+        assert!(matches!(reader.read_block(&mut buffer), Err(PhyIoError::Io(_))));
 
         // Cleanup
         let _ = std::fs::remove_file(&path);

@@ -15,9 +15,14 @@ use uuid::Uuid;
 
 use crate::{MessageQueue, TetraEntityTrait};
 
-use super::audio::{AsteriskAudioTranscoder, PCMU_PAYLOAD_TYPE, rtp_payload};
+use super::audio::{AsteriskAudioTranscoder, PCMU_PAYLOAD_TYPE, RtpPacketizer, rtp_payload};
 
 const SIP_MAX_DATAGRAM: usize = 8192;
+/// RFC 3261 timer H: how long a cancelled INVITE may wait for its final response before we
+/// give up on it and free the RTP port.
+const CANCEL_REAP_AFTER: Duration = Duration::from_secs(32);
+/// Silence longer than this counts as a new talkspurt, so the next RTP packet gets a marker.
+const TALKSPURT_GAP: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Debug)]
 struct DigestChallenge {
@@ -33,6 +38,8 @@ struct DigestChallenge {
 enum DialogState {
     Inviting,
     Ringing,
+    /// CANCEL sent, still waiting for the INVITE's final response (487, or a 2xx that raced us).
+    Cancelling,
     Established,
     Released,
 }
@@ -41,9 +48,8 @@ struct RtpSession {
     socket: UdpSocket,
     local_port: u16,
     remote: Option<SocketAddr>,
-    seq: u16,
-    timestamp: u32,
-    ssrc: u32,
+    packetizer: RtpPacketizer,
+    last_tx: Option<Instant>,
 }
 
 struct SipDialog {
@@ -55,6 +61,10 @@ struct SipDialog {
     local_tag: String,
     remote_tag: Option<String>,
     cseq: u32,
+    /// Top Via branch of the INVITE. CANCEL and non-2xx ACK belong to that same transaction.
+    invite_branch: String,
+    /// Contact of the answer, i.e. where in-dialog requests must actually go.
+    remote_target: Option<String>,
     auth: Option<DigestChallenge>,
     auth_retry_sent: bool,
     state: DialogState,
@@ -63,6 +73,7 @@ struct SipDialog {
     media_ready: Option<(u16, u16, u8)>,
     inbound: bool,
     request_context: Option<SipRequestContext>,
+    released_at: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -141,11 +152,85 @@ struct SipRequestContext {
     addr: SocketAddr,
 }
 
+/// Extra hosts allowed to speak SIP to us. Unresolvable entries are dropped rather than
+/// failing startup - a stale allowlist entry must not take the whole bridge down.
+fn resolve_allowed_peers(hosts: &[String]) -> Vec<IpAddr> {
+    let mut peers = Vec::new();
+    for host in hosts {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            peers.push(ip);
+            continue;
+        }
+        match (host.as_str(), 0u16).to_socket_addrs() {
+            Ok(addrs) => peers.extend(addrs.map(|addr| addr.ip())),
+            Err(err) => tracing::warn!("AsteriskEntity: allow_from entry '{}' did not resolve: {}", host, err),
+        }
+    }
+    peers
+}
+
+struct TeardownParams<'a> {
+    cancel: bool,
+    invite_uri: &'a str,
+    remote_target: Option<&'a str>,
+    via_host: &'a str,
+    via_port: u16,
+    invite_branch: &'a str,
+    fresh_branch: &'a str,
+    from_uri: &'a str,
+    local_tag: &'a str,
+    remote_tag: Option<&'a str>,
+    call_id: &'a str,
+    invite_cseq: u32,
+    contact: &'a str,
+}
+
+/// CANCEL and BYE look alike but belong to different transactions, and getting that wrong is
+/// FH-BUG-071: a CANCEL is part of the INVITE transaction (RFC 3261 §9.1), so Request-URI,
+/// To (still untagged, exactly as sent), Call-ID, From and the CSeq number must be identical
+/// to the INVITE's and the top Via branch must be the INVITE's branch - otherwise the proxy
+/// cannot match it and never stops ringing the callee. A BYE is a brand new transaction in an
+/// established dialog: fresh branch, next CSeq, negotiated To tag, sent to the remote target.
+fn build_teardown_request(p: &TeardownParams) -> String {
+    let method = if p.cancel { "CANCEL" } else { "BYE" };
+    let branch = if p.cancel { p.invite_branch } else { p.fresh_branch };
+    let cseq = if p.cancel { p.invite_cseq } else { p.invite_cseq.saturating_add(1) };
+    let request_uri = if p.cancel {
+        p.invite_uri
+    } else {
+        p.remote_target.unwrap_or(p.invite_uri)
+    };
+    let to = match (p.cancel, p.remote_tag) {
+        (false, Some(tag)) => format!("<{}>;tag={}", p.invite_uri, tag),
+        _ => format!("<{}>", p.invite_uri),
+    };
+    // A CANCEL is not a dialog-forming request, so it carries no Contact.
+    let contact_line = if p.cancel {
+        String::new()
+    } else {
+        format!("Contact: <{}>\r\n", p.contact)
+    };
+    format!(
+        "{} {} SIP/2.0\r\n\
+         Via: SIP/2.0/UDP {}:{};branch={};rport\r\n\
+         Max-Forwards: 70\r\n\
+         From: <{}>;tag={}\r\n\
+         To: {}\r\n\
+         Call-ID: {}\r\n\
+         CSeq: {} {}\r\n\
+         {}\
+         Content-Length: 0\r\n\r\n",
+        method, request_uri, p.via_host, p.via_port, branch, p.from_uri, p.local_tag, to, p.call_id, cseq, method, contact_line
+    )
+}
+
 pub struct AsteriskEntity {
     config: SharedConfig,
     asterisk_config: CfgAsterisk,
     sip_socket: UdpSocket,
     remote: SocketAddr,
+    allowed_peers: Vec<IpAddr>,
+    invite_rate: HashMap<IpAddr, (Instant, u32)>,
     dialogs: HashMap<Uuid, SipDialog>,
     rtp_by_ts: HashMap<(u16, u8), Uuid>,
     next_rtp_port: u16,
@@ -173,6 +258,8 @@ impl AsteriskEntity {
             .next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::AddrNotAvailable, "asterisk remote address did not resolve"))?;
 
+        let allowed_peers = resolve_allowed_peers(&asterisk_config.allow_from);
+
         let entity = Self {
             config,
             next_rtp_port: asterisk_config.rtp_port_min,
@@ -180,6 +267,8 @@ impl AsteriskEntity {
             asterisk_config,
             sip_socket,
             remote,
+            allowed_peers,
+            invite_rate: HashMap::new(),
             dialogs: HashMap::new(),
             rtp_by_ts: HashMap::new(),
             branch_counter: 1,
@@ -218,7 +307,11 @@ impl AsteriskEntity {
             remote: self.remote_display(),
             rtp_port_range: self.rtp_range(),
             codec: self.asterisk_config.codec.clone(),
-            active_dialogs: self.dialogs.values().filter(|d| d.state != DialogState::Released).count(),
+            active_dialogs: self
+                .dialogs
+                .values()
+                .filter(|d| !matches!(d.state, DialogState::Released | DialogState::Cancelling))
+                .count(),
             last_rx: self.last_rx.clone(),
             last_tx: self.last_tx.clone(),
             last_error: self.last_error.clone(),
@@ -371,10 +464,14 @@ impl AsteriskEntity {
              t=0 0\r\n\
              m=audio {} RTP/AVP 0\r\n\
              a=rtpmap:0 PCMU/8000\r\n\
-             a=ptime:60\r\n\
-             a=maxptime:60\r\n\
+             a=ptime:{}\r\n\
+             a=maxptime:{}\r\n\
              a=sendrecv\r\n",
-            self.asterisk_config.contact_host, self.asterisk_config.contact_host, rtp_port
+            self.asterisk_config.contact_host,
+            self.asterisk_config.contact_host,
+            rtp_port,
+            self.asterisk_config.ptime_ms,
+            self.asterisk_config.ptime_ms
         )
     }
 
@@ -383,6 +480,10 @@ impl AsteriskEntity {
         let (rtp_port, auth) = self.dialogs.get(&uuid).map(|dialog| (dialog.rtp.local_port, dialog.auth.clone()))?;
         let request_uri = self.request_uri(&snapshot.number);
         let branch = self.next_branch();
+        // CANCEL and any non-2xx ACK have to run in this very transaction, so remember the branch.
+        if let Some(dialog) = self.dialogs.get_mut(&uuid) {
+            dialog.invite_branch = branch.clone();
+        }
         let body = self.build_sdp(rtp_port);
         let auth = auth
             .as_ref()
@@ -444,39 +545,28 @@ impl AsteriskEntity {
         let Some(dialog) = self.dialogs.get(&uuid).map(SipDialogSnapshot::from_dialog) else {
             return;
         };
+        let fresh_branch = self.next_branch();
+        let request = build_teardown_request(&TeardownParams {
+            cancel,
+            invite_uri: &self.request_uri(&dialog.number),
+            remote_target: dialog.remote_target.as_deref(),
+            via_host: &self.asterisk_config.contact_host,
+            via_port: self.asterisk_config.bind_port,
+            invite_branch: &dialog.invite_branch,
+            fresh_branch: &fresh_branch,
+            from_uri: &dialog.local_uri,
+            local_tag: &dialog.local_tag,
+            remote_tag: dialog.remote_tag.as_deref(),
+            call_id: &dialog.call_id_header,
+            invite_cseq: dialog.cseq,
+            contact: &self.contact_uri(),
+        });
         let method = if cancel { "CANCEL" } else { "BYE" };
-        let request_uri = self.request_uri(&dialog.number);
-        let branch = self.next_branch();
-        let to = if let Some(tag) = &dialog.remote_tag {
-            format!("<{}>;tag={}", request_uri, tag)
-        } else {
-            format!("<{}>", request_uri)
-        };
-        let cseq = if cancel { dialog.cseq } else { dialog.cseq.saturating_add(1) };
-        let request = format!(
-            "{} {} SIP/2.0\r\n\
-             Via: SIP/2.0/UDP {}:{};branch={};rport\r\n\
-             Max-Forwards: 70\r\n\
-             From: <{}>;tag={}\r\n\
-             To: {}\r\n\
-             Call-ID: {}\r\n\
-             CSeq: {} {}\r\n\
-             Contact: <{}>\r\n\
-             Content-Length: 0\r\n\r\n",
-            method,
-            request_uri,
-            self.asterisk_config.contact_host,
-            self.asterisk_config.bind_port,
-            branch,
-            dialog.local_uri,
-            dialog.local_tag,
-            to,
-            dialog.call_id_header,
-            cseq,
-            method,
-            self.contact_uri()
-        );
-        self.send_sip(request, format!("{} {}", method, uuid));
+        // Inbound dialogs answer back to whoever sent us the INVITE, not to the configured peer.
+        match dialog.peer_addr {
+            Some(addr) => self.send_sip_to(request, addr, format!("{} {}", method, uuid)),
+            None => self.send_sip(request, format!("{} {}", method, uuid)),
+        }
     }
 
     fn tagged_to(to: &str, tag: Option<&str>) -> String {
@@ -635,6 +725,18 @@ impl AsteriskEntity {
         })
     }
 
+    /// Remote target for in-dialog requests: the bare URI inside the peer's Contact header.
+    fn parse_contact_uri(header: Option<&str>) -> Option<String> {
+        let value = header?.trim();
+        let uri = if let Some(start) = value.find('<') {
+            let rest = &value[start + 1..];
+            rest.split_once('>')?.0
+        } else {
+            value.split(';').next()?.trim()
+        };
+        (!uri.is_empty() && uri.to_ascii_lowercase().starts_with("sip")).then(|| uri.to_string())
+    }
+
     fn sip_uri_user(value: &str) -> Option<String> {
         let trimmed = value.trim();
         let after_scheme = if let Some(idx) = trimmed.to_ascii_lowercase().find("sip:") {
@@ -713,9 +815,8 @@ impl AsteriskEntity {
                         socket,
                         local_port: port,
                         remote: None,
-                        seq: 1,
-                        timestamp: 0,
-                        ssrc,
+                        packetizer: RtpPacketizer::new(ssrc, self.asterisk_config.ptime_ms),
+                        last_tx: None,
                     });
                 }
                 Err(_) => {
@@ -726,10 +827,50 @@ impl AsteriskEntity {
         Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "no RTP port available"))
     }
 
+    fn peer_allowed(&self, addr: SocketAddr) -> bool {
+        // Port is not pinned: Asterisk answers from whatever source port it likes.
+        addr.ip() == self.remote.ip() || self.allowed_peers.contains(&addr.ip())
+    }
+
+    /// Sliding-ish window per source. Each INVITE costs an RTP port, a codec and a CMCE setup,
+    /// so an unthrottled peer can exhaust the port pool and mass-ring the cell.
+    fn invite_rate_ok(&mut self, addr: SocketAddr) -> bool {
+        let limit = self.asterisk_config.max_invites_per_minute;
+        if limit == 0 {
+            return true;
+        }
+        let now = Instant::now();
+        let entry = self.invite_rate.entry(addr.ip()).or_insert((now, 0));
+        if now.duration_since(entry.0) >= Duration::from_secs(60) {
+            *entry = (now, 0);
+        }
+        entry.1 = entry.1.saturating_add(1);
+        entry.1 <= limit
+    }
+
+    fn pending_dialogs(&self) -> usize {
+        self.dialogs
+            .values()
+            .filter(|d| matches!(d.state, DialogState::Inviting | DialogState::Ringing))
+            .count()
+    }
+
     fn start_inbound_call(&mut self, queue: &mut MessageQueue, msg: &SipMessage, addr: SocketAddr) {
         let Some(ctx) = Self::request_context(msg, addr) else {
             return;
         };
+        if !self.invite_rate_ok(addr) {
+            tracing::warn!("AsteriskEntity: INVITE rate limit hit for {}, rejecting", addr);
+            let response = self.build_response(&ctx, 503, "Service Unavailable", Some("flowstation"), None);
+            self.send_sip_to(response, addr, "503 Service Unavailable");
+            return;
+        }
+        if self.pending_dialogs() >= self.asterisk_config.max_pending_dialogs {
+            tracing::warn!("AsteriskEntity: too many pending dialogs, rejecting INVITE from {}", addr);
+            let response = self.build_response(&ctx, 486, "Busy Here", Some("flowstation"), None);
+            self.send_sip_to(response, addr, "486 Busy Here");
+            return;
+        }
         let Some(destination) = self.inbound_destination_issi(msg) else {
             tracing::info!(
                 "AsteriskEntity: rejecting inbound INVITE without TETRA destination: {}",
@@ -799,6 +940,8 @@ impl AsteriskEntity {
             local_tag,
             remote_tag,
             cseq: 1,
+            invite_branch: String::new(),
+            remote_target: Self::parse_contact_uri(msg.header("Contact")),
             auth: None,
             auth_retry_sent: false,
             state: DialogState::Inviting,
@@ -807,6 +950,7 @@ impl AsteriskEntity {
             media_ready: None,
             inbound: true,
             request_context: Some(ctx.clone()),
+            released_at: None,
         };
         self.dialogs.insert(uuid, dialog);
 
@@ -925,6 +1069,8 @@ impl AsteriskEntity {
             local_tag: format!("flow{}", &brew_uuid.to_string()[..8]),
             remote_tag: None,
             cseq: 1,
+            invite_branch: String::new(),
+            remote_target: None,
             auth: None,
             auth_retry_sent: false,
             state: DialogState::Inviting,
@@ -933,6 +1079,7 @@ impl AsteriskEntity {
             media_ready: None,
             inbound: false,
             request_context: None,
+            released_at: None,
         };
         self.dialogs.insert(brew_uuid, dialog);
         self.send_setup_accept(queue, brew_uuid);
@@ -990,13 +1137,11 @@ impl AsteriskEntity {
     }
 
     fn release_dialog(&mut self, brew_uuid: Uuid, from_cmce: bool) {
-        let Some((cancel, media_ready, inbound)) = self.dialogs.get(&brew_uuid).map(|dialog| {
-            (
-                !matches!(dialog.state, DialogState::Established),
-                dialog.media_ready,
-                dialog.inbound,
-            )
-        }) else {
+        let Some((cancel, inbound)) = self
+            .dialogs
+            .get(&brew_uuid)
+            .map(|dialog| (!matches!(dialog.state, DialogState::Established), dialog.inbound))
+        else {
             return;
         };
         if from_cmce {
@@ -1006,11 +1151,30 @@ impl AsteriskEntity {
                 self.send_bye_or_cancel(brew_uuid, cancel);
             }
         }
-        if let Some((_, carrier_num, ts)) = media_ready {
-            self.rtp_by_ts.remove(&(carrier_num, ts));
+        // An outbound INVITE we just CANCELled is still alive at the far end until its final
+        // response arrives. Forgetting the dialog here loses that response - and if the callee
+        // answers in the meantime, the 200 OK matches nothing, never gets ACKed and the phone
+        // stays up forever (FH-BUG-071). Keep it until the INVITE transaction really ends.
+        if from_cmce && cancel && !inbound {
+            if let Some((_, carrier_num, ts)) = self.dialogs.get(&brew_uuid).and_then(|d| d.media_ready) {
+                self.rtp_by_ts.remove(&(carrier_num, ts));
+            }
+            if let Some(dialog) = self.dialogs.get_mut(&brew_uuid) {
+                dialog.media_ready = None;
+                dialog.state = DialogState::Cancelling;
+                dialog.released_at = Some(Instant::now());
+            }
+            return;
         }
+        self.drop_dialog(brew_uuid);
+    }
+
+    fn drop_dialog(&mut self, brew_uuid: Uuid) {
         if let Some(dialog) = self.dialogs.get_mut(&brew_uuid) {
             dialog.state = DialogState::Released;
+            if let Some((_, carrier_num, ts)) = dialog.media_ready.take() {
+                self.rtp_by_ts.remove(&(carrier_num, ts));
+            }
         }
         self.dialogs.remove(&brew_uuid);
     }
@@ -1019,7 +1183,7 @@ impl AsteriskEntity {
         let Some(uuid) = self.rtp_by_ts.get(&(prim.carrier_num, prim.ts)).copied() else {
             return;
         };
-        let mut send_result = None;
+        let mut send_error: Option<io::Error> = None;
         let mut drop_reason = None;
         'send: {
             let Some(dialog) = self.dialogs.get_mut(&uuid) else {
@@ -1038,25 +1202,31 @@ impl AsteriskEntity {
                 break 'send;
             };
 
-            let mut packet = Vec::with_capacity(12 + payload.len());
-            packet.push(0x80);
-            packet.push(PCMU_PAYLOAD_TYPE);
-            packet.extend_from_slice(&dialog.rtp.seq.to_be_bytes());
-            packet.extend_from_slice(&dialog.rtp.timestamp.to_be_bytes());
-            packet.extend_from_slice(&dialog.rtp.ssrc.to_be_bytes());
-            packet.extend_from_slice(&payload);
-            let result = dialog.rtp.socket.send_to(&packet, remote);
-            if result.is_ok() {
-                dialog.rtp.seq = dialog.rtp.seq.wrapping_add(1);
-                dialog.rtp.timestamp = dialog.rtp.timestamp.wrapping_add(payload.len().max(1) as u32);
+            // One TETRA block is 60 ms of audio; the packetizer cuts it into ptime-sized RTP
+            // packets and keeps whatever is left over for the next block (FH-BUG-074).
+            let now = Instant::now();
+            if dialog
+                .rtp
+                .last_tx
+                .map(|last| now.duration_since(last) > TALKSPURT_GAP)
+                .unwrap_or(true)
+            {
+                dialog.rtp.packetizer.mark_talkspurt();
             }
-            send_result = Some(result);
+            dialog.rtp.last_tx = Some(now);
+
+            for packet in dialog.rtp.packetizer.push(&payload) {
+                if let Err(err) = dialog.rtp.socket.send_to(&packet, remote) {
+                    send_error = Some(err);
+                    break;
+                }
+            }
         }
         if let Some(reason) = drop_reason {
             self.set_error(reason);
             return;
         }
-        if let Some(Err(err)) = send_result {
+        if let Some(err) = send_error {
             self.set_error(format!("RTP send failed uuid={} ts={}: {}", uuid, prim.ts, err));
         };
     }
@@ -1083,7 +1253,16 @@ impl AsteriskEntity {
                             );
                             continue;
                         }
-                        dialog.rtp.remote = Some(addr);
+                        // Only the SDP-negotiated peer may feed this call. Latching onto any
+                        // sender let anyone who found the port inject or steal audio mid-call;
+                        // a changed port from the same host is still allowed (symmetric RTP).
+                        match dialog.rtp.remote {
+                            Some(expected) if expected.ip() == addr.ip() => dialog.rtp.remote = Some(addr),
+                            _ => {
+                                tracing::trace!("AsteriskEntity: dropping RTP from unexpected source {} uuid={}", addr, dialog.uuid);
+                                continue;
+                            }
+                        }
                         for frame in dialog.audio.encode_pcmu_to_tmd(payload) {
                             downlink.push((carrier_num, ts, frame));
                         }
@@ -1115,6 +1294,12 @@ impl AsteriskEntity {
         for _ in 0..32 {
             match self.sip_socket.recv_from(&mut buf) {
                 Ok((len, addr)) => {
+                    // Anything that reaches this port could otherwise INVITE an arbitrary ISSI
+                    // or tear down a dialog by guessing its Call-ID.
+                    if !self.peer_allowed(addr) {
+                        tracing::debug!("AsteriskEntity: dropping SIP datagram from unexpected source {}", addr);
+                        continue;
+                    }
                     if let Some(msg) = SipMessage::parse(&buf[..len]) {
                         self.last_rx = Some(format!("{} from {}", msg.start_line, addr));
                         self.handle_sip_message(queue, msg, addr);
@@ -1134,17 +1319,13 @@ impl AsteriskEntity {
             match method {
                 "INVITE" => self.start_inbound_call(queue, &msg, addr),
                 "OPTIONS" => self.answer_request(&msg, addr, 200, "OK"),
-                "BYE" => {
+                "BYE" | "CANCEL" => {
                     self.answer_request(&msg, addr, 200, "OK");
                     if let Some(uuid) = self.find_dialog_by_call_id(msg.call_id()) {
-                        self.send_release_to_cmce(queue, uuid, 16);
-                        self.release_dialog(uuid, false);
-                    }
-                }
-                "CANCEL" => {
-                    self.answer_request(&msg, addr, 200, "OK");
-                    if let Some(uuid) = self.find_dialog_by_call_id(msg.call_id()) {
-                        self.send_release_to_cmce(queue, uuid, 16);
+                        // A dialog we already cancelled has been released towards CMCE.
+                        if self.dialogs.get(&uuid).is_some_and(|d| d.state != DialogState::Cancelling) {
+                            self.send_release_to_cmce(queue, uuid, 16);
+                        }
                         self.release_dialog(uuid, false);
                     }
                 }
@@ -1193,33 +1374,59 @@ impl AsteriskEntity {
         let Some(uuid) = self.find_dialog_by_call_id(msg.call_id()) else {
             return;
         };
+        // The radio already hung up and we CANCELled; CMCE has been told, so from here on we
+        // only have to close the SIP leg down cleanly.
+        let cancelling = self.dialogs.get(&uuid).is_some_and(|d| d.state == DialogState::Cancelling);
 
         match code {
             100 => {}
             180 | 183 => {
+                if cancelling {
+                    return;
+                }
+                let remote_rtp = self.parse_sdp_remote(&msg.body);
                 if let Some(dialog) = self.dialogs.get_mut(&uuid) {
                     dialog.state = DialogState::Ringing;
                     dialog.remote_tag = Self::parse_to_tag(msg.header("To"));
+                    // 183 carries early media; without this the answer SDP is our only source.
+                    if let Some(remote_rtp) = remote_rtp {
+                        dialog.rtp.remote = Some(remote_rtp);
+                    }
                 }
                 self.send_alert(queue, uuid);
             }
             200..=299 => {
                 let remote_rtp = self.parse_sdp_remote(&msg.body);
+                let remote_target = Self::parse_contact_uri(msg.header("Contact"));
                 let connect_call = {
                     let Some(dialog) = self.dialogs.get_mut(&uuid) else {
                         return;
                     };
                     dialog.remote_tag = Self::parse_to_tag(msg.header("To"));
+                    dialog.remote_target = remote_target.or(dialog.remote_target.take());
                     if let Some(remote_rtp) = remote_rtp {
                         dialog.rtp.remote = Some(remote_rtp);
                     }
-                    dialog.state = DialogState::Established;
+                    if !cancelling {
+                        dialog.state = DialogState::Established;
+                    }
                     dialog.call.clone()
                 };
+                // An ACK to a 2xx is its own transaction, so a fresh branch is correct here.
+                // Skipping it makes the far end retransmit the 200 OK forever (FH-BUG-071).
                 let ack_snapshot = self.dialogs.get(&uuid).map(SipDialogSnapshot::from_dialog);
-                if let Some(dialog_for_ack) = ack_snapshot {
-                    let ack_text = self.build_ack_from_snapshot(&dialog_for_ack);
+                if let Some(snapshot) = ack_snapshot {
+                    let branch = self.next_branch();
+                    let ack_text = self.build_ack(&snapshot, &branch, snapshot.cseq);
                     self.send_sip(ack_text, format!("ACK {}", uuid));
+                }
+                if cancelling {
+                    // The answer raced our CANCEL: the leg is up now, so ACK it and BYE it,
+                    // otherwise the callee stays connected with nobody on our side.
+                    tracing::info!("AsteriskEntity: 200 OK raced our CANCEL uuid={}, hanging up with BYE", uuid);
+                    self.send_bye_or_cancel(uuid, false);
+                    self.drop_dialog(uuid);
+                    return;
                 }
                 let connect_snapshot = self.dialogs.get(&uuid).map(SipDialogSnapshot::from_dialog);
                 if let Some(snapshot) = connect_snapshot {
@@ -1238,6 +1445,12 @@ impl AsteriskEntity {
                 }
             }
             401 | 407 => {
+                // ACK before bumping the CSeq: the ACK belongs to the challenged INVITE.
+                self.ack_non_2xx(uuid, msg, &format!("ACK auth {}", uuid));
+                if cancelling {
+                    self.drop_dialog(uuid);
+                    return;
+                }
                 if let Some(challenge) = Self::parse_challenge(msg) {
                     let mut should_retry = false;
                     if let Some(dialog) = self.dialogs.get_mut(&uuid)
@@ -1248,21 +1461,17 @@ impl AsteriskEntity {
                         dialog.cseq = dialog.cseq.saturating_add(1);
                         should_retry = true;
                     }
-                    let ack_snapshot = self.dialogs.get(&uuid).map(SipDialogSnapshot::from_dialog);
-                    if let Some(snapshot) = ack_snapshot {
-                        let ack_text = self.build_ack_from_snapshot(&snapshot);
-                        self.send_sip(ack_text, format!("ACK auth {}", uuid));
-                    }
                     if should_retry {
                         self.send_invite(uuid);
                     }
                 }
             }
             300..=699 => {
-                let ack_snapshot = self.dialogs.get(&uuid).map(SipDialogSnapshot::from_dialog);
-                if let Some(snapshot) = ack_snapshot {
-                    let ack_text = self.build_ack_from_snapshot(&snapshot);
-                    self.send_sip(ack_text, format!("ACK failure {}", uuid));
+                self.ack_non_2xx(uuid, msg, &format!("ACK failure {}", uuid));
+                if cancelling {
+                    // 487 for the CANCEL we sent - expected, CMCE already knows.
+                    self.drop_dialog(uuid);
+                    return;
                 }
                 self.set_error(format!("INVITE uuid={} failed with SIP {}", uuid, code));
                 self.send_release_to_cmce(queue, uuid, 34);
@@ -1282,6 +1491,24 @@ impl AsteriskEntity {
 
     fn maybe_periodic_sip(&mut self) {
         let now = Instant::now();
+
+        // A cancelled INVITE whose final response never showed up would otherwise pin its RTP port.
+        let stale: Vec<Uuid> = self
+            .dialogs
+            .iter()
+            .filter(|(_, d)| {
+                d.released_at
+                    .is_some_and(|released| now.duration_since(released) >= CANCEL_REAP_AFTER)
+            })
+            .map(|(uuid, _)| *uuid)
+            .collect();
+        for uuid in stale {
+            tracing::info!("AsteriskEntity: reaping cancelled dialog uuid={} with no final response", uuid);
+            self.drop_dialog(uuid);
+        }
+        self.invite_rate
+            .retain(|_, (seen, _)| now.duration_since(*seen) < Duration::from_secs(120));
+
         if self.asterisk_config.register
             && self
                 .last_register
@@ -1308,6 +1535,9 @@ struct SipDialogSnapshot {
     local_tag: String,
     remote_tag: Option<String>,
     cseq: u32,
+    invite_branch: String,
+    remote_target: Option<String>,
+    peer_addr: Option<SocketAddr>,
 }
 
 impl SipDialogSnapshot {
@@ -1321,14 +1551,19 @@ impl SipDialogSnapshot {
             local_tag: dialog.local_tag.clone(),
             remote_tag: dialog.remote_tag.clone(),
             cseq: dialog.cseq,
+            invite_branch: dialog.invite_branch.clone(),
+            remote_target: dialog.remote_target.clone(),
+            peer_addr: dialog.request_context.as_ref().map(|ctx| ctx.addr),
         }
     }
 }
 
 impl AsteriskEntity {
-    fn build_ack_from_snapshot(&mut self, dialog: &SipDialogSnapshot) -> String {
+    /// `branch`/`cseq` are the caller's business: an ACK to a 2xx is its own transaction and
+    /// gets a fresh branch, while an ACK to a non-2xx final response must repeat the INVITE's
+    /// branch and CSeq number (RFC 3261 §17.1.1.3) or the UAS keeps retransmitting.
+    fn build_ack(&self, dialog: &SipDialogSnapshot, branch: &str, cseq: u32) -> String {
         let request_uri = self.request_uri(&dialog.number);
-        let branch = self.next_branch();
         let to = if let Some(tag) = &dialog.remote_tag {
             format!("<{}>;tag={}", request_uri, tag)
         } else {
@@ -1352,9 +1587,20 @@ impl AsteriskEntity {
             dialog.local_tag,
             to,
             dialog.call_id_header,
-            dialog.cseq,
+            cseq,
             self.contact_uri()
         )
+    }
+
+    /// ACK a final response that ended the INVITE transaction (401/407, 3xx-6xx).
+    fn ack_non_2xx(&mut self, uuid: Uuid, msg: &SipMessage, summary: &str) {
+        let Some(mut snapshot) = self.dialogs.get(&uuid).map(SipDialogSnapshot::from_dialog) else {
+            return;
+        };
+        // The response carries a To tag we never saw before; the ACK has to echo it back.
+        snapshot.remote_tag = Self::parse_to_tag(msg.header("To")).or(snapshot.remote_tag);
+        let ack = self.build_ack(&snapshot, &snapshot.invite_branch, snapshot.cseq);
+        self.send_sip(ack, summary.to_string());
     }
 }
 
@@ -1408,5 +1654,62 @@ impl TetraEntityTrait for AsteriskEntity {
         self.poll_sip(queue);
         self.poll_rtp(queue);
         self.refresh_status();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(cancel: bool) -> TeardownParams<'static> {
+        TeardownParams {
+            cancel,
+            invite_uri: "sip:1001@pbx.local",
+            remote_target: Some("sip:1001@10.0.0.9:5060"),
+            via_host: "10.0.0.2",
+            via_port: 5062,
+            invite_branch: "z9hG4bKflow00000001",
+            fresh_branch: "z9hG4bKflow00000009",
+            from_uri: "sip:flowstation@pbx.local",
+            local_tag: "flowabcd",
+            remote_tag: Some("as1234"),
+            call_id: "flow-uuid@10.0.0.2",
+            invite_cseq: 2,
+            contact: "sip:flowstation@10.0.0.2:5062",
+        }
+    }
+
+    #[test]
+    fn cancel_stays_inside_the_invite_transaction() {
+        let request = build_teardown_request(&params(true));
+        assert!(request.starts_with("CANCEL sip:1001@pbx.local SIP/2.0\r\n"), "{}", request);
+        assert!(request.contains("branch=z9hG4bKflow00000001;"), "{}", request);
+        assert!(request.contains("\r\nCSeq: 2 CANCEL\r\n"), "{}", request);
+        // RFC 3261 §9.1: To is copied from the INVITE, which went out untagged.
+        assert!(request.contains("\r\nTo: <sip:1001@pbx.local>\r\n"), "{}", request);
+        assert!(!request.contains("Contact:"), "{}", request);
+    }
+
+    #[test]
+    fn bye_opens_a_new_transaction_towards_the_remote_target() {
+        let request = build_teardown_request(&params(false));
+        assert!(request.starts_with("BYE sip:1001@10.0.0.9:5060 SIP/2.0\r\n"), "{}", request);
+        assert!(request.contains("branch=z9hG4bKflow00000009;"), "{}", request);
+        assert!(request.contains("\r\nCSeq: 3 BYE\r\n"), "{}", request);
+        assert!(request.contains("\r\nFrom: <sip:flowstation@pbx.local>;tag=flowabcd\r\n"), "{}", request);
+        assert!(request.contains("\r\nTo: <sip:1001@pbx.local>;tag=as1234\r\n"), "{}", request);
+    }
+
+    #[test]
+    fn contact_uri_is_unwrapped_from_angle_brackets() {
+        assert_eq!(
+            AsteriskEntity::parse_contact_uri(Some("<sip:1001@10.0.0.9:5060>;expires=60")).as_deref(),
+            Some("sip:1001@10.0.0.9:5060")
+        );
+        assert_eq!(
+            AsteriskEntity::parse_contact_uri(Some("sip:1001@10.0.0.9;transport=udp")).as_deref(),
+            Some("sip:1001@10.0.0.9")
+        );
+        assert_eq!(AsteriskEntity::parse_contact_uri(Some("*")), None);
     }
 }

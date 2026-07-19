@@ -27,6 +27,10 @@ Wants=network-online.target
 # "failed" state instead of crash-looping forever. Generous enough that a
 # legitimate web-triggered restart and the in-process SDR-open retries never
 # trip it; recover with a power cycle + `systemctl start`, or `systemctl reset-failed`.
+# This is the outer limiter for every restart cause: a panic exit (101), a
+# watchdog restart (75) and an OTA/web restart all count against it. The
+# in-process watchdog cooldown persists its last-restart stamp
+# (health_restart_state, next to the config), so it survives a restart too.
 StartLimitIntervalSec=300
 StartLimitBurst=10
 
@@ -53,6 +57,8 @@ KillSignal=SIGINT
 # Restart automatically on crash or unexpected exit.
 # on-failure covers: non-zero exit, killed by signal, timeout.
 # Does NOT restart on clean exit (systemctl stop) or SIGINT (graceful shutdown).
+# RestartSec spaces the retries out so 10 attempts take ~2 min of wall clock,
+# not 10 attempts in a second.
 Restart=on-failure
 RestartSec=10
 

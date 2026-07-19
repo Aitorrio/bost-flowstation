@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
-use super::{NetworkAddress, NetworkError, NetworkMessage, NetworkTransport};
+use super::{MAX_FRAME_BYTES, NetworkAddress, NetworkError, NetworkMessage, NetworkTransport, drain_length_prefixed};
 
 /// Configuration for creating a TCP transport
 #[derive(Debug, Clone)]
@@ -41,6 +41,10 @@ pub struct TcpTransport {
     server_addr: NetworkAddress,
     connect_timeout: Duration,
     read_timeout: Duration,
+    /// Bytes read from the socket that do not yet form a complete length-prefixed frame.
+    /// Must persist across `receive_reliable` calls — a message that spans TCP segments
+    /// would otherwise be half-consumed and dropped, desyncing the framing for good.
+    rx_buf: Vec<u8>,
 }
 
 impl TcpTransport {
@@ -50,6 +54,7 @@ impl TcpTransport {
             server_addr,
             connect_timeout,
             read_timeout,
+            rx_buf: Vec::new(),
         }
     }
 
@@ -69,6 +74,8 @@ impl TcpTransport {
 
     /// Closes the current TCP connection, if any.
     fn close_connection(&mut self) {
+        // Buffered bytes belong to the old connection's frame stream — never carry them over.
+        self.rx_buf.clear();
         if let Some(stream) = self.stream.take() {
             let _ = stream.shutdown(std::net::Shutdown::Both);
         }
@@ -148,55 +155,71 @@ impl NetworkTransport for TcpTransport {
     fn receive_reliable(&mut self) -> Vec<NetworkMessage> {
         let mut messages = Vec::new();
 
-        if let Some(ref mut stream) = self.stream {
-            tracing::debug!("TCP receive: checking for messages on connection");
-            // Set non-blocking mode for receiving
-            if let Err(e) = stream.set_nonblocking(true) {
-                tracing::error!("Failed to set non-blocking mode: {}", e);
-                return messages;
-            }
+        let Some(stream) = self.stream.as_mut() else {
+            return messages;
+        };
 
-            loop {
-                // Try to read message length
-                let mut len_bytes = [0u8; 4];
-                match stream.read_exact(&mut len_bytes) {
-                    Ok(()) => {
-                        let payload_len = u32::from_be_bytes(len_bytes) as usize;
-                        tracing::info!("Received message length: {} bytes", payload_len);
+        tracing::debug!("TCP receive: checking for messages on connection");
+        // Set non-blocking mode for receiving
+        if let Err(e) = stream.set_nonblocking(true) {
+            tracing::error!("Failed to set non-blocking mode: {}", e);
+            return messages;
+        }
 
-                        // Reasonable message size limit
-                        if payload_len > 1024 * 1024 {
-                            tracing::warn!("Message too large: {} bytes", payload_len);
-                            break;
-                        }
-
-                        // Read payload
-                        let mut payload = vec![0u8; payload_len];
-                        match stream.read_exact(&mut payload) {
-                            Ok(()) => {
-                                messages.push(NetworkMessage {
-                                    source: self.server_addr.clone(),
-                                    payload,
-                                    timestamp: Instant::now(),
-                                });
-                            }
-                            Err(_) => break, // Connection closed or error
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // No more data available
-                        tracing::debug!("TCP receive: no data available (would block)");
+        // Drain whatever the socket has into rx_buf; framing is decoded afterwards so a
+        // message split across segments is completed on a later call instead of being lost.
+        let mut chunk = [0u8; 8192];
+        let mut closed = false;
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => {
+                    tracing::debug!("TCP receive: peer closed the connection");
+                    closed = true;
+                    break;
+                }
+                Ok(n) => {
+                    self.rx_buf.extend_from_slice(&chunk[..n]);
+                    if self.rx_buf.len() > 2 * MAX_FRAME_BYTES {
+                        tracing::warn!("TCP receive: buffered {} bytes without a complete frame, resetting", self.rx_buf.len());
+                        self.rx_buf.clear();
+                        closed = true;
                         break;
                     }
-                    Err(e) => {
-                        tracing::debug!("TCP receive: error reading length header: {}", e);
-                        break; // Connection error
-                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    tracing::debug!("TCP receive: no data available (would block)");
+                    break;
+                }
+                Err(e) => {
+                    tracing::debug!("TCP receive: read error: {}", e);
+                    closed = true;
+                    break;
                 }
             }
+        }
 
-            // Restore blocking mode
-            let _ = stream.set_nonblocking(false);
+        // Restore blocking mode
+        let _ = stream.set_nonblocking(false);
+
+        match drain_length_prefixed(&mut self.rx_buf) {
+            Ok(frames) => {
+                for payload in frames {
+                    messages.push(NetworkMessage {
+                        source: self.server_addr.clone(),
+                        payload,
+                        timestamp: Instant::now(),
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::warn!("TCP receive: {} — dropping connection", e);
+                self.close_connection();
+                return messages;
+            }
+        }
+
+        if closed {
+            self.close_connection();
         }
 
         messages

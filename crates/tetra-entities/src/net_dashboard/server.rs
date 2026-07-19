@@ -30,6 +30,45 @@ const WS_CLIENT_QUEUE: usize = 256;
 /// thread count without bound. New upgrades past this are refused.
 const WS_MAX_CLIENTS: usize = 64;
 
+/// A TETRA SSI is a 24-bit identity. The PDU serializers write it with `write_bits(ssi, 24)`
+/// (MAC-RESOURCE, D-SDS-DATA) whose range assertion aborts the calling thread on a wider value —
+/// and every entity shares one un-isolated stack thread, so a single crafted dashboard request
+/// would take the whole cell down, then take it down again on every retry. The DGNA path already
+/// funnels through the same guard in MM; the dashboard is the highest-privilege plane, so it must
+/// reject at its own boundary too rather than trust what reaches the serializer.
+const MAX_TETRA_SSI: u32 = 0xFF_FFFF;
+
+/// True when `n` is a usable TETRA SSI: 24 bits wide, non-zero (0 is the "no identity" sentinel
+/// used across the call/SDS/DGNA paths).
+fn is_valid_ssi(n: u64) -> bool {
+    (1..=MAX_TETRA_SSI as u64).contains(&n)
+}
+
+/// Read `key` from a WS command body as a TETRA SSI. `None` when the field is missing, not a
+/// number, zero, or wider than 24 bits — every one of which the caller must refuse.
+fn json_ssi(v: &serde_json::Value, key: &str) -> Option<u32> {
+    v.get(key).and_then(|x| x.as_u64()).filter(|n| is_valid_ssi(*n)).map(|n| n as u32)
+}
+
+/// Report a refused SSI to the operator. The WS command channel has no per-command reply, so the
+/// log ring — which is broadcast to every connected browser — is where the rejection surfaces.
+fn reject_ws_ssi(state: &DashboardState, cmd: &str, field: &str, raw: Option<&serde_json::Value>) {
+    let raw = raw.map(|r| r.to_string()).unwrap_or_else(|| "missing".to_string());
+    tracing::warn!(
+        "Dashboard: refusing {} — {} {} out of range (must be 1..={})",
+        cmd,
+        field,
+        raw,
+        MAX_TETRA_SSI
+    );
+    if let Ok(mut s) = state.write() {
+        s.push_log(
+            "WARN",
+            format!("{cmd} rejected: {field} {raw} out of range (must be 1..={MAX_TETRA_SSI})"),
+        );
+    }
+}
+
 fn cp1252_byte(ch: char) -> Option<u8> {
     match ch {
         '\u{20AC}' => Some(0x80),
@@ -212,6 +251,93 @@ impl SessionStore {
 }
 
 type SharedSessionStore = Arc<Mutex<SessionStore>>;
+
+/// Failed-login tracking, shared across every dashboard connection.
+///
+/// The previous throttle was a `thread::sleep(500ms)` on the connection that failed — per-connection
+/// and nothing else. An attacker guessing in parallel paid nothing: each guess got its own thread
+/// and its own independent sleep, so throughput scaled with concurrency. A single hit hands over
+/// SDS, kick, DGNA, config, OTA and restart, so a failure has to cost across connections.
+///
+/// Counted per source IP: escalating delay first, then a hard lockout. The map is deliberately
+/// bounded — an attacker rotating source addresses must not be able to grow it without limit, that
+/// would just be a different DoS. Idle entries are pruned on access; if the map is still full the
+/// new address is simply not tracked (it still pays the base delay).
+struct LoginThrottle {
+    entries: HashMap<std::net::IpAddr, FailedLogins>,
+}
+
+struct FailedLogins {
+    count: u32,
+    last: Instant,
+}
+
+/// Consecutive failures tolerated before the address is locked out entirely.
+const LOGIN_LOCKOUT_AFTER: u32 = 5;
+/// First lockout length; doubles per further failure up to `LOGIN_LOCKOUT_MAX`.
+const LOGIN_LOCKOUT_BASE: std::time::Duration = std::time::Duration::from_secs(30);
+const LOGIN_LOCKOUT_MAX: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// No failure for this long and the address starts from a clean slate (also the prune horizon —
+/// deliberately longer than `LOGIN_LOCKOUT_MAX` so pruning can never drop an active lockout).
+const LOGIN_FAIL_RESET: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+/// Hard cap on tracked addresses. Sized well above any plausible operator count.
+const LOGIN_MAX_TRACKED_IPS: usize = 1024;
+/// Per-attempt delay ceiling. Each connection is its own thread, so the sleep must stay short
+/// enough that a flood of failures cannot pin threads — the lockout does the real work.
+const LOGIN_DELAY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl LoginThrottle {
+    fn new() -> Self {
+        Self { entries: HashMap::new() }
+    }
+
+    /// Lockout window earned by `count` consecutive failures, if any.
+    fn lockout(count: u32) -> Option<std::time::Duration> {
+        let over = count.checked_sub(LOGIN_LOCKOUT_AFTER)?;
+        let factor = 1u32.checked_shl(over.min(16)).unwrap_or(u32::MAX);
+        Some(LOGIN_LOCKOUT_BASE.saturating_mul(factor).min(LOGIN_LOCKOUT_MAX))
+    }
+
+    /// `Some(remaining)` while `ip` is locked out, `None` when it may attempt a login.
+    fn locked_for(&mut self, ip: &std::net::IpAddr) -> Option<std::time::Duration> {
+        self.prune();
+        let entry = self.entries.get(ip)?;
+        let lock = Self::lockout(entry.count)?;
+        let elapsed = entry.last.elapsed();
+        (elapsed < lock).then(|| lock - elapsed)
+    }
+
+    /// Record a failed attempt and return how long this connection should stall before replying.
+    fn record_failure(&mut self, ip: std::net::IpAddr) -> std::time::Duration {
+        self.prune();
+        let has_room = self.entries.len() < LOGIN_MAX_TRACKED_IPS;
+        let count = match self.entries.get_mut(&ip) {
+            Some(e) => {
+                e.count = e.count.saturating_add(1);
+                e.last = Instant::now();
+                e.count
+            }
+            None if has_room => {
+                self.entries.insert(ip, FailedLogins { count: 1, last: Instant::now() });
+                1
+            }
+            // Map full even after pruning — don't grow it; the base delay still applies.
+            None => 1,
+        };
+        LOGIN_DELAY_MAX.min(std::time::Duration::from_millis(500).saturating_mul(count))
+    }
+
+    /// A successful login clears the address' history.
+    fn clear(&mut self, ip: &std::net::IpAddr) {
+        self.entries.remove(ip);
+    }
+
+    fn prune(&mut self) {
+        self.entries.retain(|_, e| e.last.elapsed() < LOGIN_FAIL_RESET);
+    }
+}
+
+type SharedLoginThrottle = Arc<Mutex<LoginThrottle>>;
 
 /// 32 bytes of entropy → 64-char hex string. Uses the OS RNG via `getrandom`-style
 /// `/dev/urandom` read. Falls back to a time+pid mix if /dev/urandom is unavailable —
@@ -627,7 +753,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
 
         // Backup config before touching anything.
         let backup_path = format!("{}.bak", config_path);
-        match std::fs::copy(&config_path, &backup_path) {
+        match atomic_copy(&config_path, &backup_path) {
             Ok(_) => log!(update, "Config backed up → {}", backup_path),
             Err(e) => log!(update, "WARNING: config backup failed: {} (continuing)", e),
         }
@@ -722,6 +848,8 @@ pub struct DashboardServer {
     public_overview: bool,
     /// In-memory session store backing the cookie auth.
     sessions: SharedSessionStore,
+    /// Cross-connection failed-login counter backing the brute-force lockout.
+    login_throttle: SharedLoginThrottle,
     /// Last time a ts_voice WS message was broadcast per carrier/timeslot.
     ts_last_broadcast: std::sync::Mutex<HashMap<(u16, u8), std::time::Instant>>,
     /// On-demand RadioID callsign resolver (ISSI → indicativ), cached locally.
@@ -746,6 +874,7 @@ impl DashboardServer {
             auth: None,
             public_overview: false,
             sessions: Arc::new(Mutex::new(SessionStore::new())),
+            login_throttle: Arc::new(Mutex::new(LoginThrottle::new())),
             ts_last_broadcast: std::sync::Mutex::new(HashMap::new()),
             radioid: crate::net_dashboard::radioid::RadioIdCache::new(radioid_path),
         }
@@ -796,6 +925,7 @@ impl DashboardServer {
         let public_overview = self.public_overview;
         let shared_config = self.shared_config.clone();
         let sessions = Arc::clone(&self.sessions);
+        let login_throttle = Arc::clone(&self.login_throttle);
         let radioid = self.radioid.clone();
 
         std::thread::Builder::new()
@@ -836,6 +966,7 @@ impl DashboardServer {
                     let auth = auth.clone();
                     let shared_config = shared_config.clone();
                     let sessions = Arc::clone(&sessions);
+                    let login_throttle = Arc::clone(&login_throttle);
                     let radioid = radioid.clone();
                     std::thread::Builder::new()
                         .name("dashboard-conn".into())
@@ -851,6 +982,7 @@ impl DashboardServer {
                                 auth,
                                 shared_config,
                                 sessions,
+                                login_throttle,
                                 radioid,
                                 public_overview,
                             )
@@ -1486,14 +1618,24 @@ fn parse_basic_auth(headers: &str) -> Option<(String, String)> {
 }
 
 /// Constant-time byte slice comparison to mitigate timing attacks.
-/// Returns true iff a == b in length and content.
-fn timing_safe_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
+/// Returns true iff `supplied == expected` in length and content.
+///
+/// Bailing out early on a length mismatch — as this used to — leaks the *expected* secret's length:
+/// an attacker times candidates of increasing length and reads off how long the dashboard password
+/// or the TPG2200 ActionURL token is before guessing a single byte of it. Instead we always walk
+/// the supplied input end to end, wrapping around `expected`, and fold the length difference into
+/// the accumulator. The work now depends only on the attacker's own input length, never on the
+/// secret's, and the result is still exact equality.
+fn timing_safe_eq(supplied: &[u8], expected: &[u8]) -> bool {
+    let mut diff: u32 = (supplied.len() ^ expected.len()) as u32;
+    let mut j = 0usize;
+    for x in supplied {
+        let y = expected.get(j).copied().unwrap_or(0);
+        diff |= (*x ^ y) as u32;
+        j += 1;
+        if j >= expected.len() {
+            j = 0;
+        }
     }
     diff == 0
 }
@@ -1588,10 +1730,13 @@ fn handle_connection(
     auth: Option<(String, String)>,
     shared_config: Option<tetra_config::bluestation::SharedConfig>,
     sessions: SharedSessionStore,
+    login_throttle: SharedLoginThrottle,
     radioid: crate::net_dashboard::radioid::RadioIdCache,
     public_overview: bool,
 ) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+    // Captured before the stream is wrapped in a BufReader — the login throttle keys on it.
+    let peer_ip = stream.peer_addr().ok().map(|a| a.ip());
 
     // ── Read the first 4KB of headers into a buffer, peek first for routing ──
     // We need to both route on the request line AND read the Authorization header,
@@ -1682,6 +1827,26 @@ fn handle_connection(
             let _ = buf.read_exact(&mut body);
             let body_str = String::from_utf8_lossy(&body);
 
+            // Shared lockout, checked before the credentials are even looked at: an attacker
+            // opening N sockets in parallel used to sidestep the throttle entirely, because each
+            // connection only slept on itself.
+            if let Some(ip) = peer_ip {
+                let locked = login_throttle
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .locked_for(&ip);
+                if let Some(remaining) = locked {
+                    let secs = remaining.as_secs().max(1);
+                    tracing::warn!("Dashboard: login from {} locked out for another {}s", ip, secs);
+                    http_response(
+                        buf.into_inner(),
+                        429,
+                        &format!("Too many failed logins — try again in {}s", secs),
+                    );
+                    return;
+                }
+            }
+
             let (user, pass) = parse_login_body(&body_str);
             let ok = timing_safe_eq(user.as_bytes(), expected_user.as_bytes()) && timing_safe_eq(pass.as_bytes(), expected_pass.as_bytes());
 
@@ -1692,11 +1857,19 @@ fn handle_connection(
                 // the session store itself stays usable.
                 let token = sessions.lock().unwrap_or_else(|e| e.into_inner()).create();
                 tracing::info!("Dashboard: login OK (user: {})", user);
+                if let Some(ip) = peer_ip {
+                    login_throttle.lock().unwrap_or_else(|e| e.into_inner()).clear(&ip);
+                }
                 serve_login_success(buf.into_inner(), &token);
             } else {
                 tracing::warn!("Dashboard: login FAILED (user attempt: {})", user);
-                // Small artificial delay to limit brute-force throughput.
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                // Escalating, cross-connection cost: the delay grows with the failure count for
+                // this source IP, and past LOGIN_LOCKOUT_AFTER the address is locked out above.
+                let delay = match peer_ip {
+                    Some(ip) => login_throttle.lock().unwrap_or_else(|e| e.into_inner()).record_failure(ip),
+                    None => std::time::Duration::from_millis(500),
+                };
+                std::thread::sleep(delay);
                 http_response(buf.into_inner(), 401, "Invalid credentials");
             }
             return;
@@ -1973,13 +2146,15 @@ fn handle_connection(
                 break;
             }
         }
-        let backup_path = format!("{}.bak", config_path);
-        match std::fs::copy(&backup_path, &config_path) {
-            Ok(_) => {
+        match restore_config_from_backup(&config_path) {
+            Ok(()) => {
                 tracing::info!("Dashboard: config restored from backup");
                 http_response(buf.into_inner(), 200, "OK")
             }
-            Err(e) => http_response(buf.into_inner(), 500, &e.to_string()),
+            Err((code, msg)) => {
+                tracing::warn!("Dashboard: config restore refused: {}", msg);
+                http_response(buf.into_inner(), code, &msg)
+            }
         }
     } else if req_line.contains("POST /api/config") {
         let mut buf = BufReader::new(stream);
@@ -2259,7 +2434,15 @@ fn handle_connection(
                     http_response(buf.into_inner(), 400, "text required, max 251 chars");
                 } else {
                     let protocol_id = v.get("protocol_id").and_then(|p| p.as_u64()).unwrap_or(220) as u8;
-                    let source_issi = v.get("source_issi").and_then(|s| s.as_u64()).unwrap_or(16777215) as u32;
+                    // The broadcast is serialized with write_bits(source_ssi, 24). `as u32` on the
+                    // raw JSON number let anything >= 2^24 through to that assertion, which aborts
+                    // the single stack thread — one POST would crash-loop the cell.
+                    let source_issi = v.get("source_issi").and_then(|s| s.as_u64()).unwrap_or(16_777_215);
+                    if !is_valid_ssi(source_issi) {
+                        http_response(buf.into_inner(), 400, "source_issi out of range (must be 1..=16777215)");
+                        return;
+                    }
+                    let source_issi = source_issi as u32;
                     let repeat_count = v.get("repeat_count").and_then(|r| r.as_u64()).unwrap_or(0) as u32;
                     tracing::info!("Dashboard: AddLiveSds text={:?} repeat={}", text, repeat_count);
                     send_control_cmd(
@@ -2543,10 +2726,10 @@ fn handle_ws_command(
 
     match cmd_type {
         Some("kick") => {
-            let issi = v.get("issi").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
-            if issi == 0 {
+            let Some(issi) = json_ssi(&v, "issi") else {
+                reject_ws_ssi(state, "kick", "issi", v.get("issi"));
                 return;
-            }
+            };
             tracing::info!("Dashboard: kick ISSI {}", issi);
             if !send_cmd(ControlCommand::KickMs { issi }) {
                 tracing::warn!("Dashboard: no control dispatcher for kick");
@@ -2579,9 +2762,15 @@ fn handle_ws_command(
             s.push_log("INFO", "OTA update started — check /api/update/status for progress".to_string());
         }
         Some("sds") => {
-            let dest = v.get("dest_issi").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
+            // The destination lands in D-SDS-DATA's 24-bit address field. `as u32` silently
+            // truncated a wider JSON value into an in-range-looking one only by accident — values
+            // between 2^24 and 2^32 reached write_bits and aborted the stack thread.
+            let Some(dest) = json_ssi(&v, "dest_issi") else {
+                reject_ws_ssi(state, "sds", "dest_issi", v.get("dest_issi"));
+                return;
+            };
             let msg_text = v.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
-            if dest == 0 || msg_text.is_empty() {
+            if msg_text.is_empty() {
                 return;
             }
             tracing::info!("Dashboard: SDS to {} = {}", dest, msg_text);
@@ -2615,8 +2804,14 @@ fn handle_ws_command(
             s.push_log("INFO", format!("SDS sent to {}: {}", dest, msg_text));
         }
         Some("dgna") => {
-            let issi = v.get("issi").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
-            let gssi = v.get("gssi").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
+            let Some(issi) = json_ssi(&v, "issi") else {
+                reject_ws_ssi(state, "dgna", "issi", v.get("issi"));
+                return;
+            };
+            let Some(gssi) = json_ssi(&v, "gssi") else {
+                reject_ws_ssi(state, "dgna", "gssi", v.get("gssi"));
+                return;
+            };
             let mnemonic = v
                 .get("mnemonic")
                 .and_then(|m| m.as_str())
@@ -2645,9 +2840,6 @@ fn handle_ws_command(
             } else {
                 default_attachment_mode
             };
-            if issi == 0 || gssi == 0 {
-                return;
-            }
             let verb = if attach { "assign" } else { "deassign" };
             tracing::info!(
                 "Dashboard: DGNA {} GSSI {} on ISSI {} (mnemonic={:?}, attachment_mode={})",
@@ -2684,7 +2876,10 @@ fn handle_ws_command(
             );
         }
         Some("dgna_bulk") => {
-            let gssi = v.get("gssi").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
+            let Some(gssi) = json_ssi(&v, "gssi") else {
+                reject_ws_ssi(state, "dgna_bulk", "gssi", v.get("gssi"));
+                return;
+            };
             let mnemonic = v
                 .get("mnemonic")
                 .and_then(|m| m.as_str())
@@ -2714,23 +2909,39 @@ fn handle_ws_command(
             } else {
                 default_attachment_mode
             };
-            if gssi == 0 {
-                return;
-            }
             let mut targets = Vec::<u32>::new();
             if all_radios {
-                let mut issis: Vec<u32> = state.read().unwrap().ms_map.keys().copied().collect();
+                let mut issis: Vec<u32> = state
+                    .read()
+                    .unwrap()
+                    .ms_map
+                    .keys()
+                    .copied()
+                    .filter(|i| is_valid_ssi(*i as u64))
+                    .collect();
                 issis.sort_unstable();
                 issis.dedup();
                 targets = issis;
             } else if let Some(arr) = v.get("targets").and_then(|t| t.as_array()) {
+                // Every target is addressed individually, so one out-of-range entry in the list is
+                // enough to panic the serializer. Drop the bad ones and tell the operator, rather
+                // than sending the good half and crashing on the rest.
+                let mut refused = 0usize;
                 for value in arr {
-                    let issi = value.as_u64().unwrap_or(0) as u32;
-                    if issi != 0 && !targets.contains(&issi) {
-                        targets.push(issi);
+                    match value.as_u64() {
+                        Some(n) if is_valid_ssi(n) => {
+                            let issi = n as u32;
+                            if !targets.contains(&issi) {
+                                targets.push(issi);
+                            }
+                        }
+                        _ => refused += 1,
                     }
                 }
                 targets.sort_unstable();
+                if refused > 0 {
+                    reject_ws_ssi(state, "dgna_bulk", "targets", v.get("targets"));
+                }
             }
             if targets.is_empty() {
                 return;
@@ -2773,10 +2984,10 @@ fn handle_ws_command(
             );
         }
         Some("emergency_clear") => {
-            let issi = v.get("issi").and_then(|i| i.as_u64()).unwrap_or(0) as u32;
-            if issi == 0 {
+            let Some(issi) = json_ssi(&v, "issi") else {
+                reject_ws_ssi(state, "emergency_clear", "issi", v.get("issi"));
                 return;
-            }
+            };
             tracing::info!("Dashboard: operator clearing emergency for ISSI {}", issi);
             // Route to CMCE: it clears the source SDS session (so the emergency does not re-arm on
             // the radio's next status re-send) and emits EmergencyCancel, which clears the banner
@@ -3764,7 +3975,8 @@ fn save_config_profile(config_path: &str, profile_name: &str, content: &str) -> 
         Err(e) => return Err(format!("config does not parse: {e}")),
     }
 
-    std::fs::write(&profile_path, content.as_bytes()).map_err(|e| format!("failed to write profile: {}", e))
+    let profile_path = profile_path.to_str().ok_or_else(|| "invalid profile path".to_string())?;
+    atomic_write(profile_path, &content).map_err(|e| format!("failed to write profile: {}", e))
 }
 
 /// GET /api/public — anonymous read-only overview (FH-FEAT-033). Projects ONLY non-sensitive,
@@ -3828,13 +4040,12 @@ fn activate_config_profile(config_path: &str, profile_name: &str) -> Result<(), 
 
     // Backup current config before switching
     let backup_path = format!("{}.bak", config_path);
-    if let Err(e) = std::fs::copy(config_path, &backup_path) {
+    if let Err(e) = atomic_copy(config_path, &backup_path) {
         tracing::warn!("Dashboard: failed to backup config before profile switch: {}", e);
     }
 
-    std::fs::copy(&profile_path, config_path)
-        .map(|_| ())
-        .map_err(|e| format!("failed to copy profile: {}", e))
+    // Atomic: the live config is either the old one or the profile, never a truncated mix.
+    atomic_write(config_path, &profile_content).map_err(|e| format!("failed to copy profile: {}", e))
 }
 
 fn serve_html(mut stream: TcpStream) {
@@ -3926,6 +4137,69 @@ fn unmask_config_secrets(body: &str, current: &str) -> String {
     out
 }
 
+/// Write `content` to `path` atomically: temp file in the SAME directory, flushed, then renamed
+/// over the target. `fs::write`/`fs::copy` truncate the destination first, so a crash (or a power
+/// cut — this is a base station) between truncate and write leaves a half-written config.toml that
+/// no longer parses, which aborts startup under systemd `Restart=` and crash-loops the cell. rename
+/// within one filesystem is atomic, so the config is either the old one or the new one, never half.
+fn atomic_write(path: &str, content: &str) -> std::io::Result<()> {
+    let target = std::path::Path::new(path);
+    let dir = match target.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => std::path::PathBuf::from("."),
+    };
+    let name = target.file_name().and_then(|n| n.to_str()).unwrap_or("config.toml");
+    let tmp = dir.join(format!(".{}.tmp{}", name, std::process::id()));
+
+    let write_tmp = || -> std::io::Result<()> {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(content.as_bytes())?;
+        f.sync_all()
+    };
+    if let Err(e) = write_tmp() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, target) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Copy `src` over `dst` atomically (read + [`atomic_write`]), for the config backup/activate paths
+/// that used `fs::copy` — same truncate-then-write exposure as `fs::write`.
+fn atomic_copy(src: &str, dst: &str) -> std::io::Result<()> {
+    let content = std::fs::read_to_string(src)?;
+    atomic_write(dst, &content)
+}
+
+/// POST /api/config/restore — put `<config>.bak` back as the live config.
+///
+/// The backup is NOT trusted: it may be truncated (an old non-atomic write that was interrupted),
+/// or written by an earlier schema that no longer parses. Copying it over the live config and
+/// restarting — which is what this endpoint used to do, unconditionally — bricks the station with
+/// no way back. So dry-run parse + `validate()` first, exactly like `write_config_validated`, and
+/// snapshot the config we are about to replace to `<config>.prerestore` so the operator can undo.
+fn restore_config_from_backup(config_path: &str) -> Result<(), (u16, String)> {
+    let backup_path = format!("{}.bak", config_path);
+    let content = std::fs::read_to_string(&backup_path).map_err(|e| (500, format!("cannot read backup: {e}")))?;
+    match tetra_config::bluestation::parsing::from_toml_str(&content) {
+        Ok(cfg) => {
+            if let Err(e) = cfg.validate() {
+                return Err((400, format!("backup is invalid, refusing to restore: {e}")));
+            }
+        }
+        Err(e) => return Err((400, format!("backup does not parse, refusing to restore: {e}"))),
+    }
+    // Keep the config we are replacing — a restore is itself an operation the operator may regret.
+    let snapshot_path = format!("{}.prerestore", config_path);
+    if let Err(e) = atomic_copy(config_path, &snapshot_path) {
+        tracing::warn!("Dashboard: failed to snapshot config before restore: {}", e);
+    }
+    atomic_write(config_path, &content).map_err(|e| (500, e.to_string()))
+}
+
 /// Persist a posted config.toml after a dry-run parse + validate.
 ///
 /// Writing garbage here is what would brick the base station: the service restarts to apply config,
@@ -3953,10 +4227,10 @@ fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, Str
     }
     // Back up the current config before overwriting (best-effort; a missing source is not fatal).
     let backup_path = format!("{}.bak", config_path);
-    if let Err(e) = std::fs::copy(config_path, &backup_path) {
+    if let Err(e) = atomic_copy(config_path, &backup_path) {
         tracing::warn!("Dashboard: failed to write config backup: {}", e);
     }
-    std::fs::write(config_path, body).map_err(|e| (500, e.to_string()))
+    atomic_write(config_path, body).map_err(|e| (500, e.to_string()))
 }
 
 fn serve_config_get(mut stream: TcpStream, config_path: &str) {
@@ -4358,8 +4632,14 @@ fn serve_tpg2200_action_url(
         http_response(stream, 403, "Forbidden");
         return;
     }
-    if action.dest_issi == 0 || action.source_issi == 0 {
-        http_response(stream, 500, "TPG2200 ActionURL not fully configured");
+    // Both identities go into D-SDS-DATA's 24-bit address fields. A misconfigured (or hand-edited)
+    // wider value would panic the stack thread on the first call-out, so refuse to send at all.
+    if !is_valid_ssi(action.dest_issi as u64) || !is_valid_ssi(action.source_issi as u64) {
+        http_response(
+            stream,
+            500,
+            "TPG2200 ActionURL not fully configured (source/dest ISSI must be 1..=16777215)",
+        );
         return;
     }
 
@@ -5560,10 +5840,14 @@ fn serve_dapnet_send(
 #[cfg(test)]
 mod tests {
     use super::{
-        DashboardServer, activate_config_profile, binary_built_from, is_masked_secret_key, mask_config_secrets,
-        normalize_mojibake_html, save_config_profile, write_config_validated,
+        DashboardServer, LoginThrottle, MAX_TETRA_SSI, UpdateState, activate_config_profile, binary_built_from,
+        handle_ws_command, is_masked_secret_key, mask_config_secrets, normalize_mojibake_html,
+        restore_config_from_backup, save_config_profile, timing_safe_eq, write_config_validated,
     };
+    use crate::net_control::commands::ControlCommand;
+    use crate::net_dashboard::state::DashboardStateInner;
     use crate::net_telemetry::TelemetryEvent;
+    use std::sync::{Arc, Mutex, RwLock};
 
     /// A minimal config.toml that parses + validates (mirrors tetra-config's own minimal fixture).
     const MINIMAL_CONFIG: &str = r#"
@@ -5809,6 +6093,152 @@ enabled = true
         assert!(
             !resolved.contains('\u{2022}') && !resolved.contains('\u{2026}'),
             "mask characters must not be persisted"
+        );
+    }
+
+    /// Drive `handle_ws_command` with a real command channel and report what reached CMCE.
+    fn run_ws_command(json: &str) -> Vec<ControlCommand> {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let state = Arc::new(RwLock::new(DashboardStateInner::new("/tmp/fs_ws_cmd_test.toml".to_string())));
+        let cmd_tx = Arc::new(Mutex::new(Some(tx)));
+        let update_state = Arc::new(Mutex::new(UpdateState::new()));
+        handle_ws_command(json, &state, &cmd_tx, &update_state, &None);
+        rx.try_iter().collect()
+    }
+
+    /// SHIP-BLOCKER regression: a TETRA SSI is 24 bits and the PDU serializers assert that range,
+    /// so an out-of-range `dest_issi` on the dashboard SDS path used to reach `write_bits(ssi, 24)`
+    /// and abort the single stack thread — one WS frame crash-looping the whole cell. It must be
+    /// refused at the dashboard boundary instead, and an in-range one must still go through.
+    #[test]
+    fn ws_sds_rejects_out_of_range_ssi() {
+        // 2^24 — the first value that no longer fits the 24-bit address field.
+        let over = MAX_TETRA_SSI as u64 + 1;
+        let sent = run_ws_command(&format!(r#"{{"type":"sds","dest_issi":{over},"message":"boom"}}"#));
+        assert!(sent.is_empty(), "out-of-range dest_issi must never reach CMCE, got {sent:?}");
+
+        // 2^32 + 1 — `as u32` would silently truncate this to a perfectly legal-looking ISSI 1.
+        let wrapped = 0x1_0000_0001u64;
+        let sent = run_ws_command(&format!(r#"{{"type":"sds","dest_issi":{wrapped},"message":"boom"}}"#));
+        assert!(sent.is_empty(), "wrapping dest_issi must be refused, not truncated");
+
+        // Zero (the "no identity" sentinel) stays refused too.
+        assert!(run_ws_command(r#"{"type":"sds","dest_issi":0,"message":"x"}"#).is_empty());
+
+        // The largest legal SSI is accepted and reaches CMCE unchanged.
+        let sent = run_ws_command(&format!(
+            r#"{{"type":"sds","dest_issi":{},"message":"hello"}}"#,
+            MAX_TETRA_SSI
+        ));
+        match sent.as_slice() {
+            [ControlCommand::SendSds { dest_ssi, .. }] => assert_eq!(*dest_ssi, MAX_TETRA_SSI),
+            other => panic!("expected one SendSds for a valid SSI, got {other:?}"),
+        }
+    }
+
+    /// The same 24-bit guard on the other privileged WS commands — each one addresses a radio or a
+    /// group and ends up in a serializer with the same assertion.
+    #[test]
+    fn ws_kick_and_dgna_reject_out_of_range_ssi() {
+        let over = MAX_TETRA_SSI as u64 + 1;
+        assert!(run_ws_command(&format!(r#"{{"type":"kick","issi":{over}}}"#)).is_empty());
+        assert!(run_ws_command(&format!(r#"{{"type":"dgna","issi":{over},"gssi":1000}}"#)).is_empty());
+        assert!(run_ws_command(&format!(r#"{{"type":"dgna","issi":1000,"gssi":{over}}}"#)).is_empty());
+        assert!(run_ws_command(&format!(r#"{{"type":"dgna_bulk","gssi":{over},"targets":[1000]}}"#)).is_empty());
+        // Out-of-range entries are dropped from a bulk target list; the valid ones still go.
+        let sent = run_ws_command(&format!(r#"{{"type":"dgna_bulk","gssi":1000,"targets":[{over},4242]}}"#));
+        match sent.as_slice() {
+            [ControlCommand::Dgna { issi, gssi, .. }] => {
+                assert_eq!((*issi, *gssi), (4242, 1000), "only the in-range target is regrouped");
+            }
+            other => panic!("expected one Dgna for the single valid target, got {other:?}"),
+        }
+    }
+
+    /// A `.bak` that does not parse (truncated by an interrupted write, or written by an older
+    /// schema) must NOT be copied over the live config: the restore endpoint used to do exactly
+    /// that and then restart, leaving an unbootable station with nothing to fall back to.
+    #[test]
+    fn config_restore_refuses_invalid_backup_and_preserves_live_config() {
+        let dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let cfg = dir.join(format!("fs_restore_{pid}.toml"));
+        let cfg_str = cfg.to_str().unwrap().to_string();
+        std::fs::write(&cfg, MINIMAL_CONFIG).expect("seed active config");
+
+        // A truncated backup — parses as far as it goes, then stops mid-table.
+        std::fs::write(format!("{cfg_str}.bak"), "config_version = \"0.6\"\n[phy_io\n").expect("seed bad backup");
+        match restore_config_from_backup(&cfg_str) {
+            Err((400, _)) => {}
+            other => panic!("expected a 400 refusal for an unparseable backup, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(&cfg).unwrap(),
+            MINIMAL_CONFIG,
+            "live config must be untouched when the backup is refused"
+        );
+
+        // A good backup restores, and the config it replaced is snapshotted so the operator can undo.
+        let good = format!("{}\n# from backup\n", MINIMAL_CONFIG);
+        std::fs::write(format!("{cfg_str}.bak"), &good).expect("seed good backup");
+        restore_config_from_backup(&cfg_str).expect("valid backup restores");
+        assert_eq!(std::fs::read_to_string(&cfg).unwrap(), good, "valid backup is restored");
+        assert_eq!(
+            std::fs::read_to_string(format!("{cfg_str}.prerestore")).unwrap(),
+            MINIMAL_CONFIG,
+            "the replaced config is kept as a pre-restore snapshot"
+        );
+
+        let _ = std::fs::remove_file(&cfg);
+        let _ = std::fs::remove_file(format!("{cfg_str}.bak"));
+        let _ = std::fs::remove_file(format!("{cfg_str}.prerestore"));
+    }
+
+    /// Comparing credentials must not leak the *expected* secret's length via an early return.
+    #[test]
+    fn timing_safe_eq_is_exact_and_length_agnostic() {
+        assert!(timing_safe_eq(b"hunter2", b"hunter2"));
+        assert!(timing_safe_eq(b"", b""));
+        assert!(!timing_safe_eq(b"hunter2", b"hunter"), "a prefix is not a match");
+        assert!(!timing_safe_eq(b"hunter", b"hunter2"), "a shorter supplied value is not a match");
+        assert!(!timing_safe_eq(b"", b"secret"));
+        assert!(!timing_safe_eq(b"secret", b""));
+        // The wrap-around must not make a repeated candidate compare equal to a shorter secret.
+        assert!(!timing_safe_eq(b"abab", b"ab"));
+    }
+
+    /// Failed logins must cost across connections (the old per-connection sleep did nothing against
+    /// a parallel attacker), and the tracking map must stay bounded so it isn't a DoS of its own.
+    #[test]
+    fn login_throttle_locks_out_and_stays_bounded() {
+        use std::net::{IpAddr, Ipv4Addr};
+        let mut t = LoginThrottle::new();
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 7));
+
+        // Below the threshold: delay grows, but the address may keep trying.
+        for _ in 0..super::LOGIN_LOCKOUT_AFTER - 1 {
+            t.record_failure(ip);
+            assert!(t.locked_for(&ip).is_none(), "must not lock out before the threshold");
+        }
+        // Crossing it locks the address out for everyone, on every connection.
+        t.record_failure(ip);
+        let lock = t.locked_for(&ip).expect("must lock out at the threshold");
+        assert!(lock > std::time::Duration::from_secs(1));
+        // Further failures escalate.
+        t.record_failure(ip);
+        assert!(t.locked_for(&ip).unwrap() > lock, "backoff must escalate");
+        // A successful login wipes the history.
+        t.clear(&ip);
+        assert!(t.locked_for(&ip).is_none(), "success clears the lockout");
+
+        // Rotating source addresses cannot grow the map without bound.
+        for i in 0..(super::LOGIN_MAX_TRACKED_IPS as u32 + 500) {
+            t.record_failure(IpAddr::V4(Ipv4Addr::from(i)));
+        }
+        assert!(
+            t.entries.len() <= super::LOGIN_MAX_TRACKED_IPS,
+            "throttle map must stay capped, got {}",
+            t.entries.len()
         );
     }
 

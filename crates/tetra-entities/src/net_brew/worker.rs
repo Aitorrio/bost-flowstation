@@ -19,6 +19,24 @@ use super::protocol::*;
 
 // ─── Events passed from worker to entity ─────────────────────────
 
+/// Capacity of the worker→entity event channel.
+///
+/// The channel MUST stay bounded: the entity drains it from the single TDMA thread, so an
+/// unbounded queue lets a remote core (or an on-path attacker when `tls = false`) stream
+/// frames faster than one tick can drain and grow it until the box runs out of memory.
+/// Sized for roughly a second of worst-case traffic — the entity drains MAX_EVENTS_PER_TICK
+/// events per timeslot (see `entity.rs`), so it empties far faster than that.
+pub const BREW_EVENT_CHANNEL_CAPACITY: usize = 512;
+
+/// How long a *signalling* event may wait for room on a full event channel before being
+/// dropped. Blocking here is deliberate: it stops us reading the socket, which is what
+/// applies backpressure to the peer. Bounded so the worker still reaches its heartbeat.
+const EVENT_SEND_BACKPRESSURE: Duration = Duration::from_millis(100);
+
+/// Minimum spacing between "voice dropped" warnings — the condition is per-frame, the log
+/// must not become the next flood.
+const VOICE_DROP_WARN_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Events the Brew worker sends to the BrewEntity
 #[derive(Debug)]
 pub enum BrewEvent {
@@ -187,6 +205,18 @@ pub enum BrewCommand {
     Disconnect,
 }
 
+/// Offer one event to the bounded entity channel. Returns the event back on failure.
+///
+/// Voice never waits: it is lossy by nature and a stalled entity must not stall the socket
+/// reader. Signalling waits up to `backpressure` for room — that pause is the point, it stops
+/// us draining the socket and lets TCP push back on the peer instead of us buffering for it.
+fn offer_event(sender: &Sender<BrewEvent>, event: BrewEvent, backpressure: Duration) -> Result<(), BrewEvent> {
+    if matches!(event, BrewEvent::VoiceFrame { .. }) {
+        return sender.try_send(event).map_err(|e| e.into_inner());
+    }
+    sender.send_timeout(event, backpressure).map_err(|e| e.into_inner())
+}
+
 // ─── Worker ───────────────────────────────────────────────────────
 
 /// Pending SDS header data (from CALL_STATE_SHORT_TRANSFER), awaiting matching FRAME_TYPE_SDS_TRANSFER
@@ -214,6 +244,10 @@ pub struct BrewWorker<T: NetworkTransport> {
     subscriber_groups: HashMap<u32, HashSet<u32>>,
     /// Pending SDS transfers keyed by UUID, awaiting matching SDS_TRANSFER frame
     pending_sds: HashMap<Uuid, PendingSds>,
+    /// Voice frames dropped because the entity channel was full, since the last warning
+    voice_dropped: u64,
+    /// When we last warned about dropped voice
+    last_voice_drop_warn: Option<Instant>,
 }
 
 impl<T: NetworkTransport> BrewWorker<T> {
@@ -227,6 +261,36 @@ impl<T: NetworkTransport> BrewWorker<T> {
             command_receiver,
             subscriber_groups: HashMap::new(),
             pending_sds: HashMap::new(),
+            voice_dropped: 0,
+            last_voice_drop_warn: None,
+        }
+    }
+
+    /// Hand an event to the entity over the bounded channel.
+    ///
+    /// Voice is lossy — a dropped ACELP frame is a click the jitter buffer hides — so it is
+    /// discarded immediately when the entity is behind. Signalling is not lossy: it waits a
+    /// short, bounded moment for room (which stops us draining the socket and pushes back on
+    /// the peer) and is only dropped if the entity is still stuck after that.
+    fn send_event(&mut self, event: BrewEvent) {
+        let lossy = matches!(event, BrewEvent::VoiceFrame { .. });
+        if offer_event(&self.event_sender, event, EVENT_SEND_BACKPRESSURE).is_err() {
+            if lossy {
+                self.voice_dropped += 1;
+                let due = self
+                    .last_voice_drop_warn
+                    .is_none_or(|last| last.elapsed() >= VOICE_DROP_WARN_INTERVAL);
+                if due {
+                    tracing::warn!(
+                        "BrewWorker: entity event channel full — dropped {} voice frames (core sending faster than the TDMA tick drains)",
+                        self.voice_dropped
+                    );
+                    self.voice_dropped = 0;
+                    self.last_voice_drop_warn = Some(Instant::now());
+                }
+            } else {
+                tracing::error!("BrewWorker: entity event channel still full after backpressure — dropped a signalling event");
+            }
         }
     }
 
@@ -247,9 +311,8 @@ impl<T: NetworkTransport> BrewWorker<T> {
             match self.transport.connect() {
                 Ok(()) => {
                     tracing::info!("BrewWorker: transport connected");
-                    let _ = self.event_sender.send(BrewEvent::Connected {
-                        server_version: self.transport.server_brew_version(),
-                    });
+                    let server_version = self.transport.server_brew_version();
+                    self.send_event(BrewEvent::Connected { server_version });
                 }
                 Err(e) => {
                     tracing::error!(
@@ -257,7 +320,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         e,
                         self.brew_config.reconnect_delay
                     );
-                    let _ = self.event_sender.send(BrewEvent::Disconnected(e.to_string()));
+                    self.send_event(BrewEvent::Disconnected(e.to_string()));
                     std::thread::sleep(self.brew_config.reconnect_delay);
                     continue;
                 }
@@ -275,7 +338,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         e,
                         self.brew_config.reconnect_delay
                     );
-                    let _ = self.event_sender.send(BrewEvent::Disconnected(e));
+                    self.send_event(BrewEvent::Disconnected(e));
                     std::thread::sleep(self.brew_config.reconnect_delay);
                 }
             }
@@ -572,7 +635,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                 BrewMessage::Subscriber(sub) => {
                     tracing::debug!("BrewWorker: subscriber event type={}", sub.msg_type);
                     // TODO FIXME we could check whether this call is indeed a brew ssi here
-                    let _ = self.event_sender.send(BrewEvent::SubscriberEvent {
+                    self.send_event(BrewEvent::SubscriberEvent {
                         msg_type: sub.msg_type,
                         issi: sub.number,
                         groups: sub.groups,
@@ -581,7 +644,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                 BrewMessage::Error(err) => {
                     tracing::warn!("BrewWorker: server error type={}: {} bytes", err.error_type, err.data.len());
                     // TODO FIXME we could check whether this call is indeed a brew ssi here
-                    let _ = self.event_sender.send(BrewEvent::ServerError {
+                    self.send_event(BrewEvent::ServerError {
                         error_type: err.error_type,
                         data: err.data,
                     });
@@ -612,7 +675,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                     );
                     // Detect server version from mnemonic presence (v1 includes 34-byte mnemonic)
                     if gt.mnemonic.is_some() {
-                        let _ = self.event_sender.send(BrewEvent::VersionDetected { version: 1 });
+                        self.send_event(BrewEvent::VersionDetected { version: 1 });
                     }
                     // Inbound admission (FH-FEAT-032 R3): a Brew-originated group call must NOT be
                     // gated by the outbound-only `whitelisted_ssis`; only `local_ssi_ranges` reject it.
@@ -620,7 +683,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         tracing::warn!("BrewWorker: dropping GROUP_TX to inactive/local-only GSSI {}", gt.destination);
                         return;
                     };
-                    let _ = self.event_sender.send(BrewEvent::GroupCallStart {
+                    self.send_event(BrewEvent::GroupCallStart {
                         uuid: cc.identifier,
                         source_issi: gt.source,
                         dest_gssi: gt.destination,
@@ -633,7 +696,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                 let cause = if let BrewCallPayload::Cause(c) = cc.payload { c } else { 0 };
                 tracing::info!("BrewWorker: GROUP_IDLE uuid={} cause={}", cc.identifier, cause);
                 // TODO FIXME we could check whether this call is indeed a brew call here
-                let _ = self.event_sender.send(BrewEvent::GroupCallEnd {
+                self.send_event(BrewEvent::GroupCallEnd {
                     uuid: cc.identifier,
                     cause,
                 });
@@ -649,24 +712,24 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         call.number,
                         call.duplex
                     );
-                    let _ = self.event_sender.send(BrewEvent::CircuitSetupRequest { uuid: cc.identifier, call });
+                    self.send_event(BrewEvent::CircuitSetupRequest { uuid: cc.identifier, call });
                 }
             }
             CALL_STATE_SETUP_ACCEPT => {
                 tracing::info!("BrewWorker: SETUP_ACCEPT uuid={}", cc.identifier);
-                let _ = self.event_sender.send(BrewEvent::CircuitSetupAccept { uuid: cc.identifier });
+                self.send_event(BrewEvent::CircuitSetupAccept { uuid: cc.identifier });
             }
             CALL_STATE_SETUP_REJECT => {
                 let cause = if let BrewCallPayload::Cause(c) = cc.payload { c } else { 0 };
                 tracing::info!("BrewWorker: SETUP_REJECT uuid={} cause={}", cc.identifier, cause);
-                let _ = self.event_sender.send(BrewEvent::CircuitSetupReject {
+                self.send_event(BrewEvent::CircuitSetupReject {
                     uuid: cc.identifier,
                     cause,
                 });
             }
             CALL_STATE_CALL_ALERT => {
                 tracing::info!("BrewWorker: CALL_ALERT uuid={}", cc.identifier);
-                let _ = self.event_sender.send(BrewEvent::CircuitCallAlert { uuid: cc.identifier });
+                self.send_event(BrewEvent::CircuitCallAlert { uuid: cc.identifier });
             }
             CALL_STATE_CONNECT_REQUEST => {
                 if let BrewCallPayload::CircularCall(call) = cc.payload {
@@ -677,9 +740,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         call.destination,
                         call.duplex
                     );
-                    let _ = self
-                        .event_sender
-                        .send(BrewEvent::CircuitConnectRequest { uuid: cc.identifier, call });
+                    self.send_event(BrewEvent::CircuitConnectRequest { uuid: cc.identifier, call });
                 }
             }
             CALL_STATE_CONNECT_CONFIRM => {
@@ -694,7 +755,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                     grant,
                     permission
                 );
-                let _ = self.event_sender.send(BrewEvent::CircuitConnectConfirm {
+                self.send_event(BrewEvent::CircuitConnectConfirm {
                     uuid: cc.identifier,
                     grant,
                     permission,
@@ -712,7 +773,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                     grant,
                     permission
                 );
-                let _ = self.event_sender.send(BrewEvent::CircuitSimplexGranted {
+                self.send_event(BrewEvent::CircuitSimplexGranted {
                     uuid: cc.identifier,
                     grant,
                     permission,
@@ -730,7 +791,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                     grant,
                     permission
                 );
-                let _ = self.event_sender.send(BrewEvent::CircuitSimplexIdle {
+                self.send_event(BrewEvent::CircuitSimplexIdle {
                     uuid: cc.identifier,
                     grant,
                     permission,
@@ -740,11 +801,11 @@ impl<T: NetworkTransport> BrewWorker<T> {
                 let cause = if let BrewCallPayload::Cause(c) = cc.payload { c } else { 0 };
                 tracing::info!("BrewWorker: CALL_RELEASE uuid={} cause={}", cc.identifier, cause);
                 // Send both events — entity will handle whichever is relevant
-                let _ = self.event_sender.send(BrewEvent::GroupCallEnd {
+                self.send_event(BrewEvent::GroupCallEnd {
                     uuid: cc.identifier,
                     cause,
                 });
-                let _ = self.event_sender.send(BrewEvent::CircuitCallRelease {
+                self.send_event(BrewEvent::CircuitCallRelease {
                     uuid: cc.identifier,
                     cause,
                 });
@@ -780,7 +841,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
             FRAME_TYPE_TRAFFIC_CHANNEL => {
                 // Forward ACELP voice frame to entity
                 // TODO FIXME we could check whether this call is indeed a brew call here
-                let _ = self.event_sender.send(BrewEvent::VoiceFrame {
+                self.send_event(BrewEvent::VoiceFrame {
                     uuid: frame.identifier,
                     length_bits: frame.length_bits,
                     data: frame.data,
@@ -824,7 +885,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         pending.destination,
                         frame.data.len()
                     );
-                    let _ = self.event_sender.send(BrewEvent::SdsTransfer {
+                    self.send_event(BrewEvent::SdsTransfer {
                         uuid: frame.identifier,
                         source: pending.source,
                         destination: pending.destination,
@@ -842,7 +903,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
             FRAME_TYPE_SDS_REPORT => {
                 let status = if frame.data.is_empty() { 0 } else { frame.data[0] };
                 tracing::debug!("BrewWorker: SDS_REPORT uuid={} status={}", frame.identifier, status);
-                let _ = self.event_sender.send(BrewEvent::SdsReport {
+                self.send_event(BrewEvent::SdsReport {
                     uuid: frame.identifier,
                     status,
                 });
@@ -851,5 +912,46 @@ impl<T: NetworkTransport> BrewWorker<T> {
                 tracing::debug!("BrewWorker: unhandled frame type {} uuid={}", ft, frame.identifier);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossbeam_channel::bounded;
+
+    fn voice() -> BrewEvent {
+        BrewEvent::VoiceFrame {
+            uuid: Uuid::nil(),
+            length_bits: 288,
+            data: vec![0u8; 36],
+        }
+    }
+
+    fn signalling() -> BrewEvent {
+        BrewEvent::GroupCallEnd {
+            uuid: Uuid::nil(),
+            cause: 0,
+        }
+    }
+
+    #[test]
+    fn full_channel_drops_voice_instead_of_growing() {
+        let (tx, rx) = bounded::<BrewEvent>(2);
+        assert!(offer_event(&tx, voice(), Duration::ZERO).is_ok());
+        assert!(offer_event(&tx, voice(), Duration::ZERO).is_ok());
+
+        // Third frame has nowhere to go — it is dropped and the queue does NOT grow.
+        assert!(offer_event(&tx, voice(), Duration::ZERO).is_err());
+        assert_eq!(rx.len(), 2);
+    }
+
+    #[test]
+    fn signalling_is_delivered_while_there_is_room() {
+        let (tx, rx) = bounded::<BrewEvent>(1);
+        assert!(offer_event(&tx, signalling(), Duration::ZERO).is_ok());
+        // Full: with no backpressure window it is reported as undelivered rather than queued.
+        assert!(offer_event(&tx, signalling(), Duration::ZERO).is_err());
+        assert_eq!(rx.len(), 1);
     }
 }

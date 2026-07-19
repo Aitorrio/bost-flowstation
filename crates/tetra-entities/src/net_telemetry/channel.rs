@@ -1,7 +1,25 @@
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TrySendError, bounded};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::net_telemetry::events::TelemetryEvent;
+
+/// Queue depth per telemetry channel.
+///
+/// Telemetry is lossy by nature, so the queue is bounded: under an RF-driven event flood with a
+/// slow consumer (dashboard / Telegram / Snom / network worker) an unbounded queue grows toward
+/// OOM, and since the core thread never blocks on it the health watchdog never sees the growth.
+/// Deep enough to ride out several seconds of a stalled consumer at realistic event rates.
+pub const TELEMETRY_QUEUE_CAP: usize = 4096;
+
+/// Events dropped because a queue was full, process-wide. Never reset; read by operators (and
+/// the log line below) so telemetry loss is visible instead of silent.
+static DROPPED_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+/// Total telemetry events dropped for lack of queue space since process start.
+pub fn dropped_events() -> u64 {
+    DROPPED_EVENTS.load(Ordering::Relaxed)
+}
 
 // ---------------------------------------------------------------------------
 // TelemetrySink  (cloneable, push‑only handle given to entities)
@@ -19,10 +37,23 @@ pub struct TelemetrySink {
 }
 
 impl TelemetrySink {
-    /// Push a telemetry event. Lock‑free. Fire‑and‑forget: silently drops if the receiver is gone.
+    /// Push a telemetry event. Lock‑free and never blocks — the core loop must not be paced by a
+    /// slow telemetry consumer. Fire‑and‑forget: silently drops if the receiver is gone, and
+    /// drops the newest event (counted) if the queue is full.
     #[inline]
     pub fn send(&self, event: TelemetryEvent) {
-        let _ = self.tx.send(event);
+        if let Err(TrySendError::Full(_)) = self.tx.try_send(event) {
+            let n = DROPPED_EVENTS.fetch_add(1, Ordering::Relaxed) + 1;
+            // Loud on the first loss, then every 1000th — enough for an operator to see
+            // "telemetry is lossy right now" without turning a flood into a log flood.
+            if n == 1 || n % 1000 == 0 {
+                tracing::warn!(
+                    "Telemetry queue full ({} slots) — consumer too slow, {} events dropped so far",
+                    TELEMETRY_QUEUE_CAP,
+                    n
+                );
+            }
+        }
     }
 }
 
@@ -69,9 +100,9 @@ impl TelemetrySource {
 // Channel constructor
 // ---------------------------------------------------------------------------
 
-/// Create a linked (sink, source) pair.
+/// Create a linked (sink, source) pair. Bounded — see [`TELEMETRY_QUEUE_CAP`].
 pub fn telemetry_channel() -> (TelemetrySink, TelemetrySource) {
-    let (tx, rx) = unbounded();
+    let (tx, rx) = bounded(TELEMETRY_QUEUE_CAP);
     (TelemetrySink { tx }, TelemetrySource { rx })
 }
 
@@ -110,5 +141,26 @@ mod tests {
 
         // No more items
         assert!(source.try_recv().is_none());
+    }
+
+    #[test]
+    fn full_queue_drops_newest_and_counts() {
+        let (sink, source) = telemetry_channel();
+        let before = dropped_events();
+
+        // Fill to capacity — nothing dropped yet.
+        for issi in 0..TELEMETRY_QUEUE_CAP as u32 {
+            sink.send(TelemetryEvent::MsRegistration { issi });
+        }
+        assert_eq!(dropped_events(), before, "queue should absorb exactly its capacity");
+
+        // Overflow: send() must not block and the extra events are dropped + counted.
+        for issi in 0..10u32 {
+            sink.send(TelemetryEvent::MsRegistration { issi });
+        }
+        assert_eq!(dropped_events(), before + 10);
+
+        // The oldest events survived (drop-newest policy).
+        assert!(matches!(source.try_recv(), Some(TelemetryEvent::MsRegistration { issi: 0 })));
     }
 }

@@ -19,12 +19,11 @@ pub struct MacEndUl {
 
 impl MacEndUl {
     pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
-        // required constant mac_pdu_type
+        // required constants. Uplink is attacker-controlled -- error out, never panic.
         let mac_pdu_type = buf.read_field(2, "mac_pdu_type")?;
-        assert!(mac_pdu_type == 1);
-        // required constant pdu_subtype
+        expect_value!(mac_pdu_type, 1)?;
         let pdu_subtype = buf.read_field(1, "pdu_subtype")?;
-        assert!(pdu_subtype == 1);
+        expect_value!(pdu_subtype, 1)?;
         let fill_bits = buf.read_field(1, "fill_bits")? != 0;
         let length_ind_cap_req = buf.read_field(6, "length_ind_cap_req")?;
         let (length_ind, reservation_req) = if length_ind_cap_req == 0 {

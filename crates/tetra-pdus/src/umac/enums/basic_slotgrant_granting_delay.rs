@@ -28,7 +28,12 @@ impl BasicSlotgrantGrantingDelay {
     pub fn into_raw(self) -> u64 {
         match self {
             BasicSlotgrantGrantingDelay::CapAllocAtNextOpportunity => 0,
-            BasicSlotgrantGrantingDelay::DelayNOpportunities(n) => n as u64,
+            BasicSlotgrantGrantingDelay::DelayNOpportunities(n) => {
+                // 4-bit field: 14/15 are the reserved codes and >=16 truncates to a wrong
+                // delay, so an out-of-range N must never reach the air.
+                debug_assert!((1..=13).contains(&n), "granting delay N out of range: {}", n);
+                n.clamp(1, 13) as u64
+            }
             BasicSlotgrantGrantingDelay::AllocStartsAtOpportunityInFr18 => 14,
             BasicSlotgrantGrantingDelay::WaitForAnotherSlotgrantMessage => 15,
         }

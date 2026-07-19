@@ -36,6 +36,10 @@ pub const MACSCHED_TX_AHEAD: usize = 1;
 // We schedule up to this many frames ahead
 pub const MACSCHED_NUM_FRAMES: usize = 18;
 
+/// Largest granting delay representable in the 4-bit basic slot granting delay field
+/// (EN 300 392-2 cl. 21.5.6); 14 and 15 are reserved codes.
+pub const MAX_GRANTING_DELAY_OPPORTUNITIES: usize = 13;
+
 const NULL_PDU_LEN_BITS: usize = 16;
 
 pub const SCH_HD_CAP: usize = 124;
@@ -464,6 +468,19 @@ impl BsChannelScheduler {
 
         // If found, reserve the slots and return a BasicSlotgrant + optional usage_marker.
         if let Some((skips, grant_timestamps)) = grant_op {
+            // Granting delay is a 4-bit field with valid N of 1..13 (EN 300 392-2 cl. 21.5.6):
+            // 14/15 are reserved codes and >=16 truncates. Telling the MS a wrong transmit time
+            // is worse than not granting, so defer -- the MS repeats its capacity request.
+            if skips > MAX_GRANTING_DELAY_OPPORTUNITIES {
+                tracing::warn!(
+                    "ul_process_cap_req: grant for {} would need a granting delay of {} opportunities (max {}), deferring",
+                    addr,
+                    skips,
+                    MAX_GRANTING_DELAY_OPPORTUNITIES
+                );
+                return None;
+            }
+
             // For multi-slot full grants, allocate a usage marker. We do this
             // BEFORE reserving so the marker can be embedded in the schedule.
             // Single-slot or half-slot grants don't need a marker — the MS
