@@ -63,6 +63,11 @@ fn effective_radios_silent_secs(floor_secs: u64, periodic_registration_secs: u64
 /// Startup grace: don't flag Service Critical for the first few seconds while the stack boots.
 const SERVICE_STARTUP_GRACE_MS: u64 = 5_000;
 
+/// How long a caught panic keeps the Service domain Degraded. A cell that keeps ticking while
+/// swallowing panics is dropping PDUs — that must be visible, but a single transient catch
+/// shouldn't pin the station to Degraded forever.
+const CAUGHT_PANIC_DEGRADED_MS: u64 = 300_000;
+
 pub struct HealthRegistry {
     start: Instant,
     /// Millis-since-`start` at the last core tick; 0 = no tick observed yet.
@@ -74,6 +79,10 @@ pub struct HealthRegistry {
     last_radio_activity_ms: AtomicU64,
     dl_queue_depth: AtomicUsize,
     sds_queue_depth: AtomicUsize,
+    /// Panics caught at the entity-dispatch boundary (message router), since process start.
+    caught_panics: AtomicU64,
+    /// Millis-since-`start` of the most recent caught panic; 0 = none.
+    last_caught_panic_ms: AtomicU64,
     /// Most recent remediation action, human-readable. Written rarely (only when an action fires).
     last_action: Mutex<Option<String>>,
 }
@@ -96,6 +105,8 @@ impl HealthRegistry {
             last_radio_activity_ms: AtomicU64::new(0),
             dl_queue_depth: AtomicUsize::new(0),
             sds_queue_depth: AtomicUsize::new(0),
+            caught_panics: AtomicU64::new(0),
+            last_caught_panic_ms: AtomicU64::new(0),
             last_action: Mutex::new(None),
         }
     }
@@ -133,6 +144,16 @@ impl HealthRegistry {
     pub fn set_sds_queue_depth(&self, n: usize) {
         self.sds_queue_depth.store(n, Ordering::Relaxed);
     }
+    /// Note a panic caught at the entity-dispatch boundary (see `messagerouter::guard_entity`).
+    /// Cold path — only runs when a panic was actually caught.
+    pub fn note_caught_panic(&self) {
+        self.caught_panics.fetch_add(1, Ordering::Relaxed);
+        self.last_caught_panic_ms.store(self.now_ms().max(1), Ordering::Relaxed);
+    }
+    /// Total panics caught at the entity-dispatch boundary since process start.
+    pub fn caught_panics(&self) -> u64 {
+        self.caught_panics.load(Ordering::Relaxed)
+    }
     /// Record a remediation action (shown in the snapshot / dashboard / Telegram).
     pub fn record_action(&self, what: String) {
         if let Ok(mut g) = self.last_action.lock() {
@@ -166,6 +187,19 @@ impl HealthRegistry {
             (HealthLevel::Degraded, format!("core loop slow ({}ms since last tick)", age))
         } else {
             (HealthLevel::Ok, "ticking".to_string())
+        };
+        // A cell that keeps ticking only because the router is swallowing panics is not healthy:
+        // every catch is a dropped message. Fold that into the Service domain (no new domain, so
+        // existing consumers keep working) — Degraded while the last catch is recent, and the
+        // running total stays in the detail line afterwards.
+        let panics = self.caught_panics.load(Ordering::Relaxed);
+        let (svc, svc_detail) = if panics == 0 {
+            (svc, svc_detail)
+        } else {
+            let last = self.last_caught_panic_ms.load(Ordering::Relaxed);
+            let recent = last != 0 && self.now_ms().saturating_sub(last) < CAUGHT_PANIC_DEGRADED_MS;
+            let level = if recent { svc.worst(HealthLevel::Degraded) } else { svc };
+            (level, format!("{} ({} panics caught)", svc_detail, panics))
         };
         domains.push(DomainHealth {
             domain: HealthDomain::Service,

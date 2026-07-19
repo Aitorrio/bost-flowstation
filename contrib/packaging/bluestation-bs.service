@@ -9,6 +9,10 @@ Wants=network-online.target
 # legitimate web-triggered restarts and the in-process SDR-open retries never trip
 # it. If it does trip, recover with a power cycle + `systemctl start` (a hard power
 # cycle clears an SDR that a software restart couldn't), or `systemctl reset-failed`.
+# Outer limiter for every restart cause: a panic exit (101), a watchdog restart
+# (75) and an OTA/web restart all count against it. The in-process watchdog
+# cooldown persists its last-restart stamp (health_restart_state, next to the
+# config) so it survives a restart too.
 StartLimitIntervalSec=300
 StartLimitBurst=10
 
@@ -19,6 +23,9 @@ ExecStart=/usr/bin/bluestation-bs /etc/flowstation/config.toml
 CPUSchedulingPolicy=fifo
 CPUSchedulingPriority=73
 KillSignal=SIGINT
+# on-failure covers a panic exit (101) and the watchdog's restart exit (75), but
+# not a clean stop/SIGINT. RestartSec spaces the retries so the burst above takes
+# ~2 min of wall clock instead of a second.
 Restart=on-failure
 RestartSec=10
 

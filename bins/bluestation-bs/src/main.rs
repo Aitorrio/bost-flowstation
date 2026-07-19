@@ -225,6 +225,15 @@ fn build_bs_stack(
                     restart_on_core_stall: hcfg.restart_on_core_stall,
                     restart_after_critical: Duration::from_secs(hcfg.restart_after_critical_secs),
                     restart_cooldown: Duration::from_secs(hcfg.restart_cooldown_secs),
+                    // The cooldown has to survive the restart it triggers, otherwise a stall that
+                    // reproduces at boot reboots forever. Stamp file next to the config, same
+                    // convention as recovery_cache.json.
+                    restart_state_path: Some(
+                        std::path::Path::new(config_path)
+                            .parent()
+                            .map(|d| d.join("health_restart_state"))
+                            .unwrap_or_else(|| std::path::PathBuf::from("health_restart_state")),
+                    ),
                 },
             );
         }
