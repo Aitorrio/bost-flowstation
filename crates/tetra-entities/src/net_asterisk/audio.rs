@@ -1,6 +1,8 @@
 use std::ptr::NonNull;
 
 pub(crate) const PCMU_PAYLOAD_TYPE: u8 = 0;
+/// µ-law is one byte per sample at 8 kHz, so bytes and RTP timestamp ticks are the same unit.
+const PCMU_SAMPLES_PER_MS: usize = 8;
 
 const TETRA_PCM_SAMPLES_PER_FRAME: usize = 240;
 const TETRA_PCM_SAMPLES_PER_BLOCK: usize = TETRA_PCM_SAMPLES_PER_FRAME * 2;
@@ -98,6 +100,63 @@ impl AsteriskAudioTranscoder {
         }
 
         out
+    }
+}
+
+/// Cuts a µ-law stream into fixed-ptime RTP packets.
+///
+/// One TETRA block decodes to 60 ms of audio; shipping that as a single RTP packet is what
+/// FH-BUG-074 was - real trunks want 20 ms / 160 byte G.711. Whatever does not fill a whole
+/// packet is carried into the next block so the timestamps stay on the sample clock.
+pub(crate) struct RtpPacketizer {
+    ssrc: u32,
+    payload_bytes: usize,
+    seq: u16,
+    timestamp: u32,
+    pending: Vec<u8>,
+    marker: bool,
+}
+
+impl RtpPacketizer {
+    pub(crate) fn new(ssrc: u32, ptime_ms: u16) -> Self {
+        let payload_bytes = PCMU_SAMPLES_PER_MS * ptime_ms.max(1) as usize;
+        Self {
+            ssrc,
+            payload_bytes,
+            seq: 1,
+            timestamp: 0,
+            pending: Vec::with_capacity(payload_bytes * 4),
+            marker: true,
+        }
+    }
+
+    /// Arm the marker bit for the next packet, i.e. this is the start of a talkspurt.
+    pub(crate) fn mark_talkspurt(&mut self) {
+        self.marker = true;
+    }
+
+    pub(crate) fn push(&mut self, payload: &[u8]) -> Vec<Vec<u8>> {
+        self.pending.extend_from_slice(payload);
+        let mut packets = Vec::with_capacity(self.pending.len() / self.payload_bytes);
+        while self.pending.len() >= self.payload_bytes {
+            let chunk: Vec<u8> = self.pending.drain(..self.payload_bytes).collect();
+            packets.push(self.build(&chunk));
+        }
+        packets
+    }
+
+    fn build(&mut self, chunk: &[u8]) -> Vec<u8> {
+        let mut packet = Vec::with_capacity(12 + chunk.len());
+        packet.push(0x80);
+        packet.push(PCMU_PAYLOAD_TYPE | if self.marker { 0x80 } else { 0 });
+        packet.extend_from_slice(&self.seq.to_be_bytes());
+        packet.extend_from_slice(&self.timestamp.to_be_bytes());
+        packet.extend_from_slice(&self.ssrc.to_be_bytes());
+        packet.extend_from_slice(chunk);
+        self.marker = false;
+        self.seq = self.seq.wrapping_add(1);
+        self.timestamp = self.timestamp.wrapping_add(chunk.len() as u32);
+        packet
     }
 }
 
@@ -242,6 +301,48 @@ mod tests {
 
         let frames_again = split_tmd_block_to_codec_frames(&packed).unwrap();
         assert_eq!(frames, frames_again);
+    }
+
+    fn seq_of(packet: &[u8]) -> u16 {
+        u16::from_be_bytes([packet[2], packet[3]])
+    }
+
+    fn timestamp_of(packet: &[u8]) -> u32 {
+        u32::from_be_bytes([packet[4], packet[5], packet[6], packet[7]])
+    }
+
+    #[test]
+    fn packetizer_splits_a_60ms_block_into_three_20ms_packets() {
+        let mut packetizer = RtpPacketizer::new(0xdead_beef, 20);
+        let packets = packetizer.push(&vec![0x7fu8; TETRA_PCM_SAMPLES_PER_BLOCK]);
+
+        assert_eq!(packets.len(), 3);
+        for (idx, packet) in packets.iter().enumerate() {
+            assert_eq!(packet.len(), 12 + 160);
+            assert_eq!(packet[1] & 0x7f, PCMU_PAYLOAD_TYPE);
+            assert_eq!(seq_of(packet), 1 + idx as u16);
+            assert_eq!(timestamp_of(packet), idx as u32 * 160);
+            assert_eq!(u32::from_be_bytes([packet[8], packet[9], packet[10], packet[11]]), 0xdead_beef);
+        }
+        // marker only on the first packet of the talkspurt
+        assert_eq!(packets[0][1] & 0x80, 0x80);
+        assert_eq!(packets[1][1] & 0x80, 0);
+        assert_eq!(packets[2][1] & 0x80, 0);
+    }
+
+    #[test]
+    fn packetizer_carries_the_remainder_across_blocks() {
+        // 40 ms packets do not divide a 60 ms block, so the tail must survive to the next push.
+        let mut packetizer = RtpPacketizer::new(1, 40);
+        let first = packetizer.push(&vec![0u8; TETRA_PCM_SAMPLES_PER_BLOCK]);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].len(), 12 + 320);
+
+        let second = packetizer.push(&vec![0u8; TETRA_PCM_SAMPLES_PER_BLOCK]);
+        assert_eq!(second.len(), 2);
+        assert_eq!(seq_of(&second[0]), 2);
+        assert_eq!(timestamp_of(&second[0]), 320);
+        assert_eq!(timestamp_of(&second[1]), 640);
     }
 
     #[test]

@@ -28,6 +28,14 @@ pub struct CfgAsterisk {
     pub password: SecretField,
     pub realm: String,
     pub options_interval_secs: u64,
+    /// RTP packet duration in ms. Real trunks expect 20 ms / 160 byte G.711 packets.
+    pub ptime_ms: u16,
+    /// Extra source hosts allowed to talk SIP to us besides the resolved Asterisk peer.
+    pub allow_from: Vec<String>,
+    /// Cap on dialogs that have not been answered yet, per bridge.
+    pub max_pending_dialogs: usize,
+    /// Inbound INVITEs accepted per source address per minute (0 disables the limit).
+    pub max_invites_per_minute: u32,
 }
 
 impl Default for CfgAsterisk {
@@ -78,6 +86,14 @@ pub struct CfgAsteriskDto {
     pub realm: String,
     #[serde(default = "default_options_interval_secs")]
     pub options_interval_secs: u64,
+    #[serde(default = "default_ptime_ms")]
+    pub ptime_ms: u16,
+    #[serde(default)]
+    pub allow_from: Vec<String>,
+    #[serde(default = "default_max_pending_dialogs")]
+    pub max_pending_dialogs: usize,
+    #[serde(default = "default_max_invites_per_minute")]
+    pub max_invites_per_minute: u32,
 
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -106,6 +122,10 @@ impl Default for CfgAsteriskDto {
             password: String::new(),
             realm: default_realm(),
             options_interval_secs: default_options_interval_secs(),
+            ptime_ms: default_ptime_ms(),
+            allow_from: Vec::new(),
+            max_pending_dialogs: default_max_pending_dialogs(),
+            max_invites_per_minute: default_max_invites_per_minute(),
             extra: HashMap::new(),
         }
     }
@@ -139,8 +159,9 @@ fn default_rtp_port_max() -> u16 {
     30100
 }
 
+// Loopback by default: anything reachable on this port can place calls into the TETRA cell.
 fn default_bind_addr() -> String {
-    "0.0.0.0".to_string()
+    "127.0.0.1".to_string()
 }
 
 fn default_bind_port() -> u16 {
@@ -179,6 +200,18 @@ fn default_options_interval_secs() -> u64 {
     30
 }
 
+fn default_ptime_ms() -> u16 {
+    20
+}
+
+fn default_max_pending_dialogs() -> usize {
+    8
+}
+
+fn default_max_invites_per_minute() -> u32 {
+    30
+}
+
 pub fn apply_asterisk_patch(src: CfgAsteriskDto) -> Result<CfgAsterisk, String> {
     if src.enabled {
         if src.bind_port == 0 {
@@ -209,6 +242,17 @@ pub fn apply_asterisk_patch(src: CfgAsteriskDto) -> Result<CfgAsterisk, String> 
         return Err("asterisk: only codec = \"PCMU\" is currently supported".to_string());
     }
 
+    if !matches!(src.ptime_ms, 20 | 40 | 60) {
+        return Err("asterisk: ptime_ms must be 20, 40 or 60".to_string());
+    }
+
+    let allow_from = src
+        .allow_from
+        .into_iter()
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty())
+        .collect();
+
     let service_numbers = src
         .service_numbers
         .into_iter()
@@ -237,5 +281,9 @@ pub fn apply_asterisk_patch(src: CfgAsteriskDto) -> Result<CfgAsterisk, String> 
         password: SecretField::from(src.password),
         realm: src.realm,
         options_interval_secs: src.options_interval_secs,
+        ptime_ms: src.ptime_ms,
+        allow_from,
+        max_pending_dialogs: src.max_pending_dialogs,
+        max_invites_per_minute: src.max_invites_per_minute,
     })
 }
