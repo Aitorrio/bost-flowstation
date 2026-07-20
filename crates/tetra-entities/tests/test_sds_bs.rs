@@ -25,6 +25,7 @@ use tetra_entities::cmce::cmce_bs::CmceBs;
 use tetra_entities::net_control::{ControlCommand, make_control_link};
 use tetra_entities::tpg2200::build_tpg2200_callout_payload;
 use tetra_pdus::cmce::pdus::d_sds_data::DSdsData;
+use tetra_pdus::cmce::pdus::d_status::DStatus;
 
 use crate::common::ComponentTest;
 
@@ -695,6 +696,33 @@ fn d_sds_to(msgs: &[SapMsg], issi: u32) -> Vec<&LcmcMleUnitdataReq> {
         .collect()
 }
 
+/// The D-STATUS PDUs addressed to `issi` — i.e. status-transaction traffic. `d_sds_to` cannot tell
+/// the two downlink PDUs apart (both are LcmcMleUnitdataReq), so decode: a D-SDS-DATA SDU fails the
+/// D-STATUS pdu_type check and drops out.
+fn d_status_to(msgs: &[SapMsg], issi: u32) -> Vec<DStatus> {
+    d_sds_to(msgs, issi)
+        .into_iter()
+        .filter_map(|p| {
+            let mut sdu = p.sdu.clone();
+            sdu.seek(0);
+            DStatus::from_bitbuf(&mut sdu).ok()
+        })
+        .collect()
+}
+
+/// The D-SDS-DATA PDUs addressed to `issi` — i.e. actual short-data replies, as opposed to the
+/// D-STATUS acknowledgements above.
+fn d_sds_data_to(msgs: &[SapMsg], issi: u32) -> Vec<DSdsData> {
+    d_sds_to(msgs, issi)
+        .into_iter()
+        .filter_map(|p| {
+            let mut sdu = p.sdu.clone();
+            sdu.seek(0);
+            DSdsData::from_bitbuf(&mut sdu).ok()
+        })
+        .collect()
+}
+
 /// FH-BUG-034 (final): the field radios do not accept an SDS in-band on the traffic channel
 /// (verified on-air against FACCH stealing with fragmentation, single-block STCH, and a full-slot
 /// SCH/F in the hangtime gap — the BS transmits all of them per ETSI, the radios receive none).
@@ -967,7 +995,11 @@ fn test_u_status_command_ip_replies_to_authorized() {
     );
 }
 
-/// FH-FEAT-014: a U-STATUS from an ISSI that is NOT in authorized_issis must be ignored — no reply.
+/// FH-FEAT-014: a U-STATUS from an ISSI that is NOT in authorized_issis must not run any action —
+/// no SDS reply. Since FH-BUG-075 the status transaction itself is still acknowledged (see
+/// `test_u_status_to_9999_is_acknowledged_with_d_status`): authorization decides whether the command
+/// runs, not whether the terminal gets to finish its transaction, so an unauthorized radio stops
+/// retransmitting instead of hammering the MCCH forever.
 #[test]
 fn test_u_status_command_unauthorized_no_reply() {
     debug::setup_logging_verbose();
@@ -989,8 +1021,119 @@ fn test_u_status_command_unauthorized_no_reply() {
 
     let after = test.dump_sinks();
     assert!(
-        d_sds_to(&after, 1000002).is_empty(),
-        "unauthorized U-STATUS to 9999 must be ignored (no reply)"
+        d_sds_data_to(&after, 1000002).is_empty(),
+        "unauthorized U-STATUS to 9999 must not run the action (no SDS reply)"
+    );
+}
+
+/// FH-BUG-075: a U-STATUS to the 9999 command channel must be acknowledged back to the originator.
+/// D-STATUS (ETSI EN 300 392-2 cl. 14.7.1.11) is the only downlink CMCE PDU carrying a pre-coded
+/// status, so the ack is that status echoed back from 9999. Without it the terminal's status
+/// transaction never completes — it shows "Status failed" and retransmits every few seconds, and the
+/// SDS reply the action sends does not close it (a separate SDS-TL transaction).
+#[test]
+fn test_u_status_to_9999_is_acknowledged_with_d_status() {
+    debug::setup_logging_verbose();
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.cell.sds_command_control = Some(CfgSdsCommandControl {
+        authorized_issis: vec![1000001],
+        commands: vec![CfgSdsCommandEntry {
+            status_code: 50,
+            action: "ip".to_string(),
+        }],
+    });
+    let mut test = ComponentTest::from_config(config, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
+    register_subscriber(&mut test, 1000001);
+
+    test.submit_message(build_u_status_msg(1000001, 9999, 50));
+    test.run_stack(Some(2));
+
+    let after = test.dump_sinks();
+    let acks = d_status_to(&after, 1000001);
+    assert_eq!(acks.len(), 1, "U-STATUS to 9999 must be answered with exactly one D-STATUS");
+    assert_eq!(
+        acks[0].calling_party_address_ssi,
+        Some(9999),
+        "the acknowledgement must come from the command-channel ISSI"
+    );
+    assert_eq!(
+        acks[0].pre_coded_status,
+        PreCodedStatus::from(50),
+        "the acknowledgement must echo the status the terminal sent"
+    );
+    assert_eq!(
+        d_sds_data_to(&after, 1000001).len(),
+        1,
+        "the 'ip' action must still send its SDS reply alongside the ack"
+    );
+}
+
+/// FH-BUG-075: a retransmitted (byte-identical) U-STATUS must NOT run the action a second time — the
+/// configured actions include restart/shutdown/kick_all — but it must still be acknowledged, so the
+/// terminal can finish its transaction and stop retransmitting.
+#[test]
+fn test_u_status_command_retransmission_executes_once() {
+    debug::setup_logging_verbose();
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.cell.sds_command_control = Some(CfgSdsCommandControl {
+        authorized_issis: vec![1000001],
+        commands: vec![CfgSdsCommandEntry {
+            status_code: 50,
+            action: "ip".to_string(),
+        }],
+    });
+    let mut test = ComponentTest::from_config(config, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
+    register_subscriber(&mut test, 1000001);
+
+    test.submit_message(build_u_status_msg(1000001, 9999, 50));
+    test.run_stack(Some(2));
+    let first = test.dump_sinks();
+    assert_eq!(
+        d_sds_data_to(&first, 1000001).len(),
+        1,
+        "the first U-STATUS must execute the action"
+    );
+    assert_eq!(d_status_to(&first, 1000001).len(), 1, "the first U-STATUS must be acknowledged");
+
+    // The radio missed the downlink and retransmits the very same status a moment later.
+    test.submit_message(build_u_status_msg(1000001, 9999, 50));
+    test.run_stack(Some(2));
+    let second = test.dump_sinks();
+    assert!(
+        d_sds_data_to(&second, 1000001).is_empty(),
+        "a retransmitted U-STATUS must not execute the action a second time"
+    );
+    assert_eq!(
+        d_status_to(&second, 1000001).len(),
+        1,
+        "a retransmitted U-STATUS must still be acknowledged, or the radio keeps retransmitting"
+    );
+}
+
+/// FH-BUG-075: an SDS-TL short report addressed to 9999 (the radio confirming a reply we sent it) is
+/// itself an acknowledgement — ETSI EN 300 392-2 cl. 29.4.2.3 — and carries the terminal's own
+/// message reference. Echoing it back would report against that reference, so it gets no D-STATUS.
+#[test]
+fn test_sds_tl_short_report_to_9999_not_echoed() {
+    debug::setup_logging_verbose();
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
+    register_subscriber(&mut test, 1000001);
+
+    // 0b011111_10_00000000 = 31744 + (MessageReceived << 8): an SDS-TL short report, message ref 0.
+    const SDS_TL_SHORT_REPORT_STATUS: u16 = 31744 + (2 << 8);
+    test.submit_message(build_u_status_msg(1000001, 9999, SDS_TL_SHORT_REPORT_STATUS));
+    test.run_stack(Some(2));
+
+    let after = test.dump_sinks();
+    assert!(
+        d_status_to(&after, 1000001).is_empty(),
+        "an SDS-TL short report to 9999 must be absorbed, not echoed back at the terminal"
     );
 }
 

@@ -88,6 +88,20 @@ fn ssi_pair_is_valid(what: &str, source_ssi: u32, dest_ssi: u32) -> bool {
 /// timeout (also "failed"), and we never deliver the message late, so the two cannot contradict.
 const SDS_TL_STATUS_UNDELIVERABLE: u8 = 0x02;
 
+/// A terminal whose status transaction does not complete retransmits the identical U-STATUS every
+/// few seconds, so the same (source ISSI, status code) arriving again inside this window is a
+/// retransmission of ONE operator request, not a new one — the action runs once. The window slides
+/// on every repeat, so a retry campaign of any length still executes exactly once, while a
+/// deliberate re-issue only needs this much silence first. Matters because the configured actions
+/// include `restart`, `shutdown` and `kick_all` (FH-BUG-075).
+const SDS_CMD_REPEAT_WINDOW: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Hard ceiling on `recent_commands`. Its key space is already bounded — only an authorized ISSI
+/// with a configured status code ever gets an entry, so unauthorized traffic cannot grow it — and
+/// expired entries are pruned on every insert, but keep an explicit cap so no config can turn the
+/// map into unbounded growth.
+const SDS_CMD_DEDUP_MAX: usize = 64;
+
 /// One active status-based emergency session (keyed by source ISSI in `emergency_sessions`).
 /// The radio re-sends the emergency status periodically while active and goes silent on exit, so
 /// `last_seen` drives the clear-timeout sweep. Call-raised emergencies are NOT tracked here — the
@@ -121,6 +135,10 @@ pub struct SdsBsSubentity {
     /// a non-Emergency status, clear-timeout (tick), or operator clear. Non-empty means at least one
     /// radio is in emergency. See [`EmergencySession`].
     emergency_sessions: std::collections::HashMap<u32, EmergencySession>,
+    /// Last execution of each SDS remote command, keyed by (source ISSI, status code), so a
+    /// retransmitted U-STATUS does not run the action again. Pruned and capped — see
+    /// `SDS_CMD_REPEAT_WINDOW` / `SDS_CMD_DEDUP_MAX` and `sds_command_is_new`.
+    recent_commands: std::collections::HashMap<(u32, u16), std::time::Instant>,
 }
 
 impl SdsBsSubentity {
@@ -137,6 +155,7 @@ impl SdsBsSubentity {
             wx_cmd_tx: None,
             last_periodic_wx: None,
             emergency_sessions: std::collections::HashMap::new(),
+            recent_commands: std::collections::HashMap::new(),
         }
     }
 
@@ -784,6 +803,23 @@ impl SdsBsSubentity {
         // SDS command control: U-STATUS to ISSI 9999 from an authorized ISSI triggers
         // a system action (restart, shutdown, kick_all) if the status code matches.
         if dest_ssi == 9999 {
+            // Acknowledge the status transaction FIRST. 9999 is the BS's own identity, so here the
+            // BS *is* the called party and owes the originator a response. D-STATUS (ETSI EN 300
+            // 392-2 cl. 14.7.1.11) is the only downlink CMCE PDU carrying a pre-coded status — the
+            // PDU type list (cl. 14.8.28) has no status-ack — so the acknowledgement is that status
+            // echoed back with 9999 as the calling party. Without it the terminal never completes
+            // the transaction: it reports "Status failed" and retransmits the same U-STATUS every
+            // few seconds, re-running the command each time (FH-BUG-075). The SDS an action replies
+            // with is a separate SDS-TL transaction and does NOT close this one — the field radio
+            // provably received that reply and still reported failure. Echoed for every status to
+            // 9999, authorized or not: the echo closes the transport transaction, authorization
+            // only decides whether the action runs. Two values are NOT echoed, because reflecting
+            // them would mean something to the terminal: Emergency (0) would raise an emergency on
+            // the sender, and an SDS-TL short report (cl. 14.8.34 table 14.72 / cl. 29.4.2.3) is
+            // itself an acknowledgement, carrying the terminal's own message reference.
+            if !matches!(pdu.pre_coded_status, PreCodedStatus::Emergency | PreCodedStatus::SdsTl(_)) {
+                self.send_d_status(queue, dest_ssi, source_ssi, pdu.pre_coded_status);
+            }
             self.handle_sds_command_status(queue, source_ssi, &pdu.pre_coded_status);
             return;
         }
@@ -1353,6 +1389,23 @@ impl SdsBsSubentity {
         );
     }
 
+    /// True when this (source ISSI, status code) is a fresh command rather than a retransmission of
+    /// one already executed within `SDS_CMD_REPEAT_WINDOW`. Records the sighting either way, so a
+    /// retry campaign keeps sliding the window instead of falling out of it mid-way. Expired entries
+    /// are pruned on every call, and the map is capped by evicting the oldest, so it stays small.
+    fn sds_command_is_new(&mut self, source_ssi: u32, status_code: u16) -> bool {
+        let now = std::time::Instant::now();
+        self.recent_commands
+            .retain(|_, last| now.duration_since(*last) < SDS_CMD_REPEAT_WINDOW);
+        if self.recent_commands.len() >= SDS_CMD_DEDUP_MAX {
+            let oldest = self.recent_commands.iter().min_by_key(|(_, last)| **last).map(|(k, _)| *k);
+            if let Some(key) = oldest {
+                self.recent_commands.remove(&key);
+            }
+        }
+        self.recent_commands.insert((source_ssi, status_code), now).is_none()
+    }
+
     fn handle_sds_command_status(&mut self, queue: &mut MessageQueue, source_ssi: u32, status: &PreCodedStatus) {
         let status_code = status.into_raw() as u16;
 
@@ -1383,6 +1436,24 @@ impl SdsBsSubentity {
             );
             return;
         };
+
+        // Idempotence, independent of the acknowledgement above: even a conformant SwMI loses the
+        // odd downlink, and the terminal then legitimately retransmits the identical U-STATUS. A
+        // second `restart`/`shutdown`/`kick_all` off one operator request is destructive, so a
+        // repeat inside SDS_CMD_REPEAT_WINDOW is treated as the same request and the action is
+        // skipped. The D-STATUS acknowledgement is still sent for every copy (see the caller), so
+        // the terminal can complete its transaction; a genuine re-issue works once the window has
+        // elapsed. (FH-BUG-075.)
+        if !self.sds_command_is_new(source_ssi, status_code) {
+            tracing::info!(
+                "SDS-CMD: ISSI {} re-sent status={} (action='{}') within {}s — retransmission, not executing again",
+                source_ssi,
+                status_code,
+                entry.action,
+                SDS_CMD_REPEAT_WINDOW.as_secs()
+            );
+            return;
+        }
 
         tracing::info!(
             "SDS-CMD: ISSI {} triggered action='{}' via status={}",
