@@ -1849,6 +1849,11 @@ impl UmacBs {
         };
 
         for d in dirs {
+            // A close deferred by the previous call on this timeslot must not reach the circuit
+            // we are about to create: the tick would tear the new one down and every DL voice
+            // frame after that is dropped as "inactive circuit" for the rest of the call.
+            self.cancel_pending_circuit_close(carrier_num, ts, d);
+
             // See if pre-existing circuit somehow needs to be closed
             if self.scheduler_for(carrier_num).circuit_is_active(d, ts) {
                 tracing::warn!(
@@ -1928,6 +1933,32 @@ impl UmacBs {
         }
 
         self.close_circuit_now(dir, carrier_num, ts);
+    }
+
+    /// Drop a deferred close queued for an earlier incarnation of this carrier/timeslot.
+    /// Only the direction being reopened is cleared -- a close still pending for the other
+    /// direction refers to a circuit nobody recreated and must still run.
+    fn cancel_pending_circuit_close(&mut self, carrier_num: u16, ts: u8, dir: Direction) {
+        let Some(pending) = self.pending_circuit_closes.get_mut(&(carrier_num, ts)) else {
+            return;
+        };
+        let was_pending = match dir {
+            Direction::Dl => std::mem::take(&mut pending.dl),
+            Direction::Ul => std::mem::take(&mut pending.ul),
+            _ => return,
+        };
+        let drained = !pending.dl && !pending.ul;
+        if drained {
+            self.pending_circuit_closes.remove(&(carrier_num, ts));
+        }
+        if was_pending {
+            tracing::info!(
+                "  rx_control_circuit_open: Cancelled deferred {:?} circuit close for carrier={} ts {}",
+                dir,
+                carrier_num,
+                ts
+            );
+        }
     }
 
     fn close_circuit_now(&mut self, dir: Direction, carrier_num: u16, ts: u8) {

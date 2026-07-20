@@ -854,6 +854,11 @@ impl BsChannelScheduler {
         self.circuits.is_active(dir, self.carrier_num, ts)
     }
 
+    /// Downlink voice blocks waiting to be transmitted on this timeslot.
+    pub fn dl_queued_block_count(&self, ts: u8) -> usize {
+        self.circuits.queued_block_count(self.carrier_num, ts)
+    }
+
     pub fn duplex_peer_route(&self, ts: u8) -> Option<(u16, u8)> {
         self.circuits.get_ul_peer_route(self.carrier_num, ts)
     }
