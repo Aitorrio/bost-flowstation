@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::ptr::NonNull;
 
 pub(crate) const PCMU_PAYLOAD_TYPE: u8 = 0;
@@ -6,6 +7,8 @@ const PCMU_SAMPLES_PER_MS: usize = 8;
 
 const TETRA_PCM_SAMPLES_PER_FRAME: usize = 240;
 const TETRA_PCM_SAMPLES_PER_BLOCK: usize = TETRA_PCM_SAMPLES_PER_FRAME * 2;
+/// One TMD block is 60 ms of speech, which is also what one traffic frame carries.
+const TETRA_BLOCK_MS: usize = TETRA_PCM_SAMPLES_PER_BLOCK / PCMU_SAMPLES_PER_MS;
 const TETRA_CODED_BITS_PER_FRAME: usize = 137;
 const TETRA_CODED_BYTES_PER_FRAME: usize = (TETRA_CODED_BITS_PER_FRAME + 7) / 8;
 const TETRA_TMD_BITS_PER_BLOCK: usize = TETRA_CODED_BITS_PER_FRAME * 2;
@@ -79,9 +82,17 @@ impl AsteriskAudioTranscoder {
         Some(out)
     }
 
+    /// Throw away the part-filled block left over from earlier audio, so the next payload
+    /// starts a fresh block instead of being glued behind something stale.
+    pub(crate) fn reset_downlink(&mut self) {
+        self.downlink_pcm.clear();
+    }
+
     pub(crate) fn encode_pcmu_to_tmd(&mut self, payload: &[u8]) -> Vec<Vec<u8>> {
         self.downlink_pcm.extend(payload.iter().map(|&sample| ulaw_to_linear(sample)));
 
+        // Everything that fills a block leaves here, so the remainder is always under one
+        // block - this cannot become a second, untrimmable queue behind the backlog.
         let mut out = Vec::new();
         while self.downlink_pcm.len() >= TETRA_PCM_SAMPLES_PER_BLOCK {
             let mut pcm_a = [0i16; TETRA_PCM_SAMPLES_PER_FRAME];
@@ -100,6 +111,53 @@ impl AsteriskAudioTranscoder {
         }
 
         out
+    }
+}
+
+/// SIP -> TETRA blocks waiting for their downlink slot.
+///
+/// UMAC takes exactly one block per traffic frame, so every block handed over early just
+/// queues up there, out of reach, and sits in front of the live audio for the rest of the
+/// call - that is the constant 2-4 s offset of FH-BUG-074. Blocks wait here instead, and once
+/// the backlog is longer than the jitter allowance the OLDEST are dropped: late voice is
+/// worthless and dropping the oldest is what keeps the delay bounded.
+pub(crate) struct DownlinkBacklog {
+    blocks: VecDeque<Vec<u8>>,
+    max_blocks: usize,
+}
+
+impl DownlinkBacklog {
+    pub(crate) fn new(jitter_ms: u16) -> Self {
+        // A block is the smallest thing the downlink can carry, so never go below one.
+        let max_blocks = (jitter_ms as usize / TETRA_BLOCK_MS).max(1);
+        Self {
+            blocks: VecDeque::with_capacity(max_blocks + 1),
+            max_blocks,
+        }
+    }
+
+    /// Queues a block and returns how many old ones had to go to stay inside the allowance.
+    pub(crate) fn push(&mut self, block: Vec<u8>) -> usize {
+        self.blocks.push_back(block);
+        let mut dropped = 0;
+        while self.blocks.len() > self.max_blocks {
+            self.blocks.pop_front();
+            dropped += 1;
+        }
+        dropped
+    }
+
+    pub(crate) fn take(&mut self) -> Option<Vec<u8>> {
+        self.blocks.pop_front()
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.blocks.clear();
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.blocks.len()
     }
 }
 
@@ -301,6 +359,44 @@ mod tests {
 
         let frames_again = split_tmd_block_to_codec_frames(&packed).unwrap();
         assert_eq!(frames, frames_again);
+    }
+
+    #[test]
+    fn downlink_backlog_stays_bounded_when_blocks_arrive_faster_than_they_drain() {
+        // 180 ms of allowance is three blocks; push a second of audio without draining.
+        let mut backlog = DownlinkBacklog::new(180);
+        let mut dropped = 0;
+        for idx in 0..17u8 {
+            dropped += backlog.push(vec![idx; TETRA_TMD_PACKED_BYTES]);
+            assert!(backlog.len() <= 3, "backlog grew to {} blocks", backlog.len());
+        }
+
+        assert_eq!(dropped, 14);
+        // What survives is the newest audio, in order - dropping the oldest is the point.
+        assert_eq!(backlog.take().unwrap()[0], 14);
+        assert_eq!(backlog.take().unwrap()[0], 15);
+        assert_eq!(backlog.take().unwrap()[0], 16);
+        assert!(backlog.take().is_none());
+    }
+
+    #[test]
+    fn downlink_backlog_keeps_one_block_even_with_a_zero_allowance() {
+        let mut backlog = DownlinkBacklog::new(0);
+        assert_eq!(backlog.push(vec![1]), 0);
+        assert_eq!(backlog.push(vec![2]), 1);
+        assert_eq!(backlog.len(), 1);
+
+        backlog.clear();
+        assert!(backlog.take().is_none());
+    }
+
+    #[test]
+    fn downlink_backlog_allowance_is_whole_blocks() {
+        // 60 ms per block, so the knob rounds down to what the downlink can actually hold.
+        assert_eq!(TETRA_BLOCK_MS, 60);
+        assert_eq!(DownlinkBacklog::new(120).max_blocks, 2);
+        assert_eq!(DownlinkBacklog::new(179).max_blocks, 2);
+        assert_eq!(DownlinkBacklog::new(200).max_blocks, 3);
     }
 
     fn seq_of(packet: &[u8]) -> u16 {

@@ -15,9 +15,18 @@ use uuid::Uuid;
 
 use crate::{MessageQueue, TetraEntityTrait};
 
-use super::audio::{AsteriskAudioTranscoder, PCMU_PAYLOAD_TYPE, RtpPacketizer, rtp_payload};
+use super::audio::{AsteriskAudioTranscoder, DownlinkBacklog, PCMU_PAYLOAD_TYPE, RtpPacketizer, rtp_payload};
 
 const SIP_MAX_DATAGRAM: usize = 8192;
+const RTP_MAX_DATAGRAM: usize = 1720;
+/// Datagrams read per socket per pass. Well above the ~1 packet a 20 ms stream produces per
+/// tick, and bounded so a flooded socket cannot hold the tick hostage.
+const RTP_READS_PER_TICK: usize = 32;
+/// Reads used to empty a socket in one go. A default receive buffer holds a few hundred
+/// 172-byte datagrams; whatever is left over goes on the next tick's drain.
+const RTP_DISCARD_READS: usize = 1024;
+/// Frame 18 carries no traffic, so the downlink drains 17 blocks per multiframe.
+const TDMA_CONTROL_FRAME: u8 = 18;
 /// RFC 3261 timer H: how long a cancelled INVITE may wait for its final response before we
 /// give up on it and free the RTP port.
 const CANCEL_REAP_AFTER: Duration = Duration::from_secs(32);
@@ -49,7 +58,22 @@ struct RtpSession {
     local_port: u16,
     remote: Option<SocketAddr>,
     packetizer: RtpPacketizer,
+    dl_backlog: DownlinkBacklog,
     last_tx: Option<Instant>,
+}
+
+impl RtpSession {
+    /// Throw away whatever the socket is holding. Audio that arrived before playout starts is
+    /// already stale by the time TETRA could carry it, and left in the kernel receive buffer it
+    /// becomes a permanent head start over the live stream (FH-BUG-074).
+    fn discard_pending(&mut self) {
+        let mut buf = [0u8; RTP_MAX_DATAGRAM];
+        for _ in 0..RTP_DISCARD_READS {
+            if self.socket.recv_from(&mut buf).is_err() {
+                break;
+            }
+        }
+    }
 }
 
 struct SipDialog {
@@ -816,6 +840,7 @@ impl AsteriskEntity {
                         local_port: port,
                         remote: None,
                         packetizer: RtpPacketizer::new(ssrc, self.asterisk_config.ptime_ms),
+                        dl_backlog: DownlinkBacklog::new(self.asterisk_config.dl_jitter_ms),
                         last_tx: None,
                     });
                 }
@@ -1124,6 +1149,11 @@ impl AsteriskEntity {
 
     fn mark_media_ready(&mut self, brew_uuid: Uuid, call_id: u16, carrier_num: u16, ts: u8) {
         if let Some(dialog) = self.dialogs.get_mut(&brew_uuid) {
+            // Playout starts now, not seconds ago: drop anything that arrived while the circuit
+            // was still coming up, plus the part-filled block behind it (FH-BUG-074).
+            dialog.rtp.discard_pending();
+            dialog.rtp.dl_backlog.clear();
+            dialog.audio.reset_downlink();
             dialog.media_ready = Some((call_id, carrier_num, ts));
             self.rtp_by_ts.insert((carrier_num, ts), brew_uuid);
             tracing::info!(
@@ -1231,15 +1261,20 @@ impl AsteriskEntity {
         };
     }
 
-    fn poll_rtp(&mut self, queue: &mut MessageQueue) {
+    fn poll_rtp(&mut self, queue: &mut MessageQueue, now: TdmaTime) {
         let mut downlink = Vec::new();
         let mut last_error = None;
-        let mut buf = [0u8; 1720];
+        let mut buf = [0u8; RTP_MAX_DATAGRAM];
         for dialog in self.dialogs.values_mut() {
             let Some((_, carrier_num, ts)) = dialog.media_ready else {
+                // Asterisk is often already sending - early media, ringback, or just the gap
+                // before the circuit is up. Not reading the socket does not stop that audio, it
+                // only parks it in the kernel receive buffer to be played out seconds late once
+                // the circuit opens (FH-BUG-074), so read it and drop it.
+                dialog.rtp.discard_pending();
                 continue;
             };
-            for _ in 0..32 {
+            for _ in 0..RTP_READS_PER_TICK {
                 match dialog.rtp.socket.recv_from(&mut buf) {
                     Ok((len, addr)) => {
                         let Some((payload_type, payload)) = rtp_payload(&buf[..len]) else {
@@ -1264,7 +1299,15 @@ impl AsteriskEntity {
                             }
                         }
                         for frame in dialog.audio.encode_pcmu_to_tmd(payload) {
-                            downlink.push((carrier_num, ts, frame));
+                            let dropped = dialog.rtp.dl_backlog.push(frame);
+                            if dropped > 0 {
+                                tracing::debug!(
+                                    "AsteriskEntity: dropped {} stale downlink block(s) uuid={} ts={}",
+                                    dropped,
+                                    dialog.uuid,
+                                    ts
+                                );
+                            }
                         }
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
@@ -1272,6 +1315,15 @@ impl AsteriskEntity {
                         last_error = Some(format!("RTP receive failed uuid={}: {}", dialog.uuid, err));
                         break;
                     }
+                }
+            }
+
+            // Hand over one block per traffic frame, i.e. exactly what UMAC takes off this
+            // timeslot. Pushing any faster only moves the backlog into UMAC's queue, where this
+            // entity can no longer trim it and it becomes permanent delay (FH-BUG-074).
+            if now.t == ts && now.f != TDMA_CONTROL_FRAME {
+                if let Some(data) = dialog.rtp.dl_backlog.take() {
+                    downlink.push((carrier_num, ts, data));
                 }
             }
         }
@@ -1649,10 +1701,10 @@ impl TetraEntityTrait for AsteriskEntity {
         self.refresh_status();
     }
 
-    fn tick_start(&mut self, queue: &mut MessageQueue, _ts: TdmaTime) {
+    fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.maybe_periodic_sip();
         self.poll_sip(queue);
-        self.poll_rtp(queue);
+        self.poll_rtp(queue, ts);
         self.refresh_status();
     }
 }

@@ -30,6 +30,10 @@ pub struct CfgAsterisk {
     pub options_interval_secs: u64,
     /// RTP packet duration in ms. Real trunks expect 20 ms / 160 byte G.711 packets.
     pub ptime_ms: u16,
+    /// How much SIP -> TETRA audio may wait for its downlink slot before the oldest is
+    /// dropped. Rounded down to whole 60 ms blocks; anything queued past this is delay the
+    /// call never gets back.
+    pub dl_jitter_ms: u16,
     /// Extra source hosts allowed to talk SIP to us besides the resolved Asterisk peer.
     pub allow_from: Vec<String>,
     /// Cap on dialogs that have not been answered yet, per bridge.
@@ -88,6 +92,8 @@ pub struct CfgAsteriskDto {
     pub options_interval_secs: u64,
     #[serde(default = "default_ptime_ms")]
     pub ptime_ms: u16,
+    #[serde(default = "default_dl_jitter_ms")]
+    pub dl_jitter_ms: u16,
     #[serde(default)]
     pub allow_from: Vec<String>,
     #[serde(default = "default_max_pending_dialogs")]
@@ -123,6 +129,7 @@ impl Default for CfgAsteriskDto {
             realm: default_realm(),
             options_interval_secs: default_options_interval_secs(),
             ptime_ms: default_ptime_ms(),
+            dl_jitter_ms: default_dl_jitter_ms(),
             allow_from: Vec::new(),
             max_pending_dialogs: default_max_pending_dialogs(),
             max_invites_per_minute: default_max_invites_per_minute(),
@@ -204,6 +211,11 @@ fn default_ptime_ms() -> u16 {
     20
 }
 
+// Two 60 ms blocks: enough to ride out a trunk burst, short enough that nobody hears it.
+fn default_dl_jitter_ms() -> u16 {
+    120
+}
+
 fn default_max_pending_dialogs() -> usize {
     8
 }
@@ -246,6 +258,11 @@ pub fn apply_asterisk_patch(src: CfgAsteriskDto) -> Result<CfgAsterisk, String> 
         return Err("asterisk: ptime_ms must be 20, 40 or 60".to_string());
     }
 
+    // Anything queued here is delay the call carries for good, so refuse to buffer a call late.
+    if src.dl_jitter_ms > 500 {
+        return Err("asterisk: dl_jitter_ms must be 500 or less".to_string());
+    }
+
     let allow_from = src
         .allow_from
         .into_iter()
@@ -282,6 +299,7 @@ pub fn apply_asterisk_patch(src: CfgAsteriskDto) -> Result<CfgAsterisk, String> 
         realm: src.realm,
         options_interval_secs: src.options_interval_secs,
         ptime_ms: src.ptime_ms,
+        dl_jitter_ms: src.dl_jitter_ms,
         allow_from,
         max_pending_dialogs: src.max_pending_dialogs,
         max_invites_per_minute: src.max_invites_per_minute,
