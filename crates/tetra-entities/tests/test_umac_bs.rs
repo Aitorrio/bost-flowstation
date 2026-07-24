@@ -1119,3 +1119,177 @@ fn test_granting_delay_never_encodes_reserved_or_truncated_code() {
         "a request needing a delay beyond the 4-bit field must be deferred, not encoded"
     );
 }
+
+/// CMCE's end-of-call close for a traffic timeslot (deferred by the UMAC until FACCH drains).
+fn close_shared_voice_circuit(ts: u8) -> SapMsg {
+    SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Cmce,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::CmceCallControl(CallControl::CloseSlot {
+            direction: Direction::Both,
+            carrier_num: MAIN_CARRIER,
+            ts,
+        }),
+    }
+}
+
+/// One 60 ms DL voice block from Brew, every byte set to `marker` so the block can be
+/// identified again once the scheduler hands it to the LMAC.
+fn brew_dl_voice(ts: u8, marker: u8) -> SapMsg {
+    SapMsg {
+        sap: Sap::TmdSap,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
+            carrier_num: MAIN_CARRIER,
+            ts,
+            data: vec![marker; 36],
+        }),
+    }
+}
+
+/// First byte of the first DL traffic block the UMAC sent to the LMAC for this timeslot.
+fn first_dl_traffic_marker(msgs: &[SapMsg], ts: u8) -> Option<u8> {
+    msgs.iter().find_map(|msg| {
+        let SapMsgInner::TmvUnitdataReqSlots(req) = &msg.msg else {
+            return None;
+        };
+        req.slots.iter().find_map(|slot| {
+            if slot.ts.t != ts {
+                return None;
+            }
+            [&slot.blk1, &slot.blk2]
+                .into_iter()
+                .flatten()
+                .find(|blk| blk.logical_channel == LogicalChannel::TchS)
+                .and_then(|blk| blk.mac_block.peek_bits_startoffset(0, 8))
+                .map(|marker| marker as u8)
+        })
+    })
+}
+
+fn umac_of(test: &mut ComponentTest) -> &mut UmacBs {
+    test.router
+        .get_entity(TetraEntity::Umac)
+        .expect("umac registered")
+        .as_any_mut()
+        .downcast_mut::<UmacBs>()
+        .expect("entity is UmacBs")
+}
+
+#[test]
+fn test_reopening_traffic_slot_cancels_deferred_close() {
+    // FH-BUG-077: a close on a traffic timeslot is deferred to a later tick so queued
+    // FACCH/STCH can drain. If the next call grabs that timeslot before the deferred close
+    // runs, the stale close must not tear down the fresh circuit -- otherwise every Brew DL
+    // voice frame is dropped as "inactive circuit" for the rest of that call.
+    debug::setup_logging_verbose();
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Cmce]);
+
+    test.submit_message(open_shared_voice_circuit(2));
+    test.run_stack(Some(1));
+    assert!(
+        umac_of(&mut test).channel_scheduler.circuit_is_active(Direction::Dl, 2),
+        "first call should have an active DL circuit"
+    );
+
+    // Old call ends and the new one seizes the same timeslot before the next tick.
+    test.submit_message(close_shared_voice_circuit(2));
+    test.submit_message(open_shared_voice_circuit(2));
+    test.run_stack(Some(4)); // ticks here are where the deferred close would have fired
+
+    let umac = umac_of(&mut test);
+    assert!(
+        umac.channel_scheduler.circuit_is_active(Direction::Dl, 2),
+        "re-opened DL circuit must survive the deferred close of the previous call"
+    );
+    assert!(
+        umac.channel_scheduler.circuit_is_active(Direction::Ul, 2),
+        "re-opened UL circuit must survive the deferred close of the previous call"
+    );
+
+    // ...and DL voice must actually be scheduled rather than dropped.
+    test.submit_message(brew_dl_voice(2, 1));
+    test.deliver_all_messages();
+    assert_eq!(
+        umac_of(&mut test).channel_scheduler.dl_queued_block_count(2),
+        1,
+        "DL voice on the re-opened circuit must be scheduled, not dropped"
+    );
+}
+
+#[test]
+fn test_deferred_close_still_runs_for_direction_not_reopened() {
+    // Cancelling is per-direction: re-opening only the DL must leave the pending UL close
+    // alone, or a stale uplink circuit from the previous call leaks.
+    debug::setup_logging_verbose();
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Cmce]);
+
+    test.submit_message(open_shared_voice_circuit(2));
+    test.run_stack(Some(1));
+
+    test.submit_message(close_shared_voice_circuit(2));
+    let mut reopen_dl_only = open_shared_voice_circuit(2);
+    if let SapMsgInner::CmceCallControl(CallControl::Open(circuit)) = &mut reopen_dl_only.msg {
+        circuit.direction = Direction::Dl;
+    }
+    test.submit_message(reopen_dl_only);
+    test.run_stack(Some(4));
+
+    let umac = umac_of(&mut test);
+    assert!(
+        umac.channel_scheduler.circuit_is_active(Direction::Dl, 2),
+        "re-opened DL circuit must stay active"
+    );
+    assert!(
+        !umac.channel_scheduler.circuit_is_active(Direction::Ul, 2),
+        "a UL close nobody re-opened must still run"
+    );
+}
+
+#[test]
+fn test_dl_block_queue_is_bounded_under_burst() {
+    // Brew and the SIP bridge can deliver a burst of voice blocks in a single tick, while the
+    // downlink sends one block per timeslot per frame. The queue must hold a jitter allowance
+    // only -- an unbounded one turns a burst into permanent latency and unbounded memory.
+    debug::setup_logging_verbose();
+
+    const BURST: u8 = 200;
+    const MAX_QUEUED: u8 = 4;
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Lmac]);
+
+    test.submit_message(open_shared_voice_circuit(2));
+    test.run_stack(Some(1));
+
+    for marker in 0..BURST {
+        test.submit_message(brew_dl_voice(2, marker));
+    }
+    test.deliver_all_messages();
+
+    let queued = umac_of(&mut test).channel_scheduler.dl_queued_block_count(2);
+    assert!(
+        queued > 0 && queued <= MAX_QUEUED as usize,
+        "DL voice queue must be capped at a few blocks of jitter, holds {} after a {}-block burst",
+        queued,
+        BURST
+    );
+
+    // Drop the silence sent while the circuit was idle, then check what actually goes out:
+    // the oldest blocks must have been discarded, not the newest.
+    let _ = test.dump_sinks();
+    test.run_stack(Some(8));
+    let msgs = test.dump_sinks();
+    let marker = first_dl_traffic_marker(&msgs, 2).expect("a DL traffic block for ts2");
+    assert!(
+        marker >= BURST - MAX_QUEUED,
+        "overflow must drop the OLDEST blocks; transmitted block {} instead of one of the newest",
+        marker
+    );
+}

@@ -3,12 +3,22 @@ use std::collections::{HashMap, VecDeque};
 use tetra_core::Direction;
 use tetra_saps::control::call_control::{Circuit, CircuitDlMediaSource};
 
+/// Jitter allowance for queued downlink voice, in 60 ms blocks. The downlink transmits one
+/// block per timeslot per frame, so anything beyond this is not jitter, it is a backlog that
+/// would sit in front of every later block as permanent added latency.
+const MAX_QUEUED_DL_BLOCKS: usize = 4;
+
+/// Log one overflow line per this many drops, so a stuck feeder cannot flood the log.
+const DL_BLOCK_DROP_LOG_INTERVAL: u64 = 100;
+
 pub struct CircuitMgr {
     dl: HashMap<(u16, u8), Circuit>,
     ul: HashMap<(u16, u8), Circuit>,
 
     /// Data blocks queued to be transmitted, per carrier/timeslot.
     tx_data: HashMap<(u16, u8), VecDeque<Vec<u8>>>,
+    /// Blocks dropped on queue overflow since this circuit was opened, per carrier/timeslot.
+    tx_data_drops: HashMap<(u16, u8), u64>,
 }
 
 impl CircuitMgr {
@@ -17,6 +27,7 @@ impl CircuitMgr {
             dl: HashMap::new(),
             ul: HashMap::new(),
             tx_data: HashMap::new(),
+            tx_data_drops: HashMap::new(),
         }
     }
 
@@ -73,6 +84,7 @@ impl CircuitMgr {
         match dir {
             Direction::Dl => {
                 self.tx_data.remove(&key);
+                self.tx_data_drops.remove(&key);
                 self.dl.remove(&key)
             }
             Direction::Ul => self.ul.remove(&key),
@@ -108,6 +120,7 @@ impl CircuitMgr {
                     );
                     self.tx_data.remove(&key);
                 }
+                self.tx_data_drops.remove(&key);
                 self.dl.insert(key, circuit);
             }
             Direction::Ul => {
@@ -130,7 +143,37 @@ impl CircuitMgr {
             );
             return;
         }
-        self.tx_data.entry(Self::key(carrier_num, ts)).or_default().push_back(block);
+        let key = Self::key(carrier_num, ts);
+        let queue = self.tx_data.entry(key).or_default();
+        queue.push_back(block);
+
+        // Brew and the SIP bridge can hand us a burst in one tick, but only one block per
+        // timeslot leaves per frame. Keep just a jitter allowance and drop the OLDEST on
+        // overflow: stale voice is worthless, and dropping the head is what keeps latency down.
+        let overflow = queue.len().saturating_sub(MAX_QUEUED_DL_BLOCKS);
+        if overflow == 0 {
+            return;
+        }
+        queue.drain(..overflow);
+
+        let drops = self.tx_data_drops.entry(key).or_default();
+        let before = *drops;
+        *drops += overflow as u64;
+        // First drop, then one line per interval, so a stuck feeder cannot flood the log.
+        if before == 0 || before / DL_BLOCK_DROP_LOG_INTERVAL != *drops / DL_BLOCK_DROP_LOG_INTERVAL {
+            tracing::warn!(
+                "CircuitMgr::put_block: DL voice queue full on carrier={} ts={}, dropped {} oldest block(s), {} total on this circuit",
+                carrier_num,
+                ts,
+                overflow,
+                drops
+            );
+        }
+    }
+
+    /// Number of blocks currently queued for downlink transmission on this carrier/timeslot.
+    pub fn queued_block_count(&self, carrier_num: u16, ts: u8) -> usize {
+        self.tx_data.get(&Self::key(carrier_num, ts)).map_or(0, VecDeque::len)
     }
 
     /// Take a to-be-transmitted block from the queue.
