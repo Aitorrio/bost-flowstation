@@ -14,23 +14,25 @@ jobs:
       - name: Descargar mi repositorio (Fork)
         uses: actions/checkout@v4
         with:
-          ref: main # Descarga tu rama principal para tener el entorno git listo
+          ref: main
+          fetch-depth: 0 # Descarga todo el historial para evitar errores de Git
 
       - name: Forzar actualización desde el original
         run: |
-          # Añade el repositorio original como fuente remota remota
-          git remote add upstream https://github.com
+          # Configurar la identidad obligatoria de Git para evitar el error 128
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Descarga los cambios reales de su rama por defecto (sea master o main)
+          # Añadir el repositorio original como fuente remota
+          git remote add upstream https://github.com
           git fetch upstream
           
-          # Sobrescribe tu rama main con el contenido exacto del creador original
-          # Detecta automáticamente si ellos usan master o main
+          # Detectar de forma automática si ellos usan master o main y sobrescribir tu main
           if git rev-parse --verify upstream/master >/dev/null 2>&1; then
             git reset --hard upstream/master
           else
             git reset --hard upstream/main
           fi
           
-          # Sube los cambios limpios a tu GitHub
+          # Forzar la subida de los datos limpios a tu repositorio
           git push origin main --force
