@@ -11,10 +11,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Sincronización Nativa de Fork
-        uses: tgymnich/fork-sync-action@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          base: master       # La rama del repositorio original (razvanzeces)
-          head: master       # Tu rama destino en tu fork
-          owner: razvanzeces # Dueño original
+      - name: Sincronizar usando GitHub CLI Oficial
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Sincroniza la rama de forma remota y segura usando la API oficial
+          gh repo sync ${{ github.repository }} --branch main --force
