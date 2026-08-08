@@ -11,14 +11,26 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Sincronizar con el repositorio original
+      - name: Descargar mi repositorio (Fork)
         uses: actions/checkout@v4
         with:
-          repository: razvanzeces/flowstation
-          ref: master # ← CAMBIADO AQUÍ (El original usa master)
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main # Descarga tu rama principal para tener el entorno git listo
 
-      - name: Actualizar mi Fork
+      - name: Forzar actualización desde el original
         run: |
-          # Sincroniza el contenido en la rama master de tu propio fork
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git HEAD:master --force
+          # Añade el repositorio original como fuente remota remota
+          git remote add upstream https://github.com
+          
+          # Descarga los cambios reales de su rama por defecto (sea master o main)
+          git fetch upstream
+          
+          # Sobrescribe tu rama main con el contenido exacto del creador original
+          # Detecta automáticamente si ellos usan master o main
+          if git rev-parse --verify upstream/master >/dev/null 2>&1; then
+            git reset --hard upstream/master
+          else
+            git reset --hard upstream/main
+          fi
+          
+          # Sube los cambios limpios a tu GitHub
+          git push origin main --force
