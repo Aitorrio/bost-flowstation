@@ -11,29 +11,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Descargar mi repositorio (Fork)
-        uses: actions/checkout@v4
+      - name: Sincronización Nativa de Fork
+        uses: tgymnich/fork-sync-action@v2
         with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Forzar actualización desde el original
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Añadir y descargar el repositorio original
-          git remote add upstream https://github.com
-          git fetch upstream
-          
-          # Sobrescribir localmente main con el master/main original
-          if git rev-parse --verify upstream/master >/dev/null 2>&1; then
-            git reset --hard upstream/master
-          else
-            git reset --hard upstream/main
-          fi
-          
-          # Subir cambios usando el token explícito para evitar el error 128
-          git push https://x-access-token:${GITHUB_TOKEN}@://github.com{{ github.repository }}.git main --force
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base: master       # La rama del repositorio original (razvanzeces)
+          head: master       # Tu rama destino en tu fork
+          owner: razvanzeces # Dueño original
