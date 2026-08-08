@@ -1,0 +1,23 @@
+name: Sincronizar Fork
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Se ejecuta automáticamente todos los días a la medianoche
+  workflow_dispatch: # Permite ejecutarlo manualmente cuando quieras
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Sincronizar con el repositorio original
+        uses: actions/checkout@v4
+        with:
+          repository: razvanzeces/flowstation
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Actualizar mi Fork
+        run: |
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@://github.com{{ github.repository }}.git HEAD:main --force
