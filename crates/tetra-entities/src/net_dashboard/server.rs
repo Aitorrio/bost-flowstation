@@ -509,11 +509,15 @@ fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, 
 
 /// Reject an OTA source tree that is not safe to build from. `cargo build` runs any `build.rs` /
 /// proc-macro in the tree as the service identity (often root), so before building we require the
-/// tree to be owned by us (the running euid) or by root, and to be neither group- nor world-writable
-/// (`mode & 0o022 == 0`). A tree another user can write into could plant a build script that runs as
-/// us — so a directory failing this check (whether auto-detected or supplied via the dashboard
-/// `source_dir`) is refused rather than compiled. Unix-only; returns `Ok(())` on platforms without
-/// the metadata.
+/// tree to be neither group- nor world-writable (`mode & 0o022 == 0`).
+///
+/// Ownership rules:
+/// - Non-root: tree must be owned by us (euid) or by root.
+/// - Root: may build from a tree owned by the install service user (e.g. `bts` on
+///   `/opt/bost-flowstation`) because the installer chowns the checkout for `cargo` as that user
+///   while the systemd unit runs as root. Group/world-writability is still refused.
+///
+/// Unix-only; returns `Ok(())` on platforms without the metadata.
 #[cfg(unix)]
 fn source_tree_is_trusted(dir: &std::path::Path) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
@@ -522,7 +526,8 @@ fn source_tree_is_trusted(dir: &std::path::Path) -> Result<(), String> {
     // SAFETY: geteuid() is always successful and has no preconditions.
     let euid = unsafe { libc::geteuid() };
     let owner = meta.uid();
-    if owner != euid && owner != 0 {
+    let owner_ok = owner == euid || owner == 0 || euid == 0;
+    if !owner_ok {
         return Err(format!(
             "source tree {} is owned by uid {} (we run as uid {}); refusing to build from a tree we don't own",
             dir.display(),
