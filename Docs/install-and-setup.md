@@ -60,6 +60,8 @@ The dashboard never runs free-form shell. Driver install and systemd ensure go t
 
 Allowed actions: `install-driver sx|lime`, `enable-service`, `restart-service`.
 
+**SXceiver (`sx`):** clones and builds [tejeez/sxxcvr](https://github.com/tejeez/sxxcvr) into `/opt/sxxcvr` (SoapySX module), then `ldconfig`. Override with `BOST_SOAPY_SX_DIR` / `BOST_SOAPY_SX_GIT` if needed. Hardware must be stacked on the Pi HAT for `SoapySDRUtil --find` / `--probe=driver=sx` to see it.
+
 ## Updating an existing Pi carefully
 
 If a cell is already on air, prefer a maintenance window:

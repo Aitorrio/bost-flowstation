@@ -9,7 +9,9 @@ shift || true
 
 SERVICE_UNIT="${BOST_SERVICE_UNIT:-bluestation-bs.service}"
 SRC_ROOT="${BOST_SRC:-/opt/bost-flowstation}"
-SOAPY_SX_DIR="${BOST_SOAPY_SX_DIR:-${HOME:-/root}/sxxcvr}"
+# Official SXceiver software tree (SoapySX lives in sxxcvr/SoapySX).
+SOAPY_SX_GIT="${BOST_SOAPY_SX_GIT:-https://github.com/tejeez/sxxcvr.git}"
+SOAPY_SX_DIR="${BOST_SOAPY_SX_DIR:-/opt/sxxcvr}"
 
 log() { echo "[bost-setup-helper] $*"; }
 
@@ -19,6 +21,20 @@ require_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
     die "must run as root (via sudoers drop-in)"
   fi
+}
+
+# Resolve a directory that contains SoapySX/CMakeLists.txt (or is SoapySX itself).
+resolve_soapysx_src() {
+  local root="$1"
+  if [[ -f "$root/SoapySX/CMakeLists.txt" ]]; then
+    echo "$root/SoapySX"
+    return 0
+  fi
+  if [[ -f "$root/CMakeLists.txt" ]]; then
+    echo "$root"
+    return 0
+  fi
+  return 1
 }
 
 install_driver_lime() {
@@ -40,54 +56,60 @@ install_driver_lime() {
 }
 
 install_driver_sx() {
-  # Prefer an existing SoapySX / sxxcvr tree (common on this fork's Pis).
+  # Official flow from https://sxceiver.com/doc/getting-started and tejeez/sxxcvr.
   local candidates=(
     "$SOAPY_SX_DIR"
     /home/bts/sxxcvr
     /opt/sxxcvr
+    /usr/local/src/sxxcvr
     /usr/local/src/SoapySX
   )
-  local found=""
+  local tree=""
   for d in "${candidates[@]}"; do
-    if [[ -d "$d" ]]; then
-      found="$d"
+    if [[ -d "$d" ]] && resolve_soapysx_src "$d" >/dev/null; then
+      tree="$d"
       break
     fi
   done
 
-  if [[ -z "$found" ]]; then
-    log "Cloning SoapySX into $SOAPY_SX_DIR"
-    mkdir -p "$(dirname "$SOAPY_SX_DIR")"
-    if ! command -v git >/dev/null; then
-      apt-get update -qq
-      apt-get install -y git cmake build-essential
-    fi
-    git clone --depth 1 https://github.com/pothosware/SoapySDR.git /tmp/SoapySDR-src 2>/dev/null || true
-    # SXceiver vendor module — try well-known mirrors; operator can set BOST_SOAPY_SX_GIT
-    local git_url="${BOST_SOAPY_SX_GIT:-}"
-    if [[ -z "$git_url" ]]; then
-      die "SXceiver tree not found. Set BOST_SOAPY_SX_DIR to an existing SoapySX build, or BOST_SOAPY_SX_GIT to clone URL"
-    fi
-    git clone --depth 1 "$git_url" "$SOAPY_SX_DIR"
-    found="$SOAPY_SX_DIR"
-  fi
-
-  log "Building SoapySX in $found"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y cmake build-essential libsoapysdr-dev soapysdr-tools || true
-  if [[ -f "$found/CMakeLists.txt" ]]; then
-    cmake -S "$found" -B "$found/build" -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$found/build" -j"$(nproc)"
-    cmake --install "$found/build"
-    ldconfig || true
-  elif [[ -x "$found/install.sh" ]]; then
-    (cd "$found" && bash ./install.sh)
+  apt-get install -y --no-install-recommends \
+    git make g++ cmake \
+    libsoapysdr-dev libasound2-dev soapysdr-tools python3-soapysdr \
+    || apt-get install -y git make g++ cmake libsoapysdr-dev libasound2-dev soapysdr-tools
+
+  # Optional on some boards / Debian releases.
+  apt-get install -y libgpiod-dev 2>/dev/null || true
+
+  if [[ -z "$tree" ]]; then
+    log "Cloning SXceiver software from $SOAPY_SX_GIT → $SOAPY_SX_DIR"
+    mkdir -p "$(dirname "$SOAPY_SX_DIR")"
+    rm -rf "$SOAPY_SX_DIR"
+    git clone --depth 1 "$SOAPY_SX_GIT" "$SOAPY_SX_DIR"
+    tree="$SOAPY_SX_DIR"
   else
-    die "no CMakeLists.txt or install.sh in $found"
+    log "Using existing SXceiver tree at $tree"
+    if [[ -d "$tree/.git" ]]; then
+      git -C "$tree" pull --ff-only || true
+    fi
   fi
+
+  local src
+  src="$(resolve_soapysx_src "$tree")" || die "SoapySX/CMakeLists.txt not found under $tree"
+
+  log "Building SoapySX in $src"
+  cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$src/build" -j"$(nproc)"
+  cmake --install "$src/build"
+  ldconfig || true
+
   log "SXceiver driver install finished"
+  SoapySDRUtil --info 2>/dev/null | head -n 30 || true
+  echo "---"
   SoapySDRUtil --find 2>/dev/null | head -n 40 || true
+  echo "---"
+  SoapySDRUtil --probe="driver=sx" 2>&1 | head -n 40 || true
 }
 
 enable_service() {
