@@ -76,15 +76,18 @@ install_rust() {
   sudo -u "$user" bash -lc 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
 }
 
-# Source tree
-if [[ -n "${BOST_SRC:-}" && -d "$BOST_SRC/.git" ]]; then
+# Source tree (idempotent: existing checkout is fetched/ff to BOST_BRANCH).
+if [[ -n "${BOST_SRC:-}" && -d "${BOST_SRC}/.git" ]]; then
   SRC_ROOT="$BOST_SRC"
-  log "Using existing source at $SRC_ROOT"
-elif [[ -d "$SRC_ROOT/.git" ]]; then
-  log "Updating $SRC_ROOT ($BRANCH)"
+fi
+if [[ -d "$SRC_ROOT/.git" ]]; then
+  log "Updating $SRC_ROOT ($BRANCH from $REPO_URL)"
+  git -C "$SRC_ROOT" remote set-url origin "$REPO_URL" || true
   git -C "$SRC_ROOT" fetch --depth 1 origin "$BRANCH" || git -C "$SRC_ROOT" fetch origin "$BRANCH"
   git -C "$SRC_ROOT" checkout "$BRANCH"
-  git -C "$SRC_ROOT" pull --ff-only origin "$BRANCH" || true
+  git -C "$SRC_ROOT" merge --ff-only "origin/$BRANCH" \
+    || git -C "$SRC_ROOT" pull --ff-only origin "$BRANCH" \
+    || warn "git fast-forward failed — building whatever is currently checked out"
 else
   log "Cloning $REPO_URL ($BRANCH) → $SRC_ROOT"
   mkdir -p "$(dirname "$SRC_ROOT")"
