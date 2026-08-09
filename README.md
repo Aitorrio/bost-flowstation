@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="contrib/logo/flowstation_logo.png" alt="FlowStation" width="360"/>
+<img src="contrib/logo/flowstation_logo.png" alt="Bost FlowStation" width="360"/>
 
-### Software-defined TETRA base station — built in Rust, runs on a Raspberry Pi.
+### Bost FlowStation — software-defined TETRA base station (fork), built in Rust for Raspberry Pi.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
@@ -15,11 +15,11 @@
 
 ---
 
-## What is FlowStation?
+## What is Bost FlowStation?
 
-FlowStation is a fully functional **TETRA base station in software**. Plug in a LimeSDR, point it at your TETRA radios, and you have a working private TETRA cell — group calls, individual calls, SDS messaging, Brew/BrandMeister interconnect, and a live web dashboard. No proprietary infrastructure required.
+**Bost FlowStation** is this fork of FlowStation: a fully functional **TETRA base station in software**, with first-run Setup wizard, degraded boot without SDR, and one-command Pi install. Plug in an SXceiver or LimeSDR, point it at your TETRA radios, and you have a working private TETRA cell — group calls, individual calls, SDS messaging, Brew/BrandMeister interconnect, and a live web dashboard.
 
-Built in Rust on top of [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation), maintained by **Razvan Zeces / YO6RZV**.
+Based on [FlowStation](https://github.com/razvanzeces/flowstation) by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)). Improved by **Aitor, EA4HBL**.
 
 **Tested hardware:** LimeSDR Mini 2.0 · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400
 

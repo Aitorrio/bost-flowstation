@@ -1,9 +1,9 @@
 pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
-<html lang="en" data-uisize="m">
+<html lang="es" data-uisize="m">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>TETRA FlowStation</title>
+<title>TETRA {{PRODUCT_NAME}}</title>
 <style>
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -2230,10 +2230,11 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 <nav id="sidebar">
   <div class="sidebar-logo">
     <div class="logo-row">
-      <div class="logo-icon">FS</div>
+      <div class="logo-icon">BF</div>
       <div class="logo-text">
-        <div class="logo-name">FlowStation</div>
+        <div class="logo-name">{{PRODUCT_NAME}}</div>
         <div class="logo-sub">{{STACK_VERSION}}</div>
+        <div class="logo-sub" style="opacity:0.75;font-size:10px;margin-top:2px">{{VERSION_BASED_ON}}</div>
       </div>
     </div>
     <!-- Hardware status — driven by the SAME JS as the old topbar badges (IDs preserved).
@@ -2385,6 +2386,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <!-- Copyright + client info -->
     <div class="sidebar-copyright">
       <div class="cr-line">© 2026 Razvan Zeces — YO6RZV</div>
+      <div class="cr-line">Versión mejorada por Aitor, EA4HBL</div>
       <div class="cr-line" id="cr-ua">—</div>
     </div>
     <!-- Collapse toggle -->
@@ -2465,10 +2467,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)">Blue</button>
       </div>
       <div class="lang-picker">
-        <button class="lang-btn active" onclick="setLang('en',this)">EN</button>
+        <button class="lang-btn" onclick="setLang('en',this)">EN</button>
         <button class="lang-btn" onclick="setLang('ro',this)">RO</button>
         <button class="lang-btn" onclick="setLang('de',this)">DE</button>
-        <button class="lang-btn" onclick="setLang('es',this)">ES</button>
+        <button class="lang-btn active" onclick="setLang('es',this)">ES</button>
         <button class="lang-btn" onclick="setLang('hu',this)">HU</button>
         <button class="lang-btn" onclick="setLang('zh',this)">CN</button>
       </div>
@@ -3559,41 +3561,41 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
     <!-- ── SETUP (first-run + ongoing SDR/service) ── -->
     <div class="page" id="page-setup">
-      <div class="section-label" data-i18n="setup_sec">First-run / SDR</div>
+      <div class="section-label" data-i18n="setup_sec">Primer arranque / SDR</div>
       <div class="card">
         <div class="card-head">
           <div class="card-title" data-i18n="setup_title">Setup</div>
           <div class="card-actions">
-            <button class="btn btn-sm" onclick="refreshSetupPage()"><span data-i18n="sys_refresh">Refresh</span></button>
-            <button class="btn btn-primary" onclick="openSetupWizard(true)"><span data-i18n="setup_open_wizard">Open wizard</span></button>
+            <button class="btn btn-sm" onclick="refreshSetupPage()"><span data-i18n="sys_refresh">Actualizar</span></button>
+            <button class="btn btn-primary" onclick="openSetupWizard(true)"><span data-i18n="setup_open_wizard">Abrir asistente</span></button>
           </div>
         </div>
         <div class="card-body">
           <div style="margin-bottom:12px"><span class="setup-rf-pill" id="setup-rf-pill">RF —</span></div>
-          <div class="info-row"><div class="info-key">Setup complete</div><div class="info-val" id="setup-complete-val">—</div></div>
-          <div class="info-row"><div class="info-key">Config backend</div><div class="info-val" id="setup-backend-val">—</div></div>
-          <div class="info-row"><div class="info-key">Device</div><div class="info-val" id="setup-device-val">—</div></div>
-          <div class="info-row"><div class="info-key">Service unit</div><div class="info-val" id="setup-unit-val">—</div></div>
-          <div class="info-row"><div class="info-key">Helper</div><div class="info-val" id="setup-helper-val">—</div></div>
+          <div class="info-row"><div class="info-key" data-i18n="setup_complete_key">Setup completo</div><div class="info-val" id="setup-complete-val">—</div></div>
+          <div class="info-row"><div class="info-key" data-i18n="setup_backend_key">Backend config</div><div class="info-val" id="setup-backend-val">—</div></div>
+          <div class="info-row"><div class="info-key" data-i18n="setup_device_key">Device</div><div class="info-val" id="setup-device-val">—</div></div>
+          <div class="info-row"><div class="info-key" data-i18n="setup_unit_key">Unidad systemd</div><div class="info-val" id="setup-unit-val">—</div></div>
+          <div class="info-row"><div class="info-key" data-i18n="setup_helper_key">Helper</div><div class="info-val" id="setup-helper-val">—</div></div>
           <div class="help-text" id="setup-rf-detail" style="margin-top:12px"></div>
         </div>
       </div>
       <div class="card">
         <div class="card-head">
-          <div class="card-title" data-i18n="setup_sdr_title">SDR devices</div>
+          <div class="card-title" data-i18n="setup_sdr_title">Dispositivos SDR</div>
           <div class="card-actions">
-            <button class="btn btn-sm" onclick="setupScanSdr()"><span data-i18n="setup_scan">Scan</span></button>
-            <button class="btn" onclick="setupInstallDriver('sx')">Install SXceiver</button>
-            <button class="btn" onclick="setupInstallDriver('lime')">Install Lime</button>
+            <button class="btn btn-sm" onclick="setupScanSdr()"><span data-i18n="setup_scan">Escanear</span></button>
+            <button class="btn" onclick="setupInstallDriver('sx')" data-i18n="setup_install_sx">Instalar SXceiver</button>
+            <button class="btn" onclick="setupInstallDriver('lime')" data-i18n="setup_install_lime">Instalar Lime</button>
           </div>
         </div>
         <div class="card-body">
           <div class="setup-device-list" id="setup-device-list"></div>
           <div class="config-msg" id="setup-page-msg"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-            <button class="btn btn-primary" onclick="setupEnableRfAndRestart()"><span data-i18n="setup_enable_rf">Enable RF &amp; Restart</span></button>
-            <button class="btn" onclick="setupEnsureAutostart()"><span data-i18n="setup_autostart">Ensure autostart</span></button>
-            <button class="btn" onclick="setupMarkComplete(false)"><span data-i18n="setup_mark_done">Mark setup done</span></button>
+            <button class="btn btn-primary" onclick="setupEnableRfAndRestart()"><span data-i18n="setup_enable_rf">Activar RF y reiniciar</span></button>
+            <button class="btn" onclick="setupEnsureAutostart()"><span data-i18n="setup_autostart">Asegurar autostart</span></button>
+            <button class="btn" onclick="setupMarkComplete(false)"><span data-i18n="setup_mark_done">Marcar setup hecho</span></button>
           </div>
         </div>
       </div>
@@ -4393,68 +4395,68 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 <div id="setup-wizard" aria-modal="true" role="dialog">
   <div class="setup-wiz-card">
     <div class="setup-wiz-step active" data-step="0">
-      <h2 style="margin:0 0 8px;font-size:22px">Welcome to FlowStation</h2>
-      <p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">
-        This wizard configures your SDR, RF parameters, and systemd autostart.
-        The dashboard stays available even when the radio is offline.
+      <h2 style="margin:0 0 8px;font-size:22px" data-i18n="wiz_welcome_title">Bienvenido a Bost FlowStation</h2>
+      <p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px" data-i18n="wiz_welcome_body">
+        Este asistente configura el SDR, parámetros RF y el arranque automático.
+        El panel web sigue disponible aunque la radio esté apagada.
       </p>
       <div><span class="setup-rf-pill" id="wiz-rf-pill">RF —</span></div>
       <p class="help-text" id="wiz-rf-detail" style="margin-top:12px"></p>
       <div class="setup-wiz-nav">
-        <button class="btn" onclick="setupSkipDefaults()">Skip with defaults</button>
-        <button class="btn btn-primary" onclick="wizNext()">Continue</button>
+        <button class="btn" onclick="setupSkipDefaults()" data-i18n="wiz_skip">Omitir con valores por defecto</button>
+        <button class="btn btn-primary" onclick="wizNext()" data-i18n="wiz_continue">Continuar</button>
       </div>
     </div>
     <div class="setup-wiz-step" data-step="1">
-      <h2 style="margin:0 0 8px;font-size:20px">Select SDR</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Scan SoapySDR devices or install a driver (SXceiver / Lime).</p>
+      <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_sdr_title">Seleccionar SDR</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_sdr_help">Escanea dispositivos SoapySDR o instala un driver (SXceiver / Lime).</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="btn btn-sm" onclick="setupScanSdr(true)">Scan</button>
-        <button class="btn btn-sm" onclick="setupInstallDriver('sx',true)">Install SXceiver</button>
-        <button class="btn btn-sm" onclick="setupInstallDriver('lime',true)">Install Lime</button>
+        <button class="btn btn-sm" onclick="setupScanSdr(true)" data-i18n="setup_scan">Escanear</button>
+        <button class="btn btn-sm" onclick="setupInstallDriver('sx',true)" data-i18n="setup_install_sx">Instalar SXceiver</button>
+        <button class="btn btn-sm" onclick="setupInstallDriver('lime',true)" data-i18n="setup_install_lime">Instalar Lime</button>
       </div>
       <div class="setup-device-list" id="wiz-device-list"></div>
-      <label class="field" style="display:block;margin-top:10px"><span>Device args</span>
+      <label class="field" style="display:block;margin-top:10px"><span data-i18n="wiz_device_args">Argumentos device</span>
         <input type="text" id="wiz-device" class="form-input" placeholder="driver=sx">
       </label>
       <div class="config-msg" id="wiz-sdr-msg"></div>
       <div class="setup-wiz-nav">
-        <button class="btn" onclick="wizPrev()">Back</button>
-        <button class="btn btn-primary" onclick="wizNext()">Next</button>
+        <button class="btn" onclick="wizPrev()" data-i18n="wiz_back">Atrás</button>
+        <button class="btn btn-primary" onclick="wizNext()" data-i18n="wiz_next">Siguiente</button>
       </div>
     </div>
     <div class="setup-wiz-step" data-step="2">
-      <h2 style="margin:0 0 8px;font-size:20px">RF / Network / Brew</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
-        Use the Config tab forms for full editing, or keep the example defaults for now.
+      <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_params_title">RF / Red / Brew</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_params_help">
+        Usa los formularios de Config para editar todo, o mantén los valores por defecto.
       </p>
-      <label class="h-fopt"><input type="checkbox" id="wiz-use-defaults" checked> Use current config defaults</label>
+      <label class="h-fopt"><input type="checkbox" id="wiz-use-defaults" checked> <span data-i18n="wiz_use_defaults">Usar valores actuales por defecto</span></label>
       <div class="setup-wiz-nav">
-        <button class="btn" onclick="wizPrev()">Back</button>
-        <button class="btn" onclick="showPage('config');closeSetupWizard()">Open Config forms</button>
-        <button class="btn btn-primary" onclick="wizNext()">Next</button>
+        <button class="btn" onclick="wizPrev()" data-i18n="wiz_back">Atrás</button>
+        <button class="btn" onclick="showPage('config');closeSetupWizard()" data-i18n="wiz_open_config">Abrir Config</button>
+        <button class="btn btn-primary" onclick="wizNext()" data-i18n="wiz_next">Siguiente</button>
       </div>
     </div>
     <div class="setup-wiz-step" data-step="3">
-      <h2 style="margin:0 0 8px;font-size:20px">Enable RF</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
-        Sets <code>phy_io.backend = SoapySdr</code>, writes the device string, and restarts the service.
+      <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_rf_title">Activar RF</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_rf_help">
+        Pone <code>phy_io.backend = SoapySdr</code>, guarda el device y reinicia el servicio.
       </p>
       <div class="config-msg" id="wiz-enable-msg"></div>
       <div class="setup-wiz-nav">
-        <button class="btn" onclick="wizPrev()">Back</button>
-        <button class="btn btn-primary" onclick="wizEnableRf()">Enable RF &amp; Restart</button>
-        <button class="btn" onclick="wizNext()">Skip for now</button>
+        <button class="btn" onclick="wizPrev()" data-i18n="wiz_back">Atrás</button>
+        <button class="btn btn-primary" onclick="wizEnableRf()" data-i18n="setup_enable_rf">Activar RF y reiniciar</button>
+        <button class="btn" onclick="wizNext()" data-i18n="wiz_skip_now">Omitir por ahora</button>
       </div>
     </div>
     <div class="setup-wiz-step" data-step="4">
-      <h2 style="margin:0 0 8px;font-size:20px">Autostart</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Ensure the systemd unit is enabled so the station comes back after reboot.</p>
+      <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_auto_title">Arranque automático</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_auto_help">Asegura que la unidad systemd esté enabled para volver tras un reinicio.</p>
       <div class="config-msg" id="wiz-systemd-msg"></div>
       <div class="setup-wiz-nav">
-        <button class="btn" onclick="wizPrev()">Back</button>
-        <button class="btn" onclick="setupEnsureAutostart(true)">Ensure autostart</button>
-        <button class="btn btn-primary" onclick="wizFinish(false)">Finish</button>
+        <button class="btn" onclick="wizPrev()" data-i18n="wiz_back">Atrás</button>
+        <button class="btn" onclick="setupEnsureAutostart(true)" data-i18n="setup_autostart">Asegurar autostart</button>
+        <button class="btn btn-primary" onclick="wizFinish(false)" data-i18n="wiz_finish">Finalizar</button>
       </div>
     </div>
   </div>
@@ -4540,6 +4542,18 @@ const LANGS={
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Radios',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
+    setup_sec:'First-run / SDR',setup_title:'Setup',setup_open_wizard:'Open wizard',setup_sdr_title:'SDR devices',
+    setup_scan:'Scan',setup_install_sx:'Install SXceiver',setup_install_lime:'Install Lime',
+    setup_enable_rf:'Enable RF & Restart',setup_autostart:'Ensure autostart',setup_mark_done:'Mark setup done',
+    setup_complete_key:'Setup complete',setup_backend_key:'Config backend',setup_device_key:'Device',
+    setup_unit_key:'Service unit',setup_helper_key:'Helper',
+    wiz_welcome_title:'Welcome to Bost FlowStation',wiz_welcome_body:'This wizard configures your SDR, RF parameters, and systemd autostart. The dashboard stays available even when the radio is offline.',
+    wiz_skip:'Skip with defaults',wiz_continue:'Continue',wiz_back:'Back',wiz_next:'Next',wiz_finish:'Finish',wiz_skip_now:'Skip for now',
+    wiz_sdr_title:'Select SDR',wiz_sdr_help:'Scan SoapySDR devices or install a driver (SXceiver / Lime).',wiz_device_args:'Device args',
+    wiz_params_title:'RF / Network / Brew',wiz_params_help:'Use the Config tab forms for full editing, or keep the example defaults for now.',
+    wiz_use_defaults:'Use current config defaults',wiz_open_config:'Open Config forms',
+    wiz_rf_title:'Enable RF',wiz_rf_help:'Sets phy_io.backend = SoapySdr, writes the device string, and restarts the service.',
+    wiz_auto_title:'Autostart',wiz_auto_help:'Ensure the systemd unit is enabled so the station comes back after reboot.',
     sdslog:'SDS Log',th_dir:'Dir',th_from:'From',th_to:'To',th_message:'Message',no_sds:'No SDS messages yet',sds_refresh:'Refresh',
     rf_freq:'Center freq',rf_rate:'Sample rate',rf_rms:'RMS',rf_peak:'Peak',rf_age:'Snapshot',
     rf_waiting:'waiting…',rf_live:'live',rf_stale:'stale',
@@ -4608,7 +4622,7 @@ const LANGS={
     confirm_kick:'Kick ISSI {issi}?\nTerminal will be deregistered and forced to re-attach.',
     dgna:'DGNA',dgna_title:'Dynamic group assignment',dgna_modal_title:'⬡ Dynamic Group Assignment',dgna_issi:'Terminal ISSI',dgna_current:'Current groups',dgna_gssi:'Group (GSSI)',dgna_assign:'Assign',dgna_deassign:'Deassign',
     dgna_name:'TG name',dgna_center:'DGNA',dgna_center_sub:'Bulk assign, update, and deassign groups across radios.',dgna_groups_count:'Groups',dgna_radios_count:'Targets',dgna_group_library:'Group Library',dgna_new_group:'New',dgna_search:'Search',dgna_scope:'Coverage',dgna_editor:'Group Editor',dgna_attachment_mode:'Attachment mode',dgna_select_all:'Select all',dgna_select_none:'Clear',dgna_select_attached:'Attached',dgna_select_dynamic:'Dynamic',dgna_assign_selected:'Assign selected',dgna_assign_all:'Assign all radios',dgna_update_selected:'Update selected',dgna_deassign_selected:'Deassign selected',dgna_targets:'Target Radios',dgna_status_col:'Group state',dgna_last_result:'Last result',dgna_activity:'DGNA Activity',
-    confirm_restart:'Restart FlowStation?\nAll active calls will be dropped.',
+    confirm_restart:'Restart Bost FlowStation?\nAll active calls will be dropped.',
     confirm_shutdown:'Shutdown FlowStation?\nThe service will stop and must be restarted manually.',
     confirm_logout:'Log out?',
     saved:'✓ Saved — restart to apply.',save_fail:'✗ Save failed',conn_error:'Connection error.',
@@ -4626,7 +4640,7 @@ const LANGS={
     cfg_apply_confirm:'Apply selected Cell × Brew profiles and restart? Current config.toml will be backed up.',
     cfg_need_name:'Enter a name for Save as.',cfg_need_select:'Select a profile first.',cfg_deleted:'✓ Deleted',cfg_applied:'✓ Applied — restarting…',cfg_updated:'✓ Profile updated',
 
-    update:'Update',update_available:'Update available',update_title:'OTA Update — github.com/razvanzeces/flowstation',
+    update:'Update',update_available:'Update available',update_title:'OTA Update — github.com/Aitorrio/bost-flowstation',
     update_confirm:'Pull latest from main and rebuild?\nThe service will restart automatically.',
     update_running:'Updating… do not close this window.',
     update_done_ok:'✓ Update complete. Restarting…',
@@ -4857,7 +4871,26 @@ const LANGS={
   es:{
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
-    stations:'Radios',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Health',echolink:'EchoLink',echolink_title:'EchoLink',setup:'Setup',config:'Config',
+    stations:'Radios',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
+    setup_sec:'Primer arranque / SDR',setup_title:'Setup',setup_open_wizard:'Abrir asistente',setup_sdr_title:'Dispositivos SDR',
+    setup_scan:'Escanear',setup_install_sx:'Instalar SXceiver',setup_install_lime:'Instalar Lime',
+    setup_enable_rf:'Activar RF y reiniciar',setup_autostart:'Asegurar autostart',setup_mark_done:'Marcar setup hecho',
+    setup_complete_key:'Setup completo',setup_backend_key:'Backend config',setup_device_key:'Device',
+    setup_unit_key:'Unidad systemd',setup_helper_key:'Helper',
+    wiz_welcome_title:'Bienvenido a Bost FlowStation',wiz_welcome_body:'Este asistente configura el SDR, parámetros RF y el arranque automático. El panel web sigue disponible aunque la radio esté apagada.',
+    wiz_skip:'Omitir con valores por defecto',wiz_continue:'Continuar',wiz_back:'Atrás',wiz_next:'Siguiente',wiz_finish:'Finalizar',wiz_skip_now:'Omitir por ahora',
+    wiz_sdr_title:'Seleccionar SDR',wiz_sdr_help:'Escanea dispositivos SoapySDR o instala un driver (SXceiver / Lime).',wiz_device_args:'Argumentos device',
+    wiz_params_title:'RF / Red / Brew',wiz_params_help:'Usa los formularios de Config para editar todo, o mantén los valores por defecto.',
+    wiz_use_defaults:'Usar valores actuales por defecto',wiz_open_config:'Abrir Config',
+    wiz_rf_title:'Activar RF',wiz_rf_help:'Pone phy_io.backend = SoapySdr, guarda el device y reinicia el servicio.',
+    wiz_auto_title:'Arranque automático',wiz_auto_help:'Asegura que la unidad systemd esté enabled para volver tras un reinicio.',
+    cfg_sec_profiles:'Perfiles',cfg_profiles_title:'Escenarios',cfg_apply_restart:'Aplicar y reiniciar',
+    cfg_profiles_help:'1) Elige Cell + Brew · 2) Edita los formularios · 3) Actualiza o Guarda como · 4) Aplicar y reiniciar para poner en aire.',
+    cfg_cell_profile:'Cell (RF + red)',cfg_brew_profile:'Brew backhaul',cfg_update_cell:'Actualizar Cell',cfg_del_cell:'Borrar',
+    cfg_save_as_cell:'Guardar como',cfg_update_brew:'Actualizar Brew',cfg_del_brew:'Borrar',cfg_save_as_brew:'Guardar como',
+    cfg_sec_live:'Ajustes en vivo',cfg_live_title:'Escribir en config.toml activo',cfg_save_live:'Guardar en vivo',
+    cfg_live_help:'Guarda los formularios en la config activa. Reinicia (o Aplicar y reiniciar) para que RF / red / Brew tengan efecto.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
     rf_waiting:'esperando…',rf_live:'en vivo',rf_stale:'obsoleto',
@@ -4904,12 +4937,12 @@ const LANGS={
     emg_banner_title:'EMERGENCIA ACTIVA',integrations:'Integraciones',integ_enabled:'Activado',integ_disabled:'Desactivado',integ_error:'Error',system_sec:'Sistema',emg_chip:'EMERGENCIA',bs_label:'BS',emg_clear:'Borrar',confirm_clear_emergency:'¿Borrar emergencia para ISSI {issi}?',
     confirm_kick:'¿Expulsar ISSI {issi}?\nEl terminal será desregistrado y forzado a reconectarse.',
     dgna:'DGNA',dgna_title:'Asignación dinámica de grupo',dgna_modal_title:'⬡ Asignación dinámica de grupo',dgna_issi:'ISSI del terminal',dgna_current:'Grupos actuales',dgna_gssi:'Grupo (GSSI)',dgna_assign:'Asignar',dgna_deassign:'Quitar',
-    confirm_restart:'¿Reiniciar FlowStation?\nTodas las llamadas activas se interrumpirán.',
-    confirm_shutdown:'¿Apagar FlowStation?\nEl servicio se detendrá y deberá reiniciarse manualmente.',
+    confirm_restart:'¿Reiniciar Bost FlowStation?\nTodas las llamadas activas se interrumpirán.',
+    confirm_shutdown:'¿Apagar Bost FlowStation?\nEl servicio se detendrá y deberá reiniciarse manualmente.',
     confirm_logout:'¿Cerrar sesión?',
     saved:'✓ Guardado — reinicia para aplicar.',save_fail:'✗ Error al guardar',conn_error:'Error de conexión.',
-    update:'Update',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/razvanzeces/flowstation',
-    update_confirm:'¿Obtener la última versión de main y recompilar?\nEl servicio se reiniciará automáticamente.',
+    update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
+    update_confirm:'¿Obtener la última versión de bost y recompilar?\nEl servicio se reiniciará automáticamente.',
     update_running:'Actualizando… no cierres esta ventana.',
     update_done_ok:'✓ Actualización completa. Reiniciando…',
     update_done_err:'✗ Actualización fallida. Ver log abajo.',
@@ -5064,7 +5097,7 @@ const LANGS={
   },
 };
 
-let currentLang=localStorage.getItem('fs_lang')||'en';
+let currentLang=localStorage.getItem('fs_lang')||'es';
 function t(k,v){let s=(LANGS[currentLang]||LANGS.en)[k]||(LANGS.en[k]||k);if(v)Object.keys(v).forEach(x=>{s=s.replace('{'+x+'}',v[x]);});return s;}
 function applyLang(){
   document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n')));
@@ -9769,12 +9802,12 @@ boot();
 /// title type) but is self-contained: a single document, no external deps, no
 /// font downloads. Form posts to POST /api/login as JSON via fetch().
 pub const LOGIN_HTML: &str = r##"<!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#eceff4">
-<title>FlowStation — Login</title>
+<title>{{PRODUCT_NAME}} — Acceso</title>
 <style>
 :root{
   --bg:#eceff4;--bg2:#ffffff;--bg3:#e6eaf1;--bg4:#d6dde7;
@@ -9925,29 +9958,31 @@ input:focus{border-color:var(--accent2);background:var(--bg4);}
       </svg>
     </div>
     <div style="text-align:center">
-      <div class="logo-title"><span>Flow</span><span class="accent">Station</span></div>
-      <div class="logo-sub">TETRA Base Station</div>
+      <div class="logo-title"><span>Bost</span> <span class="accent">FlowStation</span></div>
+      <div class="logo-sub">TETRA Base Station · {{STACK_VERSION}}</div>
+      <div class="logo-sub" style="margin-top:4px;opacity:0.85">{{VERSION_BASED_ON}}</div>
     </div>
   </div>
 
   <form id="login-form" autocomplete="on">
     <div>
-      <label class="field-label" for="username">Username</label>
+      <label class="field-label" for="username">Usuario</label>
       <input type="text" id="username" name="username" autocomplete="username"
              autocapitalize="none" autocorrect="off" spellcheck="false"
              required>
     </div>
     <div>
-      <label class="field-label" for="password">Password</label>
+      <label class="field-label" for="password">Contraseña</label>
       <input type="password" id="password" name="password" autocomplete="current-password"
              required>
     </div>
-    <button type="submit" class="btn-login" id="submit-btn">Sign In</button>
+    <button type="submit" class="btn-login" id="submit-btn">Entrar</button>
     <div class="err" id="err"></div>
   </form>
 
   <div class="footer">
-    github.com/razvanzeces/<a href="https://github.com/razvanzeces/flowstation" target="_blank">flowstation</a>
+    <a href="{{PRODUCT_REPO_URL}}" target="_blank" rel="noopener">{{PRODUCT_REPO_LABEL}}</a><br>
+    Versión mejorada por Aitor, EA4HBL
   </div>
 </div>
 
@@ -9960,7 +9995,7 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   errBox.textContent = '';
   btn.disabled = true;
-  btn.textContent = 'Signing in…';
+  btn.textContent = 'Entrando…';
 
   const user = document.getElementById('username').value;
   const password = document.getElementById('password').value;
@@ -9978,15 +10013,15 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     if (r.status === 401) {
-      errBox.textContent = 'Invalid credentials';
+      errBox.textContent = 'Credenciales incorrectas';
     } else {
-      errBox.textContent = 'Login failed (' + r.status + ')';
+      errBox.textContent = 'Error de acceso (' + r.status + ')';
     }
   } catch (e) {
-    errBox.textContent = 'Network error: ' + e.message;
+    errBox.textContent = 'Error de red: ' + e.message;
   }
   btn.disabled = false;
-  btn.textContent = 'Sign In';
+  btn.textContent = 'Entrar';
 });
 
 // Auto-focus username on desktop; mobile keyboards open virtually so we don't on small screens.

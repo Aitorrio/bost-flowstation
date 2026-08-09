@@ -150,12 +150,30 @@ fn normalize_mojibake_html(src: &str) -> String {
 
 fn dashboard_html_body() -> &'static str {
     static HTML: OnceLock<String> = OnceLock::new();
-    HTML.get_or_init(|| normalize_mojibake_html(&DASHBOARD_HTML.replace("{{STACK_VERSION}}", tetra_core::STACK_VERSION)))
+    HTML.get_or_init(|| {
+        normalize_mojibake_html(
+            &DASHBOARD_HTML
+                .replace("{{PRODUCT_NAME}}", tetra_core::PRODUCT_NAME)
+                .replace("{{STACK_VERSION}}", tetra_core::STACK_VERSION)
+                .replace("{{VERSION_BASED_ON}}", tetra_core::VERSION_BASED_ON)
+                .replace("{{PRODUCT_REPO_URL}}", tetra_core::PRODUCT_REPO_URL)
+                .replace("{{PRODUCT_REPO_LABEL}}", tetra_core::PRODUCT_REPO_LABEL),
+        )
+    })
 }
 
 fn login_html_body() -> &'static str {
     static HTML: OnceLock<String> = OnceLock::new();
-    HTML.get_or_init(|| normalize_mojibake_html(crate::net_dashboard::html::LOGIN_HTML))
+    HTML.get_or_init(|| {
+        normalize_mojibake_html(
+            &crate::net_dashboard::html::LOGIN_HTML
+                .replace("{{PRODUCT_NAME}}", tetra_core::PRODUCT_NAME)
+                .replace("{{STACK_VERSION}}", tetra_core::STACK_VERSION)
+                .replace("{{VERSION_BASED_ON}}", tetra_core::VERSION_BASED_ON)
+                .replace("{{PRODUCT_REPO_URL}}", tetra_core::PRODUCT_REPO_URL)
+                .replace("{{PRODUCT_REPO_LABEL}}", tetra_core::PRODUCT_REPO_LABEL),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +486,7 @@ fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, 
          but none was found. You have two options:\n\
          \n\
          1) Clone the sources next to your binary:\n\
-            git clone https://github.com/razvanzeces/flowstation.git /opt/tetra-bluestation\n\
+            git clone https://github.com/Aitorrio/bost-flowstation.git -b bost /opt/bost-flowstation\n\
             Then either move the binary into that tree, or set source_dir in config:\n\
             [dashboard]\n\
             source_dir = \"/opt/tetra-bluestation\"\n\
@@ -642,7 +660,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         }};
     }
 
-    log!(update, "=== FlowStation OTA Update ===");
+    log!(update, "=== Bost FlowStation OTA Update ===");
 
     // Step 1: resolve source directory. Bail out cleanly if we can't find a git repo.
     let src_dir = match resolve_source_dir(source_dir_override.as_deref()) {
@@ -1647,7 +1665,7 @@ fn http_response_401(mut stream: TcpStream) {
     let body = "Unauthorized";
     let resp = format!(
         "HTTP/1.1 401 Unauthorized\r\n\
-         WWW-Authenticate: Basic realm=\"FlowStation Dashboard\", charset=\"UTF-8\"\r\n\
+         WWW-Authenticate: Basic realm=\"Bost FlowStation\", charset=\"UTF-8\"\r\n\
          Content-Type: text/plain\r\n\
          Content-Length: {}\r\n\
          Connection: close\r\n\
@@ -4143,6 +4161,9 @@ fn serve_system_info(mut stream: TcpStream, config_path: &str) {
         "config_path": config_path,
         "config_dir": config_dir,
         "stack_version": tetra_core::STACK_VERSION,
+        "product_name": tetra_core::PRODUCT_NAME,
+        "version_based_on": tetra_core::VERSION_BASED_ON,
+        "product_repo": tetra_core::PRODUCT_REPO_URL,
         "cpu_model": cpu_model,
         "cpu_cores": cpu_cores,
         "cpu_pct": cpu_pct,

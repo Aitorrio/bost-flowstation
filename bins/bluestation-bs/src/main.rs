@@ -369,9 +369,14 @@ fn main() {
     eprintln!("░▀█▀░█▀▀░▀█▀░█▀▄░█▀█░░░░░░░░░█▀▀░█░░░█▀█░█░█░█▀▀░▀█▀░█▀█░▀█▀░▀█▀░█▀█░█▀█");
     eprintln!("░░█░░█▀▀░░█░░█▀▄░█▀█░░░▄▄▄░░░█▀▀░█░░░█░█░█▄█░▀▀█░░█░░█▀█░░█░░░█░░█░█░█░█");
     eprintln!("░░▀░░▀▀▀░░▀░░▀░▀░▀░▀░░░░░░░░░▀░░░▀▀▀░▀▀▀░▀░▀░▀▀▀░░▀░░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀\n");
-    eprintln!("  Razvan Zeces / FlowStation.network");
-    eprintln!("  https://github.com/razvanzeces/flowstation");
-    eprintln!("  Version: {}", tetra_core::STACK_VERSION);
+    eprintln!("  {} — improved by Aitor, EA4HBL", tetra_core::PRODUCT_NAME);
+    eprintln!("  {}", tetra_core::PRODUCT_REPO_URL);
+    eprintln!(
+        "  Version: {} ({})",
+        tetra_core::STACK_VERSION,
+        tetra_core::VERSION_BASED_ON
+    );
+    eprintln!("  Upstream credit: Razvan Zeces / FlowStation.network");
 
     // Parse command-line arguments
     let args = Args::parse();

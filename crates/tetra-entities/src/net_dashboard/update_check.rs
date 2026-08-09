@@ -11,9 +11,9 @@
 
 use std::time::Duration;
 
-const GITHUB_API_LATEST: &str = "https://api.github.com/repos/razvanzeces/flowstation/releases/latest";
+const GITHUB_API_LATEST: &str = "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/latest";
 // GitHub requires a User-Agent on all API requests.
-const USER_AGENT: &str = "FlowStation-Dashboard";
+const USER_AGENT: &str = "Bost-FlowStation-Dashboard";
 
 /// A parsed semantic version (major.minor.patch). Pre-release/build metadata is ignored
 /// for comparison purposes — we only care about the release triple.
@@ -241,7 +241,7 @@ mod tests {
             current: "v0.2.5-gabc".to_string(),
             latest: Some("v0.2.6".to_string()),
             update_available: true,
-            release_url: Some("https://github.com/razvanzeces/flowstation/releases/tag/v0.2.6".to_string()),
+            release_url: Some("https://github.com/Aitorrio/bost-flowstation/releases/tag/v0.1.0".to_string()),
             check_failed: false,
         };
         let j = uc.to_json();

@@ -244,10 +244,11 @@ IP="${IP:-<pi-ip>}"
 
 echo
 echo "────────────────────────────────────────────────────────"
-echo " bost-flowstation installed"
+echo " Bost FlowStation installed"
 echo " Dashboard:  http://${IP}:8080"
 echo " Login:      admin / 1234"
 echo " Config:     ${CFG_PATH}"
 echo " Setup:      open the Setup tab / first-run wizard"
 echo " RF starts disabled (backend=None) until you finish Setup."
+echo " Repo:       https://github.com/Aitorrio/bost-flowstation (branch bost)"
 echo "────────────────────────────────────────────────────────"

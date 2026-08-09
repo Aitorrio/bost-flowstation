@@ -8,8 +8,29 @@ pub const GIT_HASH: &str = git_version::git_version!(
     args = ["--always", "--dirty=-modified", "--match=", "--abbrev=8"],
     fallback = "unknown"
 );
-/// Full stack version string, e.g. "v0.0.6-2aad62c8"
-pub const STACK_VERSION: &str = const_format::formatcp!("v{}-{}", env!("CARGO_PKG_VERSION"), GIT_HASH);
+
+/// Product branding for this fork (UI / banners).
+pub const PRODUCT_NAME: &str = "Bost FlowStation";
+
+/// Our release line (independent of upstream crate package version).
+pub const BOST_VERSION: &str = "0.1.0";
+
+/// Upstream project this fork is based on.
+pub const UPSTREAM_NAME: &str = "FlowStation";
+
+/// Upstream FlowStation version this Bost release tracks (workspace package version).
+pub const UPSTREAM_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Compact version shown in UI badges, e.g. "v0.1.0-2aad62c8".
+pub const STACK_VERSION: &str = const_format::formatcp!("v{}-{}", BOST_VERSION, GIT_HASH);
+
+/// Provenance line, e.g. "based on FlowStation v0.4.0".
+pub const VERSION_BASED_ON: &str =
+    const_format::formatcp!("based on {} v{}", UPSTREAM_NAME, UPSTREAM_VERSION);
+
+/// Public source repository for this fork.
+pub const PRODUCT_REPO_URL: &str = "https://github.com/Aitorrio/bost-flowstation";
+pub const PRODUCT_REPO_LABEL: &str = "github.com/Aitorrio/bost-flowstation";
 
 pub mod address;
 pub mod bitbuffer;
