@@ -128,13 +128,19 @@ elif re.search(r'(?m)^#\s*service_name\s*=', text):
     text = re.sub(r'(?m)^#\s*service_name\s*=.*', 'service_name = "bluestation-bs"', text, count=1)
 else:
     text = 'service_name = "bluestation-bs"\n' + text
-dash = '\n[dashboard]\nbind = "0.0.0.0"\nport = 8080\nusername = "admin"\npassword = "1234"\nsource_dir = "/opt/bost-flowstation"\n'
-if "[dashboard]" not in text:
-    text += dash
-else:
-    block = text.split("[dashboard]", 1)[1].split("\n[")[0]
-    if "username" not in block:
-        text = text.replace("[dashboard]", "[dashboard]" + dash.replace("[dashboard]", ""), 1)
+
+# example_config only has a *commented* "# [dashboard]" — that must not count as present.
+has_live_dashboard = bool(re.search(r'(?m)^\[dashboard\]\s*$', text))
+dash = (
+    '\n[dashboard]\n'
+    'bind = "0.0.0.0"\n'
+    'port = 8080\n'
+    'username = "admin"\n'
+    'password = "1234"\n'
+    'source_dir = "/opt/bost-flowstation"\n'
+)
+if not has_live_dashboard:
+    text = text.rstrip() + "\n" + dash
 open(path, "w", encoding="utf-8").write(text)
 PY
   else
