@@ -2183,6 +2183,197 @@ fn handle_connection(
             Ok(()) => http_response(buf.into_inner(), 200, "OK"),
             Err((code, msg)) => http_response(buf.into_inner(), code, &msg),
         }
+    } else if req_line.contains("GET /api/visual-config") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::profiles::visual_config_from_toml(&config_path) {
+            Ok(v) => http_json_response(s, 200, &v.to_string()),
+            Err(e) => http_response(s, 500, &e),
+        }
+    } else if req_line.contains("POST /api/visual-config") {
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<serde_json::Value>(&body_str) {
+            Ok(v) => match crate::net_dashboard::profiles::write_visual_config(&config_path, &v) {
+                Ok(()) => {
+                    tracing::info!("Dashboard: visual config saved");
+                    http_json_response(inner, 200, r#"{"ok":true}"#);
+                }
+                Err(e) => http_response(inner, 400, &e),
+            },
+            Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
+    } else if req_line.contains("GET /api/profiles/active") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let _ = crate::net_dashboard::profiles::ensure_seeded(&config_path);
+        let active = crate::net_dashboard::profiles::read_active(&config_path);
+        http_json_response(s, 200, &serde_json::to_string(&active).unwrap_or_else(|_| "{}".into()));
+    } else if req_line.contains("POST /api/profiles/apply") {
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<serde_json::Value>(&body_str) {
+            Ok(v) => {
+                let cell = v.get("cell").and_then(|c| c.as_str()).unwrap_or("").trim();
+                if cell.is_empty() {
+                    http_response(inner, 400, "missing cell profile name");
+                } else {
+                    let brew = match v.get("brew") {
+                        None | Some(serde_json::Value::Null) => None,
+                        Some(serde_json::Value::String(s)) if s.trim().is_empty() => None,
+                        Some(serde_json::Value::String(s)) => Some(s.as_str()),
+                        _ => {
+                            http_response(inner, 400, "brew must be a string or null");
+                            return;
+                        }
+                    };
+                    match crate::net_dashboard::profiles::apply_profiles(&config_path, cell, brew) {
+                        Ok(()) => {
+                            tracing::info!(
+                                "Dashboard: applied cell='{}' brew={:?}",
+                                cell,
+                                brew
+                            );
+                            http_json_response(inner, 200, r#"{"ok":true}"#);
+                        }
+                        Err(e) => http_response(inner, 400, &e),
+                    }
+                }
+            }
+            Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
+    } else if req_line.contains("GET /api/profiles/cell ")
+        || req_line.contains("GET /api/profiles/cell?")
+        || req_line.starts_with("GET /api/profiles/cell HTTP")
+    {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::profiles::list_cell_profiles(&config_path) {
+            Ok(list) => http_json_response(s, 200, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())),
+            Err(e) => http_response(s, 500, &e),
+        }
+    } else if req_line.contains("GET /api/profiles/brew ")
+        || req_line.contains("GET /api/profiles/brew?")
+        || req_line.starts_with("GET /api/profiles/brew HTTP")
+    {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::profiles::list_brew_profiles(&config_path) {
+            Ok(list) => http_json_response(s, 200, &serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())),
+            Err(e) => http_response(s, 500, &e),
+        }
+    } else if let Some(name) = profile_path_name(&req_line, "GET /api/profiles/cell/") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::profiles::get_cell_profile(&config_path, &name) {
+            Ok(v) => http_json_response(s, 200, &v.to_string()),
+            Err(e) => http_response(s, 404, &e),
+        }
+    } else if let Some(name) = profile_path_name(&req_line, "GET /api/profiles/brew/") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::profiles::get_brew_profile(&config_path, &name, true) {
+            Ok(v) => http_json_response(s, 200, &v.to_string()),
+            Err(e) => http_response(s, 404, &e),
+        }
+    } else if let Some(name) = profile_path_name(&req_line, "POST /api/profiles/cell/") {
+        if let Some(src) = name.strip_suffix("/duplicate") {
+            let (inner, body_str) = read_post_body(stream);
+            let new_name = serde_json::from_str::<serde_json::Value>(&body_str)
+                .ok()
+                .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                .unwrap_or_default();
+            match crate::net_dashboard::profiles::duplicate_cell_profile(&config_path, src, &new_name) {
+                Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                Err(e) => http_response(inner, 400, &e),
+            }
+        } else {
+            let (inner, body_str) = read_post_body(stream);
+            match serde_json::from_str::<serde_json::Value>(&body_str) {
+                Ok(v) => match crate::net_dashboard::profiles::put_cell_profile(&config_path, &name, &v) {
+                    Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                    Err(e) => http_response(inner, 400, &e),
+                },
+                Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+            }
+        }
+    } else if let Some(name) = profile_path_name(&req_line, "POST /api/profiles/brew/") {
+        if let Some(src) = name.strip_suffix("/duplicate") {
+            let (inner, body_str) = read_post_body(stream);
+            let new_name = serde_json::from_str::<serde_json::Value>(&body_str)
+                .ok()
+                .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                .unwrap_or_default();
+            match crate::net_dashboard::profiles::duplicate_brew_profile(&config_path, src, &new_name) {
+                Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                Err(e) => http_response(inner, 400, &e),
+            }
+        } else {
+            let (inner, body_str) = read_post_body(stream);
+            match serde_json::from_str::<serde_json::Value>(&body_str) {
+                Ok(v) => match crate::net_dashboard::profiles::put_brew_profile(&config_path, &name, &v) {
+                    Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                    Err(e) => http_response(inner, 400, &e),
+                },
+                Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+            }
+        }
+    } else if req_line.contains("POST /api/profiles/cell") {
+        // Create: body { "name": "...", ...profile fields } or { "name", "from_visual": true, ... }
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<serde_json::Value>(&body_str) {
+            Ok(v) => {
+                let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                if name.is_empty() {
+                    http_response(inner, 400, "missing name");
+                } else if v.get("from_visual").and_then(|x| x.as_bool()).unwrap_or(false) {
+                    match crate::net_dashboard::profiles::save_cell_from_visual(&config_path, &name, &v) {
+                        Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                        Err(e) => http_response(inner, 400, &e),
+                    }
+                } else {
+                    match crate::net_dashboard::profiles::put_cell_profile(&config_path, &name, &v) {
+                        Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                        Err(e) => http_response(inner, 400, &e),
+                    }
+                }
+            }
+            Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
+    } else if req_line.contains("POST /api/profiles/brew") {
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<serde_json::Value>(&body_str) {
+            Ok(v) => {
+                let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                if name.is_empty() {
+                    http_response(inner, 400, "missing name");
+                } else if v.get("from_visual").and_then(|x| x.as_bool()).unwrap_or(false) {
+                    match crate::net_dashboard::profiles::save_brew_from_visual(&config_path, &name, &v) {
+                        Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                        Err(e) => http_response(inner, 400, &e),
+                    }
+                } else {
+                    let brew = v.get("brew").cloned().unwrap_or(v);
+                    match crate::net_dashboard::profiles::put_brew_profile(&config_path, &name, &brew) {
+                        Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                        Err(e) => http_response(inner, 400, &e),
+                    }
+                }
+            }
+            Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
+    } else if let Some(name) = profile_path_name(&req_line, "DELETE /api/profiles/cell/") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::profiles::delete_cell_profile(&config_path, &name) {
+            Ok(()) => http_json_response(s, 200, r#"{"ok":true}"#),
+            Err(e) => http_response(s, 400, &e),
+        }
+    } else if let Some(name) = profile_path_name(&req_line, "DELETE /api/profiles/brew/") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::profiles::delete_brew_profile(&config_path, &name) {
+            Ok(()) => http_json_response(s, 200, r#"{"ok":true}"#),
+            Err(e) => http_response(s, 400, &e),
+        }
     } else if req_line.contains("GET /api/btsinfo") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -4332,6 +4523,23 @@ fn http_json_response(mut stream: TcpStream, code: u16, body: &str) {
 /// for GET-style endpoints that don't read a body — we still need to clear
 /// the headers off the stream before responding, otherwise some clients
 /// reuse the connection and get confused.
+/// Extract `/api/profiles/{kind}/<name…>` from a request line after a fixed method+prefix.
+/// Percent-decodes the name; returns None when the path does not match.
+fn profile_path_name(req_line: &str, method_prefix: &str) -> Option<String> {
+    let path = req_line.split_whitespace().nth(1)?;
+    let method = req_line.split_whitespace().next()?;
+    let want_method = method_prefix.split_whitespace().next()?;
+    if !method.eq_ignore_ascii_case(want_method) {
+        return None;
+    }
+    let prefix = method_prefix.split_whitespace().nth(1)?;
+    let rest = path.strip_prefix(prefix)?;
+    if rest.is_empty() {
+        return None;
+    }
+    Some(url_decode(rest))
+}
+
 fn drain_http_headers(stream: &mut TcpStream) {
     // We read byte-by-byte to find the \r\n\r\n delimiter. This is slower
     // than BufReader-line reads but doesn't consume bytes past the headers,

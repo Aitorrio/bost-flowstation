@@ -3516,21 +3516,166 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
     <!-- ── CONFIG ── -->
     <div class="page" id="page-config">
-      <div class="section-label" data-i18n="cfg_sec_configuration">Configuration</div>
+      <div class="section-label" data-i18n="cfg_sec_profiles">Profiles</div>
       <div class="card">
         <div class="card-head">
-          <div class="card-title">config.toml</div>
+          <div class="card-title" data-i18n="cfg_profiles_title">Scenarios</div>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="applySelectedProfiles()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div style="color:var(--muted);font-size:13px;margin-bottom:12px" data-i18n="cfg_profiles_help">
+            1) Pick a Cell + Brew · 2) Edit the forms below · 3) Update profile or Save as new · 4) Apply &amp; Restart to put it on air.
+          </div>
+          <div id="vc-editing-banner" class="banner" style="display:none;margin-bottom:12px;padding:10px 12px;border-radius:var(--r);background:rgba(77,166,255,0.12);border:1px solid rgba(77,166,255,0.35);color:var(--accent2);font-size:13px"></div>
+          <div class="group-list" style="margin-bottom:14px">
+            <label class="field"><span data-i18n="cfg_cell_profile">Cell (RF + network)</span>
+              <select id="vc-cell-profile" class="form-input" onchange="loadCellProfileIntoForm()"></select>
+            </label>
+            <label class="field"><span data-i18n="cfg_brew_profile">Brew backhaul</span>
+              <select id="vc-brew-profile" class="form-input" onchange="loadBrewProfileIntoForm()">
+                <option value="">Offline (no Brew)</option>
+              </select>
+            </label>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+            <button class="btn btn-primary" onclick="updateCurrentCellProfile()"><span data-i18n="cfg_update_cell">Update Cell</span></button>
+            <button class="btn" onclick="deleteSelectedCellProfile()"><span data-i18n="cfg_del_cell">Delete</span></button>
+            <input type="text" id="vc-save-cell-name" class="form-input" placeholder="Save Cell as…" style="flex:1;min-width:140px">
+            <button class="btn" onclick="saveCellProfileFromForm(true)"><span data-i18n="cfg_save_as_cell">Save as</span></button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary" onclick="updateCurrentBrewProfile()"><span data-i18n="cfg_update_brew">Update Brew</span></button>
+            <button class="btn" onclick="deleteSelectedBrewProfile()"><span data-i18n="cfg_del_brew">Delete</span></button>
+            <input type="text" id="vc-save-brew-name" class="form-input" placeholder="Save Brew as…" style="flex:1;min-width:140px">
+            <button class="btn" onclick="saveBrewProfileFromForm(true)"><span data-i18n="cfg_save_as_brew">Save as</span></button>
+          </div>
+          <div class="config-msg" id="vc-profiles-msg"></div>
+        </div>
+      </div>
+
+      <div class="section-label" data-i18n="cfg_sec_live">Live settings</div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cfg_live_title">Write to running config.toml</div>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="saveVisualConfig()"><span class="btn-icon" data-icon="save"></span><span data-i18n="cfg_save_live">Save live</span></button>
+            <button class="btn btn-warn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
+          </div>
+        </div>
+        <div class="card-body" style="color:var(--muted);font-size:13px" data-i18n="cfg_live_help">
+          Saves the forms below into the active config. Restart (or Apply &amp; Restart above) is required for RF / network / Brew to take effect.
+        </div>
+      </div>
+
+      <div class="section-label" data-i18n="cfg_sec_rf">RF</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cfg_rf_title">Frequencies</div>
+          <div class="card-actions">
+            <button class="btn" onclick="autoCalcCarrier()"><span data-i18n="cfg_auto">Auto RX + carrier</span></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="group-list">
+            <label class="field"><span data-i18n="cfg_tx">Downlink TX (Hz)</span><input type="number" id="vc-tx-freq" class="form-input"></label>
+            <label class="field"><span data-i18n="cfg_rx">Uplink RX (Hz)</span><input type="number" id="vc-rx-freq" class="form-input"></label>
+            <label class="field"><span data-i18n="cfg_colour">Colour code</span><input type="number" id="vc-colour" class="form-input" min="0" max="63"></label>
+          </div>
+          <details style="margin-top:14px">
+            <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_rf_adv">Advanced RF</summary>
+            <div class="group-list">
+              <label class="field"><span>Main carrier</span><input type="number" id="vc-main-carrier" class="form-input"></label>
+              <label class="field"><span>Freq band</span><input type="number" id="vc-freq-band" class="form-input" value="4"></label>
+              <label class="field"><span>Duplex spacing id</span><input type="number" id="vc-duplex-id" class="form-input" value="4"></label>
+              <label class="field"><span>Custom duplex (Hz)</span><input type="number" id="vc-custom-duplex" class="form-input" placeholder="optional"></label>
+              <label class="field"><span>Freq offset (Hz)</span><input type="number" id="vc-freq-offset" class="form-input" value="0"></label>
+              <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-reverse"> <span>Reverse operation</span></label>
+              <label class="field"><span>PPM</span><input type="number" step="any" id="vc-ppm" class="form-input" value="0"></label>
+              <label class="field"><span>Device</span><input type="text" id="vc-device" class="form-input" placeholder="driver=sx"></label>
+              <label class="field"><span>RX antenna</span><input type="text" id="vc-rx-ant" class="form-input"></label>
+              <label class="field"><span>TX antenna</span><input type="text" id="vc-tx-ant" class="form-input"></label>
+              <label class="field"><span>RX gain LNA</span><input type="number" step="any" id="vc-rx-lna" class="form-input"></label>
+              <label class="field"><span>RX gain PGA</span><input type="number" step="any" id="vc-rx-pga" class="form-input"></label>
+              <label class="field"><span>TX gain</span><input type="number" step="any" id="vc-tx-gain" class="form-input"></label>
+            </div>
+          </details>
+          <div class="config-msg" id="vc-rf-msg"></div>
+        </div>
+      </div>
+
+      <div class="section-label" data-i18n="cfg_sec_network">Network</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cfg_net_title">TETRA identity</div>
+        </div>
+        <div class="card-body">
+          <div class="group-list">
+            <label class="field"><span>MCC</span><input type="number" id="vc-mcc" class="form-input"></label>
+            <label class="field"><span>MNC</span><input type="number" id="vc-mnc" class="form-input"></label>
+            <label class="field"><span data-i18n="cfg_la">Location area</span><input type="number" id="vc-la" class="form-input"></label>
+          </div>
+          <details style="margin-top:14px">
+            <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_net_adv">Advanced network / timers</summary>
+            <div class="group-list">
+              <label class="field"><span>Timezone (IANA)</span><input type="text" id="vc-tz" class="form-input" placeholder="Europe/Madrid"></label>
+              <label class="field"><span>Hangtime (s)</span><input type="number" id="vc-hangtime" class="form-input"></label>
+              <label class="field"><span>Call timeout (s)</span><input type="number" id="vc-call-timeout" class="form-input"></label>
+              <label class="field"><span>UL inactivity (s)</span><input type="number" id="vc-ul-inact" class="form-input"></label>
+              <label class="field"><span>T351 / periodic reg (s)</span><input type="number" id="vc-t351" class="form-input"></label>
+              <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-syswide"> <span>System-wide services</span></label>
+              <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-voice"> <span>Voice service</span></label>
+              <label class="field"><span>Local SSI ranges</span><input type="text" id="vc-local-ssi" class="form-input" placeholder="0-90, 100-120"></label>
+            </div>
+          </details>
+          <div class="config-msg" id="vc-net-msg"></div>
+        </div>
+      </div>
+
+      <div class="section-label" data-i18n="cfg_sec_brew">Brew</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cfg_brew_title">Backhaul connection</div>
+        </div>
+        <div class="card-body">
+          <div class="group-list">
+            <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-enabled" onchange="toggleBrewFields()"> <span data-i18n="cfg_brew_enable">Enable Brew</span></label>
+            <label class="field"><span>Host</span><input type="text" id="vc-brew-host" class="form-input"></label>
+            <label class="field"><span>Port</span><input type="number" id="vc-brew-port" class="form-input" value="3003"></label>
+            <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-tls"> <span>TLS</span></label>
+            <label class="field"><span data-i18n="cfg_brew_user">Username (SSID)</span><input type="number" id="vc-brew-user" class="form-input"></label>
+            <label class="field"><span>Password</span><input type="password" id="vc-brew-pass" class="form-input" placeholder="leave masked to keep"></label>
+          </div>
+          <details style="margin-top:14px">
+            <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_brew_adv">Advanced Brew</summary>
+            <div class="group-list">
+              <label class="field"><span>Reconnect delay (s)</span><input type="number" id="vc-brew-reconnect" class="form-input" value="15"></label>
+              <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-sds" checked> <span>SDS forwarding</span></label>
+              <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-rssi"> <span>RSSI export</span></label>
+            </div>
+          </details>
+          <div class="config-msg" id="vc-brew-msg"></div>
+        </div>
+      </div>
+
+      <div class="section-label" data-i18n="cfg_sec_configuration">Advanced</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cfg_advanced_toml">Raw config.toml</div>
           <div class="card-actions">
             <button class="btn btn-primary" onclick="saveConfig()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
             <span class="btn-group danger-group">
-              <button class="btn btn-warn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
               <button class="btn btn-danger" onclick="shutdownService()"><span class="btn-icon" data-icon="shutdown"></span><span data-i18n="shutdown">Shutdown</span></button>
               <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
             </span>
           </div>
         </div>
         <div class="card-body">
-          <textarea id="config-editor" spellcheck="false" placeholder="Loading..."></textarea>
+          <details>
+            <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_toml_toggle">Show / hide TOML editor</summary>
+            <textarea id="config-editor" spellcheck="false" placeholder="Loading..."></textarea>
+          </details>
           <div class="config-msg" id="config-msg"></div>
         </div>
       </div>
@@ -4311,6 +4456,20 @@ const LANGS={
     confirm_shutdown:'Shutdown FlowStation?\nThe service will stop and must be restarted manually.',
     confirm_logout:'Log out?',
     saved:'✓ Saved — restart to apply.',save_fail:'✗ Save failed',conn_error:'Connection error.',
+    cfg_sec_profiles:'Profiles',cfg_profiles_title:'Scenarios',cfg_profiles_help:'1) Pick a Cell + Brew · 2) Edit the forms below · 3) Update profile or Save as new · 4) Apply & Restart to put it on air.',
+    cfg_cell_profile:'Cell (RF + network)',cfg_brew_profile:'Brew backhaul',cfg_apply_restart:'Apply & Restart',
+    cfg_update_cell:'Update Cell',cfg_update_brew:'Update Brew',cfg_save_as_cell:'Save as',cfg_save_as_brew:'Save as',
+    cfg_del_cell:'Delete',cfg_del_brew:'Delete',
+    cfg_editing:'Editing forms for Cell “{cell}” · Brew “{brew}”. Change fields below, then Update or Save as.',
+    cfg_sec_live:'Live settings',cfg_live_title:'Write to running config.toml',cfg_save_live:'Save live',
+    cfg_live_help:'Saves the forms below into the active config. Restart (or Apply & Restart above) is required for RF / network / Brew to take effect.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (Hz)',cfg_rx:'Uplink RX (Hz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',
+    cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
+    cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
+    cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',
+    cfg_apply_confirm:'Apply selected Cell × Brew profiles and restart? Current config.toml will be backed up.',
+    cfg_need_name:'Enter a name for Save as.',cfg_need_select:'Select a profile first.',cfg_deleted:'✓ Deleted',cfg_applied:'✓ Applied — restarting…',cfg_updated:'✓ Profile updated',
+
     update:'Update',update_available:'Update available',update_title:'OTA Update — github.com/razvanzeces/flowstation',
     update_confirm:'Pull latest from main and rebuild?\nThe service will restart automatically.',
     update_running:'Updating… do not close this window.',
@@ -4859,7 +5018,7 @@ function showPage(name,el){
   if(name==='asterisk'){loadAsteriskStatus();loadSnomNotify();}
   if(name==='dapnet'){loadDapnet();loadDapnetLog();}
   if(name==='geoalarm'){loadGeoalarm();}
-  if(name==='config'){loadConfig();loadWhitelist();loadWx();}
+  if(name==='config'){loadConfig();loadVisualConfig();loadWhitelist();loadWx();}
   if(name==='telegram'){loadTelegram();}
   if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();}
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
@@ -6732,6 +6891,252 @@ async function saveConfig(){
   catch(e){setConfigMsg(t('conn_error'),false);}
 }
 function setConfigMsg(txt,ok){const el=document.getElementById('config-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';}
+
+// ── Visual configurator + Cell/Brew profiles ───────────────────────────────
+function vcMsg(id,msg,ok){const el=document.getElementById(id);if(!el)return;el.textContent=msg||'';el.style.color=ok?'var(--ok)':'var(--danger)';}
+function vcNum(id){const el=document.getElementById(id);if(!el)return null;const v=el.value.trim();if(v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
+function vcStr(id){const el=document.getElementById(id);return el?el.value.trim():'';}
+function vcSet(id,v){const el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!v;else el.value=(v===undefined||v===null)?'':String(v);}
+function toggleBrewFields(){
+  const on=document.getElementById('vc-brew-enabled')?.checked;
+  ['vc-brew-host','vc-brew-port','vc-brew-tls','vc-brew-user','vc-brew-pass','vc-brew-reconnect','vc-brew-sds','vc-brew-rssi'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.disabled=!on;
+  });
+}
+function parseLocalSsiRanges(text){
+  if(!text||!text.trim())return [[0,90]];
+  return text.split(',').map(part=>{
+    const m=part.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if(!m)throw new Error('Invalid local SSI range: '+part);
+    return [Number(m[1]),Number(m[2])];
+  });
+}
+function formatLocalSsiRanges(arr){
+  if(!Array.isArray(arr)||!arr.length)return '0-90';
+  return arr.map(r=>Array.isArray(r)?(r[0]+'-'+r[1]):String(r)).join(', ');
+}
+function collectVisualConfig(){
+  const gains={};
+  const rxLna=vcNum('vc-rx-lna'); if(rxLna!==null)gains.rx_gain_lna=rxLna;
+  const rxPga=vcNum('vc-rx-pga'); if(rxPga!==null)gains.rx_gain_pga=rxPga;
+  const txG=vcNum('vc-tx-gain'); if(txG!==null){gains.tx_gain_pad=txG;gains.tx_gain_dac=txG;}
+  const soapysdr={
+    tx_freq:vcNum('vc-tx-freq'),
+    rx_freq:vcNum('vc-rx-freq'),
+    ppm_err:vcNum('vc-ppm')??0,
+  };
+  const device=vcStr('vc-device'); if(device)soapysdr.device=device;
+  const rxAnt=vcStr('vc-rx-ant'); if(rxAnt)soapysdr.rx_antenna=rxAnt;
+  const txAnt=vcStr('vc-tx-ant'); if(txAnt)soapysdr.tx_antenna=txAnt;
+  Object.assign(soapysdr,gains);
+  const cell_info={
+    freq_band:vcNum('vc-freq-band')??4,
+    main_carrier:vcNum('vc-main-carrier'),
+    duplex_spacing:vcNum('vc-duplex-id')??4,
+    freq_offset:vcNum('vc-freq-offset')??0,
+    reverse_operation:!!document.getElementById('vc-reverse')?.checked,
+    colour_code:vcNum('vc-colour')??0,
+    location_area:vcNum('vc-la'),
+    system_wide_services:!!document.getElementById('vc-syswide')?.checked,
+    voice_service:!!document.getElementById('vc-voice')?.checked,
+  };
+  const customDuplex=vcNum('vc-custom-duplex'); if(customDuplex!==null)cell_info.custom_duplex_spacing=customDuplex;
+  const tz=vcStr('vc-tz'); if(tz)cell_info.timezone=tz;
+  const ht=vcNum('vc-hangtime'); if(ht!==null)cell_info.hangtime_secs=ht;
+  const ct=vcNum('vc-call-timeout'); if(ct!==null)cell_info.call_timeout_secs=ct;
+  const ul=vcNum('vc-ul-inact'); if(ul!==null)cell_info.ul_inactivity_secs=ul;
+  const t351=vcNum('vc-t351'); if(t351!==null)cell_info.periodic_registration_secs=t351;
+  cell_info.local_ssi_ranges=parseLocalSsiRanges(vcStr('vc-local-ssi'));
+  const brewEnabled=!!document.getElementById('vc-brew-enabled')?.checked;
+  const brew={
+    enabled:brewEnabled,
+    host:vcStr('vc-brew-host'),
+    port:vcNum('vc-brew-port')??3003,
+    tls:!!document.getElementById('vc-brew-tls')?.checked,
+    username:vcNum('vc-brew-user')??0,
+    password:vcStr('vc-brew-pass')||'••••••••',
+    reconnect_delay_secs:vcNum('vc-brew-reconnect')??15,
+    feature_sds_enabled:!!document.getElementById('vc-brew-sds')?.checked,
+    feature_rssi_export:!!document.getElementById('vc-brew-rssi')?.checked,
+  };
+  return {
+    config_version:'0.6',
+    stack_mode:'Bs',
+    phy_io:{backend:'SoapySdr',soapysdr},
+    net_info:{mcc:vcNum('vc-mcc'),mnc:vcNum('vc-mnc')},
+    cell_info,
+    brew,
+  };
+}
+function fillVisualConfig(d){
+  const soapy=d?.phy_io?.soapysdr||{};
+  vcSet('vc-tx-freq',soapy.tx_freq); vcSet('vc-rx-freq',soapy.rx_freq);
+  vcSet('vc-ppm',soapy.ppm_err??0); vcSet('vc-device',soapy.device||'');
+  vcSet('vc-rx-ant',soapy.rx_antenna||''); vcSet('vc-tx-ant',soapy.tx_antenna||'');
+  vcSet('vc-rx-lna',soapy.rx_gain_lna); vcSet('vc-rx-pga',soapy.rx_gain_pga);
+  vcSet('vc-tx-gain',soapy.tx_gain_pad??soapy.tx_gain_dac??soapy.tx_gain_mixer);
+  const cell=d?.cell_info||{};
+  vcSet('vc-freq-band',cell.freq_band??4); vcSet('vc-main-carrier',cell.main_carrier);
+  vcSet('vc-duplex-id',cell.duplex_spacing??4); vcSet('vc-custom-duplex',cell.custom_duplex_spacing);
+  vcSet('vc-freq-offset',cell.freq_offset??0); vcSet('vc-reverse',!!cell.reverse_operation);
+  vcSet('vc-colour',cell.colour_code??0); vcSet('vc-la',cell.location_area);
+  vcSet('vc-tz',cell.timezone||''); vcSet('vc-hangtime',cell.hangtime_secs);
+  vcSet('vc-call-timeout',cell.call_timeout_secs); vcSet('vc-ul-inact',cell.ul_inactivity_secs);
+  vcSet('vc-t351',cell.periodic_registration_secs);
+  vcSet('vc-syswide',!!cell.system_wide_services); vcSet('vc-voice',cell.voice_service!==false);
+  vcSet('vc-local-ssi',formatLocalSsiRanges(cell.local_ssi_ranges));
+  const net=d?.net_info||{}; vcSet('vc-mcc',net.mcc); vcSet('vc-mnc',net.mnc);
+  const brew=d?.brew||{};
+  let brewOn=!!brew.host;
+  if(brew.enabled===false)brewOn=false;
+  if(brew.enabled===true)brewOn=true;
+  vcSet('vc-brew-enabled',brewOn);
+  vcSet('vc-brew-host',brew.host||''); vcSet('vc-brew-port',brew.port??3003);
+  vcSet('vc-brew-tls',brew.tls!==false); vcSet('vc-brew-user',brew.username??'');
+  vcSet('vc-brew-pass',brew.password_set?'••••••••':'');
+  vcSet('vc-brew-reconnect',brew.reconnect_delay_secs??15);
+  vcSet('vc-brew-sds',brew.feature_sds_enabled!==false); vcSet('vc-brew-rssi',!!brew.feature_rssi_export);
+  toggleBrewFields();
+}
+function updateEditingBanner(){
+  const banner=document.getElementById('vc-editing-banner');
+  if(!banner)return;
+  const cell=document.getElementById('vc-cell-profile')?.value||'—';
+  const brew=document.getElementById('vc-brew-profile')?.value||'Offline';
+  banner.style.display='block';
+  banner.textContent=(t('cfg_editing')||'').replace('{cell}',cell).replace('{brew}',brew);
+}
+async function refreshProfileSelects(active){
+  const cellSel=document.getElementById('vc-cell-profile');
+  const brewSel=document.getElementById('vc-brew-profile');
+  if(!cellSel||!brewSel)return;
+  const [cells,brews,act]=await Promise.all([
+    fetch('/api/profiles/cell').then(r=>r.json()),
+    fetch('/api/profiles/brew').then(r=>r.json()),
+    active?Promise.resolve(active):fetch('/api/profiles/active').then(r=>r.json()),
+  ]);
+  cellSel.innerHTML='';
+  (cells||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');cellSel.appendChild(o);});
+  if(act?.cell)cellSel.value=act.cell;
+  brewSel.innerHTML='';
+  const off=document.createElement('option');off.value='';off.textContent='Offline (no Brew)';brewSel.appendChild(off);
+  (brews||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');brewSel.appendChild(o);});
+  brewSel.value=act?.brew||'';
+  updateEditingBanner();
+}
+async function loadVisualConfig(){
+  try{
+    const r=await fetch('/api/visual-config');
+    if(!r.ok){vcMsg('vc-rf-msg',await r.text(),false);return;}
+    const d=await r.json();
+    fillVisualConfig(d);
+    await refreshProfileSelects(d.active);
+    vcMsg('vc-rf-msg','',true);
+  }catch(e){vcMsg('vc-rf-msg',String(e),false);}
+}
+async function saveVisualConfig(){
+  try{
+    const body=collectVisualConfig();
+    const r=await fetch('/api/visual-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt=await r.text();
+    const ok=r.ok;
+    vcMsg('vc-rf-msg',ok?t('saved'):txt,ok);
+    vcMsg('vc-net-msg',ok?t('saved'):txt,ok);
+    vcMsg('vc-brew-msg',ok?t('saved'):txt,ok);
+    if(ok)loadConfig();
+  }catch(e){vcMsg('vc-rf-msg',String(e),false);}
+}
+function autoCalcCarrier(){
+  const tx=vcNum('vc-tx-freq');
+  const band=vcNum('vc-freq-band')??4;
+  const reverse=!!document.getElementById('vc-reverse')?.checked;
+  const offset=vcNum('vc-freq-offset')??0;
+  let duplex=vcNum('vc-custom-duplex');
+  if(duplex===null)duplex=5000000;
+  if(tx===null){vcMsg('vc-rf-msg','TX freq required',false);return;}
+  if(band!==4){vcMsg('vc-rf-msg','Auto supports freq_band=4',false);return;}
+  if(reverse){vcMsg('vc-rf-msg','Auto supports reverse_operation=false',false);return;}
+  const main=(tx-400000000-offset)/25000;
+  if(!Number.isInteger(main)){vcMsg('vc-rf-msg','main_carrier is not an integer',false);return;}
+  vcSet('vc-main-carrier',main);
+  vcSet('vc-rx-freq',tx-duplex);
+  vcMsg('vc-rf-msg','Auto OK: main_carrier='+main+', rx_freq='+(tx-duplex),true);
+}
+async function loadCellProfileIntoForm(){
+  const name=document.getElementById('vc-cell-profile')?.value; if(!name)return;
+  try{
+    const r=await fetch('/api/profiles/cell/'+encodeURIComponent(name));
+    if(!r.ok){vcMsg('vc-profiles-msg',await r.text(),false);return;}
+    const d=await r.json();
+    fillVisualConfig(Object.assign({},d,{brew:collectVisualConfig().brew}));
+    updateEditingBanner();
+    vcMsg('vc-profiles-msg','Cell loaded: '+name,true);
+  }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
+}
+async function loadBrewProfileIntoForm(){
+  const name=document.getElementById('vc-brew-profile')?.value;
+  if(!name){vcSet('vc-brew-enabled',false);toggleBrewFields();updateEditingBanner();return;}
+  try{
+    const r=await fetch('/api/profiles/brew/'+encodeURIComponent(name));
+    if(!r.ok){vcMsg('vc-profiles-msg',await r.text(),false);return;}
+    const brew=await r.json();
+    brew.enabled=true;
+    fillVisualConfig(Object.assign({},collectVisualConfig(),{brew}));
+    updateEditingBanner();
+    vcMsg('vc-profiles-msg','Brew loaded: '+name,true);
+  }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
+}
+async function saveCellProfileFromForm(asNew){
+  const name=asNew?vcStr('vc-save-cell-name'):(document.getElementById('vc-cell-profile')?.value||'');
+  if(!name){vcMsg('vc-profiles-msg',asNew?t('cfg_need_name'):t('cfg_need_select'),false);return;}
+  try{
+    const body=Object.assign({name:name, from_visual:true}, collectVisualConfig());
+    const r=await fetch('/api/profiles/cell',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt=await r.text();
+    vcMsg('vc-profiles-msg',r.ok?(asNew?t('saved'):t('cfg_updated')):txt,r.ok);
+    if(r.ok){if(asNew)document.getElementById('vc-save-cell-name').value='';await refreshProfileSelects({cell:name,brew:document.getElementById('vc-brew-profile').value||null});}
+  }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
+}
+async function saveBrewProfileFromForm(asNew){
+  const name=asNew?vcStr('vc-save-brew-name'):(document.getElementById('vc-brew-profile')?.value||'');
+  if(!name){vcMsg('vc-profiles-msg',asNew?t('cfg_need_name'):t('cfg_need_select'),false);return;}
+  try{
+    const body={name:name, from_visual:true, brew:collectVisualConfig().brew};
+    const r=await fetch('/api/profiles/brew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt=await r.text();
+    vcMsg('vc-profiles-msg',r.ok?(asNew?t('saved'):t('cfg_updated')):txt,r.ok);
+    if(r.ok){if(asNew)document.getElementById('vc-save-brew-name').value='';await refreshProfileSelects({cell:document.getElementById('vc-cell-profile').value,brew:name});}
+  }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
+}
+async function updateCurrentCellProfile(){return saveCellProfileFromForm(false);}
+async function updateCurrentBrewProfile(){return saveBrewProfileFromForm(false);}
+async function deleteSelectedCellProfile(){
+  const name=document.getElementById('vc-cell-profile')?.value; if(!name)return;
+  if(!confirm('Delete cell profile '+name+'?'))return;
+  const r=await fetch('/api/profiles/cell/'+encodeURIComponent(name),{method:'DELETE'});
+  vcMsg('vc-profiles-msg',r.ok?t('cfg_deleted'):await r.text(),r.ok);
+  if(r.ok)await refreshProfileSelects();
+}
+async function deleteSelectedBrewProfile(){
+  const name=document.getElementById('vc-brew-profile')?.value; if(!name)return;
+  if(!confirm('Delete brew profile '+name+'?'))return;
+  const r=await fetch('/api/profiles/brew/'+encodeURIComponent(name),{method:'DELETE'});
+  vcMsg('vc-profiles-msg',r.ok?t('cfg_deleted'):await r.text(),r.ok);
+  if(r.ok)await refreshProfileSelects();
+}
+async function applySelectedProfiles(){
+  const cell=document.getElementById('vc-cell-profile')?.value;
+  const brew=document.getElementById('vc-brew-profile')?.value||null;
+  if(!cell){vcMsg('vc-profiles-msg','Select a cell profile',false);return;}
+  if(!confirm(t('cfg_apply_confirm')))return;
+  try{
+    const r=await fetch('/api/profiles/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cell:cell,brew:brew})});
+    const txt=await r.text();
+    if(!r.ok){vcMsg('vc-profiles-msg',txt,false);return;}
+    vcMsg('vc-profiles-msg',t('cfg_applied'),true);
+    wsSend({type:'restart'});
+  }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
+}
 
 // ── ISSI Whitelist ─────────────────────────────────────────────────────────
 let whitelistEntries=[];
