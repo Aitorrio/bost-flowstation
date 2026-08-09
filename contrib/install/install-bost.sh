@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # Install bost-flowstation on Raspberry Pi OS / Debian arm64.
-# Idempotent: safe to re-run. Starts with phy_io.backend=None so the web UI
-# comes up without an SDR; complete Setup in the dashboard afterward.
+# Idempotent when the source tree can fast-forward to origin/<branch>.
+# Starts with phy_io.backend=None so the web UI comes up without an SDR;
+# complete Setup in the dashboard afterward.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
 #   sudo ./contrib/install/install-bost.sh
 #
 # Env:
-#   BOST_SRC          existing checkout (default: /opt/bost-flowstation)
-#   BOST_BRANCH       git branch (default: bost)
-#   BOST_REPO         git URL (default: https://github.com/Aitorrio/bost-flowstation.git)
-#   BOST_USE_DEB=1    prefer .deb asset if available (optional)
-#   BOST_SKIP_BUILD=1 skip cargo build (use existing binary)
+#   BOST_SRC            existing checkout (default: /opt/bost-flowstation)
+#   BOST_BRANCH         git branch (default: bost)
+#   BOST_REPO           git URL (default: https://github.com/Aitorrio/bost-flowstation.git)
+#   BOST_FORCE_CLEAN=1  delete source tree and re-clone (keeps /etc/flowstation)
+#   BOST_USE_DEB=1      prefer .deb asset if available (optional)
+#   BOST_SKIP_BUILD=1   skip cargo build (use existing binary)
 set -euo pipefail
 
 REPO_URL="${BOST_REPO:-https://github.com/Aitorrio/bost-flowstation.git}"
@@ -76,18 +78,44 @@ install_rust() {
   sudo -u "$user" bash -lc 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
 }
 
-# Source tree (idempotent: existing checkout is fetched/ff to BOST_BRANCH).
-if [[ -n "${BOST_SRC:-}" && -d "${BOST_SRC}/.git" ]]; then
+# Source tree. Never build a diverged/stale checkout: only ff-only updates, or
+# an explicit clean re-clone. Config under /etc/flowstation is never deleted here.
+if [[ -n "${BOST_SRC:-}" ]]; then
   SRC_ROOT="$BOST_SRC"
 fi
+
+if [[ "${BOST_FORCE_CLEAN:-0}" == "1" && -e "$SRC_ROOT" ]]; then
+  log "BOST_FORCE_CLEAN=1 — stopping service and removing $SRC_ROOT (config kept)"
+  systemctl stop "$UNIT_NAME" 2>/dev/null || true
+  rm -rf "$SRC_ROOT"
+fi
+
 if [[ -d "$SRC_ROOT/.git" ]]; then
-  log "Updating $SRC_ROOT ($BRANCH from $REPO_URL)"
-  git -C "$SRC_ROOT" remote set-url origin "$REPO_URL" || true
-  git -C "$SRC_ROOT" fetch --depth 1 origin "$BRANCH" || git -C "$SRC_ROOT" fetch origin "$BRANCH"
+  log "Updating $SRC_ROOT → origin/$BRANCH"
+  if ! git -C "$SRC_ROOT" remote get-url origin >/dev/null 2>&1; then
+    git -C "$SRC_ROOT" remote add origin "$REPO_URL"
+  elif [[ "$(git -C "$SRC_ROOT" remote get-url origin)" != "$REPO_URL" ]]; then
+    log "Setting origin to $REPO_URL"
+    git -C "$SRC_ROOT" remote set-url origin "$REPO_URL"
+  fi
+  git -C "$SRC_ROOT" fetch origin "$BRANCH"
   git -C "$SRC_ROOT" checkout "$BRANCH"
-  git -C "$SRC_ROOT" merge --ff-only "origin/$BRANCH" \
-    || git -C "$SRC_ROOT" pull --ff-only origin "$BRANCH" \
-    || warn "git fast-forward failed — building whatever is currently checked out"
+  if ! git -C "$SRC_ROOT" merge --ff-only "origin/$BRANCH"; then
+    die "Cannot fast-forward $SRC_ROOT to origin/$BRANCH (histories diverged).
+Refusing to build stale/local sources.
+
+Clean source reinstall (keeps ${CFG_DIR}):
+  sudo systemctl stop ${UNIT_NAME}
+  sudo rm -rf ${SRC_ROOT}
+  curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
+
+Or in one shot:
+  curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo env BOST_FORCE_CLEAN=1 bash"
+  fi
+  log "Source at $(git -C "$SRC_ROOT" rev-parse --short HEAD) ($(git -C "$SRC_ROOT" rev-parse --abbrev-ref HEAD))"
+elif [[ -e "$SRC_ROOT" ]]; then
+  die "$SRC_ROOT exists but is not a git checkout.
+Move it aside or remove it, then re-run (or use BOST_FORCE_CLEAN=1)."
 else
   log "Cloning $REPO_URL ($BRANCH) → $SRC_ROOT"
   mkdir -p "$(dirname "$SRC_ROOT")"
