@@ -150,12 +150,14 @@ body{
 }
 .logo-row{display:flex;align-items:center;gap:10px;}
 .logo-icon{
-  width:28px;height:28px;border-radius:6px;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  width:32px;height:32px;border-radius:8px;
+  background:linear-gradient(135deg, rgba(0,135,106,0.14) 0%, rgba(21,101,192,0.14) 100%);
+  border:1px solid rgba(0,135,106,0.30);
   display:flex;align-items:center;justify-content:center;
-  font-size:14px;font-weight:900;color:#000;flex-shrink:0;
-  font-family:var(--mono);letter-spacing:-1px;
+  flex-shrink:0;
+  box-shadow:0 4px 12px -6px rgba(0,135,106,0.35);
 }
+.logo-icon svg{width:20px;height:20px;display:block;}
 .logo-text{
   overflow:hidden;white-space:nowrap;
   transition:opacity 0.15s;
@@ -2230,7 +2232,20 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 <nav id="sidebar">
   <div class="sidebar-logo">
     <div class="logo-row">
-      <div class="logo-icon">BF</div>
+      <div class="logo-icon" aria-hidden="true" title="Bost FlowStation">
+        <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)">
+          <path d="M14 28 L16 8 L18 28"/>
+          <line x1="14.6" y1="22" x2="17.4" y2="22"/>
+          <line x1="14.9" y1="17" x2="17.1" y2="17"/>
+          <line x1="15.2" y1="13" x2="16.8" y2="13"/>
+          <line x1="16" y1="8" x2="16" y2="4"/>
+          <circle cx="16" cy="3" r="1" fill="currentColor"/>
+          <path d="M9 8 Q6 11 6 16" style="color:var(--accent2)" opacity="0.7"/>
+          <path d="M23 8 Q26 11 26 16" style="color:var(--accent2)" opacity="0.7"/>
+          <path d="M11 6 Q7 9 7 14" style="color:var(--accent2)" opacity="0.4"/>
+          <path d="M21 6 Q25 9 25 14" style="color:var(--accent2)" opacity="0.4"/>
+        </svg>
+      </div>
       <div class="logo-text">
         <div class="logo-name">{{PRODUCT_NAME}}</div>
         <div class="logo-sub">{{PRODUCT_VERSION}}</div>
