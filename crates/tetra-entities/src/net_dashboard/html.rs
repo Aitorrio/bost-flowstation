@@ -2312,7 +2312,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     </div>
     <div class="nav-item" onclick="showPage('health',this)" id="nav-health">
       <span class="nav-icon" data-icon="health"></span>
-      <span class="nav-label">HEALTH</span>
+      <span class="nav-label" data-i18n="health">HEALTH</span>
     </div>
     <div class="nav-item" onclick="showPage('log',this)" id="nav-log">
       <span class="nav-icon" data-icon="log"></span>
@@ -2385,8 +2385,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     </div>
     <!-- Copyright + client info -->
     <div class="sidebar-copyright">
-      <div class="cr-line">© 2026 Razvan Zeces — YO6RZV</div>
-      <div class="cr-line">Versión mejorada por Aitor, EA4HBL</div>
+      <div class="cr-line" data-i18n="cr_original">© 2026 Razvan Zeces — YO6RZV</div>
+      <div class="cr-line" data-i18n="cr_enhanced">Enhanced version by Aitor, EA4HBL</div>
       <div class="cr-line" id="cr-ua">—</div>
     </div>
     <!-- Collapse toggle -->
@@ -3436,9 +3436,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <span class="sw"><input type="checkbox" id="geo-enabled"><i></i></span>
           </label>
           <div class="h-form" style="margin-top:14px">
-            <label class="h-flabel">FlowStation latitude</label>
+            <label class="h-flabel" data-i18n="geo_lat">Bost FlowStation latitude</label>
             <input type="number" id="geo-lat" class="form-input" step="0.000001" min="-90" max="90" placeholder="50.775346">
-            <label class="h-flabel">FlowStation longitude</label>
+            <label class="h-flabel" data-i18n="geo_lon">Bost FlowStation longitude</label>
             <input type="number" id="geo-lon" class="form-input" step="0.000001" min="-180" max="180" placeholder="6.083887">
             <label class="h-flabel">Radius / cooldown</label>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
@@ -4623,7 +4623,7 @@ const LANGS={
     dgna:'DGNA',dgna_title:'Dynamic group assignment',dgna_modal_title:'⬡ Dynamic Group Assignment',dgna_issi:'Terminal ISSI',dgna_current:'Current groups',dgna_gssi:'Group (GSSI)',dgna_assign:'Assign',dgna_deassign:'Deassign',
     dgna_name:'TG name',dgna_center:'DGNA',dgna_center_sub:'Bulk assign, update, and deassign groups across radios.',dgna_groups_count:'Groups',dgna_radios_count:'Targets',dgna_group_library:'Group Library',dgna_new_group:'New',dgna_search:'Search',dgna_scope:'Coverage',dgna_editor:'Group Editor',dgna_attachment_mode:'Attachment mode',dgna_select_all:'Select all',dgna_select_none:'Clear',dgna_select_attached:'Attached',dgna_select_dynamic:'Dynamic',dgna_assign_selected:'Assign selected',dgna_assign_all:'Assign all radios',dgna_update_selected:'Update selected',dgna_deassign_selected:'Deassign selected',dgna_targets:'Target Radios',dgna_status_col:'Group state',dgna_last_result:'Last result',dgna_activity:'DGNA Activity',
     confirm_restart:'Restart Bost FlowStation?\nAll active calls will be dropped.',
-    confirm_shutdown:'Shutdown FlowStation?\nThe service will stop and must be restarted manually.',
+    confirm_shutdown:'Shutdown Bost FlowStation?\nThe service will stop and must be restarted manually.',
     confirm_logout:'Log out?',
     saved:'✓ Saved — restart to apply.',save_fail:'✗ Save failed',conn_error:'Connection error.',
     cfg_sec_profiles:'Profiles',cfg_profiles_title:'Scenarios',cfg_profiles_help:'1) Pick a Cell + Brew · 2) Edit the forms below · 3) Update profile or Save as new · 4) Apply & Restart to put it on air.',
@@ -4641,23 +4641,26 @@ const LANGS={
     cfg_need_name:'Enter a name for Save as.',cfg_need_select:'Select a profile first.',cfg_deleted:'✓ Deleted',cfg_applied:'✓ Applied — restarting…',cfg_updated:'✓ Profile updated',
 
     update:'Update',update_available:'Update available',update_title:'OTA Update — github.com/Aitorrio/bost-flowstation',
-    update_confirm:'Pull latest from main and rebuild?\nThe service will restart automatically.',
+    update_confirm:'Pull latest from the bost branch and rebuild?\nThe service will restart automatically.',
     update_running:'Updating… do not close this window.',
     update_done_ok:'✓ Update complete. Restarting…',
     update_done_err:'✗ Update failed. See log below.',
     update_close:'Close',
     system:'System',sys_info:'System Info',sys_hostname:'Hostname',sys_uptime:'Uptime',
-    sys_version:'FS Version',sys_os:'OS',sys_config:'Active Config',
+    sys_version:'Bost version',sys_os:'OS',sys_config:'Active Config',
     sys_cpu:'CPU',sys_cpu_load:'CPU Load',sys_ram:'RAM',sys_temp:'CPU Temp',
     wifi:'WiFi',wifi_status:'Current connection',wifi_saved:'Saved networks',wifi_visible:'Available networks',wifi_loading:'Loading…',wifi_scanning:'Scanning…',wifi_no_device:'No WiFi device detected on this host.',wifi_radio_disabled:'WiFi radio is disabled.',wifi_not_connected:'Not connected to any network.',wifi_no_saved:'No saved networks.',wifi_no_networks:'No networks in range.',wifi_ssid:'Network',wifi_signal:'Signal',wifi_ip:'IP address',wifi_actions:'Actions',wifi_disconnect:'Disconnect',wifi_connect:'Connect',wifi_connect_to:'Connect to',wifi_connecting:'Connecting…',wifi_connected:'CONNECTED',wifi_connected_ok:'Connected.',wifi_saved_tag:'SAVED',wifi_open:'OPEN',wifi_forget:'Forget',wifi_confirm_forget:'Forget network',wifi_password:'Password',wifi_hidden:'Hidden network (SSID not broadcast)',wifi_add_hidden:'Hidden network',wifi_scan:'Scan',wifi_refresh:'Refresh',wifi_radio_off:'Disable WiFi',wifi_radio_on:'Enable WiFi',wifi_warn_lose_access:'If connected to the dashboard via WiFi, changing networks may temporarily disconnect you. Make sure you have a backup access path (Ethernet or known good network).',wifi_err_no_ssid:'SSID required',cancel:'Cancel',sys_sensors:'Host Hardware Sensors',sys_sensors_empty:'No sensors detected on this host.',sys_rf:'RF Hardware (SoapySDR)',sys_autorefresh:'Auto-refresh 5s',
     profile_edit_title:'Edit Config Profile',profile_edit_btn:'Edit',
     profile_edit_save_ok:'✓ Saved',profile_edit_save_fail:'✗ Save failed',
-    sys_os:'OS',sys_version:'FS Version',sys_config:'Active Config',
+    sys_os:'OS',sys_version:'Bost version',sys_config:'Active Config',
     sys_profiles:'Config Profiles',sys_activate:'Activate & Restart',
     sys_active_badge:'ACTIVE',sys_no_profiles:'No .toml profiles found in config directory.',
     sys_activate_confirm:'Switch to profile "{name}" and restart?\nCurrent config will be backed up.',
     sys_title:'System',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
     sys_bts:'BTS Connection',
+    cr_original:'© 2026 Razvan Zeces — YO6RZV',
+    cr_enhanced:'Enhanced version by Aitor, EA4HBL',
+    geo_lat:'Bost FlowStation latitude',geo_lon:'Bost FlowStation longitude',
     telegram:'Telegram',tg_title:'Telegram Alerts',
     tg_help:'Get instant Telegram messages when something happens on the station — a radio attaches or drops, the backhaul goes up or down, a position beacon arrives, or the stack logs a warning/error.',
     tg_enabled:'Enable Telegram alerts',
@@ -4684,7 +4687,7 @@ const LANGS={
   ro:{
     bts_ip:'IP BTS',offline:'DECONECTAT',online:'CONECTAT',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Radiouri',calls:'Apeluri',lastheard:'Ultima Activitate',log:'Log',rf:'RF',health:'Health',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
+    stations:'Radiouri',calls:'Apeluri',lastheard:'Ultima Activitate',log:'Log',rf:'RF',health:'Sănătate',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
     sdslog:'Jurnal SDS',th_dir:'Dir',th_from:'De la',th_to:'Către',th_message:'Mesaj',no_sds:'Niciun mesaj SDS încă',sds_refresh:'Reîmprospătează',
     rf_freq:'Frecvență centru',rf_rate:'Rată eșantion',rf_rms:'RMS',rf_peak:'Vârf',rf_age:'Captură',
     rf_waiting:'în așteptare…',rf_live:'live',rf_stale:'expirat',
@@ -4742,18 +4745,33 @@ const LANGS={
     emg_banner_title:'URGENȚĂ ACTIVĂ',integrations:'Integrări',integ_enabled:'Activat',integ_disabled:'Dezactivat',integ_error:'Eroare',system_sec:'Sistem',emg_chip:'URGENȚĂ',bs_label:'BS',emg_clear:'Anulează',confirm_clear_emergency:'Anulezi urgența pentru ISSI {issi}?',
     confirm_kick:'Kick ISSI {issi}?\nTerminalul va fi deînregistrat și forțat să se reconecteze.',
     dgna:'DGNA',dgna_title:'Atribuire dinamică de grup',dgna_modal_title:'⬡ Atribuire dinamică de grup',dgna_issi:'ISSI terminal',dgna_current:'Grupuri curente',dgna_gssi:'Grup (GSSI)',dgna_assign:'Atribuie',dgna_deassign:'Retrage',
-    confirm_restart:'Repornire FlowStation?\nToate apelurile active vor fi întrerupte.',
-    confirm_shutdown:'Oprire FlowStation?\nServiciul se va opri și trebuie repornit manual.',
+    confirm_restart:'Repornire Bost FlowStation?\nToate apelurile active vor fi întrerupte.',
+    confirm_shutdown:'Oprire Bost FlowStation?\nServiciul se va opri și trebuie repornit manual.',
     confirm_logout:'Deconectare?',
     saved:'✓ Salvat — repornire pentru aplicare.',save_fail:'✗ Salvare eșuată',conn_error:'Eroare de conexiune.',
-    update:'Update',update_available:'Actualizare disponibilă',update_title:'Update OTA — github.com/razvanzeces/flowstation',
-    update_confirm:'Descarcă ultima versiune din main și recompilează?\nServiciul va reporni automat.',
+    update:'Update',update_available:'Actualizare disponibilă',update_title:'Update OTA — github.com/Aitorrio/bost-flowstation',
+    update_confirm:'Descarcă ultima versiune din ramura bost și recompilează?\nServiciul va reporni automat.',
+    cr_enhanced:'Versiune îmbunătățită de Aitor, EA4HBL',
+    geo_lat:'Latitudine Bost FlowStation',geo_lon:'Longitudine Bost FlowStation',
+    setup:'Setup',setup_sec:'Primul pornire / SDR',setup_title:'Setup',setup_open_wizard:'Deschide asistentul',setup_sdr_title:'Dispozitive SDR',
+    setup_scan:'Scanare',setup_install_sx:'Instalează SXceiver',setup_install_lime:'Instalează Lime',
+    setup_enable_rf:'Activează RF și repornește',setup_autostart:'Asigură autostart',setup_mark_done:'Marchează setup finalizat',
+    setup_complete_key:'Setup complet',setup_backend_key:'Backend config',setup_device_key:'Device',setup_unit_key:'Unitate systemd',setup_helper_key:'Helper',
+    wiz_welcome_title:'Bun venit la Bost FlowStation',wiz_welcome_body:'Acest asistent configurează SDR-ul, parametrii RF și autostart-ul systemd. Panoul web rămâne disponibil chiar dacă radio-ul e offline.',
+    wiz_skip:'Omite cu implicite',wiz_continue:'Continuă',wiz_back:'Înapoi',wiz_next:'Următorul',wiz_finish:'Finalizează',wiz_skip_now:'Omite deocamdată',
+    wiz_sdr_title:'Selectează SDR',wiz_sdr_help:'Scanează dispozitive SoapySDR sau instalează un driver (SXceiver / Lime).',wiz_device_args:'Argumente device',
+    wiz_params_title:'RF / Rețea / Brew',wiz_params_help:'Folosește formularele din Config pentru editare completă, sau păstrează implicitele.',
+    wiz_use_defaults:'Folosește implicitele curente',wiz_open_config:'Deschide Config',
+    wiz_rf_title:'Activează RF',wiz_rf_help:'Setează phy_io.backend = SoapySdr, scrie device-ul și repornește serviciul.',
+    wiz_auto_title:'Autostart',wiz_auto_help:'Asigură că unitatea systemd e enabled ca stația să revină după reboot.',
+    asterisk:'Asterisk SIP',asterisk_title:'Asterisk SIP',dapnet:'DAPNET',dapnet_title:'DAPNET',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',meshcom:'MeshCom',meshcom_title:'MeshCom',
+    cfg_sec_profiles:'Profiluri',cfg_profiles_title:'Scenarii',cfg_apply_restart:'Aplică și repornește',cfg_cell_profile:'Cell (RF + rețea)',cfg_brew_profile:'Brew backhaul',
     update_running:'Se actualizează… nu închide fereastra.',
     update_done_ok:'✓ Update finalizat. Se repornește…',
     update_done_err:'✗ Update eșuat. Vezi logul de mai jos.',
     update_close:'Închide',
     system:'Sistem',sys_info:'Info Sistem',sys_hostname:'Hostname',sys_uptime:'Uptime',
-    sys_os:'OS',sys_version:'Versiune FS',sys_config:'Config Activ',
+    sys_os:'OS',sys_version:'Versiune Bost',sys_config:'Config Activ',
     sys_cpu:'CPU',sys_cpu_load:'Încărcare CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
     wifi:'WiFi',wifi_status:'Conexiunea curentă',wifi_saved:'Rețele salvate',wifi_visible:'Rețele disponibile',wifi_loading:'Se încarcă…',wifi_scanning:'Se scanează…',wifi_no_device:'Niciun dispozitiv WiFi detectat.',wifi_radio_disabled:'Radioul WiFi este dezactivat.',wifi_not_connected:'Neconectat la nicio rețea.',wifi_no_saved:'Nicio rețea salvată.',wifi_no_networks:'Nicio rețea în rază.',wifi_ssid:'Rețea',wifi_signal:'Semnal',wifi_ip:'Adresă IP',wifi_actions:'Acțiuni',wifi_disconnect:'Deconectează',wifi_connect:'Conectează',wifi_connect_to:'Conectează la',wifi_connecting:'Se conectează…',wifi_connected:'CONECTAT',wifi_connected_ok:'Conectat.',wifi_saved_tag:'SALVAT',wifi_open:'DESCHIS',wifi_forget:'Uită',wifi_confirm_forget:'Uită rețeaua',wifi_password:'Parolă',wifi_hidden:'Rețea ascunsă (SSID nedifuzat)',wifi_add_hidden:'Rețea ascunsă',wifi_scan:'Scanează',wifi_refresh:'Reîncarcă',wifi_radio_off:'Dezactivează WiFi',wifi_radio_on:'Activează WiFi',wifi_warn_lose_access:'Dacă ești conectat la dashboard prin WiFi, schimbarea rețelei te poate deconecta temporar. Asigură-te că ai o cale alternativă (Ethernet sau rețea de încredere).',wifi_err_no_ssid:'SSID necesar',cancel:'Anulează',sys_sensors:'Senzori Hardware Gazdă',sys_sensors_empty:'Niciun senzor detectat.',sys_rf:'Hardware RF (SoapySDR)',sys_autorefresh:'Auto-refresh 5s',
     profile_edit_title:'Editare Profil Config',profile_edit_btn:'Editează',
@@ -4789,7 +4807,7 @@ const LANGS={
   de:{
     bts_ip:'BTS-IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Radios',calls:'Anrufe',lastheard:'Zuletzt Gehört',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
+    stations:'Radios',calls:'Anrufe',lastheard:'Zuletzt Gehört',log:'Log',rf:'RF',health:'Gesundheit',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
     sdslog:'SDS-Log',th_dir:'Ri.',th_from:'Von',th_to:'An',th_message:'Nachricht',no_sds:'Noch keine SDS-Nachrichten',sds_refresh:'Aktualisieren',
     rf_freq:'Mittenfrequenz',rf_rate:'Abtastrate',rf_rms:'RMS',rf_peak:'Spitze',rf_age:'Aufnahme',
     rf_waiting:'wartet…',rf_live:'live',rf_stale:'veraltet',
@@ -4846,18 +4864,34 @@ const LANGS={
     emg_banner_title:'NOTFALL AKTIV',integrations:'Integrationen',integ_enabled:'Aktiviert',integ_disabled:'Deaktiviert',integ_error:'Fehler',system_sec:'System',emg_chip:'NOTFALL',bs_label:'BS',emg_clear:'Löschen',confirm_clear_emergency:'Notfall für ISSI {issi} löschen?',
     confirm_kick:'ISSI {issi} entfernen?\nDas Terminal wird abgemeldet und zur Neuanmeldung gezwungen.',
     dgna:'DGNA',dgna_title:'Dynamische Gruppenzuweisung',dgna_modal_title:'⬡ Dynamische Gruppenzuweisung',dgna_issi:'Terminal-ISSI',dgna_current:'Aktuelle Gruppen',dgna_gssi:'Gruppe (GSSI)',dgna_assign:'Zuweisen',dgna_deassign:'Entfernen',
-    confirm_restart:'FlowStation neu starten?\nAlle aktiven Anrufe werden beendet.',
-    confirm_shutdown:'FlowStation herunterfahren?\nDer Dienst wird gestoppt und muss manuell neu gestartet werden.',
+    confirm_restart:'Bost FlowStation neu starten?\nAlle aktiven Anrufe werden beendet.',
+    confirm_shutdown:'Bost FlowStation herunterfahren?\nDer Dienst wird gestoppt und muss manuell neu gestartet werden.',
     confirm_logout:'Abmelden?',
     saved:'✓ Gespeichert — Neustart zum Anwenden.',save_fail:'✗ Fehler beim Speichern',conn_error:'Verbindungsfehler.',
-    update:'Update',update_available:'Update verfügbar',update_title:'OTA-Update — github.com/razvanzeces/flowstation',
-    update_confirm:'Neueste Version von main holen und neu bauen?\nDer Dienst startet automatisch neu.',
+    update:'Update',update_available:'Update verfügbar',update_title:'OTA-Update — github.com/Aitorrio/bost-flowstation',
+    update_confirm:'Neueste Version vom bost-Branch holen und neu bauen?\nDer Dienst startet automatisch neu.',
+    cr_enhanced:'Verbesserte Version von Aitor, EA4HBL',
+    geo_lat:'Bost FlowStation Breitengrad',geo_lon:'Bost FlowStation Längengrad',
+    setup:'Setup',setup_sec:'Ersteinrichtung / SDR',setup_title:'Setup',setup_open_wizard:'Assistent öffnen',setup_sdr_title:'SDR-Geräte',
+    setup_scan:'Scannen',setup_install_sx:'SXceiver installieren',setup_install_lime:'Lime installieren',
+    setup_enable_rf:'RF aktivieren & neu starten',setup_autostart:'Autostart sicherstellen',setup_mark_done:'Setup als fertig markieren',
+    setup_complete_key:'Setup fertig',setup_backend_key:'Config-Backend',setup_device_key:'Device',setup_unit_key:'Systemd-Unit',setup_helper_key:'Helper',
+    wiz_welcome_title:'Willkommen bei Bost FlowStation',wiz_welcome_body:'Dieser Assistent konfiguriert SDR, RF-Parameter und systemd-Autostart. Das Dashboard bleibt auch ohne Radio verfügbar.',
+    wiz_skip:'Mit Standardwerten überspringen',wiz_continue:'Weiter',wiz_back:'Zurück',wiz_next:'Weiter',wiz_finish:'Fertig',wiz_skip_now:'Vorerst überspringen',
+    wiz_sdr_title:'SDR wählen',wiz_sdr_help:'SoapySDR-Geräte scannen oder Treiber installieren (SXceiver / Lime).',wiz_device_args:'Device-Argumente',
+    wiz_params_title:'RF / Netz / Brew',wiz_params_help:'Nutze die Config-Formulare für volle Bearbeitung oder behalte die Standardwerte.',
+    wiz_use_defaults:'Aktuelle Standardwerte verwenden',wiz_open_config:'Config öffnen',
+    wiz_rf_title:'RF aktivieren',wiz_rf_help:'Setzt phy_io.backend = SoapySdr, speichert device und startet den Dienst neu.',
+    wiz_auto_title:'Autostart',wiz_auto_help:'Stellt sicher, dass die systemd-Unit enabled ist und nach einem Reboot wieder startet.',
+    telegram:'Telegram',cfg_sec_profiles:'Profile',cfg_profiles_title:'Szenarien',cfg_apply_restart:'Anwenden & neu starten',
+    cfg_cell_profile:'Cell (RF + Netz)',cfg_brew_profile:'Brew-Backhaul',cfg_sec_live:'Live-Einstellungen',cfg_live_title:'In laufende config.toml schreiben',cfg_save_live:'Live speichern',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequenzen',cfg_auto:'Auto RX + Carrier',
     update_running:'Aktualisierung läuft… Fenster nicht schließen.',
     update_done_ok:'✓ Update abgeschlossen. Neustart…',
     update_done_err:'✗ Update fehlgeschlagen. Siehe Log unten.',
     update_close:'Schließen',
     system:'System',sys_info:'Systeminfo',sys_hostname:'Hostname',sys_uptime:'Laufzeit',
-    sys_os:'OS',sys_version:'FS-Version',sys_config:'Aktive Konfig',
+    sys_os:'OS',sys_version:'Bost-Version',sys_config:'Aktive Konfig',
     sys_cpu:'CPU',sys_cpu_load:'CPU-Auslastung',sys_ram:'RAM',sys_temp:'CPU-Temp',
     wifi:'WLAN',wifi_status:'Aktuelle Verbindung',wifi_saved:'Gespeicherte Netzwerke',wifi_visible:'Verfügbare Netzwerke',wifi_loading:'Wird geladen…',wifi_scanning:'Suche läuft…',wifi_no_device:'Kein WLAN-Gerät erkannt.',wifi_radio_disabled:'WLAN-Funk ist deaktiviert.',wifi_not_connected:'Mit keinem Netzwerk verbunden.',wifi_no_saved:'Keine gespeicherten Netzwerke.',wifi_no_networks:'Keine Netzwerke in Reichweite.',wifi_ssid:'Netzwerk',wifi_signal:'Signal',wifi_ip:'IP-Adresse',wifi_actions:'Aktionen',wifi_disconnect:'Trennen',wifi_connect:'Verbinden',wifi_connect_to:'Verbinden mit',wifi_connecting:'Verbinde…',wifi_connected:'VERBUNDEN',wifi_connected_ok:'Verbunden.',wifi_saved_tag:'GESPEICHERT',wifi_open:'OFFEN',wifi_forget:'Vergessen',wifi_confirm_forget:'Netzwerk vergessen',wifi_password:'Passwort',wifi_hidden:'Verstecktes Netzwerk (SSID nicht gesendet)',wifi_add_hidden:'Verstecktes Netzwerk',wifi_scan:'Suchen',wifi_refresh:'Aktualisieren',wifi_radio_off:'WLAN deaktivieren',wifi_radio_on:'WLAN aktivieren',wifi_warn_lose_access:'Wenn Sie über WLAN mit dem Dashboard verbunden sind, kann ein Netzwerkwechsel die Verbindung trennen. Stellen Sie sicher, dass Sie einen alternativen Zugang haben.',wifi_err_no_ssid:'SSID erforderlich',cancel:'Abbrechen',sys_sensors:'Host-Hardware-Sensoren',sys_sensors_empty:'Keine Sensoren erkannt.',sys_rf:'RF-Hardware (SoapySDR)',sys_autorefresh:'Auto-Aktualisierung 5s',
     profile_edit_title:'Konfigprofil bearbeiten',profile_edit_btn:'Bearbeiten',
@@ -4884,6 +4918,12 @@ const LANGS={
     wiz_use_defaults:'Usar valores actuales por defecto',wiz_open_config:'Abrir Config',
     wiz_rf_title:'Activar RF',wiz_rf_help:'Pone phy_io.backend = SoapySdr, guarda el device y reinicia el servicio.',
     wiz_auto_title:'Arranque automático',wiz_auto_help:'Asegura que la unidad systemd esté enabled para volver tras un reinicio.',
+    cr_enhanced:'Versión mejorada por Aitor, EA4HBL',
+    geo_lat:'Latitud Bost FlowStation',geo_lon:'Longitud Bost FlowStation',
+    telegram:'Telegram',tg_title:'Alertas Telegram',
+    tg_help:'Recibe mensajes de Telegram al instante cuando pasa algo en la estación: un radio se conecta o se cae, el backhaul sube/baja, llega una baliza de posición, o el stack registra un aviso/error.',
+    tg_enabled:'Activar alertas Telegram',
+    tg_test:'Enviar prueba',tg_testing:'Enviando prueba…',tg_test_ok:'✓ Prueba enviada a {n} chat(s)',
     cfg_sec_profiles:'Perfiles',cfg_profiles_title:'Escenarios',cfg_apply_restart:'Aplicar y reiniciar',
     cfg_profiles_help:'1) Elige Cell + Brew · 2) Edita los formularios · 3) Actualiza o Guarda como · 4) Aplicar y reiniciar para poner en aire.',
     cfg_cell_profile:'Cell (RF + red)',cfg_brew_profile:'Brew backhaul',cfg_update_cell:'Actualizar Cell',cfg_del_cell:'Borrar',
@@ -4948,7 +4988,7 @@ const LANGS={
     update_done_err:'✗ Actualización fallida. Ver log abajo.',
     update_close:'Cerrar',
     system:'Sistema',sys_info:'Info del Sistema',sys_hostname:'Hostname',sys_uptime:'Tiempo activo',
-    sys_os:'OS',sys_version:'Versión FS',sys_config:'Config Activa',
+    sys_os:'OS',sys_version:'Versión Bost',sys_config:'Config Activa',
     sys_cpu:'CPU',sys_cpu_load:'Carga CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
     wifi:'WiFi',wifi_status:'Conexión actual',wifi_saved:'Redes guardadas',wifi_visible:'Redes disponibles',wifi_loading:'Cargando…',wifi_scanning:'Escaneando…',wifi_no_device:'No se detectó dispositivo WiFi.',wifi_radio_disabled:'Radio WiFi desactivada.',wifi_not_connected:'No conectado a ninguna red.',wifi_no_saved:'Sin redes guardadas.',wifi_no_networks:'Sin redes en rango.',wifi_ssid:'Red',wifi_signal:'Señal',wifi_ip:'Dirección IP',wifi_actions:'Acciones',wifi_disconnect:'Desconectar',wifi_connect:'Conectar',wifi_connect_to:'Conectar a',wifi_connecting:'Conectando…',wifi_connected:'CONECTADO',wifi_connected_ok:'Conectado.',wifi_saved_tag:'GUARDADO',wifi_open:'ABIERTO',wifi_forget:'Olvidar',wifi_confirm_forget:'Olvidar red',wifi_password:'Contraseña',wifi_hidden:'Red oculta (SSID no difundido)',wifi_add_hidden:'Red oculta',wifi_scan:'Escanear',wifi_refresh:'Actualizar',wifi_radio_off:'Desactivar WiFi',wifi_radio_on:'Activar WiFi',wifi_warn_lose_access:'Si estás conectado al dashboard vía WiFi, cambiar de red puede desconectarte temporalmente. Asegúrate de tener una vía de acceso alternativa.',wifi_err_no_ssid:'SSID requerido',cancel:'Cancelar',sys_sensors:'Sensores del Sistema',sys_sensors_empty:'No se detectaron sensores.',sys_rf:'Hardware RF (SoapySDR)',sys_autorefresh:'Auto-actualización 5s',
     profile_edit_title:'Editar Perfil Config',profile_edit_btn:'Editar',
@@ -4962,7 +5002,7 @@ const LANGS={
   hu:{
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Rádiók',calls:'Hívások',lastheard:'Utoljára Hallott',log:'Napló',rf:'RF',health:'Health',echolink:'EchoLink',echolink_title:'EchoLink',config:'Konfig',
+    stations:'Rádiók',calls:'Hívások',lastheard:'Utoljára Hallott',log:'Napló',rf:'RF',health:'Állapot',echolink:'EchoLink',echolink_title:'EchoLink',config:'Konfig',
     sdslog:'SDS Napló',th_dir:'Irány',th_from:'Feladó',th_to:'Címzett',th_message:'Üzenet',no_sds:'Még nincs SDS üzenet',sds_refresh:'Frissítés',
     rf_freq:'Központi frekvencia',rf_rate:'Mintavételezési ráta',rf_rms:'RMS',rf_peak:'Csúcs',rf_age:'Pillanatkép',
     rf_waiting:'várakozás…',rf_live:'élő',rf_stale:'elavult',
@@ -5004,18 +5044,33 @@ const LANGS={
     emg_banner_title:'VÉSZHELYZET AKTÍV',integrations:'Integrációk',integ_enabled:'Engedélyezve',integ_disabled:'Letiltva',integ_error:'Hiba',system_sec:'Rendszer',emg_chip:'VÉSZHELYZET',bs_label:'BS',emg_clear:'Törlés',confirm_clear_emergency:'Vészhelyzet törlése ISSI {issi}?',
     confirm_kick:'ISSI {issi} kizárása?\nA terminál törlésre kerül és újra kell csatlakoznia.',
     dgna:'DGNA',dgna_title:'Dinamikus csoport-hozzárendelés',dgna_modal_title:'⬡ Dinamikus csoport-hozzárendelés',dgna_issi:'Terminál ISSI',dgna_current:'Jelenlegi csoportok',dgna_gssi:'Csoport (GSSI)',dgna_assign:'Hozzárendel',dgna_deassign:'Eltávolít',
-    confirm_restart:'Újraindítja a FlowStation-t?\nAz összes aktív hívás megszakad.',
-    confirm_shutdown:'Leállítja a FlowStation-t?\nA szolgáltatást kézzel kell újraindítani.',
+    confirm_restart:'Újraindítja a Bost FlowStation-t?\nAz összes aktív hívás megszakad.',
+    confirm_shutdown:'Leállítja a Bost FlowStation-t?\nA szolgáltatást kézzel kell újraindítani.',
     confirm_logout:'Kijelentkezik?',
     saved:'✓ Mentve — újraindítás szükséges az alkalmazáshoz.',save_fail:'✗ Mentési hiba',conn_error:'Kapcsolódási hiba.',
-    update:'Frissítés',update_available:'Elérhető frissítés',update_title:'OTA frissítés — github.com/razvanzeces/flowstation',
-    update_confirm:'Letölti a legújabb verziót a main ágból és újraépíti?\nA szolgáltatás automatikusan újraindul.',
+    update:'Frissítés',update_available:'Elérhető frissítés',update_title:'OTA frissítés — github.com/Aitorrio/bost-flowstation',
+    update_confirm:'Letölti a legújabb verziót a bost ágból és újraépíti?\nA szolgáltatás automatikusan újraindul.',
+    cr_enhanced:'Fejlesztett verzió: Aitor, EA4HBL',
+    geo_lat:'Bost FlowStation szélesség',geo_lon:'Bost FlowStation hosszúság',
+    setup:'Setup',setup_sec:'Első indítás / SDR',setup_title:'Setup',setup_open_wizard:'Varázsló megnyitása',setup_sdr_title:'SDR eszközök',
+    setup_scan:'Keresés',setup_install_sx:'SXceiver telepítése',setup_install_lime:'Lime telepítése',
+    setup_enable_rf:'RF bekapcsolása és újraindítás',setup_autostart:'Autostart biztosítása',setup_mark_done:'Setup késznek jelölése',
+    setup_complete_key:'Setup kész',setup_backend_key:'Config backend',setup_device_key:'Device',setup_unit_key:'Systemd unit',setup_helper_key:'Helper',
+    wiz_welcome_title:'Üdvözöl a Bost FlowStation',wiz_welcome_body:'Ez a varázsló beállítja az SDR-t, az RF paramétereket és a systemd autostartot. A webes felület rádió nélkül is elérhető.',
+    wiz_skip:'Kihagyás alapértékekkel',wiz_continue:'Tovább',wiz_back:'Vissza',wiz_next:'Következő',wiz_finish:'Kész',wiz_skip_now:'Egyelőre kihagyom',
+    wiz_sdr_title:'SDR kiválasztása',wiz_sdr_help:'SoapySDR eszközök keresése vagy driver telepítése (SXceiver / Lime).',wiz_device_args:'Device argumentumok',
+    wiz_params_title:'RF / Hálózat / Brew',wiz_params_help:'Használd a Config űrlapokat a teljes szerkesztéshez, vagy tartsd meg az alapértékeket.',
+    wiz_use_defaults:'Jelenlegi alapértékek használata',wiz_open_config:'Config megnyitása',
+    wiz_rf_title:'RF bekapcsolása',wiz_rf_help:'Beállítja: phy_io.backend = SoapySdr, elmenti a device-ot és újraindítja a szolgáltatást.',
+    wiz_auto_title:'Autostart',wiz_auto_help:'Biztosítja, hogy a systemd unit enabled legyen újraindítás után is.',
+    telegram:'Telegram',asterisk:'Asterisk SIP',dapnet:'DAPNET',geoalarm:'GeoAlarm',meshcom:'MeshCom',
+    cfg_sec_profiles:'Profilok',cfg_profiles_title:'Forgatókönyvek',cfg_apply_restart:'Alkalmazás és újraindítás',
     update_running:'Frissítés folyamatban… ne zárja be az ablakot.',
     update_done_ok:'✓ Frissítés kész. Újraindul…',
     update_done_err:'✗ Frissítés sikertelen. Lásd a naplót.',
     update_close:'Bezárás',
     system:'Rendszer',sys_info:'Rendszerinfó',sys_hostname:'Hostname',sys_uptime:'Üzemidő',
-    sys_os:'OS',sys_version:'FS verzió',sys_config:'Aktív konfig',
+    sys_os:'OS',sys_version:'Bost verzió',sys_config:'Aktív konfig',
     sys_profiles:'Konfig profilok',sys_activate:'Aktiválás és újraindítás',
     sys_active_badge:'AKTÍV',sys_no_profiles:'Nem található .toml profil a könyvtárban.',
     sys_activate_confirm:'Váltás a(z) "{name}" profilra és újraindítás?\nAz aktuális konfig mentésre kerül.',
@@ -5026,7 +5081,7 @@ const LANGS={
   zh:{
     bts_ip:'BTS IP',offline:'离线',online:'在线',
     brew_online:'在线',brew_offline:'离线',
-    stations:'终端',calls:'通话',lastheard:'最近通话',log:'日志',rf:'RF',health:'Health',echolink:'EchoLink',echolink_title:'EchoLink',config:'配置',
+    stations:'终端',calls:'通话',lastheard:'最近通话',log:'日志',rf:'RF',health:'健康',echolink:'EchoLink',echolink_title:'EchoLink',config:'配置',
     sdslog:'SDS日志',th_dir:'方向',th_from:'发件',th_to:'收件',th_message:'消息',no_sds:'暂无SDS消息',sds_refresh:'刷新',
     rf_freq:'中心频率',rf_rate:'采样率',rf_rms:'RMS',rf_peak:'峰值',rf_age:'快照',
     rf_waiting:'等待中…',rf_live:'实时',rf_stale:'已过期',
@@ -5073,18 +5128,33 @@ const LANGS={
     emg_banner_title:'紧急状态激活',integrations:'集成',integ_enabled:'已启用',integ_disabled:'已禁用',integ_error:'错误',system_sec:'系统',emg_chip:'紧急',bs_label:'BS',emg_clear:'清除',confirm_clear_emergency:'清除 ISSI {issi} 的紧急状态？',
     confirm_kick:'确定踢下 ISSI {issi}？\n终端将被注销并强制重新注册。',
     dgna:'DGNA',dgna_title:'动态组分配',dgna_modal_title:'⬡ 动态组分配',dgna_issi:'终端 ISSI',dgna_current:'当前组',dgna_gssi:'组 (GSSI)',dgna_assign:'分配',dgna_deassign:'移除',
-    confirm_restart:'确定重启 FlowStation？\n所有正在进行的通话将被中断。',
-    confirm_shutdown:'确定关闭 FlowStation？\n服务将停止，需要手动重启。',
+    confirm_restart:'确定重启 Bost FlowStation？\n所有正在进行的通话将被中断。',
+    confirm_shutdown:'确定关闭 Bost FlowStation？\n服务将停止，需要手动重启。',
     confirm_logout:'确定注销吗？',
     saved:'✓ 已保存 — 重启后生效',save_fail:'✗ 保存失败',conn_error:'连接错误',
-    update:'更新',update_available:'有可用更新',update_title:'OTA 在线更新 — github.com/razvanzeces/flowstation',
-    update_confirm:'是否从 main 分支拉取最新代码并重新构建？\n服务将自动重启。',
+    update:'更新',update_available:'有可用更新',update_title:'OTA 在线更新 — github.com/Aitorrio/bost-flowstation',
+    update_confirm:'是否从 bost 分支拉取最新代码并重新构建？\n服务将自动重启。',
+    cr_enhanced:'改进版本：Aitor, EA4HBL',
+    geo_lat:'Bost FlowStation 纬度',geo_lon:'Bost FlowStation 经度',
+    setup:'Setup',setup_sec:'首次启动 / SDR',setup_title:'Setup',setup_open_wizard:'打开向导',setup_sdr_title:'SDR 设备',
+    setup_scan:'扫描',setup_install_sx:'安装 SXceiver',setup_install_lime:'安装 Lime',
+    setup_enable_rf:'启用 RF 并重启',setup_autostart:'确保开机自启',setup_mark_done:'标记 Setup 完成',
+    setup_complete_key:'Setup 完成',setup_backend_key:'配置后端',setup_device_key:'Device',setup_unit_key:'systemd 单元',setup_helper_key:'Helper',
+    wiz_welcome_title:'欢迎使用 Bost FlowStation',wiz_welcome_body:'本向导配置 SDR、RF 参数和 systemd 自启动。即使没有电台，Web 面板也可用。',
+    wiz_skip:'使用默认值跳过',wiz_continue:'继续',wiz_back:'返回',wiz_next:'下一步',wiz_finish:'完成',wiz_skip_now:'暂时跳过',
+    wiz_sdr_title:'选择 SDR',wiz_sdr_help:'扫描 SoapySDR 设备或安装驱动（SXceiver / Lime）。',wiz_device_args:'Device 参数',
+    wiz_params_title:'RF / 网络 / Brew',wiz_params_help:'使用 Config 表单完整编辑，或保留当前默认值。',
+    wiz_use_defaults:'使用当前默认值',wiz_open_config:'打开 Config',
+    wiz_rf_title:'启用 RF',wiz_rf_help:'设置 phy_io.backend = SoapySdr，写入 device 并重启服务。',
+    wiz_auto_title:'开机自启',wiz_auto_help:'确保 systemd 单元已启用，重启后自动恢复。',
+    telegram:'Telegram',asterisk:'Asterisk SIP',dapnet:'DAPNET',geoalarm:'GeoAlarm',meshcom:'MeshCom',
+    cfg_sec_profiles:'配置方案',cfg_profiles_title:'场景',cfg_apply_restart:'应用并重启',
     update_running:'正在更新… 请不要关闭此窗口',
     update_done_ok:'✓ 更新完成，正在重启…',
     update_done_err:'✗ 更新失败，请查看下方日志',
     update_close:'关闭',
     system:'系统',sys_info:'系统信息',sys_hostname:'主机名',sys_uptime:'运行时间',
-    sys_version:'FS 版本',sys_os:'操作系统',sys_config:'当前配置',
+    sys_version:'Bost 版本',sys_os:'操作系统',sys_config:'当前配置',
     sys_cpu:'CPU',sys_cpu_load:'CPU 负载',sys_ram:'内存',sys_temp:'CPU 温度',
     wifi:'WiFi',wifi_status:'当前连接',wifi_saved:'已保存的网络',wifi_visible:'可用网络',wifi_loading:'加载中…',wifi_scanning:'扫描中…',wifi_no_device:'未检测到 WiFi 设备。',wifi_radio_disabled:'WiFi 已禁用。',wifi_not_connected:'未连接任何网络。',wifi_no_saved:'无已保存的网络。',wifi_no_networks:'范围内无可用网络。',wifi_ssid:'网络',wifi_signal:'信号',wifi_ip:'IP 地址',wifi_actions:'操作',wifi_disconnect:'断开',wifi_connect:'连接',wifi_connect_to:'连接到',wifi_connecting:'连接中…',wifi_connected:'已连接',wifi_connected_ok:'已连接。',wifi_saved_tag:'已保存',wifi_open:'开放',wifi_forget:'忘记',wifi_confirm_forget:'忘记网络',wifi_password:'密码',wifi_hidden:'隐藏网络 (SSID 不广播)',wifi_add_hidden:'隐藏网络',wifi_scan:'扫描',wifi_refresh:'刷新',wifi_radio_off:'禁用 WiFi',wifi_radio_on:'启用 WiFi',wifi_warn_lose_access:'如果您通过 WiFi 连接到仪表板,更换网络可能会暂时断开您的连接。请确保有备用访问方式。',wifi_err_no_ssid:'需要 SSID',cancel:'取消',sys_sensors:'主机硬件传感器',sys_sensors_empty:'未检测到传感器。',sys_rf:'RF 硬件 (SoapySDR)',sys_autorefresh:'自动刷新 5秒',
     profile_edit_title:'编辑配置文件',profile_edit_btn:'编辑',
@@ -5096,6 +5166,8 @@ const LANGS={
     sys_bts:'BTS 连接',
   },
 };
+// Fill gaps from English so every language has a complete, coherent dictionary.
+['ro','de','es','hu','zh'].forEach(l=>{ LANGS[l]=Object.assign({},LANGS.en,LANGS[l]); });
 
 let currentLang=localStorage.getItem('fs_lang')||'es';
 function t(k,v){let s=(LANGS[currentLang]||LANGS.en)[k]||(LANGS.en[k]||k);if(v)Object.keys(v).forEach(x=>{s=s.replace('{'+x+'}',v[x]);});return s;}
@@ -5103,7 +5175,7 @@ function applyLang(){
   document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n')));
   document.querySelectorAll('[data-i18n-tab]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n-tab')));
   // Update nav labels
-  ['stations','calls','lastheard','log','config','telegram','system'].forEach(p=>{
+  ['stations','dgna','calls','lastheard','rf','health','log','sdslog','asterisk','dapnet','geoalarm','telegram','wifi','setup','config','system'].forEach(p=>{
     const el=document.querySelector(`#nav-${p} .nav-label`);
     if(el)el.textContent=t(p);
   });
@@ -9807,7 +9879,7 @@ pub const LOGIN_HTML: &str = r##"<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#eceff4">
-<title>{{PRODUCT_NAME}} — Acceso</title>
+<title>{{PRODUCT_NAME}}</title>
 <style>
 :root{
   --bg:#eceff4;--bg2:#ffffff;--bg3:#e6eaf1;--bg4:#d6dde7;
@@ -9966,27 +10038,43 @@ input:focus{border-color:var(--accent2);background:var(--bg4);}
 
   <form id="login-form" autocomplete="on">
     <div>
-      <label class="field-label" for="username">Usuario</label>
+      <label class="field-label" for="username" id="lbl-user">Username</label>
       <input type="text" id="username" name="username" autocomplete="username"
              autocapitalize="none" autocorrect="off" spellcheck="false"
              required>
     </div>
     <div>
-      <label class="field-label" for="password">Contraseña</label>
+      <label class="field-label" for="password" id="lbl-pass">Password</label>
       <input type="password" id="password" name="password" autocomplete="current-password"
              required>
     </div>
-    <button type="submit" class="btn-login" id="submit-btn">Entrar</button>
+    <button type="submit" class="btn-login" id="submit-btn">Sign in</button>
     <div class="err" id="err"></div>
   </form>
 
   <div class="footer">
     <a href="{{PRODUCT_REPO_URL}}" target="_blank" rel="noopener">{{PRODUCT_REPO_LABEL}}</a><br>
-    Versión mejorada por Aitor, EA4HBL
+    <span id="login-credit">Enhanced version by Aitor, EA4HBL</span>
   </div>
 </div>
 
 <script>
+const LOGIN_I18N={
+  en:{user:'Username',pass:'Password',enter:'Sign in',entering:'Signing in…',bad:'Invalid credentials',err:'Login error (',net:'Network error: ',credit:'Enhanced version by Aitor, EA4HBL',title:'Sign in'},
+  es:{user:'Usuario',pass:'Contraseña',enter:'Entrar',entering:'Entrando…',bad:'Credenciales incorrectas',err:'Error de acceso (',net:'Error de red: ',credit:'Versión mejorada por Aitor, EA4HBL',title:'Acceso'},
+  de:{user:'Benutzer',pass:'Passwort',enter:'Anmelden',entering:'Anmeldung…',bad:'Ungültige Anmeldedaten',err:'Anmeldefehler (',net:'Netzwerkfehler: ',credit:'Verbesserte Version von Aitor, EA4HBL',title:'Anmeldung'},
+  ro:{user:'Utilizator',pass:'Parolă',enter:'Autentificare',entering:'Se autentifică…',bad:'Date de autentificare greșite',err:'Eroare de acces (',net:'Eroare de rețea: ',credit:'Versiune îmbunătățită de Aitor, EA4HBL',title:'Acces'},
+  hu:{user:'Felhasználó',pass:'Jelszó',enter:'Belépés',entering:'Belépés…',bad:'Hibás hitelesítő adatok',err:'Belépési hiba (',net:'Hálózati hiba: ',credit:'Fejlesztett verzió: Aitor, EA4HBL',title:'Belépés'},
+  zh:{user:'用户名',pass:'密码',enter:'登录',entering:'登录中…',bad:'凭据无效',err:'登录错误 (',net:'网络错误: ',credit:'改进版本：Aitor, EA4HBL',title:'登录'},
+};
+const _pref=localStorage.getItem('fs_lang')||((navigator.language||'es').slice(0,2).toLowerCase());
+const L=LOGIN_I18N[_pref]||LOGIN_I18N.es;
+document.title='{{PRODUCT_NAME}} — '+L.title;
+document.getElementById('lbl-user').textContent=L.user;
+document.getElementById('lbl-pass').textContent=L.pass;
+document.getElementById('submit-btn').textContent=L.enter;
+document.getElementById('login-credit').textContent=L.credit;
+
 const form = document.getElementById('login-form');
 const errBox = document.getElementById('err');
 const btn = document.getElementById('submit-btn');
@@ -9995,7 +10083,7 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   errBox.textContent = '';
   btn.disabled = true;
-  btn.textContent = 'Entrando…';
+  btn.textContent = L.entering;
 
   const user = document.getElementById('username').value;
   const password = document.getElementById('password').value;
@@ -10013,15 +10101,15 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     if (r.status === 401) {
-      errBox.textContent = 'Credenciales incorrectas';
+      errBox.textContent = L.bad;
     } else {
-      errBox.textContent = 'Error de acceso (' + r.status + ')';
+      errBox.textContent = L.err + r.status + ')';
     }
   } catch (e) {
-    errBox.textContent = 'Error de red: ' + e.message;
+    errBox.textContent = L.net + e.message;
   }
   btn.disabled = false;
-  btn.textContent = 'Entrar';
+  btn.textContent = L.enter;
 });
 
 // Auto-focus username on desktop; mobile keyboards open virtually so we don't on small screens.

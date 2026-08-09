@@ -32,6 +32,12 @@ pub const VERSION_BASED_ON: &str =
 pub const PRODUCT_REPO_URL: &str = "https://github.com/Aitorrio/bost-flowstation";
 pub const PRODUCT_REPO_LABEL: &str = "github.com/Aitorrio/bost-flowstation";
 
+/// Git clone URL used by OTA (`git remote set-url origin …`).
+pub const PRODUCT_REPO_GIT: &str = "https://github.com/Aitorrio/bost-flowstation.git";
+
+/// Branch OTA fetches / fast-forwards from.
+pub const PRODUCT_OTA_BRANCH: &str = "bost";
+
 pub mod address;
 pub mod bitbuffer;
 pub mod debug;

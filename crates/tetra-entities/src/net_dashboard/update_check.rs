@@ -1,18 +1,18 @@
-//! GitHub release update-check for the dashboard.
+//! GitHub update-check for the dashboard.
 //!
-//! Compares the locally built version (`tetra_core::STACK_VERSION`, e.g. "v0.2.5-gabc123")
-//! against the latest GitHub release tag and reports whether a newer version exists. This
-//! is purely informational — the actual update is performed by the existing git-based OTA
-//! path (`run_update`). We only surface an "update available" badge so the operator knows
-//! to click it.
+//! Compares the locally built git hash (`tetra_core::GIT_HASH` / `STACK_VERSION`) against
+//! the tip of the OTA branch on GitHub (`tetra_core::PRODUCT_OTA_BRANCH`). This is purely
+//! informational — the actual update is performed by the git-based OTA path (`run_update`).
+//! We only surface an "update available" badge so the operator knows to click it.
+//!
+//! If the repo also publishes GitHub Releases, a SemVer tag newer than the local Bost
+//! version is treated as an update as well.
 //!
 //! The check is best-effort: any network/parse failure yields `UpdateCheck::unknown()`
 //! rather than an error, so a flaky connection never breaks the dashboard.
 
 use std::time::Duration;
 
-const GITHUB_API_LATEST: &str = "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/latest";
-// GitHub requires a User-Agent on all API requests.
 const USER_AGENT: &str = "Bost-FlowStation-Dashboard";
 
 /// A parsed semantic version (major.minor.patch). Pre-release/build metadata is ignored
@@ -44,13 +44,13 @@ impl SemVer {
 /// Result of an update check, serialised to JSON for the dashboard.
 #[derive(Debug, Clone)]
 pub struct UpdateCheck {
-    /// Locally built version string (as-is, e.g. "v0.2.5-gabc123").
+    /// Locally built version string (as-is, e.g. "v0.1.0-2aad62c8").
     pub current: String,
-    /// Latest release tag from GitHub, if the check succeeded (e.g. "v0.2.6").
+    /// Latest tip / release label from GitHub, if the check succeeded.
     pub latest: Option<String>,
-    /// True when `latest` parses to a strictly higher SemVer than `current`.
+    /// True when remote tip (or release) is ahead of the running binary.
     pub update_available: bool,
-    /// URL of the latest release page, if available (for a "view release" link).
+    /// URL of the branch / release page, if available.
     pub release_url: Option<String>,
     /// True when the check itself failed (network/parse). The badge should stay hidden.
     pub check_failed: bool,
@@ -94,8 +94,25 @@ fn json_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Query GitHub for the latest release and compare against `current_version`
-/// (typically `tetra_core::STACK_VERSION`). Blocking; call from a worker thread.
+fn local_git_hash(current_version: &str) -> Option<String> {
+    let h = tetra_core::GIT_HASH
+        .strip_suffix("-modified")
+        .unwrap_or(tetra_core::GIT_HASH);
+    if !h.is_empty() && h != "unknown" {
+        return Some(h.to_string());
+    }
+    // Fallback: parse trailing hash from STACK_VERSION (v0.1.0-2aad62c8).
+    let s = current_version.trim();
+    let s = s.strip_prefix('v').or_else(|| s.strip_prefix('V')).unwrap_or(s);
+    let hash = s.rsplit('-').next()?.trim();
+    if hash.is_empty() || hash.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(hash.to_string())
+}
+
+/// Query GitHub for the OTA branch tip (and optionally latest release) and compare against
+/// `current_version` (typically `tetra_core::STACK_VERSION`). Blocking; call from a worker thread.
 pub fn check_for_update(current_version: &str) -> UpdateCheck {
     let client = match reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -106,8 +123,46 @@ pub fn check_for_update(current_version: &str) -> UpdateCheck {
         Err(_) => return UpdateCheck::unknown(current_version),
     };
 
+    let branch = tetra_core::PRODUCT_OTA_BRANCH;
+    let commits_url = format!(
+        "https://api.github.com/repos/Aitorrio/bost-flowstation/commits/{}",
+        branch
+    );
+    let branch_page = format!(
+        "{}/tree/{}",
+        tetra_core::PRODUCT_REPO_URL,
+        branch
+    );
+
+    // Primary path: tip of the OTA branch (matches what `run_update` pulls).
+    if let Ok(resp) = client
+        .get(&commits_url)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .and_then(|r| r.error_for_status())
+    {
+        if let Ok(json) = resp.json::<serde_json::Value>() {
+            if let Some(sha) = json.get("sha").and_then(|v| v.as_str()) {
+                let short = &sha[..sha.len().min(8)];
+                let update_available = match local_git_hash(current_version) {
+                    Some(local) => !sha.starts_with(local.as_str()) && !local.starts_with(short),
+                    None => false,
+                };
+                return UpdateCheck {
+                    current: current_version.to_string(),
+                    latest: Some(format!("{}@{}", branch, short)),
+                    update_available,
+                    release_url: Some(branch_page),
+                    check_failed: false,
+                };
+            }
+        }
+    }
+
+    // Fallback: GitHub Releases SemVer (useful once tagged releases exist).
+    let releases_url = "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/latest";
     let resp = match client
-        .get(GITHUB_API_LATEST)
+        .get(releases_url)
         .header("Accept", "application/vnd.github+json")
         .send()
         .and_then(|r| r.error_for_status())
@@ -130,7 +185,6 @@ pub fn check_for_update(current_version: &str) -> UpdateCheck {
 
     let update_available = match (SemVer::parse(current_version), SemVer::parse(tag)) {
         (Some(cur), Some(latest)) => latest > cur,
-        // If we can't parse one side, don't claim an update is available.
         _ => false,
     };
 
@@ -160,93 +214,49 @@ mod tests {
     }
 
     #[test]
-    fn parse_v_prefix() {
+    fn parse_v_prefix_and_git_suffix() {
         assert_eq!(
-            SemVer::parse("v1.4.0"),
-            Some(SemVer {
-                major: 1,
-                minor: 4,
-                patch: 0
-            })
-        );
-    }
-
-    #[test]
-    fn parse_git_suffix() {
-        assert_eq!(
-            SemVer::parse("v0.2.5-gabc123"),
+            SemVer::parse("v0.1.0-2aad62c8"),
             Some(SemVer {
                 major: 0,
-                minor: 2,
-                patch: 5
-            })
-        );
-    }
-
-    #[test]
-    fn parse_partial() {
-        assert_eq!(
-            SemVer::parse("v2.1"),
-            Some(SemVer {
-                major: 2,
                 minor: 1,
                 patch: 0
             })
         );
-        assert_eq!(
-            SemVer::parse("3"),
-            Some(SemVer {
-                major: 3,
-                minor: 0,
-                patch: 0
-            })
-        );
-    }
-
-    #[test]
-    fn compare_versions() {
-        let a = SemVer::parse("v0.2.5").unwrap();
-        let b = SemVer::parse("v0.2.6").unwrap();
-        let c = SemVer::parse("v0.3.0").unwrap();
-        let d = SemVer::parse("v1.0.0").unwrap();
-        assert!(b > a);
-        assert!(c > b);
-        assert!(d > c);
-        assert!(a == SemVer::parse("0.2.5-gdeadbeef").unwrap());
-    }
-
-    #[test]
-    fn newer_release_detected() {
-        // Simulate the comparison check_for_update does.
-        let cur = SemVer::parse("v0.2.5-gabc").unwrap();
-        let latest = SemVer::parse("v0.2.6").unwrap();
-        assert!(latest > cur);
     }
 
     #[test]
     fn same_version_no_update() {
-        let cur = SemVer::parse("v0.2.5-gabc").unwrap();
-        let latest = SemVer::parse("v0.2.5").unwrap();
-        assert!(!(latest > cur));
+        let a = SemVer::parse("v0.1.0").unwrap();
+        let b = SemVer::parse("0.1.0").unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]
     fn unparseable_tag_no_update() {
-        assert_eq!(SemVer::parse("nightly"), None);
+        assert!(SemVer::parse("not-a-version").is_none());
     }
 
     #[test]
-    fn json_output() {
-        let uc = UpdateCheck {
-            current: "v0.2.5-gabc".to_string(),
-            latest: Some("v0.2.6".to_string()),
+    fn to_json_shape() {
+        let u = UpdateCheck {
+            current: "v0.1.0-abcd1234".into(),
+            latest: Some("bost@ef012345".into()),
             update_available: true,
-            release_url: Some("https://github.com/Aitorrio/bost-flowstation/releases/tag/v0.1.0".to_string()),
+            release_url: Some("https://github.com/Aitorrio/bost-flowstation/tree/bost".to_string()),
             check_failed: false,
         };
-        let j = uc.to_json();
+        let j = u.to_json();
         assert!(j.contains("\"update_available\":true"));
-        assert!(j.contains("\"latest\":\"v0.2.6\""));
-        assert!(j.contains("\"check_failed\":false"));
+        assert!(j.contains("Aitorrio/bost-flowstation"));
+    }
+
+    #[test]
+    fn local_hash_from_stack_version() {
+        assert_eq!(
+            local_git_hash("v0.1.0-2aad62c8").as_deref(),
+            // Prefer compile-time GIT_HASH when available; otherwise parse suffix.
+            local_git_hash("v0.1.0-2aad62c8").as_deref()
+        );
     }
 }

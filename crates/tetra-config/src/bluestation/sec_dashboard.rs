@@ -12,13 +12,14 @@ pub struct CfgDashboard {
     /// localhost or an authenticated session. Set username/password to allow off-host control, or set
     /// this to 127.0.0.1 to keep the dashboard on this host only.
     pub bind: String,
-    /// Optional explicit path to the FlowStation git source directory used for OTA updates.
+    /// Optional explicit path to the Bost FlowStation git source directory used for OTA updates.
     /// When unset, the dashboard auto-detects by:
     ///   1. Walking up from the running binary path until a `.git` directory is found
-    ///   2. Trying well-known install paths (/opt/tetra-bluestation, /opt/flowstation, /opt/tetra)
+    ///   2. Trying well-known install paths (/opt/bost-flowstation, legacy FlowStation paths)
     ///   3. Falling back to the current working directory if it is a git repo
     /// Set this explicitly when the binary is installed outside the repo (e.g. /opt/tetra/
     /// with the git clone elsewhere), or when auto-detection picks the wrong directory.
+    /// OTA pulls from github.com/Aitorrio/bost-flowstation branch `bost`.
     pub source_dir: Option<String>,
     /// Optional HTTP Basic Auth credentials.
     /// When both username and password are set, all dashboard requests require authentication.

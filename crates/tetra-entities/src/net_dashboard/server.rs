@@ -405,16 +405,14 @@ fn parse_session_cookie(headers: &str) -> Option<String> {
     None
 }
 
-/// Resolve the FlowStation git source directory for OTA updates.
+/// Resolve the Bost FlowStation git source directory for OTA updates.
 ///
 /// Resolution order (first match wins):
 ///   1. `override_dir` from config ([dashboard].source_dir) — explicit user choice.
 ///   2. Walk up from `current_exe()` looking for a `.git` directory. This handles
 ///      the development case where the binary lives at `<src>/target/release/...`.
-///   3. Well-known install paths: `/opt/tetra-bluestation`, `/opt/flowstation`,
-///      `/opt/tetra-bs`, `/opt/tetra`. Useful when the binary was deployed
-///      separately from the source tree (e.g. binary in `/opt/tetra/`, sources
-///      cloned in `/opt/tetra-bluestation/`).
+///   3. Well-known install paths: `/opt/bost-flowstation`, then legacy FlowStation
+///      paths (`/opt/tetra-bluestation`, `/opt/flowstation`, …).
 ///   4. `current_dir()` if it contains a `.git` directory.
 ///
 /// Returns `Ok(path)` on success, or `Err(message)` listing all paths tried.
@@ -462,8 +460,14 @@ fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, 
         }
     }
 
-    // 3. Well-known install paths.
-    for candidate in &["/opt/tetra-bluestation", "/opt/flowstation", "/opt/tetra-bs", "/opt/tetra"] {
+    // 3. Well-known install paths (Bost first, then legacy).
+    for candidate in &[
+        "/opt/bost-flowstation",
+        "/opt/tetra-bluestation",
+        "/opt/flowstation",
+        "/opt/tetra-bs",
+        "/opt/tetra",
+    ] {
         let p = std::path::PathBuf::from(candidate);
         if is_git_repo(&p) {
             return Ok(p);
@@ -482,19 +486,21 @@ fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, 
     }
 
     Err(format!(
-        "OTA update needs the FlowStation git source tree to be present on this machine, \
+        "OTA update needs the Bost FlowStation git source tree to be present on this machine, \
          but none was found. You have two options:\n\
          \n\
          1) Clone the sources next to your binary:\n\
-            git clone https://github.com/Aitorrio/bost-flowstation.git -b bost /opt/bost-flowstation\n\
+            git clone {} -b {} /opt/bost-flowstation\n\
             Then either move the binary into that tree, or set source_dir in config:\n\
             [dashboard]\n\
-            source_dir = \"/opt/tetra-bluestation\"\n\
+            source_dir = \"/opt/bost-flowstation\"\n\
          \n\
          2) If your platform can't compile (e.g. Pi Zero), update manually by downloading \
          the latest release binary from GitHub.\n\
          \n\
          Paths tried: {}",
+        tetra_core::PRODUCT_REPO_GIT,
+        tetra_core::PRODUCT_OTA_BRANCH,
         if tried.is_empty() { "(none)".to_string() } else { tried.join("; ") }
     ))
 }
@@ -739,13 +745,87 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         log!(update, "✓ safe.directory registered, continuing.");
     }
 
-    // Step 3: fetch remote without merging — just update refs
+    // Step 3: point origin at the Bost repo and fetch the OTA branch.
+    let ota_url = tetra_core::PRODUCT_REPO_GIT;
+    let ota_branch = tetra_core::PRODUCT_OTA_BRANCH;
+    let remote_ref = format!("origin/{}", ota_branch);
+    log!(
+        update,
+        "--- Ensuring OTA remote {} (branch {}) ---",
+        ota_url,
+        ota_branch
+    );
+    let current_origin = run_cmd_output(&update, "git", &["-C", src_str, "remote", "get-url", "origin"], &src_dir)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if current_origin.is_empty() {
+        if run_cmd_output(
+            &update,
+            "git",
+            &["-C", src_str, "remote", "add", "origin", ota_url],
+            &src_dir,
+        )
+        .is_none()
+        {
+            return;
+        }
+    } else if current_origin != ota_url
+        && !current_origin.contains("Aitorrio/bost-flowstation")
+        && !current_origin.contains("aitorrio/bost-flowstation")
+    {
+        log!(
+            update,
+            "origin was '{}' — switching to {}",
+            current_origin,
+            ota_url
+        );
+        if run_cmd_output(
+            &update,
+            "git",
+            &["-C", src_str, "remote", "set-url", "origin", ota_url],
+            &src_dir,
+        )
+        .is_none()
+        {
+            return;
+        }
+    } else if current_origin != ota_url {
+        // Same repo, different URL form (ssh vs https) — normalize to the canonical HTTPS clone URL.
+        let _ = run_cmd_output(
+            &update,
+            "git",
+            &["-C", src_str, "remote", "set-url", "origin", ota_url],
+            &src_dir,
+        );
+    }
+
     log!(update, "--- Checking remote for updates ---");
-    if run_cmd_output(&update, "git", &["-C", src_str, "fetch", "origin", "main"], &src_dir).is_none() {
+    if run_cmd_output(&update, "git", &["-C", src_str, "fetch", "origin", ota_branch], &src_dir).is_none() {
         return;
     }
 
-    // Step 4: compare local HEAD with remote origin/main
+    // Prefer working on the OTA branch so ff-only merges apply cleanly.
+    let local_branch = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", "--abbrev-ref", "HEAD"], &src_dir)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if local_branch != ota_branch {
+        log!(update, "Local branch is '{}' — switching to '{}'", local_branch, ota_branch);
+        if run_cmd_output(&update, "git", &["-C", src_str, "checkout", ota_branch], &src_dir).is_none() {
+            log!(update, "Creating local '{}' from {}", ota_branch, remote_ref);
+            if run_cmd_output(
+                &update,
+                "git",
+                &["-C", src_str, "checkout", "-B", ota_branch, &remote_ref],
+                &src_dir,
+            )
+            .is_none()
+            {
+                return;
+            }
+        }
+    }
+
+    // Step 4: compare local HEAD with remote origin/<ota_branch>
     let local_commit = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", "HEAD"], &src_dir)
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
@@ -753,7 +833,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
-    let remote_commit = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", "origin/main"], &src_dir)
+    let remote_commit = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", &remote_ref], &src_dir)
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     if remote_commit.is_empty() {
@@ -763,11 +843,12 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     log!(update, "Local  commit: {}", &local_commit[..local_commit.len().min(12)]);
     log!(update, "Remote commit: {}", &remote_commit[..remote_commit.len().min(12)]);
 
-    // Step 5: sync the working tree to origin/main when the commits differ.
+    // Step 5: sync the working tree to origin/<ota_branch> when the commits differ.
     let mut merged = false;
     if local_commit != remote_commit {
         // Show what changed.
-        let _ = run_cmd_output(&update, "git", &["-C", src_str, "log", "--oneline", "HEAD..origin/main"], &src_dir);
+        let range = format!("HEAD..{}", remote_ref);
+        let _ = run_cmd_output(&update, "git", &["-C", src_str, "log", "--oneline", &range], &src_dir);
 
         // Backup config before touching anything.
         let backup_path = format!("{}.bak", config_path);
@@ -778,7 +859,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
 
         // Fast-forward merge (only changed files are touched on disk).
         log!(update, "--- git merge (fast-forward only) ---");
-        if run_cmd_output(&update, "git", &["-C", src_str, "merge", "--ff-only", "origin/main"], &src_dir).is_none() {
+        if run_cmd_output(&update, "git", &["-C", src_str, "merge", "--ff-only", &remote_ref], &src_dir).is_none() {
             return;
         }
         merged = true;
@@ -3328,9 +3409,6 @@ fn serve_update_status(mut stream: TcpStream, update_state: &SharedUpdateState) 
     let _ = stream.write_all(body.as_bytes());
 }
 
-/// GET /api/update/check — query GitHub for the latest release and report whether a newer
-/// version than the running build exists. Best-effort; on any failure returns
-/// check_failed=true so the dashboard simply hides the badge.
 /// GET /api/callsigns?ids=1,2,3 — resolve ISSIs to RadioID callsigns ("indicative"). Returns a JSON
 /// object `{ "<id>": {"cs":"CALLSIGN","fl":"🇷🇴"} }` for resolved IDs (`fl` is the country flag emoji
 /// derived from the call-sign prefix, or empty if unknown) and `{ "<id>": "" }` for IDs confirmed
@@ -3373,6 +3451,9 @@ fn serve_callsigns(stream: TcpStream, radioid: &crate::net_dashboard::radioid::R
     http_json_response(stream, 200, &serde_json::Value::Object(map).to_string());
 }
 
+/// GET /api/update/check — compare the running build against the tip of the OTA branch
+/// on github.com/Aitorrio/bost-flowstation (fallback: latest GitHub Release). Best-effort;
+/// on any failure returns check_failed=true so the dashboard hides the badge.
 fn serve_update_check(mut stream: TcpStream) {
     let result = crate::net_dashboard::update_check::check_for_update(tetra_core::STACK_VERSION);
     let body = result.to_json();
