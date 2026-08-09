@@ -6,6 +6,7 @@ pub mod html;
 pub mod profiles;
 pub mod radioid;
 pub mod server;
+pub mod setup;
 pub mod snom_notify;
 pub mod state;
 pub mod telegram;

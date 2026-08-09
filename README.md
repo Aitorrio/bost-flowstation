@@ -88,13 +88,24 @@ Built in Rust on top of [tetra-bluestation](https://github.com/MidnightBlueLabs/
 
 Full step-by-step installation guide (Raspberry Pi + LimeSDR): **[install.flowstation.dev](https://install.flowstation.dev)**
 
+### Automated install (this fork — `bost` branch)
+
+One command on Raspberry Pi OS / Debian arm64. Starts with RF disabled so the web UI is always reachable; finish SDR/RF via the Setup wizard.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
+```
+
+Dashboard: `http://<pi-ip>:8080` — login `admin` / `1234`. Details: [`Docs/install-and-setup.md`](Docs/install-and-setup.md).
+
 ### Quick start (from source)
 
 ```bash
-git clone https://github.com/razvanzeces/flowstation.git
-cd flowstation
+git clone https://github.com/Aitorrio/bost-flowstation.git -b bost
+cd bost-flowstation
 cp example_config/config.toml ./config.toml
 # Edit config.toml — set tx_freq, rx_freq, mcc, mnc at minimum
+# For first boot without SDR: phy_io.backend = "None"
 cargo build --release
 ./target/release/bluestation-bs config.toml
 ```
@@ -554,8 +565,9 @@ Available at `http://<bts-ip>:8080` when `[dashboard]` is configured.
 
 | Branch | Purpose |
 |---|---|
-| `main` | Stable, tested releases |
-| `alpha` | Active development — new features, may be rough |
+| `bost` | This fork’s working branch (install script, Setup wizard, visual config) |
+| `main` | Upstream-aligned / mirror — do not use for bost features |
+| `alpha` | Upstream active development |
 
 ---
 

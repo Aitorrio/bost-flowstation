@@ -505,6 +505,12 @@ fn backup_and_write(config_path: &str, body: &str) -> Result<(), String> {
     fs::rename(&tmp, config_path).map_err(|e| e.to_string())
 }
 
+/// Validate a full TOML document then atomically replace `config_path` (with `.bak`).
+pub fn validate_and_write_toml(config_path: &str, body: &str) -> Result<(), String> {
+    validate_toml_str(body)?;
+    backup_and_write(config_path, body)
+}
+
 fn deep_merge_toml(table: &mut toml::Table, key: &str, incoming: TomlValue) {
     match (table.get_mut(key), incoming) {
         (Some(TomlValue::Table(dst)), TomlValue::Table(src)) => {

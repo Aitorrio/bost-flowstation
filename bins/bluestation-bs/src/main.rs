@@ -9,7 +9,7 @@ use tetra_entities::net_control::{
     CONTROL_HEARTBEAT_INTERVAL, CONTROL_HEARTBEAT_TIMEOUT, CONTROL_PROTOCOL_VERSION, CommandDispatcher, ControlWorker,
 };
 
-use tetra_config::bluestation::{PhyBackend, SharedConfig, StackConfig, parsing};
+use tetra_config::bluestation::{SharedConfig, StackConfig, parsing};
 use tetra_core::{TdmaTime, debug};
 use tetra_entities::MessageRouter;
 #[cfg(feature = "asterisk")]
@@ -158,6 +158,45 @@ fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEnt
     })
 }
 
+/// Attach PHY after the dashboard is running. Never panics on SDR open failure —
+/// degraded mode keeps the web UI / setup wizard available.
+fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<TelemetrySink>) {
+    use tetra_config::bluestation::PhyBackend;
+    match cfg.config().phy_io.backend {
+        PhyBackend::None => {
+            tetra_entities::rf_status::set_offline(
+                "phy_io.backend = None (setup mode — complete the Setup wizard to enable RF)",
+            );
+            eprintln!(" -> RF disabled (setup mode). Dashboard available for configuration.");
+        }
+        PhyBackend::SoapySdr => {
+            tetra_entities::rf_status::set_starting("SoapySdr");
+            eprintln!(" -> Opening SDR (dashboard already up)…");
+            match RxTxDevSoapySdr::with_telemetry(cfg, tsink) {
+                Ok(rxdev) => {
+                    let phy = PhyBs::new(cfg.clone(), rxdev);
+                    router.register_entity(Box::new(phy));
+                    tetra_entities::rf_status::set_online("SoapySdr", "SDR open, PHY registered");
+                    eprintln!(" -> RF online (SoapySDR)");
+                }
+                Err(e) => {
+                    tracing::error!("RF degraded — continuing without PHY: {e}");
+                    tetra_entities::rf_status::set_error("SoapySdr", e.clone());
+                    eprintln!(
+                        " -> RF offline: {e}\n    Dashboard remains available. Fix the SDR in Setup, then restart."
+                    );
+                }
+            }
+        }
+        other => {
+            let msg = format!("Unsupported PhyIo backend: {other:?}");
+            tracing::error!("{msg}");
+            tetra_entities::rf_status::set_error("unsupported", msg.clone());
+            eprintln!(" -> RF offline: {msg}");
+        }
+    }
+}
+
 /// Start base station stack
 fn build_bs_stack(
     cfg: &mut SharedConfig,
@@ -183,17 +222,8 @@ fn build_bs_stack(
         (None, None)
     };
 
-    // Add suitable Phy component based on PhyIo type
-    match cfg.config().phy_io.backend {
-        PhyBackend::SoapySdr => {
-            let rxdev = RxTxDevSoapySdr::with_telemetry(cfg, tsink.clone());
-            let phy = PhyBs::new(cfg.clone(), rxdev);
-            router.register_entity(Box::new(phy));
-        }
-        _ => {
-            panic!("Unsupported PhyIo type: {:?}", cfg.config().phy_io.backend);
-        }
-    }
+    // PHY / SDR is attached later via `try_attach_phy` so the dashboard can come up
+    // even when no radio is present (setup mode) or the open fails.
 
     // Background sys-health worker — reads /sys for temperatures, voltages,
     // currents, power. Universal across host hardware: RPi 5 (full PMIC),
@@ -390,6 +420,8 @@ fn main() {
     }
 
     let (mut router, tsource, cdispatchers, dapnet_telemetry_sink) = build_bs_stack(&mut cfg, &args.config);
+    // Clone for PHY attach after the dashboard is listening (degraded boot).
+    let phy_tsink = dapnet_telemetry_sink.clone();
     let dapnet_cmd_tx = cdispatchers.get(&TetraEntity::Cmce).map(|dispatcher| dispatcher.clone_sender());
     let mut dapnet_telegram_sink: Option<TelegramAlertSink> = None;
     #[allow(unused_assignments)]
@@ -630,6 +662,10 @@ fn main() {
         is_running_clone.store(false, Ordering::SeqCst);
     })
     .expect("failed to set Ctrl+C handler");
+
+    // Open SDR / register PHY only after the dashboard (if any) is already listening,
+    // so a missing radio never blocks the setup wizard.
+    try_attach_phy(&mut router, &cfg, phy_tsink);
 
     // Start the stack
     router.run_stack(None, Some(is_running));

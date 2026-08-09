@@ -2183,6 +2183,97 @@ fn handle_connection(
             Ok(()) => http_response(buf.into_inner(), 200, "OK"),
             Err((code, msg)) => http_response(buf.into_inner(), code, &msg),
         }
+    } else if req_line.contains("GET /api/setup/status") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let body = crate::net_dashboard::setup::status_payload(&config_path).to_string();
+        http_json_response(s, 200, &body);
+    } else if req_line.contains("POST /api/setup/scan-sdr") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let body = crate::net_dashboard::setup::scan_sdr_devices().to_string();
+        http_json_response(s, 200, &body);
+    } else if req_line.contains("POST /api/setup/install-driver") {
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<serde_json::Value>(&body_str) {
+            Ok(v) => {
+                let driver = v.get("driver").and_then(|d| d.as_str()).unwrap_or("").trim();
+                if driver.is_empty() {
+                    http_response(inner, 400, "missing driver (sx|lime)");
+                } else {
+                    match crate::net_dashboard::setup::install_driver(driver) {
+                        Ok(msg) => http_json_response(
+                            inner,
+                            200,
+                            &serde_json::json!({"ok":true,"output":msg}).to_string(),
+                        ),
+                        Err(e) => http_json_response(
+                            inner,
+                            500,
+                            &serde_json::json!({"ok":false,"error":e}).to_string(),
+                        ),
+                    }
+                }
+            }
+            Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
+    } else if req_line.contains("POST /api/setup/apply") {
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<crate::net_dashboard::setup::SetupApplyRequest>(&body_str) {
+            Ok(req) => match crate::net_dashboard::setup::apply_setup(&config_path, &req) {
+                Ok(()) => {
+                    tracing::info!(
+                        "Dashboard setup: apply enable_rf={} restart={} device={:?}",
+                        req.enable_rf,
+                        req.restart,
+                        req.device
+                    );
+                    http_json_response(inner, 200, r#"{"ok":true}"#);
+                }
+                Err(e) => http_response(inner, 400, &e),
+            },
+            Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
+    } else if req_line.contains("POST /api/setup/complete") {
+        let (inner, body_str) = read_post_body(stream);
+        let skipped = serde_json::from_str::<serde_json::Value>(&body_str)
+            .ok()
+            .and_then(|v| v.get("skip").or_else(|| v.get("skipped")).and_then(|x| x.as_bool()))
+            .unwrap_or(false);
+        match crate::net_dashboard::setup::mark_complete(&config_path, skipped) {
+            Ok(state) => http_json_response(
+                inner,
+                200,
+                &serde_json::to_string(&serde_json::json!({"ok":true,"setup":state}))
+                    .unwrap_or_else(|_| r#"{"ok":true}"#.into()),
+            ),
+            Err(e) => http_response(inner, 500, &e),
+        }
+    } else if req_line.contains("POST /api/setup/systemd") {
+        let (inner, body_str) = read_post_body(stream);
+        let action = serde_json::from_str::<serde_json::Value>(&body_str)
+            .ok()
+            .and_then(|v| v.get("action").and_then(|a| a.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| "status".into());
+        match crate::net_dashboard::setup::systemd_action(&action) {
+            Ok(msg) => {
+                // status returns JSON string; others a plain message
+                if action == "status" {
+                    http_json_response(inner, 200, &msg);
+                } else {
+                    http_json_response(
+                        inner,
+                        200,
+                        &serde_json::json!({"ok":true,"output":msg}).to_string(),
+                    );
+                }
+            }
+            Err(e) => http_json_response(
+                inner,
+                500,
+                &serde_json::json!({"ok":false,"error":e}).to_string(),
+            ),
+        }
     } else if req_line.contains("GET /api/visual-config") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4043,6 +4134,7 @@ fn serve_system_info(mut stream: TcpStream, config_path: &str) {
     // Auto-detected SDR name — set by `phy::components::soapy_settings::get_settings()`
     // at stack startup. None if no SoapySDR-backed phy is in use (file backend etc).
     let sdr_name = crate::phy::components::soapy_settings::detected_sdr_name().unwrap_or_else(|| "unknown".to_string());
+    let rf_status = crate::rf_status::get();
 
     let body = serde_json::to_string(&serde_json::json!({
         "hostname": hostname,
@@ -4059,6 +4151,7 @@ fn serve_system_info(mut stream: TcpStream, config_path: &str) {
         "cpu_temp_c": cpu_temp_c,
         "soapy_info": soapy_info,
         "sdr_name": sdr_name,
+        "rf_status": rf_status,
     }))
     .unwrap_or_else(|_| "{}".to_string());
 

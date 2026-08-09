@@ -26,6 +26,7 @@ pub mod net_telemetry;
 
 pub mod backlight;
 pub mod health;
+pub mod rf_status;
 pub mod service_control;
 pub mod sys_telemetry;
 pub mod tpg2200;

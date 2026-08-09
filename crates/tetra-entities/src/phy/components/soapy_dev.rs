@@ -62,13 +62,17 @@ type FftPlanner = rustfft::FftPlanner<RealSample>;
 /// lets the radio settle within this one process instead of bouncing the whole service. A genuinely
 /// absent or misconfigured radio still aborts after the window (and the unit's StartLimit then caps
 /// the systemd-level retries so it can't loop forever).
-fn open_sdr_with_retry(cfg: &SharedConfig) -> soapyio::SoapyIo {
+/// Open the SDR with a short retry window. Returns `Err` instead of panicking so the
+/// process (and dashboard) can stay up in degraded / setup mode when no radio is present.
+fn open_sdr_with_retry(cfg: &SharedConfig) -> Result<soapyio::SoapyIo, String> {
     const ATTEMPTS: u32 = 6;
     const DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+    let mut last_err = String::from("unknown SDR open error");
     for attempt in 1..=ATTEMPTS {
         match soapyio::SoapyIo::new(cfg) {
-            Ok(sdr) => return sdr,
+            Ok(sdr) => return Ok(sdr),
             Err(e) if attempt < ATTEMPTS => {
+                last_err = e.to_string();
                 tracing::warn!(
                     "Failed to open SDR device (attempt {}/{}): {}. Retrying in {}s \
                      (device may still be releasing after a restart)...",
@@ -80,31 +84,33 @@ fn open_sdr_with_retry(cfg: &SharedConfig) -> soapyio::SoapyIo {
                 std::thread::sleep(DELAY);
             }
             Err(e) => {
-                // Out of attempts — nothing to transmit on, so this is fatal. Surface the actual
-                // cause and the usual culprits so log-only debugging is possible.
+                last_err = e.to_string();
                 tracing::error!(
                     "Failed to open SDR device after {} attempts: {}. Check that the SDR is plugged \
                      in, not held by another process (SoapySDRUtil/GQRX/another bluestation-bs), and \
-                     that the device driver in [phy_io.soapysdr] matches the hardware. Cannot start \
-                     without a radio.",
+                     that the device driver in [phy_io.soapysdr] matches the hardware. Continuing \
+                     without RF so the dashboard / setup wizard remain available.",
                     ATTEMPTS,
                     e
                 );
-                panic!("Failed to open SDR device after {ATTEMPTS} attempts: {e}");
             }
         }
     }
-    unreachable!("the loop returns on success or panics on the final attempt")
+    Err(format!(
+        "Failed to open SDR device after {ATTEMPTS} attempts: {last_err}"
+    ))
 }
 
 impl RxTxDevSoapySdr {
-    pub fn new(cfg: &SharedConfig) -> Self {
+    pub fn new(cfg: &SharedConfig) -> Result<Self, String> {
         Self::with_telemetry(cfg, None)
     }
 
     /// Construct with an attached telemetry sink so the TX DSP can stream
     /// live spectrum + constellation snapshots to the dashboard.
-    pub fn with_telemetry(cfg: &SharedConfig, telemetry: Option<TelemetrySink>) -> Self {
+    ///
+    /// Returns `Err` when the SDR cannot be opened so callers can degrade instead of aborting.
+    pub fn with_telemetry(cfg: &SharedConfig, telemetry: Option<TelemetrySink>) -> Result<Self, String> {
         let mut fft_planner = rustfft::FftPlanner::new();
 
         // TODO FIXME currently no MS and MON support in the below statement; need to fix
@@ -114,7 +120,7 @@ impl RxTxDevSoapySdr {
             .phy_io
             .soapysdr
             .as_ref()
-            .expect("Soapysdr config must be set for Soapysdr PhyIo");
+            .ok_or_else(|| "Soapysdr config must be set for Soapysdr PhyIo".to_string())?;
 
         let (dl_corrected, dl_err) = soapy_cfg.dl_freq_corrected();
         let (ul_corrected, ul_err) = soapy_cfg.ul_freq_corrected();
@@ -161,13 +167,16 @@ impl RxTxDevSoapySdr {
             bs_carrier_numbers: &bs_carrier_numbers,
         };
 
-        // Retry the open briefly rather than panicking on the first failure — a software restart
-        // can leave the USB SDR held for a moment, which otherwise crash-loops the service.
-        let mut sdr = open_sdr_with_retry(cfg);
+        // Drop the config read-lock before opening the SDR (SoapyIo also reads SharedConfig).
+        drop(config_guard);
+
+        // Retry the open briefly rather than aborting the process — a software restart
+        // can leave the USB SDR held for a moment, and a missing radio must not kill the dashboard.
+        let mut sdr = open_sdr_with_retry(cfg)?;
 
         let health_telemetry = telemetry.clone();
 
-        Self {
+        Ok(Self {
             rx_dsp: if sdr.rx_enabled() {
                 Some(RxDsp::new(&mut fft_planner, &mut sdr, &phy_config))
             } else {
@@ -183,7 +192,7 @@ impl RxTxDevSoapySdr {
             health: health_telemetry.map(SdrHealthMonitor::new),
 
             sdr,
-        }
+        })
     }
 
     /// Process a block of received signal.

@@ -2182,6 +2182,43 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .h-finline .h-flabel-sm{color:var(--muted);font-size:12px;}
 .h-fopts{display:flex;gap:14px;flex-wrap:wrap;}
 .h-fopt{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;}
+
+/* ── Setup wizard / first-run ── */
+#setup-wizard{
+  display:none;position:fixed;inset:0;z-index:9000;background:rgba(8,12,16,0.92);
+  backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:24px;
+}
+#setup-wizard.open{display:flex;}
+.setup-wiz-card{
+  width:min(640px,100%);max-height:min(90vh,820px);overflow:auto;
+  background:var(--bg2);border:1px solid var(--border);border-radius:14px;
+  box-shadow:0 24px 80px rgba(0,0,0,0.45);padding:28px 28px 22px;
+}
+.setup-wiz-step{display:none;}
+.setup-wiz-step.active{display:block;}
+.setup-wiz-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px;justify-content:flex-end;}
+.setup-device-list{display:flex;flex-direction:column;gap:8px;margin:12px 0;}
+.setup-device{
+  text-align:left;padding:12px 14px;border:1px solid var(--border);border-radius:10px;
+  background:var(--bg3);cursor:pointer;color:var(--text);font-size:13px;
+}
+.setup-device:hover{border-color:var(--accent);}
+.setup-device.selected{border-color:var(--accent);background:rgba(0,122,98,0.12);}
+.setup-rf-pill{
+  display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;
+  font-size:12px;font-weight:600;border:1px solid var(--border);
+}
+.setup-rf-pill.online{color:var(--ok,#3ecf8e);border-color:rgba(62,207,142,0.4);}
+.setup-rf-pill.offline{color:var(--muted);}
+.setup-rf-pill.error{color:var(--danger);border-color:rgba(255,80,80,0.4);}
+.setup-rf-pill.starting{color:var(--accent2);}
+#rf-status-banner{
+  display:none;margin:0 0 12px;padding:10px 14px;border-radius:10px;
+  background:rgba(255,80,80,0.1);border:1px solid rgba(255,80,80,0.35);
+  color:var(--danger);font-size:13px;
+}
+#rf-status-banner.show{display:block;}
+#rf-status-banner.is-offline{background:rgba(120,140,160,0.12);border-color:rgba(120,140,160,0.35);color:var(--muted);}
 </style>
 </head>
 <body>
@@ -2313,6 +2350,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
     <!-- SYSTEM — configure / operate the station. -->
     <div class="nav-section-label" data-i18n-section="system_sec">SYSTEM</div>
+    <div class="nav-item" onclick="showPage('setup',this);refreshSetupPage()" id="nav-setup">
+      <span class="nav-icon" data-icon="config"></span>
+      <span class="nav-label" data-i18n="setup">SETUP</span>
+    </div>
     <div class="nav-item" onclick="showPage('config',this)" id="nav-config">
       <span class="nav-icon" data-icon="config"></span>
       <span class="nav-label" data-i18n="config">CONFIG</span>
@@ -2455,6 +2496,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <span data-i18n="emg_banner_title">EMERGENCY ACTIVE</span>
     <div id="emergency-banner-list" style="display:flex;flex-wrap:wrap;gap:8px"></div>
   </div>
+
+  <div id="rf-status-banner" role="status"></div>
 
   <!-- Content -->
   <div id="content">
@@ -3514,6 +3557,48 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
     </div>
 
+    <!-- ── SETUP (first-run + ongoing SDR/service) ── -->
+    <div class="page" id="page-setup">
+      <div class="section-label" data-i18n="setup_sec">First-run / SDR</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="setup_title">Setup</div>
+          <div class="card-actions">
+            <button class="btn btn-sm" onclick="refreshSetupPage()"><span data-i18n="sys_refresh">Refresh</span></button>
+            <button class="btn btn-primary" onclick="openSetupWizard(true)"><span data-i18n="setup_open_wizard">Open wizard</span></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div style="margin-bottom:12px"><span class="setup-rf-pill" id="setup-rf-pill">RF —</span></div>
+          <div class="info-row"><div class="info-key">Setup complete</div><div class="info-val" id="setup-complete-val">—</div></div>
+          <div class="info-row"><div class="info-key">Config backend</div><div class="info-val" id="setup-backend-val">—</div></div>
+          <div class="info-row"><div class="info-key">Device</div><div class="info-val" id="setup-device-val">—</div></div>
+          <div class="info-row"><div class="info-key">Service unit</div><div class="info-val" id="setup-unit-val">—</div></div>
+          <div class="info-row"><div class="info-key">Helper</div><div class="info-val" id="setup-helper-val">—</div></div>
+          <div class="help-text" id="setup-rf-detail" style="margin-top:12px"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="setup_sdr_title">SDR devices</div>
+          <div class="card-actions">
+            <button class="btn btn-sm" onclick="setupScanSdr()"><span data-i18n="setup_scan">Scan</span></button>
+            <button class="btn" onclick="setupInstallDriver('sx')">Install SXceiver</button>
+            <button class="btn" onclick="setupInstallDriver('lime')">Install Lime</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="setup-device-list" id="setup-device-list"></div>
+          <div class="config-msg" id="setup-page-msg"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <button class="btn btn-primary" onclick="setupEnableRfAndRestart()"><span data-i18n="setup_enable_rf">Enable RF &amp; Restart</span></button>
+            <button class="btn" onclick="setupEnsureAutostart()"><span data-i18n="setup_autostart">Ensure autostart</span></button>
+            <button class="btn" onclick="setupMarkComplete(false)"><span data-i18n="setup_mark_done">Mark setup done</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── CONFIG ── -->
     <div class="page" id="page-config">
       <div class="section-label" data-i18n="cfg_sec_profiles">Profiles</div>
@@ -4304,6 +4389,77 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
+<!-- ── First-run Setup Wizard ── -->
+<div id="setup-wizard" aria-modal="true" role="dialog">
+  <div class="setup-wiz-card">
+    <div class="setup-wiz-step active" data-step="0">
+      <h2 style="margin:0 0 8px;font-size:22px">Welcome to FlowStation</h2>
+      <p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px">
+        This wizard configures your SDR, RF parameters, and systemd autostart.
+        The dashboard stays available even when the radio is offline.
+      </p>
+      <div><span class="setup-rf-pill" id="wiz-rf-pill">RF —</span></div>
+      <p class="help-text" id="wiz-rf-detail" style="margin-top:12px"></p>
+      <div class="setup-wiz-nav">
+        <button class="btn" onclick="setupSkipDefaults()">Skip with defaults</button>
+        <button class="btn btn-primary" onclick="wizNext()">Continue</button>
+      </div>
+    </div>
+    <div class="setup-wiz-step" data-step="1">
+      <h2 style="margin:0 0 8px;font-size:20px">Select SDR</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Scan SoapySDR devices or install a driver (SXceiver / Lime).</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-sm" onclick="setupScanSdr(true)">Scan</button>
+        <button class="btn btn-sm" onclick="setupInstallDriver('sx',true)">Install SXceiver</button>
+        <button class="btn btn-sm" onclick="setupInstallDriver('lime',true)">Install Lime</button>
+      </div>
+      <div class="setup-device-list" id="wiz-device-list"></div>
+      <label class="field" style="display:block;margin-top:10px"><span>Device args</span>
+        <input type="text" id="wiz-device" class="form-input" placeholder="driver=sx">
+      </label>
+      <div class="config-msg" id="wiz-sdr-msg"></div>
+      <div class="setup-wiz-nav">
+        <button class="btn" onclick="wizPrev()">Back</button>
+        <button class="btn btn-primary" onclick="wizNext()">Next</button>
+      </div>
+    </div>
+    <div class="setup-wiz-step" data-step="2">
+      <h2 style="margin:0 0 8px;font-size:20px">RF / Network / Brew</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
+        Use the Config tab forms for full editing, or keep the example defaults for now.
+      </p>
+      <label class="h-fopt"><input type="checkbox" id="wiz-use-defaults" checked> Use current config defaults</label>
+      <div class="setup-wiz-nav">
+        <button class="btn" onclick="wizPrev()">Back</button>
+        <button class="btn" onclick="showPage('config');closeSetupWizard()">Open Config forms</button>
+        <button class="btn btn-primary" onclick="wizNext()">Next</button>
+      </div>
+    </div>
+    <div class="setup-wiz-step" data-step="3">
+      <h2 style="margin:0 0 8px;font-size:20px">Enable RF</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">
+        Sets <code>phy_io.backend = SoapySdr</code>, writes the device string, and restarts the service.
+      </p>
+      <div class="config-msg" id="wiz-enable-msg"></div>
+      <div class="setup-wiz-nav">
+        <button class="btn" onclick="wizPrev()">Back</button>
+        <button class="btn btn-primary" onclick="wizEnableRf()">Enable RF &amp; Restart</button>
+        <button class="btn" onclick="wizNext()">Skip for now</button>
+      </div>
+    </div>
+    <div class="setup-wiz-step" data-step="4">
+      <h2 style="margin:0 0 8px;font-size:20px">Autostart</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Ensure the systemd unit is enabled so the station comes back after reboot.</p>
+      <div class="config-msg" id="wiz-systemd-msg"></div>
+      <div class="setup-wiz-nav">
+        <button class="btn" onclick="wizPrev()">Back</button>
+        <button class="btn" onclick="setupEnsureAutostart(true)">Ensure autostart</button>
+        <button class="btn btn-primary" onclick="wizFinish(false)">Finish</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Icon system (SF-Symbols-style, design-language v3) ────────────────────
 // One cohesive family: 24×24 viewBox, fill=none, stroke=currentColor,
@@ -4383,7 +4539,7 @@ const LANGS={
   en:{
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Radios',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
+    stations:'Radios',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
     sdslog:'SDS Log',th_dir:'Dir',th_from:'From',th_to:'To',th_message:'Message',no_sds:'No SDS messages yet',sds_refresh:'Refresh',
     rf_freq:'Center freq',rf_rate:'Sample rate',rf_rms:'RMS',rf_peak:'Peak',rf_age:'Snapshot',
     rf_waiting:'waiting…',rf_live:'live',rf_stale:'stale',
@@ -4701,7 +4857,7 @@ const LANGS={
   es:{
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
-    stations:'Radios',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Health',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
+    stations:'Radios',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Health',echolink:'EchoLink',echolink_title:'EchoLink',setup:'Setup',config:'Config',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
     rf_waiting:'esperando…',rf_live:'en vivo',rf_stale:'obsoleto',
@@ -5003,7 +5159,7 @@ function closeMobileSidebar(){
 }
 
 // ── Page navigation ───────────────────────────────────────────────────────
-const PAGE_TITLES={stations:'stations',dgna:'dgna',calls:'calls',lastheard:'lastheard',log:'log',sdslog:'sdslog',rf:'rf',health:'health',asterisk:'asterisk',dapnet:'dapnet',echolink:'echolink',meshcom:'meshcom',geoalarm:'geoalarm',config:'config',system:'system'};
+const PAGE_TITLES={stations:'stations',dgna:'dgna',calls:'calls',lastheard:'lastheard',log:'log',sdslog:'sdslog',rf:'rf',health:'health',asterisk:'asterisk',dapnet:'dapnet',echolink:'echolink',meshcom:'meshcom',geoalarm:'geoalarm',setup:'setup',config:'config',system:'system'};
 function showPage(name,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -5018,6 +5174,7 @@ function showPage(name,el){
   if(name==='asterisk'){loadAsteriskStatus();loadSnomNotify();}
   if(name==='dapnet'){loadDapnet();loadDapnetLog();}
   if(name==='geoalarm'){loadGeoalarm();}
+  if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadWhitelist();loadWx();}
   if(name==='telegram'){loadTelegram();}
   if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();}
@@ -7992,14 +8149,20 @@ async function loadSystemInfo(){
     const sdrLabel = document.getElementById('sdr-badge-label');
     if (sdrBadge && sdrLabel) {
       const name = sysData.sdr_name;
+      const rf = sysData.rf_status;
       if (name && name !== 'unknown' && name.length > 0) {
         sdrLabel.textContent = name;
         sdrBadge.style.display = 'flex';
         sdrBadge.title = 'Detected SDR hardware: ' + name;
+      } else if (rf && rf.state && rf.state !== 'online') {
+        sdrLabel.textContent = 'RF ' + rf.state;
+        sdrBadge.style.display = 'flex';
+        sdrBadge.title = rf.detail || rf.state;
       } else {
         sdrBadge.style.display = 'none';
       }
     }
+    updateRfStatusBanner(sysData.rf_status);
 
     // CPU — gauge fill width + threshold state class on the .gauge wrapper.
     const cpuEl=document.getElementById('sysCpu');
@@ -9333,6 +9496,212 @@ async function boot(){
   loadDualCarrier();    // Dual-Carrier ON/OFF toggle state
   wifiProbeAvailable(); // toggles the WiFi nav item
   checkUpdate();
+  maybeShowSetupWizard();
+}
+
+// ── Setup wizard / Setup tab ────────────────────────────────────────────────
+let setupStateCache=null;
+let wizStep=0;
+let setupSelectedDevice='';
+
+function updateRfStatusBanner(rf){
+  const el=document.getElementById('rf-status-banner');
+  if(!el||!rf){return;}
+  const st=rf.state||'';
+  if(st==='online'||st==='starting'){
+    el.classList.remove('show','is-offline');
+    el.textContent='';
+    return;
+  }
+  el.classList.add('show');
+  el.classList.toggle('is-offline', st==='offline');
+  el.textContent = (st==='error'?'RF error: ':'RF offline: ') + (rf.detail||st);
+}
+
+function paintRfPill(el, rf){
+  if(!el||!rf)return;
+  const st=rf.state||'unknown';
+  el.className='setup-rf-pill '+(st||'');
+  el.textContent='RF '+st+(rf.backend?(' · '+rf.backend):'');
+}
+
+function renderDeviceList(targetId, devices, inputId){
+  const box=document.getElementById(targetId);
+  if(!box)return;
+  box.innerHTML='';
+  if(!devices||!devices.length){
+    box.innerHTML='<div class="help-text">No SDR devices reported by SoapySDRUtil --find.</div>';
+    return;
+  }
+  devices.forEach((d,i)=>{
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='setup-device'+(setupSelectedDevice&&d.device===setupSelectedDevice?' selected':'');
+    const label=d.label||d.name||d.driver||('Device '+(i+1));
+    btn.textContent=label+(d.device?(' — '+d.device):'');
+    btn.onclick=()=>{
+      setupSelectedDevice=d.device||('driver='+(d.driver||''));
+      const inp=document.getElementById(inputId);
+      if(inp)inp.value=setupSelectedDevice;
+      renderDeviceList(targetId, devices, inputId);
+    };
+    box.appendChild(btn);
+  });
+}
+
+async function refreshSetupPage(){
+  try{
+    const r=await fetch('/api/setup/status',{credentials:'same-origin'});
+    if(!r.ok)return;
+    const d=await r.json();
+    setupStateCache=d;
+    paintRfPill(document.getElementById('setup-rf-pill'), d.rf_status);
+    paintRfPill(document.getElementById('wiz-rf-pill'), d.rf_status);
+    const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+    set('setup-complete-val', d.setup&&d.setup.setup_complete?(d.setup.skipped?'yes (skipped)':'yes'):'no');
+    set('setup-backend-val', d.config_backend||'—');
+    set('setup-device-val', d.config_device||'—');
+    set('setup-unit-val', d.service_unit||'—');
+    set('setup-helper-val', d.helper_path||'not installed');
+    set('setup-rf-detail', (d.rf_status&&d.rf_status.detail)||'');
+    set('wiz-rf-detail', (d.rf_status&&d.rf_status.detail)||'');
+    renderDeviceList('setup-device-list', d.devices||[], 'wiz-device');
+    renderDeviceList('wiz-device-list', d.devices||[], 'wiz-device');
+    if(d.config_device){
+      const inp=document.getElementById('wiz-device');
+      if(inp && !inp.value) inp.value=d.config_device;
+      setupSelectedDevice=d.config_device;
+    }
+    updateRfStatusBanner(d.rf_status);
+  }catch(e){/* silent */}
+}
+
+async function maybeShowSetupWizard(){
+  try{
+    const r=await fetch('/api/setup/status',{credentials:'same-origin'});
+    if(!r.ok)return;
+    const d=await r.json();
+    setupStateCache=d;
+    if(d.setup && d.setup.setup_complete===false){
+      openSetupWizard(false);
+    }
+  }catch(e){/* silent */}
+}
+
+function openSetupWizard(manual){
+  wizStep=0;
+  const w=document.getElementById('setup-wizard');
+  if(w){w.classList.add('open');}
+  wizShowStep();
+  refreshSetupPage();
+  if(manual){/* keep open even if already complete */}
+}
+function closeSetupWizard(){
+  const w=document.getElementById('setup-wizard');
+  if(w)w.classList.remove('open');
+}
+function wizShowStep(){
+  document.querySelectorAll('.setup-wiz-step').forEach(el=>{
+    el.classList.toggle('active', String(el.getAttribute('data-step'))===String(wizStep));
+  });
+}
+function wizNext(){wizStep=Math.min(4,wizStep+1);wizShowStep();}
+function wizPrev(){wizStep=Math.max(0,wizStep-1);wizShowStep();}
+
+async function setupScanSdr(inWizard){
+  const msg=document.getElementById(inWizard?'wiz-sdr-msg':'setup-page-msg');
+  if(msg)msg.textContent='Scanning…';
+  try{
+    const r=await fetch('/api/setup/scan-sdr',{method:'POST',credentials:'same-origin'});
+    const d=await r.json();
+    renderDeviceList('setup-device-list', d.devices||[], 'wiz-device');
+    renderDeviceList('wiz-device-list', d.devices||[], 'wiz-device');
+    if(msg)msg.textContent=d.ok?((d.devices||[]).length+' device(s)'):(d.error||'scan failed');
+  }catch(e){if(msg)msg.textContent='scan failed';}
+}
+
+async function setupInstallDriver(driver,inWizard){
+  const msg=document.getElementById(inWizard?'wiz-sdr-msg':'setup-page-msg');
+  if(msg)msg.textContent='Installing '+driver+'…';
+  try{
+    const r=await fetch('/api/setup/install-driver',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({driver})
+    });
+    const d=await r.json();
+    if(msg)msg.textContent=d.ok?(d.output||'ok'):(d.error||'failed');
+    if(d.ok){
+      if(driver==='sx'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=sx';setupSelectedDevice='driver=sx';}
+      if(driver==='lime'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=lime';setupSelectedDevice='driver=lime';}
+      setupScanSdr(inWizard);
+    }
+  }catch(e){if(msg)msg.textContent='install failed';}
+}
+
+async function setupEnableRfAndRestart(){
+  const device=(document.getElementById('wiz-device')&&document.getElementById('wiz-device').value)||setupSelectedDevice||'';
+  const msg=document.getElementById('setup-page-msg');
+  if(msg)msg.textContent='Applying…';
+  try{
+    const r=await fetch('/api/setup/apply',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({enable_rf:true,device:device||null,restart:true})
+    });
+    if(msg)msg.textContent=r.ok?'Applied — restarting…':'Apply failed';
+  }catch(e){if(msg)msg.textContent='Apply failed';}
+}
+
+async function wizEnableRf(){
+  const device=(document.getElementById('wiz-device')&&document.getElementById('wiz-device').value)||setupSelectedDevice||'';
+  const msg=document.getElementById('wiz-enable-msg');
+  if(msg)msg.textContent='Enabling RF…';
+  try{
+    const r=await fetch('/api/setup/apply',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({enable_rf:true,device:device||null,restart:true})
+    });
+    if(msg)msg.textContent=r.ok?'Saved — service restarting. Reconnect shortly.':'Failed to enable RF';
+    if(r.ok) wizNext();
+  }catch(e){if(msg)msg.textContent='Failed to enable RF';}
+}
+
+async function setupEnsureAutostart(inWizard){
+  const msg=document.getElementById(inWizard?'wiz-systemd-msg':'setup-page-msg');
+  if(msg)msg.textContent='Enabling service…';
+  try{
+    const r=await fetch('/api/setup/systemd',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'enable'})
+    });
+    const d=await r.json();
+    if(msg)msg.textContent=d.ok?(d.output||'enabled'):(d.error||'failed');
+  }catch(e){if(msg)msg.textContent='failed';}
+}
+
+async function setupMarkComplete(skipped){
+  try{
+    await fetch('/api/setup/complete',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({skip:!!skipped})
+    });
+    refreshSetupPage();
+  }catch(e){/* silent */}
+}
+
+async function setupSkipDefaults(){
+  await setupMarkComplete(true);
+  closeSetupWizard();
+}
+
+async function wizFinish(skipped){
+  await setupMarkComplete(!!skipped);
+  closeSetupWizard();
+  showPage('setup');
 }
 function enterPublicMode(){
   // Anonymous read-only mode: hide every admin nav item + logout, reveal Login, show only the
