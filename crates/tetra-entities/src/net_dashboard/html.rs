@@ -9629,14 +9629,23 @@ async function setupInstallDriver(driver,inWizard){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({driver})
     });
-    const d=await r.json();
-    if(msg)msg.textContent=d.ok?(d.output||'ok'):(d.error||'failed');
+    if(r.status===401){ if(msg)msg.textContent='Session expired — log in again, then retry.'; return; }
+    const text=await r.text();
+    let d={}; try{d=JSON.parse(text);}catch{d={ok:false,error:text||('HTTP '+r.status)};}
     if(d.ok){
+      const out=String(d.output||'ok');
+      // Keep UI short — full apt/cmake logs are huge and look like errors.
+      const short = out.includes('already installed') ? 'SXceiver already installed (OK).'
+        : (out.includes('OK: driver=') ? out.split('\n').filter(l=>l.startsWith('OK:')||l.includes('already')).slice(-1)[0] || 'Driver installed (OK).'
+        : 'Driver installed (OK).');
+      if(msg)msg.textContent=short;
       if(driver==='sx'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=sx';setupSelectedDevice='driver=sx';}
       if(driver==='lime'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=lime';setupSelectedDevice='driver=lime';}
       setupScanSdr(inWizard);
+    }else{
+      if(msg)msg.textContent=d.error||('install failed (HTTP '+r.status+')');
     }
-  }catch(e){if(msg)msg.textContent='install failed';}
+  }catch(e){if(msg)msg.textContent='install failed: '+(e&&e.message?e.message:e);}
 }
 
 async function setupEnableRfAndRestart(){

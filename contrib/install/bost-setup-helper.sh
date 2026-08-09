@@ -55,8 +55,30 @@ install_driver_lime() {
   SoapySDRUtil --info 2>/dev/null | head -n 20 || true
 }
 
+sx_module_present() {
+  # Module on disk or factory advertised by SoapySDRUtil --info.
+  local mod
+  for mod in \
+    /usr/local/lib/SoapySDR/modules0.8/libSXSupport.so \
+    /usr/lib/aarch64-linux-gnu/SoapySDR/modules0.8/libSXSupport.so \
+    /usr/lib/SoapySDR/modules0.8/libSXSupport.so; do
+    [[ -f "$mod" ]] && return 0
+  done
+  SoapySDRUtil --info 2>/dev/null | grep -qE 'factories.*\bsx\b|Module found:.*libSXSupport' && return 0
+  return 1
+}
+
 install_driver_sx() {
   # Official flow from https://sxceiver.com/doc/getting-started and tejeez/sxxcvr.
+  # If the module is already installed, succeed quickly — do NOT --probe while
+  # bluestation-bs holds the GPIO (that looks like a failure in the wizard).
+  if sx_module_present; then
+    log "SXceiver Soapy module already installed"
+    SoapySDRUtil --find 2>/dev/null | head -n 20 || true
+    echo "OK: driver=sx ready (skip rebuild; device may be busy if RF is online)"
+    return 0
+  fi
+
   local candidates=(
     "$SOAPY_SX_DIR"
     /home/bts/sxxcvr
@@ -104,12 +126,12 @@ install_driver_sx() {
   cmake --install "$src/build"
   ldconfig || true
 
+  sx_module_present || die "SoapySX built but libSXSupport.so / factory sx not found"
+
   log "SXceiver driver install finished"
-  SoapySDRUtil --info 2>/dev/null | head -n 30 || true
-  echo "---"
+  # --find is enough for the wizard; --probe fails if bluestation-bs already owns GPIO.
   SoapySDRUtil --find 2>/dev/null | head -n 40 || true
-  echo "---"
-  SoapySDRUtil --probe="driver=sx" 2>&1 | head -n 40 || true
+  echo "OK: driver=sx installed"
 }
 
 enable_service() {
