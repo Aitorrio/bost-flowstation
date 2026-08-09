@@ -21,7 +21,10 @@ pub const UPSTREAM_NAME: &str = "FlowStation";
 /// Upstream FlowStation version this Bost release tracks (workspace package version).
 pub const UPSTREAM_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Compact version shown in UI badges, e.g. "v0.1.0-2aad62c8".
+/// Numeric product version shown in the UI (no git hash), e.g. "v0.1.1".
+pub const PRODUCT_VERSION: &str = const_format::formatcp!("v{}", BOST_VERSION);
+
+/// Full build identity for OTA / diagnostics, e.g. "v0.1.1-2aad62c8".
 pub const STACK_VERSION: &str = const_format::formatcp!("v{}-{}", BOST_VERSION, GIT_HASH);
 
 /// Provenance line, e.g. "based on FlowStation v0.4.0".

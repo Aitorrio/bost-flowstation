@@ -2233,7 +2233,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="logo-icon">BF</div>
       <div class="logo-text">
         <div class="logo-name">{{PRODUCT_NAME}}</div>
-        <div class="logo-sub">{{STACK_VERSION}}</div>
+        <div class="logo-sub">{{PRODUCT_VERSION}}</div>
         <div class="logo-sub" style="opacity:0.75;font-size:10px;margin-top:2px">{{VERSION_BASED_ON}}</div>
       </div>
     </div>
@@ -9923,7 +9923,7 @@ body{
   background:linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%);
 }
 
-.logo-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:26px;}
+.logo-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;margin-bottom:26px;text-align:center;width:100%;}
 /* Tower / antenna mark — SVG inlined so there's no extra request */
 .logo-mark{
   width:64px;height:64px;
@@ -9935,24 +9935,29 @@ body{
 }
 .logo-mark svg{width:36px;height:36px;}
 
+.logo-brand{width:100%;text-align:center;}
 .logo-title{
   font-family:var(--mono);font-size:13px;font-weight:700;
   letter-spacing:0.18em;text-transform:uppercase;
   color:var(--text);
-  display:flex;align-items:center;gap:8px;
+  width:100%;text-align:center;
+  /* letter-spacing adds trailing space — cancel so the block looks optically centered */
+  padding-left:0.18em;
 }
 .logo-title .accent{color:var(--accent);}
 .logo-sub{
   font-family:var(--mono);font-size:10px;font-weight:500;
   letter-spacing:0.1em;text-transform:uppercase;
   color:var(--text3);
+  width:100%;text-align:center;
+  padding-left:0.1em;
 }
 
-form{display:flex;flex-direction:column;gap:14px;}
+form{display:flex;flex-direction:column;gap:14px;text-align:center;width:100%;}
 .field-label{
   display:block;font-family:var(--mono);font-size:10px;font-weight:600;
   letter-spacing:0.1em;text-transform:uppercase;color:var(--text3);
-  margin-bottom:6px;
+  margin-bottom:6px;text-align:center;width:100%;
 }
 input[type="text"],input[type="password"]{
   width:100%;
@@ -9962,6 +9967,7 @@ input[type="text"],input[type="password"]{
   font-family:var(--mono);font-size:14px;
   outline:none;transition:border-color 0.15s, background 0.15s;
   -webkit-appearance:none;appearance:none;
+  text-align:center;
 }
 input:focus{border-color:var(--accent2);background:var(--bg4);}
 /* iOS Safari respects the 16px rule to skip the auto-zoom; we set 14px on desktop
@@ -10029,9 +10035,9 @@ input:focus{border-color:var(--accent2);background:var(--bg4);}
         <path d="M21 6 Q25 9 25 14" style="color:var(--accent2)" opacity="0.4"/>
       </svg>
     </div>
-    <div style="text-align:center">
-      <div class="logo-title"><span>Bost</span> <span class="accent">FlowStation</span></div>
-      <div class="logo-sub">TETRA Base Station · {{STACK_VERSION}}</div>
+    <div class="logo-brand">
+      <div class="logo-title">Bost <span class="accent">FlowStation</span></div>
+      <div class="logo-sub">TETRA Base Station · {{PRODUCT_VERSION}}</div>
       <div class="logo-sub" style="margin-top:4px;opacity:0.85">{{VERSION_BASED_ON}}</div>
     </div>
   </div>

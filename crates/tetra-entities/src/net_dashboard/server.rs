@@ -154,7 +154,8 @@ fn dashboard_html_body() -> &'static str {
         normalize_mojibake_html(
             &DASHBOARD_HTML
                 .replace("{{PRODUCT_NAME}}", tetra_core::PRODUCT_NAME)
-                .replace("{{STACK_VERSION}}", tetra_core::STACK_VERSION)
+                .replace("{{PRODUCT_VERSION}}", tetra_core::PRODUCT_VERSION)
+                .replace("{{STACK_VERSION}}", tetra_core::PRODUCT_VERSION)
                 .replace("{{VERSION_BASED_ON}}", tetra_core::VERSION_BASED_ON)
                 .replace("{{PRODUCT_REPO_URL}}", tetra_core::PRODUCT_REPO_URL)
                 .replace("{{PRODUCT_REPO_LABEL}}", tetra_core::PRODUCT_REPO_LABEL),
@@ -168,7 +169,8 @@ fn login_html_body() -> &'static str {
         normalize_mojibake_html(
             &crate::net_dashboard::html::LOGIN_HTML
                 .replace("{{PRODUCT_NAME}}", tetra_core::PRODUCT_NAME)
-                .replace("{{STACK_VERSION}}", tetra_core::STACK_VERSION)
+                .replace("{{PRODUCT_VERSION}}", tetra_core::PRODUCT_VERSION)
+                .replace("{{STACK_VERSION}}", tetra_core::PRODUCT_VERSION)
                 .replace("{{VERSION_BASED_ON}}", tetra_core::VERSION_BASED_ON)
                 .replace("{{PRODUCT_REPO_URL}}", tetra_core::PRODUCT_REPO_URL)
                 .replace("{{PRODUCT_REPO_LABEL}}", tetra_core::PRODUCT_REPO_LABEL),
