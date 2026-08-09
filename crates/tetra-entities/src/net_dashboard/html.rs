@@ -9670,16 +9670,32 @@ async function wizEnableRf(){
 
 async function setupEnsureAutostart(inWizard){
   const msg=document.getElementById(inWizard?'wiz-systemd-msg':'setup-page-msg');
-  if(msg)msg.textContent='Enabling service…';
+  if(msg)msg.textContent='Checking / enabling service…';
   try{
+    // After "Enable RF & Restart" the session may drop briefly — surface that clearly.
+    const st=await fetch('/api/setup/systemd',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'status'})
+    });
+    if(st.status===401){ if(msg)msg.textContent='Session expired — log in again, then retry.'; return; }
+    if(st.ok){
+      const s=await st.json();
+      if(s && s.enabled==='enabled'){
+        if(msg)msg.textContent='Autostart OK — '+s.unit+' is enabled (active='+s.active+').';
+        return;
+      }
+    }
     const r=await fetch('/api/setup/systemd',{
       method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'enable'})
     });
-    const d=await r.json();
-    if(msg)msg.textContent=d.ok?(d.output||'enabled'):(d.error||'failed');
-  }catch(e){if(msg)msg.textContent='failed';}
+    if(r.status===401){ if(msg)msg.textContent='Session expired — log in again, then retry.'; return; }
+    const text=await r.text();
+    let d={}; try{d=JSON.parse(text);}catch{d={ok:false,error:text||('HTTP '+r.status)};}
+    if(msg)msg.textContent=d.ok?(d.output||'enabled'):(d.error||('failed (HTTP '+r.status+')'));
+  }catch(e){if(msg)msg.textContent='failed: '+(e&&e.message?e.message:e);}
 }
 
 async function setupMarkComplete(skipped){

@@ -113,10 +113,18 @@ install_driver_sx() {
 }
 
 enable_service() {
-  systemctl enable --now "$SERVICE_UNIT"
-  systemctl is-enabled "$SERVICE_UNIT"
-  systemctl is-active "$SERVICE_UNIT" || true
-  log "enabled $SERVICE_UNIT"
+  # Idempotent: never restart a live station just to flip the enable bit.
+  # (`enable --now` can disrupt an already-running unit mid-wizard.)
+  systemctl enable "$SERVICE_UNIT"
+  local enabled active
+  enabled="$(systemctl is-enabled "$SERVICE_UNIT" 2>/dev/null || true)"
+  active="$(systemctl is-active "$SERVICE_UNIT" 2>/dev/null || true)"
+  echo "enabled=${enabled}"
+  echo "active=${active}"
+  if [[ "$enabled" != "enabled" ]]; then
+    die "unit $SERVICE_UNIT is not enabled (got: ${enabled:-unknown})"
+  fi
+  log "autostart OK for $SERVICE_UNIT (enabled=${enabled}, active=${active})"
 }
 
 restart_service() {

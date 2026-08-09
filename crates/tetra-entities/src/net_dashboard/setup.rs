@@ -184,14 +184,29 @@ fn run_helper(args: &[&str]) -> Result<String, String> {
         "bost-setup-helper.sh not installed (re-run contrib/install/install-bost.sh)".to_string()
     })?;
 
-    // Prefer passwordless sudo (sudoers drop-in); fall back to direct exec if already root.
-    let output = match Command::new("sudo")
-        .arg("-n")
-        .arg(&helper)
-        .args(args)
-        .output()
-    {
-        Ok(o) => o,
+    // Prefer passwordless sudo (sudoers drop-in). If sudo fails (e.g. service runs as
+    // root but sudoers only lists the build user), fall back to direct exec.
+    let sudo_out = Command::new("sudo").arg("-n").arg(&helper).args(args).output();
+    let output = match sudo_out {
+        Ok(o) if o.status.success() => o,
+        Ok(o) => {
+            let sudo_err = format!(
+                "sudo: {}",
+                String::from_utf8_lossy(&o.stderr).trim()
+            );
+            match Command::new(&helper).args(args).output() {
+                Ok(direct) if direct.status.success() => direct,
+                Ok(direct) => {
+                    let direct_err = String::from_utf8_lossy(&direct.stderr).trim().to_string();
+                    return Err(if !direct_err.is_empty() {
+                        format!("{sudo_err}; direct: {direct_err}")
+                    } else {
+                        sudo_err
+                    });
+                }
+                Err(e) => return Err(format!("{sudo_err}; direct exec failed: {e}")),
+            }
+        }
         Err(_) => Command::new(&helper)
             .args(args)
             .output()
@@ -222,10 +237,45 @@ pub fn install_driver(driver: &str) -> Result<String, String> {
     }
 }
 
+fn systemd_unit_state() -> (String, String, String) {
+    let unit = crate::service_control::resolve_service_unit();
+    let enabled = Command::new("systemctl")
+        .args(["is-enabled", &unit])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let active = Command::new("systemctl")
+        .args(["is-active", &unit])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".into());
+    (unit, enabled, active)
+}
+
 pub fn systemd_action(action: &str) -> Result<String, String> {
     let action = action.trim().to_ascii_lowercase();
     match action.as_str() {
-        "enable" | "enable-service" => run_helper(&["enable-service"]),
+        "enable" | "enable-service" => {
+            let (unit, enabled, active) = systemd_unit_state();
+            if enabled == "enabled" {
+                return Ok(format!(
+                    "already enabled ({unit}; active={active})"
+                ));
+            }
+            // Try direct systemctl first (service usually runs as root).
+            let direct = Command::new("systemctl").args(["enable", &unit]).output();
+            if let Ok(out) = direct {
+                if out.status.success() {
+                    let (_, enabled2, active2) = systemd_unit_state();
+                    return Ok(format!(
+                        "enabled {unit} (enabled={enabled2}, active={active2})"
+                    ));
+                }
+            }
+            run_helper(&["enable-service"])
+        }
         "restart" | "restart-service" => {
             // Prefer in-process lifecycle restart (same as dashboard Restart button).
             crate::service_control::schedule_service_action(
@@ -235,20 +285,7 @@ pub fn systemd_action(action: &str) -> Result<String, String> {
             Ok("restart scheduled".into())
         }
         "status" => {
-            let unit = crate::service_control::resolve_service_unit();
-            let out = Command::new("systemctl")
-                .args(["is-enabled", &unit])
-                .output();
-            let enabled = out
-                .ok()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .unwrap_or_else(|| "unknown".into());
-            let active = Command::new("systemctl")
-                .args(["is-active", &unit])
-                .output()
-                .ok()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .unwrap_or_else(|| "unknown".into());
+            let (unit, enabled, active) = systemd_unit_state();
             Ok(serde_json::json!({
                 "unit": unit,
                 "enabled": enabled,
