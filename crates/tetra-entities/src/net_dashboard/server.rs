@@ -606,39 +606,150 @@ fn stream_cmd(update: &SharedUpdateState, mut cmd: std::process::Command, label:
 
 /// Locate the `cargo` binary. Under a systemd service the process PATH usually omits `~/.cargo/bin`
 /// (where rustup installs cargo), so `Command::new("cargo")` fails with ENOENT even though an
-/// interactive SSH shell finds it (FH-BUG-037). We resolve an absolute path from $CARGO, the user's
-/// home, and well-known install locations, falling back to a bare PATH lookup.
-fn find_cargo() -> std::path::PathBuf {
+/// interactive SSH shell finds it (FH-BUG-037).
+///
+/// Resolution order:
+///   1. `$CARGO` (explicit)
+///   2. `$HOME/.cargo/bin/cargo`
+///   3. Home of `$BOST_SERVICE_USER` / `$FLOWSTATION_SERVICE_USER` (installer default: `bts`)
+///   4. Home of the OTA source-tree owner (install chowns `/opt/bost-flowstation` to `bts`)
+///   5. Well-known system / root paths
+///   6. Bare `cargo` on PATH
+///
+/// We do **not** scan every `/home/*` directory — only the configured service user and the
+/// already-trusted source tree owner.
+fn find_cargo(src_dir: &std::path::Path) -> std::path::PathBuf {
     use std::path::{Path, PathBuf};
+
+    fn is_cargo(p: &Path) -> bool {
+        p.is_file()
+    }
+
     if let Ok(c) = std::env::var("CARGO") {
         let p = PathBuf::from(c);
-        if p.is_file() {
+        if is_cargo(&p) {
             return p;
         }
     }
     if let Ok(home) = std::env::var("HOME") {
         let p = Path::new(&home).join(".cargo/bin/cargo");
-        if p.is_file() {
+        if is_cargo(&p) {
             return p;
         }
     }
-    // Root/system-owned locations only — safe to run as a possibly-privileged service identity.
+
+    for key in ["BOST_SERVICE_USER", "FLOWSTATION_SERVICE_USER"] {
+        if let Ok(user) = std::env::var(key) {
+            let user = user.trim();
+            if !user.is_empty() {
+                let p = PathBuf::from(format!("/home/{user}/.cargo/bin/cargo"));
+                if is_cargo(&p) {
+                    return p;
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::ffi::CStr;
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata(src_dir) {
+            let uid = meta.uid();
+            // SAFETY: getpwuid returns a pointer into a static buffer; we copy out immediately.
+            let home = unsafe {
+                let pw = libc::getpwuid(uid);
+                if pw.is_null() || (*pw).pw_dir.is_null() {
+                    None
+                } else {
+                    CStr::from_ptr((*pw).pw_dir).to_str().ok().map(|s| s.to_string())
+                }
+            };
+            if let Some(home) = home {
+                let p = Path::new(&home).join(".cargo/bin/cargo");
+                if is_cargo(&p) {
+                    return p;
+                }
+            }
+        }
+    }
+
+    // Default Bost install user + root/system locations.
     for cand in [
+        "/home/bts/.cargo/bin/cargo",
         "/usr/local/cargo/bin/cargo",
         "/root/.cargo/bin/cargo",
         "/usr/local/bin/cargo",
         "/usr/bin/cargo",
     ] {
         let p = PathBuf::from(cand);
-        if p.is_file() {
+        if is_cargo(&p) {
             return p;
         }
     }
-    // Fall back to a bare PATH lookup. We deliberately do NOT scan other users' home directories:
-    // running the first `~/.cargo/bin/cargo` found under /home as the service identity would let any
-    // local user plant a binary we'd execute. If the service has no cargo on PATH, the operator can
-    // point us at one via the $CARGO environment variable.
+
     PathBuf::from("cargo")
+}
+
+/// Install the freshly built release binary over the running ExecStart path (typically
+/// `/usr/local/bin/bluestation-bs`). Without this, `cargo build` updates `target/release/` but the
+/// systemd unit keeps running the old installed copy after restart.
+fn install_built_binary(src_dir: &std::path::Path, update: &SharedUpdateState) -> bool {
+    let built = src_dir.join("target/release/bluestation-bs");
+    if !built.is_file() {
+        update.lock().unwrap().append(&format!(
+            "ERROR: built binary not found at {}",
+            built.display()
+        ));
+        update.lock().unwrap().finish(false);
+        return false;
+    }
+
+    let dest = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            update.lock().unwrap().append(&format!("ERROR: cannot resolve running binary path: {e}"));
+            update.lock().unwrap().finish(false);
+            return false;
+        }
+    };
+
+    // Prefer the well-known install path when the running exe is already that path, or when
+    // current_exe points inside target/ (dev runs). Always refresh /usr/local/bin when present.
+    let install_path = std::path::PathBuf::from("/usr/local/bin/bluestation-bs");
+    let targets: Vec<std::path::PathBuf> = if dest == install_path {
+        vec![dest]
+    } else if install_path.exists() {
+        vec![install_path, dest]
+    } else {
+        vec![dest]
+    };
+
+    for dest in targets {
+        let tmp = dest.with_extension("ota-new");
+        update.lock().unwrap().append(&format!(
+            "Installing {} → {}",
+            built.display(),
+            dest.display()
+        ));
+        if let Err(e) = std::fs::copy(&built, &tmp) {
+            update.lock().unwrap().append(&format!("ERROR: copy to {} failed: {e}", tmp.display()));
+            update.lock().unwrap().finish(false);
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755));
+        }
+        if let Err(e) = std::fs::rename(&tmp, &dest) {
+            let _ = std::fs::remove_file(&tmp);
+            update.lock().unwrap().append(&format!("ERROR: install to {} failed: {e}", dest.display()));
+            update.lock().unwrap().finish(false);
+            return false;
+        }
+    }
+    true
 }
 
 /// Whether the running binary was built from the repository's current commit. `binary_git_hash` is
@@ -907,14 +1018,23 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // resolve it explicitly and put its directory on PATH for the rustc/rustup shims (FH-BUG-037).
     // Output is streamed live so a long compile shows progress instead of looking hung (FH-BUG-035).
     log!(update, "--- cargo build --release ---");
-    let cargo = find_cargo();
+    let cargo = find_cargo(&src_dir);
+    if cargo == std::path::Path::new("cargo") {
+        log!(
+            update,
+            "ERROR: cargo not found. Install rustup for the service user, or set Environment=CARGO=/home/<user>/.cargo/bin/cargo on the systemd unit."
+        );
+        update.lock().unwrap().finish(false);
+        return;
+    }
     log!(update, "Using cargo: {}", cargo.display());
     let mut build = std::process::Command::new(&cargo);
-    build.args(["build", "--release"]).current_dir(&src_dir);
+    build.args(["build", "--release", "-p", "bluestation-bs"]).current_dir(&src_dir);
     // Put cargo's own directory on PATH so the rustc/rustup shims resolve under the service's minimal
     // PATH. Only for an ABSOLUTE cargo: a bare "cargo" has an empty parent, and prepending "" (or
     // appending to an empty PATH) injects an empty entry that Unix treats as the current directory —
     // which would let a planted `rustc`/`cc` in the source tree run during the build.
+    // cargo path shape: <home>/.cargo/bin/cargo
     if cargo.is_absolute() {
         if let Some(bin) = cargo.parent().filter(|p| !p.as_os_str().is_empty()) {
             let new_path = match std::env::var("PATH") {
@@ -922,13 +1042,28 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
                 _ => bin.display().to_string(),
             };
             build.env("PATH", new_path);
+            if let Some(cargo_home) = bin.parent() {
+                build.env("CARGO_HOME", cargo_home);
+                if let Some(home) = cargo_home.parent() {
+                    let rustup = home.join(".rustup");
+                    if rustup.is_dir() {
+                        build.env("RUSTUP_HOME", rustup);
+                    }
+                }
+            }
         }
     }
-    if stream_cmd(&update, build, "$ cargo build --release".to_string()).is_none() {
+    if stream_cmd(&update, build, "$ cargo build --release -p bluestation-bs".to_string()).is_none() {
         return;
     }
 
-    // Step 8: done — schedule restart.
+    // Step 8: install the new binary where systemd actually runs it.
+    log!(update, "--- Installing release binary ---");
+    if !install_built_binary(&src_dir, &update) {
+        return;
+    }
+
+    // Step 9: done — schedule restart.
     log!(update, "--- Build successful. Restarting service in 2s... ---");
     update.lock().unwrap().finish(true);
 

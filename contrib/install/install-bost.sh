@@ -239,6 +239,13 @@ visudo -cf "$SUDOERS_DST" >/dev/null || die "invalid sudoers drop-in"
 
 # systemd unit
 UNIT_DST="/etc/systemd/system/${UNIT_NAME}"
+SERVICE_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"
+SERVICE_HOME="${SERVICE_HOME:-/home/${SERVICE_USER}}"
+CARGO_BIN="${SERVICE_HOME}/.cargo/bin/cargo"
+CARGO_ENV_LINE=""
+if [[ -x "$CARGO_BIN" ]]; then
+  CARGO_ENV_LINE="Environment=CARGO=${CARGO_BIN}"
+fi
 cat >"$UNIT_DST" <<EOF
 [Unit]
 Description=bost-flowstation TETRA base station (bluestation-bs)
@@ -253,7 +260,9 @@ Type=simple
 User=root
 Environment=BOST_SETUP_HELPER=${HELPER_DST}
 Environment=BOST_SERVICE_UNIT=${UNIT_NAME}
+Environment=BOST_SERVICE_USER=${SERVICE_USER}
 Environment=BOST_SRC=${SRC_ROOT}
+${CARGO_ENV_LINE}
 ExecStart=${BIN_PATH} ${CFG_PATH}
 # Real-time scheduling helps the PHY loop when RF is enabled.
 CPUSchedulingPolicy=fifo
