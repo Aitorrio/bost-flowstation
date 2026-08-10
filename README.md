@@ -521,7 +521,9 @@ telegram_prefix = "GeoAlarm"
 
 ## Web Dashboard
 
-Available at `http://<bts-ip>:8080` when `[dashboard]` is configured.
+Available at `http://<bts-ip>:8080` from the first boot.
+
+**Setup Wizard** — Initial Setup Wizard that helps you install your SDR hardware drivers from the GUI, configure the initial RF, network and Brew connection parameters, and ensure that the service will always start when the Raspberry Pi boots up.
 
 **Radios** — live table of registered terminals: ISSI, groups, RSSI signal bar, energy saving mode, last seen. Kick and SDS buttons per radio. Timeslot visualizer shows TS2–TS4 state in real time (idle / call allocated / voice active with animated waveform).
 
@@ -531,7 +533,7 @@ Available at `http://<bts-ip>:8080` when `[dashboard]` is configured.
 
 **Log** — live log stream with level filter and autoscroll.
 
-**Config** — edit `config.toml` in-browser. Save, backup, restore. Edit inactive config profiles in a modal without switching them live.
+**Config** — A visual editor that eliminates the need to manually edit "config.toml" and allows you to save network and RF profiles, as well as Brew connection settings. This enables you to quickly switch between different networks and RF parameters directly from the GUI.
 
 **System** — BTS and Brew connection status · uptime · hostname · CPU model, cores, load bar · RAM usage · CPU temperature · RF hardware info (SoapySDR probe) · SDS broadcast queue · OTA update button.
 
@@ -559,13 +561,13 @@ Available at `http://<bts-ip>:8080` when `[dashboard]` is configured.
 
 | Branch | Purpose |
 |---|---|
-| `bost` | This fork’s working branch (install script, Setup wizard, visual config) |
+| `bost` | This fork’s working branch (install script, Setup wizard, visual config, profiles...) |
 | `main` | Upstream-aligned / mirror — do not use for bost features |
 | `alpha` | Upstream active development |
 
 ---
 
-## Community & Support
+## Community & Support of FlowStation
 
 - **Website:** [flowstation.dev](https://flowstation.dev)
 - **Installation guide:** [install.flowstation.dev](https://install.flowstation.dev)
