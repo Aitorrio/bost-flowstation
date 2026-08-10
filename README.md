@@ -6,10 +6,6 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
-[![Website](https://img.shields.io/badge/website-flowstation.dev-informational)](https://flowstation.dev)
-[![Telegram](https://img.shields.io/badge/community-Telegram-2CA5E0?logo=telegram)](https://t.me/+fktnT-th7dcxYWNk)
-
-**[Website](https://flowstation.dev) · [Install Guide](https://install.flowstation.dev) · [Bug Tracker](https://hub.flowstation.dev) · [Live Stats](https://stats.flowstation.dev) · [Telegram](https://t.me/+fktnT-th7dcxYWNk)**
 
 </div>
 
@@ -17,11 +13,11 @@
 
 ## What is Bost FlowStation?
 
-**Bost FlowStation** is this fork of FlowStation: a fully functional **TETRA base station in software**, with first-run Setup wizard, degraded boot without SDR, and one-command Pi install. Plug in an SXceiver or LimeSDR, point it at your TETRA radios, and you have a working private TETRA cell — group calls, individual calls, SDS messaging, Brew/BrandMeister interconnect, and a live web dashboard.
+**Bost FlowStation** is this fork of FlowStation: a fully functional **TETRA base station in software**. This fork comes with one-command Pi install, first-run Setup wizard, degraded boot without SDR, visual config of Cell and Brew parameters, and profiles to switch quickly between networks. Plug in an SXceiver or LimeSDR, point it at your TETRA radios, and you have a working private TETRA cell — group calls, individual calls, SDS messaging, Brew/BrandMeister interconnect, and a live web dashboard.
 
 Based on [FlowStation](https://github.com/razvanzeces/flowstation) by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)). Improved by **Aitor, EA4HBL**.
 
-**Tested hardware:** LimeSDR Mini 2.0 · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400
+**Tested hardware:** LimeSDR Mini 2.0 · SXCeiver · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400
 
 ---
 
@@ -85,8 +81,6 @@ Based on [FlowStation](https://github.com/razvanzeces/flowstation) by **Razvan Z
 ---
 
 ## Installation
-
-Full step-by-step installation guide (Raspberry Pi + LimeSDR): **[install.flowstation.dev](https://install.flowstation.dev)**
 
 ### Automated install (this fork — `bost` branch)
 
