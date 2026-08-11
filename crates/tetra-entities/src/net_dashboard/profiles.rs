@@ -248,7 +248,11 @@ pub fn put_cell_profile(config_path: &str, name: &str, body: &JsonValue) -> Resu
     if !obj.contains_key("phy_io") && !obj.contains_key("net_info") && !obj.contains_key("cell_info") {
         return Err("cell profile must include phy_io, net_info and/or cell_info".into());
     }
-    save_json_profile(&cell_dir(config_path), &name, body)
+    let mut cleaned = body.clone();
+    if let Some(ci) = cleaned.get_mut("cell_info") {
+        strip_sds_command_control_json(ci);
+    }
+    save_json_profile(&cell_dir(config_path), &name, &cleaned)
 }
 
 pub fn put_brew_profile(config_path: &str, name: &str, body: &JsonValue) -> Result<(), String> {
@@ -373,7 +377,11 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
 
     for key in ["phy_io", "net_info", "cell_info"] {
         if let Some(v) = obj.get(key) {
-            deep_merge_toml(&mut table, key, json_to_toml(v)?);
+            let mut cleaned = v.clone();
+            if key == "cell_info" {
+                strip_sds_command_control_json(&mut cleaned);
+            }
+            deep_merge_toml(&mut table, key, json_to_toml(&cleaned)?);
         }
     }
 
@@ -407,11 +415,23 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
     let cell_obj = cell
         .as_object()
         .ok_or_else(|| "cell profile is not an object".to_string())?;
-    // Deep-merge so advanced cell keys (neighbors, HMD, SDS control, …) that are
-    // not part of the visual form survive when applying a partial Cell profile.
+
+    // Preserve live SDS command control — station-wide, not part of Cell profiles.
+    let preserved_sds_cmd = table
+        .get("cell_info")
+        .and_then(|v| v.as_table())
+        .and_then(|t| t.get("sds_command_control"))
+        .cloned();
+
+    // Deep-merge so advanced cell keys (neighbors, HMD, …) survive a partial Cell profile.
+    // SDS command control is stripped from the profile payload and restored after merge.
     for key in ["phy_io", "net_info", "cell_info"] {
         if let Some(v) = cell_obj.get(key) {
-            deep_merge_toml(&mut table, key, json_to_toml(v)?);
+            let mut cleaned = v.clone();
+            if key == "cell_info" {
+                strip_sds_command_control_json(&mut cleaned);
+            }
+            deep_merge_toml(&mut table, key, json_to_toml(&cleaned)?);
         }
     }
     if let Some(v) = cell_obj.get("stack_mode") {
@@ -428,6 +448,17 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
                 .to_string(),
         ),
     );
+
+    if let Some(sds) = preserved_sds_cmd {
+        let cell_tbl = table
+            .entry("cell_info".to_string())
+            .or_insert_with(|| TomlValue::Table(toml::Table::new()));
+        if let TomlValue::Table(t) = cell_tbl {
+            t.insert("sds_command_control".into(), sds);
+        }
+    } else if let Some(TomlValue::Table(t)) = table.get_mut("cell_info") {
+        t.remove("sds_command_control");
+    }
 
     match brew_name {
         Some(name) => {
@@ -463,10 +494,20 @@ pub fn save_cell_from_visual(config_path: &str, name: &str, visual: &JsonValue) 
     let mut cell = Map::new();
     for key in ["config_version", "stack_mode", "phy_io", "net_info", "cell_info"] {
         if let Some(v) = obj.get(key) {
-            cell.insert(key.to_string(), v.clone());
+            let mut cleaned = v.clone();
+            if key == "cell_info" {
+                strip_sds_command_control_json(&mut cleaned);
+            }
+            cell.insert(key.to_string(), cleaned);
         }
     }
     put_cell_profile(config_path, name, &JsonValue::Object(cell))
+}
+
+fn strip_sds_command_control_json(v: &mut JsonValue) {
+    if let Some(obj) = v.as_object_mut() {
+        obj.remove("sds_command_control");
+    }
 }
 
 /// Capture brew form into a Brew profile.

@@ -3812,6 +3812,51 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <!-- ── REMOTE CONTROL (U-STATUS → ISSI 9999) ──
+           Authorize radios and map status codes to actions (ip/temp/info/restart/…).
+           Station-wide: not stored in Cell/Brew profiles. Applies instantly + TOML. -->
+      <div class="section-label" data-i18n="cfg_sec_remote">Control remoto</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="remote_title">Control remoto (U-STATUS)</div>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="saveSdsCommands()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div style="color:var(--muted);font-size:13px;margin-bottom:12px" data-i18n="remote_help">
+            Radios autorizados envían un U-STATUS al ISSI 9999. Cada código se mapea a una acción
+            (IP, temperatura, info, reinicio…). Los cambios aplican al instante y se guardan en
+            config.toml; no forman parte de los perfiles Cell/Brew.
+          </div>
+          <div class="group-list" style="margin-bottom:16px">
+            <label class="field" style="cursor:pointer">
+              <span class="field-label" data-i18n="remote_enabled">Activar control remoto</span>
+              <span class="field-control"><span class="sw"><input type="checkbox" id="remote-enabled"><i></i></span></span>
+            </label>
+            <div class="field">
+              <span class="field-label" data-i18n="remote_control_issi">ISSI de control</span>
+              <span class="field-control"><input type="text" class="form-input" value="9999" disabled style="width:100px"></span>
+            </div>
+          </div>
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px" data-i18n="remote_issis_title">ISSIs autorizados</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+            <input type="number" id="remote-issi-input" class="form-input" min="1" max="16777215"
+                   placeholder="e.g. 2144485" style="flex:1;min-width:160px"
+                   onkeydown="if(event.key==='Enter'){addRemoteIssi();}">
+            <button class="btn" onclick="addRemoteIssi()"><span class="btn-icon" data-icon="add"></span><span data-i18n="remote_issi_add">Añadir ISSI</span></button>
+          </div>
+          <div id="remote-issi-chips" style="display:flex;gap:8px;flex-wrap:wrap;min-height:32px;margin-bottom:18px"></div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+            <div style="font-size:12px;font-weight:600" data-i18n="remote_cmds_title">Comandos (código → acción)</div>
+            <button class="btn" onclick="addRemoteCommand()"><span class="btn-icon" data-icon="add"></span><span data-i18n="remote_cmd_add">Añadir comando</span></button>
+          </div>
+          <div id="remote-cmd-rows" style="display:flex;flex-direction:column;gap:8px"></div>
+          <div class="config-msg" id="remote-msg"></div>
+        </div>
+      </div>
+
       <!-- ── WX / METAR SERVICE ──
            Built-in weather responder. On-demand: a radio SDSes "METAR <ICAO>" to the
            service ISSI and gets a decoded reply. Periodic: auto-sends a station's METAR
@@ -4602,9 +4647,13 @@ const LANGS={
     no_terminals:'No radios registered',no_calls:'No active calls',
     live_log:'Live Log',autoscroll:'Auto-scroll',filter_all:'All',
     clear:'Clear',export:'Export',restart:'Restart',shutdown:'Shutdown',save:'Save',
-    cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_wx:'WX / METAR',whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
+    cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_remote:'Remote control',cfg_sec_wx:'WX / METAR',whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
     whitelist_help:'When the list is empty, any radio may register (open network). When non-empty, only the listed ISSIs are accepted; all others are rejected. Changes apply instantly and persist across restarts.',
     whitelist_enforced:'ENFORCED',whitelist_open:'OPEN',whitelist_invalid:'Enter a valid ISSI (1–16777215).',
+    remote_title:'Remote control (U-STATUS)',remote_help:'Authorized radios send a U-STATUS to ISSI 9999. Each status code maps to an action (IP, temperature, info, restart…). Changes apply instantly and persist in config.toml; they are not part of Cell/Brew profiles.',
+    remote_enabled:'Enable remote control',remote_control_issi:'Control ISSI',remote_issis_title:'Authorized ISSIs',remote_issi_add:'Add ISSI',
+    remote_cmds_title:'Commands (code → action)',remote_cmd_add:'Add command',remote_status_code:'Status code',remote_action:'Action',remote_cmd_del:'Remove',
+    remote_empty_issi:'Add at least one authorized ISSI when enabled.',remote_invalid_code:'Enter a status code (0–65535).',
     wx_title:'WX / METAR Service',wx_help:'Built-in weather service. Radios send an SDS like "METAR LROP" to the service ISSI to get a decoded report. Optionally auto-send a fixed station\'s METAR to an ISSI or talkgroup at a set interval. Data from aviationweather.gov.',
     wx_enabled:'Enable on-demand METAR responder',wx_service_issi:'Service ISSI',wx_periodic_enabled:'Enable periodic auto-broadcast',
     wx_periodic_icao:'Station ICAO',wx_periodic_dest:'Destination',wx_periodic_isgroup:'Destination is group',wx_periodic_isgroup_hint:'(GSSI instead of individual ISSI)',
@@ -4966,9 +5015,13 @@ const LANGS={
     no_terminals:'No hay radios registrados',no_calls:'No hay llamadas activas',
     live_log:'Log en Vivo',autoscroll:'Auto-desplaz.',filter_all:'Todos',
     clear:'Limpiar',export:'Exportar',restart:'Reiniciar',shutdown:'Apagar',save:'Guardar',
-    cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_wx:'WX / METAR',whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
+    cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_remote:'Control remoto',cfg_sec_wx:'WX / METAR',whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
     whitelist_help:'Cuando la lista está vacía, cualquier radio puede registrarse (red abierta). Con entradas, solo se aceptan los ISSI listados; el resto se rechazan. Los cambios se aplican al instante y persisten tras reiniciar.',
     whitelist_enforced:'ACTIVA',whitelist_open:'ABIERTA',whitelist_invalid:'Introduce un ISSI válido (1–16777215).',
+    remote_title:'Control remoto (U-STATUS)',remote_help:'Radios autorizados envían un U-STATUS al ISSI 9999. Cada código se mapea a una acción (IP, temperatura, info, reinicio…). Los cambios aplican al instante y se guardan en config.toml; no forman parte de los perfiles Cell/Brew.',
+    remote_enabled:'Activar control remoto',remote_control_issi:'ISSI de control',remote_issis_title:'ISSIs autorizados',remote_issi_add:'Añadir ISSI',
+    remote_cmds_title:'Comandos (código → acción)',remote_cmd_add:'Añadir comando',remote_status_code:'Código de estado',remote_action:'Acción',remote_cmd_del:'Quitar',
+    remote_empty_issi:'Añade al menos un ISSI autorizado si está activado.',remote_invalid_code:'Introduce un código de estado (0–65535).',
     wx_title:'Servicio WX / METAR',wx_help:'Servicio meteorológico integrado. Las radios envían un SDS como "METAR LROP" al ISSI del servicio y reciben un informe decodificado. Opcionalmente envía automáticamente el METAR de una estación fija a un ISSI o grupo a intervalos. Datos de aviationweather.gov.',
     wx_enabled:'Activar respuesta METAR a petición',wx_service_issi:'ISSI del servicio',wx_periodic_enabled:'Activar envío periódico',
     wx_periodic_icao:'ICAO de estación',wx_periodic_dest:'Destino',wx_periodic_isgroup:'El destino es grupo',wx_periodic_isgroup_hint:'(GSSI en vez de ISSI individual)',
@@ -5295,7 +5348,7 @@ function showPage(name,el){
   if(name==='dapnet'){loadDapnet();loadDapnetLog();}
   if(name==='geoalarm'){loadGeoalarm();}
   if(name==='setup'){refreshSetupPage();}
-  if(name==='config'){loadConfig();loadVisualConfig();loadWhitelist();loadWx();}
+  if(name==='config'){loadConfig();loadVisualConfig();loadWhitelist();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
   if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();}
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
@@ -7464,6 +7517,89 @@ async function saveWhitelist(){
   }catch{setWhitelistMsg(t('conn_error'),false);}
 }
 function setWhitelistMsg(txt,ok){const el=document.getElementById('whitelist-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},4000);}
+
+// ── SDS remote control (U-STATUS → 9999) ────────────────────────────────────
+const REMOTE_ACTIONS=['ip','temp','info','restart','shutdown','kick_all'];
+let remoteIssis=[];
+let remoteCmds=[];
+async function loadSdsCommands(){
+  try{
+    const r=await fetch('/api/sds-commands');
+    if(!r.ok){setRemoteMsg(t('conn_error'),false);return;}
+    const d=await r.json();
+    document.getElementById('remote-enabled').checked=!!d.enabled;
+    remoteIssis=(d.authorized_issis||[]).slice().sort((a,b)=>a-b);
+    remoteCmds=(d.commands||[]).map(c=>({status_code:c.status_code|0,action:(c.action||'ip')}));
+    renderRemoteIssis();
+    renderRemoteCmds();
+  }catch{setRemoteMsg(t('conn_error'),false);}
+}
+function renderRemoteIssis(){
+  const box=document.getElementById('remote-issi-chips');
+  if(!box)return;
+  if(!remoteIssis.length){
+    box.innerHTML='<span style="color:var(--muted);font-size:13px">—</span>';
+    return;
+  }
+  box.innerHTML=remoteIssis.map(issi=>
+    '<span class="id-chip">'+issi+
+    '<span class="id-chip-x" onclick="removeRemoteIssi('+issi+')">×</span></span>'
+  ).join('');
+}
+function addRemoteIssi(){
+  const inp=document.getElementById('remote-issi-input');
+  const v=parseInt(inp.value);
+  if(!v||v<1||v>16777215){setRemoteMsg(t('whitelist_invalid'),false);inp.focus();return;}
+  if(remoteIssis.includes(v)){inp.value='';return;}
+  remoteIssis.push(v);remoteIssis.sort((a,b)=>a-b);
+  renderRemoteIssis();inp.value='';inp.focus();
+}
+function removeRemoteIssi(issi){
+  remoteIssis=remoteIssis.filter(x=>x!==issi);
+  renderRemoteIssis();
+}
+function renderRemoteCmds(){
+  const box=document.getElementById('remote-cmd-rows');
+  if(!box)return;
+  if(!remoteCmds.length){
+    box.innerHTML='<span style="color:var(--muted);font-size:13px">—</span>';
+    return;
+  }
+  box.innerHTML=remoteCmds.map((c,i)=>{
+    const opts=REMOTE_ACTIONS.map(a=>'<option value="'+a+'"'+(c.action===a?' selected':'')+'>'+a+'</option>').join('');
+    return '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+      '<input type="number" class="form-input" min="0" max="65535" value="'+(c.status_code||'')+'" '+
+      'style="width:120px" onchange="remoteCmds['+i+'].status_code=parseInt(this.value)||0" '+
+      'placeholder="'+t('remote_status_code')+'">'+
+      '<select class="form-input" style="width:140px" onchange="remoteCmds['+i+'].action=this.value">'+opts+'</select>'+
+      '<button class="btn" onclick="removeRemoteCommand('+i+')">'+t('remote_cmd_del')+'</button>'+
+      '</div>';
+  }).join('');
+}
+function addRemoteCommand(){
+  remoteCmds.push({status_code:61000,action:'ip'});
+  renderRemoteCmds();
+}
+function removeRemoteCommand(i){
+  remoteCmds.splice(i,1);
+  renderRemoteCmds();
+}
+async function saveSdsCommands(){
+  const enabled=document.getElementById('remote-enabled').checked;
+  if(enabled && !remoteIssis.length){setRemoteMsg(t('remote_empty_issi'),false);return;}
+  for(const c of remoteCmds){
+    if(c.status_code<0||c.status_code>65535||Number.isNaN(c.status_code)){
+      setRemoteMsg(t('remote_invalid_code'),false);return;
+    }
+  }
+  try{
+    const r=await fetch('/api/sds-commands',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({enabled:enabled,authorized_issis:remoteIssis,commands:remoteCmds})});
+    if(r.ok){setRemoteMsg(t('saved'),true);loadSdsCommands();}
+    else setRemoteMsg(t('save_fail')+': '+await r.text(),false);
+  }catch{setRemoteMsg(t('conn_error'),false);}
+}
+function setRemoteMsg(txt,ok){const el=document.getElementById('remote-msg');if(!el)return;el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},4000);}
 
 // ── WX / METAR service ──────────────────────────────────────────────────────
 async function loadWx(){

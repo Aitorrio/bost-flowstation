@@ -1409,8 +1409,7 @@ impl SdsBsSubentity {
     fn handle_sds_command_status(&mut self, queue: &mut MessageQueue, source_ssi: u32, status: &PreCodedStatus) {
         let status_code = status.into_raw() as u16;
 
-        let cfg = self.config.config();
-        let Some(ref ctrl) = cfg.cell.sds_command_control else {
+        let Some(ctrl) = self.config.effective_sds_command_control() else {
             tracing::debug!(
                 "SDS-CMD: U-STATUS to 9999 from {} (status={}) but sds_command_control not configured, ignoring",
                 source_ssi,

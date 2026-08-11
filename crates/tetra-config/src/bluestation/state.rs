@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use tetra_core::TimeslotAllocator;
 
+use super::sec_cell::CfgSdsCommandEntry;
+
 /// A one-shot or repeating SDS broadcast message injected at runtime via the dashboard.
 ///
 /// Each message is broadcast to all MSs on the cell (GSSI 0xFFFFFF) using the same
@@ -494,6 +496,18 @@ impl Default for GeoalarmRuntimeStatus {
     }
 }
 
+/// Runtime override for SDS U-STATUS command control (ISSI 9999), edited from the dashboard.
+///
+/// When `Some`, takes precedence over `[cell_info.sds_command_control]` in the config file so
+/// edits apply without a restart. `enabled = false` forces the feature off even if the TOML
+/// still has a section (the writer removes the section on save).
+#[derive(Debug, Clone, Default)]
+pub struct SdsCommandRuntimeOverride {
+    pub enabled: bool,
+    pub authorized_issis: Vec<u32>,
+    pub commands: Vec<CfgSdsCommandEntry>,
+}
+
 /// Mutable, stack-editable state (mutex-protected).
 #[derive(Debug, Clone)]
 pub struct StackState {
@@ -524,6 +538,8 @@ pub struct StackState {
     pub geoalarm_override: Option<GeoalarmRuntimeOverride>,
     /// Runtime override for Snom XML NOTIFY settings. See SnomNotifyRuntimeOverride.
     pub snom_notify_override: Option<SnomNotifyRuntimeOverride>,
+    /// Runtime override for SDS command control (U-STATUS → ISSI 9999). See SdsCommandRuntimeOverride.
+    pub sds_command_override: Option<SdsCommandRuntimeOverride>,
     /// Next TPG2200 ActionURL incident number. Initialised lazily from `[tpg2200_action]`.
     pub tpg2200_action_next_incident: Option<u16>,
     /// Runtime Asterisk SIP/RTP bridge status for `/api/asterisk/status` and the dashboard tab.
@@ -710,6 +726,7 @@ impl Default for StackState {
             dapnet_override: None,
             geoalarm_override: None,
             snom_notify_override: None,
+            sds_command_override: None,
             tpg2200_action_next_incident: None,
             asterisk_status: AsteriskRuntimeStatus::default(),
             dapnet_status: DapnetRuntimeStatus::default(),

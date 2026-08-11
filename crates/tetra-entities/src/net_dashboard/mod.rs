@@ -5,6 +5,7 @@ pub mod geoalarm;
 pub mod html;
 pub mod profiles;
 pub mod radioid;
+pub mod sds_commands;
 pub mod server;
 pub mod setup;
 pub mod snom_notify;

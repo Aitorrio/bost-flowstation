@@ -2802,6 +2802,40 @@ fn handle_connection(
         let _ = buf.read_exact(&mut body);
         let body_str = String::from_utf8_lossy(&body);
         serve_wx_post(buf.into_inner(), &shared_config, &config_path, body_str.as_ref());
+    } else if req_line.contains("GET /api/sds-commands") {
+        let mut buf = BufReader::new(stream);
+        loop {
+            let mut line = String::new();
+            let _ = buf.read_line(&mut line);
+            if line == "\r\n" || line.is_empty() || line == "\n" {
+                break;
+            }
+        }
+        serve_sds_commands_get(buf.into_inner(), &shared_config);
+    } else if req_line.contains("POST /api/sds-commands") {
+        let mut buf = BufReader::new(stream);
+        let mut content_length = 0usize;
+        loop {
+            let mut line = String::new();
+            let _ = buf.read_line(&mut line);
+            if line == "\r\n" || line.is_empty() || line == "\n" {
+                break;
+            }
+            let lower = line.to_lowercase();
+            if lower.starts_with("content-length:") {
+                content_length = lower
+                    .trim_start_matches("content-length:")
+                    .trim()
+                    .trim_end_matches("\r\n")
+                    .trim_end_matches('\n')
+                    .parse()
+                    .unwrap_or(0);
+            }
+        }
+        let mut body = vec![0u8; content_length.min(512 * 1024)];
+        let _ = buf.read_exact(&mut body);
+        let body_str = String::from_utf8_lossy(&body);
+        serve_sds_commands_post(buf.into_inner(), &shared_config, &config_path, body_str.as_ref());
     } else if req_line.contains("POST /api/telegram/verify") {
         let (inner, body_str) = read_post_body(stream);
         serve_telegram_verify(inner, &shared_config, &body_str);
@@ -3974,6 +4008,83 @@ fn serve_wx_post(stream: TcpStream, shared_config: &Option<tetra_config::bluesta
         ov.periodic_enabled,
         ov.periodic_issi,
         ov.periodic_icao
+    );
+    http_response(stream, 200, "OK");
+}
+
+fn serve_sds_commands_get(
+    mut stream: TcpStream,
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+) {
+    use crate::net_dashboard::sds_commands;
+    let ov = match shared_config {
+        Some(cfg) => {
+            if let Some(o) = cfg.state_read().sds_command_override.clone() {
+                o
+            } else {
+                sds_commands::from_cfg(cfg.config().cell.sds_command_control.as_ref())
+            }
+        }
+        None => tetra_config::bluestation::SdsCommandRuntimeOverride::default(),
+    };
+    let body = sds_commands::override_to_json(&ov);
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body.as_bytes());
+}
+
+fn serve_sds_commands_post(
+    stream: TcpStream,
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+    config_path: &str,
+    body: &str,
+) {
+    use crate::net_dashboard::sds_commands;
+    use tetra_config::bluestation::SdsCommandRuntimeOverride;
+
+    let ov = match sds_commands::parse_body(body) {
+        Ok(o) => o,
+        Err(e) => {
+            http_response(stream, 400, &format!("Invalid sds-commands: {e}"));
+            return;
+        }
+    };
+
+    let Some(cfg) = shared_config else {
+        http_response(stream, 503, "Config not available");
+        return;
+    };
+
+    {
+        let mut state = cfg.state_write();
+        state.sds_command_override = Some(SdsCommandRuntimeOverride {
+            enabled: ov.enabled,
+            authorized_issis: ov.authorized_issis.clone(),
+            commands: ov.commands.clone(),
+        });
+    }
+
+    if let Err(e) = sds_commands::write_to_toml(config_path, &ov) {
+        tracing::warn!(
+            "Dashboard: SDS commands applied at runtime but failed to persist to TOML: {}",
+            e
+        );
+        http_response(
+            stream,
+            200,
+            "Applied at runtime; failed to write config file (check permissions)",
+        );
+        return;
+    }
+
+    tracing::info!(
+        "Dashboard: SDS command control updated (enabled={}, {} ISSI(s), {} command(s))",
+        ov.enabled,
+        ov.authorized_issis.len(),
+        ov.commands.len()
     );
     http_response(stream, 200, "OK");
 }

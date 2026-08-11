@@ -516,4 +516,19 @@ impl SharedConfig {
             base
         }
     }
+
+    /// Effective SDS U-STATUS command control (ISSI 9999): dashboard override if present,
+    /// otherwise `[cell_info.sds_command_control]`. Returns `None` when disabled / absent.
+    pub fn effective_sds_command_control(&self) -> Option<crate::bluestation::CfgSdsCommandControl> {
+        if let Some(o) = self.state_read().sds_command_override.as_ref() {
+            if !o.enabled {
+                return None;
+            }
+            return Some(crate::bluestation::CfgSdsCommandControl {
+                authorized_issis: o.authorized_issis.clone(),
+                commands: o.commands.clone(),
+            });
+        }
+        self.cfg.cell.sds_command_control.clone()
+    }
 }
