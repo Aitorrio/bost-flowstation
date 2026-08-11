@@ -550,11 +550,179 @@ fn source_tree_is_trusted(_dir: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Spawn an already-configured command, streaming its stdout+stderr into the update log line by
-/// line (so a long `cargo build` shows live progress instead of looking hung — FH-BUG-035), and
-/// return the collected stdout on success. On spawn/exit failure it logs an error, marks the update
-/// `finish(false)`, and returns `None`.
-fn stream_cmd(update: &SharedUpdateState, mut cmd: std::process::Command, label: String) -> Option<String> {
+/// Resolve the login name for the owner of `dir` (Unix). Used so OTA can run `cargo` as that
+/// user instead of root — matching the installer (`sudo -u bts cargo build`) and avoiding
+/// root-owned `target/` files + OOM from over-parallel root builds on a Pi.
+#[cfg(unix)]
+fn source_tree_owner_name(dir: &std::path::Path) -> Option<String> {
+    use std::ffi::CStr;
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(dir).ok()?;
+    let uid = meta.uid();
+    // SAFETY: getpwuid returns a pointer into a static buffer; we copy out immediately.
+    unsafe {
+        let pw = libc::getpwuid(uid);
+        if pw.is_null() || (*pw).pw_name.is_null() {
+            return None;
+        }
+        CStr::from_ptr((*pw).pw_name).to_str().ok().map(|s| s.to_string())
+    }
+}
+
+#[cfg(not(unix))]
+fn source_tree_owner_name(_dir: &std::path::Path) -> Option<String> {
+    None
+}
+
+/// Ensure `target/` (and nested build artifacts) are writable by `user` before a non-root build.
+/// A previous OTA that ran cargo as root can leave root-owned objects that stall/`Permission denied`
+/// the next build as `bts`.
+fn fix_target_ownership(src_dir: &std::path::Path, user: &str, update: &SharedUpdateState) {
+    let target = src_dir.join("target");
+    if !target.exists() {
+        return;
+    }
+    update.lock().unwrap().append(&format!(
+        "Ensuring {} is owned by {} (avoids stuck builds after a root cargo run)",
+        target.display(),
+        user
+    ));
+    let status = std::process::Command::new("chown")
+        .args(["-R", user, target.to_str().unwrap_or("target")])
+        .status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => update.lock().unwrap().append(&format!("WARNING: chown exited with {s}")),
+        Err(e) => update.lock().unwrap().append(&format!("WARNING: chown failed: {e}")),
+    }
+}
+
+fn log_host_memory(update: &SharedUpdateState) {
+    if let Ok(mem) = std::fs::read_to_string("/proc/meminfo") {
+        let mut total = None;
+        let mut avail = None;
+        for line in mem.lines() {
+            if let Some(rest) = line.strip_prefix("MemTotal:") {
+                total = rest.split_whitespace().next().map(|s| s.to_string());
+            }
+            if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                avail = rest.split_whitespace().next().map(|s| s.to_string());
+            }
+        }
+        if let (Some(t), Some(a)) = (total, avail) {
+            update.lock().unwrap().append(&format!(
+                "Host memory: {a} kB available / {t} kB total (OTA uses -j 1 to reduce OOM risk)"
+            ));
+        }
+    }
+}
+
+/// Build `Command` for `cargo build --release -p bluestation-bs -j 1`, preferably as the
+/// source-tree owner when we are root.
+fn cargo_build_command(
+    cargo: &std::path::Path,
+    src_dir: &std::path::Path,
+    update: &SharedUpdateState,
+) -> std::process::Command {
+    use std::path::PathBuf;
+
+    let jobs = std::env::var("BOST_OTA_JOBS").unwrap_or_else(|_| "1".into());
+    let cargo_args = [
+        "build",
+        "--release",
+        "-p",
+        "bluestation-bs",
+        "-j",
+        jobs.as_str(),
+    ];
+
+    let mut path_env = std::env::var("PATH").unwrap_or_default();
+    let mut cargo_home: Option<PathBuf> = None;
+    let mut rustup_home: Option<PathBuf> = None;
+    let mut home_env: Option<PathBuf> = None;
+
+    if cargo.is_absolute() {
+        if let Some(bin) = cargo.parent().filter(|p| !p.as_os_str().is_empty()) {
+            path_env = if path_env.is_empty() {
+                bin.display().to_string()
+            } else {
+                format!("{}:{}", bin.display(), path_env)
+            };
+            if let Some(ch) = bin.parent() {
+                cargo_home = Some(ch.to_path_buf());
+                if let Some(home) = ch.parent() {
+                    home_env = Some(home.to_path_buf());
+                    let ru = home.join(".rustup");
+                    if ru.is_dir() {
+                        rustup_home = Some(ru);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    let euid = unsafe { libc::geteuid() };
+    #[cfg(not(unix))]
+    let euid = 0u32;
+
+    let owner = source_tree_owner_name(src_dir);
+    let run_as_owner = euid == 0 && owner.as_deref().is_some_and(|u| u != "root");
+
+    let mut build = if run_as_owner {
+        let user = owner.unwrap();
+        fix_target_ownership(src_dir, &user, update);
+        update.lock().unwrap().append(&format!(
+            "Running cargo as user '{}' (source tree owner)",
+            user
+        ));
+        // runuser is present on Raspberry Pi OS / Debian; falls back to sudo -n -u.
+        let mut cmd = if std::path::Path::new("/usr/sbin/runuser").is_file()
+            || std::path::Path::new("/sbin/runuser").is_file()
+        {
+            let mut c = std::process::Command::new("runuser");
+            c.args(["-u", &user, "--"]);
+            c
+        } else {
+            // -E keeps CARGO_HOME / RUSTUP_HOME / PATH we set on this Command.
+            let mut c = std::process::Command::new("sudo");
+            c.args(["-n", "-E", "-u", &user, "--"]);
+            c
+        };
+        cmd.arg(cargo);
+        cmd.args(cargo_args);
+        cmd
+    } else {
+        let mut cmd = std::process::Command::new(cargo);
+        cmd.args(cargo_args);
+        cmd
+    };
+
+    build.current_dir(src_dir);
+    build.env("PATH", &path_env);
+    if let Some(h) = home_env {
+        build.env("HOME", &h);
+        build.env("USER", h.file_name().and_then(|s| s.to_str()).unwrap_or("bts"));
+    }
+    if let Some(ch) = cargo_home {
+        build.env("CARGO_HOME", ch);
+    }
+    if let Some(ru) = rustup_home {
+        build.env("RUSTUP_HOME", ru);
+    }
+    // Avoid rustc waiting on a missing sccache / mold etc. under the service environment.
+    build.env_remove("RUSTC_WRAPPER");
+    build.env_remove("CARGO_TARGET_DIR");
+    build
+}
+
+/// Spawn `cmd`, stream stdout+stderr line-by-line into `update.log`, and return
+/// collected stdout on success (or None after marking the update failed).
+fn stream_cmd(
+    update: &std::sync::Arc<std::sync::Mutex<UpdateState>>,
+    label: String,
+    mut cmd: std::process::Command,
+) -> Option<String> {
     use std::io::{BufRead, BufReader};
     update.lock().unwrap().append(&label);
     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
@@ -1015,7 +1183,8 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     }
 
     // Step 7: build. cargo lives in ~/.cargo/bin, which the systemd service PATH usually omits, so
-    // resolve it explicitly and put its directory on PATH for the rustc/rustup shims (FH-BUG-037).
+    // resolve it explicitly (FH-BUG-037). Run as the source-tree owner with -j 1 to avoid
+    // root-owned target/ stalls and OOM on Pi (compiling tetra-entities html.rs is heavy).
     // Output is streamed live so a long compile shows progress instead of looking hung (FH-BUG-035).
     log!(update, "--- cargo build --release ---");
     let cargo = find_cargo(&src_dir);
@@ -1028,32 +1197,11 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
     log!(update, "Using cargo: {}", cargo.display());
-    let mut build = std::process::Command::new(&cargo);
-    build.args(["build", "--release", "-p", "bluestation-bs"]).current_dir(&src_dir);
-    // Put cargo's own directory on PATH so the rustc/rustup shims resolve under the service's minimal
-    // PATH. Only for an ABSOLUTE cargo: a bare "cargo" has an empty parent, and prepending "" (or
-    // appending to an empty PATH) injects an empty entry that Unix treats as the current directory —
-    // which would let a planted `rustc`/`cc` in the source tree run during the build.
-    // cargo path shape: <home>/.cargo/bin/cargo
-    if cargo.is_absolute() {
-        if let Some(bin) = cargo.parent().filter(|p| !p.as_os_str().is_empty()) {
-            let new_path = match std::env::var("PATH") {
-                Ok(p) if !p.is_empty() => format!("{}:{}", bin.display(), p),
-                _ => bin.display().to_string(),
-            };
-            build.env("PATH", new_path);
-            if let Some(cargo_home) = bin.parent() {
-                build.env("CARGO_HOME", cargo_home);
-                if let Some(home) = cargo_home.parent() {
-                    let rustup = home.join(".rustup");
-                    if rustup.is_dir() {
-                        build.env("RUSTUP_HOME", rustup);
-                    }
-                }
-            }
-        }
-    }
-    if stream_cmd(&update, build, "$ cargo build --release -p bluestation-bs".to_string()).is_none() {
+    log_host_memory(&update);
+    let jobs = std::env::var("BOST_OTA_JOBS").unwrap_or_else(|_| "1".into());
+    let build = cargo_build_command(&cargo, &src_dir, &update);
+    let label = format!("$ cargo build --release -p bluestation-bs -j {jobs}");
+    if stream_cmd(&update, label, build).is_none() {
         return;
     }
 
