@@ -227,7 +227,19 @@ body{
 /* Hide the whole block + its border when neither row is active (Chromium :has()). */
 .hw-status:not(:has(.hw-row[style*="flex"])){display:none;}
 
-/* ── Update-available badge (own block under the logo, not clipped by the logo box) ── */
+/* ── System page: OTA availability banner ── */
+.sys-update-banner{
+  display:none;
+  align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin:0 0 12px;padding:12px 14px;
+  background:linear-gradient(135deg,rgba(0,212,168,0.16),rgba(77,166,255,0.14));
+  border:1px solid rgba(0,212,168,0.35);border-radius:8px;
+}
+.sys-update-banner-text{
+  flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text);line-height:1.35;
+}
+
+/* ── Update-available badge (legacy sidebar; kept for CSS safety if reintroduced) ── */
 .update-badge{
   display:none;
   margin:6px 12px 2px;
@@ -2326,9 +2338,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
     </div>
   </div>
-  <div id="update-badge" class="update-badge"
-       onclick="showPage('config',document.getElementById('nav-config'))"
-       title="Click to update"></div>
 
   <div class="sidebar-nav">
     <!-- MONITOR — live, read-mostly surfaces (ordered by glance-frequency). -->
@@ -3797,10 +3806,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="card-title" data-i18n="cfg_advanced_toml">Raw config.toml</div>
           <div class="card-actions">
             <button class="btn btn-primary" onclick="saveConfig()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
-            <span class="btn-group danger-group">
-              <button class="btn btn-danger" onclick="shutdownService()"><span class="btn-icon" data-icon="shutdown"></span><span data-i18n="shutdown">Shutdown</span></button>
-              <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
-            </span>
+            <button class="btn btn-warn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
           </div>
         </div>
         <div class="card-body">
@@ -4177,6 +4183,26 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <div class="hero-metric-label" data-i18n="sys_temp">CPU Temp</div>
             <div class="hero-metric-value" id="sysHeroTemp">—</div>
           </div>
+        </div>
+      </div>
+
+      <!-- Service control: restart / shutdown / OTA (belongs in System, not Config) -->
+      <div class="section-label" data-i18n="sys_sec_control">Control</div>
+      <div class="sys-update-banner" id="sys-update-banner" style="display:none" role="status">
+        <div class="sys-update-banner-text" id="sys-update-banner-text"></div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
+      </div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-head">
+          <div class="card-title" data-i18n="sys_control_title">Service control</div>
+          <div class="card-actions" style="flex-wrap:wrap">
+            <button class="btn btn-warn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
+            <button class="btn btn-danger" onclick="shutdownService()"><span class="btn-icon" data-icon="shutdown"></span><span data-i18n="shutdown">Shutdown</span></button>
+            <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
+          </div>
+        </div>
+        <div class="card-body" style="color:var(--muted);font-size:13px" data-i18n="sys_control_help">
+          Restart or shut down the FlowStation service, or pull and rebuild from GitHub (OTA).
         </div>
       </div>
 
@@ -4773,7 +4799,7 @@ const LANGS={
     sys_profiles:'Config Profiles',sys_activate:'Activate & Restart',
     sys_active_badge:'ACTIVE',sys_no_profiles:'No .toml profiles found in config directory.',
     sys_activate_confirm:'Switch to profile "{name}" and restart?\nCurrent config will be backed up.',
-    sys_title:'System',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
+    sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart or shut down the FlowStation service, or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
     sys_bts:'BTS Connection',
     cr_original:'© 2026 Razvan Zeces — YO6RZV',
     cr_enhanced:'Enhanced version by Aitor, EA4HBL',
@@ -5127,7 +5153,7 @@ const LANGS={
     sys_profiles:'Perfiles de Config',sys_activate:'Activar y Reiniciar',
     sys_active_badge:'ACTIVO',sys_no_profiles:'No se encontraron perfiles .toml en el directorio.',
     sys_activate_confirm:'¿Cambiar al perfil "{name}" y reiniciar?\nLa config actual será respaldada.',
-    sys_title:'Sistema',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
+    sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia o apaga el servicio FlowStation, o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
     sys_bts:'Conexión BTS',
   },
   hu:{
@@ -5413,7 +5439,7 @@ function showPage(name,el){
   if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadWhitelist();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
-  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();}
+  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();checkUpdate();}
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
   if(name==='wifi')wifiRefresh();
   if(window.innerWidth<=700)closeMobileSidebar();
@@ -9853,22 +9879,27 @@ window.addEventListener('resize', () => {
 });
 
 // ── GitHub update-check ─────────────────────────────────────────────────────
-// Best-effort: query GitHub for the latest release once at boot (and when the
-// config page is opened). If a newer version exists, reveal the header badge and
-// highlight the Update button. Failures are silent.
+// Best-effort: query GitHub for the latest OTA tip once at boot (and when System
+// is opened). If a newer version exists, show the System banner and highlight
+// the Update button. Failures are silent.
 async function checkUpdate(){
   try{
     const r=await fetch('/api/update/check');
     if(!r.ok)return;
     const d=await r.json();
-    const badge=document.getElementById('update-badge');
+    const banner=document.getElementById('sys-update-banner');
+    const bannerText=document.getElementById('sys-update-banner-text');
     const btn=document.getElementById('update-btn');
+    const btnLabel=btn?btn.querySelector('[data-i18n="update"]'):null;
     if(d&&d.update_available&&d.latest){
-      if(badge){badge.style.display='block';badge.textContent='⬆ '+t('update_available')+' '+d.latest;}
-      if(btn){btn.classList.add('btn-primary');btn.textContent='⬆ '+t('update')+' → '+d.latest;}
+      if(banner)banner.style.display='flex';
+      if(bannerText)bannerText.textContent='⬆ '+t('update_available')+' '+d.latest;
+      if(btn)btn.classList.add('btn-primary');
+      if(btnLabel)btnLabel.textContent=t('update')+' → '+d.latest;
     }else{
-      if(badge)badge.style.display='none';
-      if(btn){btn.classList.remove('btn-primary');btn.textContent='⬆ '+t('update');}
+      if(banner)banner.style.display='none';
+      if(btn)btn.classList.remove('btn-primary');
+      if(btnLabel)btnLabel.textContent=t('update');
     }
   }catch{/* silent */}
 }
