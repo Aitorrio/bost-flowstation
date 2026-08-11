@@ -1068,18 +1068,48 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 }
 .form-input:focus{border-color:var(--accent2);}
 
-/* ── Update modal terminal ── */
+/* ── Update modal (user-facing progress + optional log) ── */
+.update-progress-wrap{margin:14px 0 10px;}
+.update-progress-track{
+  height:10px;border-radius:999px;background:var(--bg4);border:1px solid var(--border);
+  overflow:hidden;
+}
+.update-progress-bar{
+  height:100%;width:0%;border-radius:999px;
+  background:linear-gradient(90deg,var(--accent2),var(--accent));
+  transition:width 0.35s ease;
+}
+.update-progress-bar.err{background:var(--danger);}
+.update-progress-meta{
+  display:flex;justify-content:space-between;align-items:center;gap:10px;
+  margin-top:8px;font-size:12px;color:var(--text2);
+}
+.update-progress-pct{font-family:var(--mono);font-weight:700;color:var(--text);min-width:3.2em;text-align:right;}
+.update-phase{font-weight:600;color:var(--text);flex:1;min-width:0;}
+.update-current-line{
+  margin:0 0 10px;padding:10px 12px;border-radius:6px;
+  background:var(--bg);border:1px solid var(--border);
+  font-family:var(--mono);font-size:11px;line-height:1.45;color:var(--text2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:1.45em;
+}
+.update-log-toolbar{display:flex;justify-content:flex-end;margin:0 0 6px;}
+.update-log-toggle{
+  background:none;border:none;color:var(--accent2);font-size:12px;font-weight:600;
+  cursor:pointer;padding:4px 0;text-decoration:underline;text-underline-offset:3px;
+}
+.update-log-toggle:hover{color:var(--accent);}
 .update-terminal{
   background:var(--bg);border:1px solid var(--border);border-radius:6px;
   padding:10px 12px;font-family:var(--mono);font-size:11px;line-height:1.6;
-  color:var(--text2);height:300px;overflow-y:auto;white-space:pre-wrap;
-  word-break:break-all;margin:12px 0;
+  color:var(--text2);height:240px;overflow-y:auto;white-space:pre-wrap;
+  word-break:break-all;margin:0 0 12px;
 }
-.update-status{font-family:var(--mono);font-size:11px;font-weight:700;min-height:18px;}
+.update-terminal.collapsed{display:none;}
+.update-status{font-size:13px;font-weight:700;min-height:18px;}
 .update-status.running{color:var(--warn);}
 .update-status.ok{color:var(--accent);}
 .update-status.err{color:var(--danger);}
-#update-modal .modal{width:min(680px,100%);}
+#update-modal .modal{width:min(520px,100%);}
 
 /* ── Profile list ── */
 .profile-item{
@@ -4414,7 +4444,20 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   <div class="modal">
     <div class="modal-title" id="update-modal-title" data-i18n="update_title">⬆ OTA Update</div>
     <div class="update-status running" id="update-status-msg"></div>
-    <div class="update-terminal" id="update-terminal"></div>
+    <div class="update-progress-wrap">
+      <div class="update-progress-track" aria-hidden="true">
+        <div class="update-progress-bar" id="update-progress-bar"></div>
+      </div>
+      <div class="update-progress-meta">
+        <div class="update-phase" id="update-phase"></div>
+        <div class="update-progress-pct" id="update-progress-pct">0%</div>
+      </div>
+    </div>
+    <div class="update-current-line" id="update-current-line" title=""></div>
+    <div class="update-log-toolbar">
+      <button type="button" class="update-log-toggle" id="update-log-toggle" onclick="toggleUpdateLog()" data-i18n="update_show_log">Show details</button>
+    </div>
+    <div class="update-terminal collapsed" id="update-terminal"></div>
     <div class="modal-actions">
       <button class="btn" id="update-close-btn" onclick="closeUpdateModal()" data-i18n="update_close" disabled>Close</button>
     </div>
@@ -4708,8 +4751,18 @@ const LANGS={
     update_confirm:'Pull latest from the bost branch and rebuild?\nThe service will restart automatically.',
     update_running:'Updating… do not close this window.',
     update_done_ok:'✓ Update complete. Restarting…',
-    update_done_err:'✗ Update failed. See log below.',
+    update_done_err:'✗ Update failed. Open details if you need the log.',
     update_close:'Close',
+    update_show_log:'Show details',update_hide_log:'Hide details',
+    update_phase_prepare:'Preparing…',
+    update_phase_download:'Checking for updates…',
+    update_phase_sync:'Applying repository updates…',
+    update_phase_build:'Compiling (this can take several minutes)…',
+    update_phase_install:'Installing new version…',
+    update_phase_restart:'Restarting service…',
+    update_phase_done:'Done',
+    update_phase_error:'Update failed',
+    update_waiting:'Waiting for first status…',
     system:'System',sys_info:'System Info',sys_hostname:'Hostname',sys_uptime:'Uptime',
     sys_version:'Bost version',sys_os:'OS',sys_config:'Active Config',
     sys_cpu:'CPU',sys_cpu_load:'CPU Load',sys_ram:'RAM',sys_temp:'CPU Temp',
@@ -5053,8 +5106,18 @@ const LANGS={
     update_confirm:'¿Obtener la última versión de bost y recompilar?\nEl servicio se reiniciará automáticamente.',
     update_running:'Actualizando… no cierres esta ventana.',
     update_done_ok:'✓ Actualización completa. Reiniciando…',
-    update_done_err:'✗ Actualización fallida. Ver log abajo.',
+    update_done_err:'✗ Actualización fallida. Abre los detalles si necesitas el log.',
     update_close:'Cerrar',
+    update_show_log:'Ver todo',update_hide_log:'Ocultar todo',
+    update_phase_prepare:'Preparando…',
+    update_phase_download:'Comprobando actualizaciones…',
+    update_phase_sync:'Aplicando cambios del repositorio…',
+    update_phase_build:'Compilando (puede tardar varios minutos)…',
+    update_phase_install:'Instalando la nueva versión…',
+    update_phase_restart:'Reiniciando el servicio…',
+    update_phase_done:'Listo',
+    update_phase_error:'Actualización fallida',
+    update_waiting:'Esperando el primer estado…',
     system:'Sistema',sys_info:'Info del Sistema',sys_hostname:'Hostname',sys_uptime:'Tiempo activo',
     sys_os:'OS',sys_version:'Versión Bost',sys_config:'Config Activa',
     sys_cpu:'CPU',sys_cpu_load:'Carga CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
@@ -8178,7 +8241,59 @@ setInterval(refreshOpenDgna,1000);
 
 // ── OTA Update ────────────────────────────────────────────────────────────
 let updatePollTimer=null;
-function closeUpdateModal(){document.getElementById('update-modal').classList.remove('open');if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null;}}
+let updateLogExpanded=false;
+function closeUpdateModal(){
+  document.getElementById('update-modal').classList.remove('open');
+  if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null;}
+}
+function toggleUpdateLog(){
+  updateLogExpanded=!updateLogExpanded;
+  const term=document.getElementById('update-terminal');
+  const btn=document.getElementById('update-log-toggle');
+  if(term)term.classList.toggle('collapsed',!updateLogExpanded);
+  if(btn)btn.textContent=updateLogExpanded?t('update_hide_log'):t('update_show_log');
+  if(updateLogExpanded&&term)term.scrollTop=term.scrollHeight;
+}
+function setUpdateProgress(pct,phaseKey,currentLine,failed){
+  const bar=document.getElementById('update-progress-bar');
+  const pctEl=document.getElementById('update-progress-pct');
+  const phaseEl=document.getElementById('update-phase');
+  const lineEl=document.getElementById('update-current-line');
+  const p=Math.max(0,Math.min(100,pct|0));
+  if(bar){bar.style.width=p+'%';bar.classList.toggle('err',!!failed);}
+  if(pctEl)pctEl.textContent=p+'%';
+  if(phaseEl)phaseEl.textContent=t(phaseKey||'update_phase_prepare');
+  if(lineEl){
+    const line=(currentLine||'').trim()||t('update_waiting');
+    lineEl.textContent=line;
+    lineEl.title=line;
+  }
+}
+function estimateUpdateProgress(log,status){
+  const text=log||'';
+  const lines=text.split('\n').map(s=>s.trim()).filter(Boolean);
+  const last=lines.length?lines[lines.length-1]:'';
+  if(status==='done_ok')return{pct:100,phase:'update_phase_done',line:last,failed:false};
+  if(status==='done_err')return{pct:Math.max(8,estimateUpdateProgress(text,'running').pct),phase:'update_phase_error',line:last,failed:true};
+  let pct=6,phase='update_phase_prepare';
+  if(/Verifying git|Ensuring OTA remote|Source dir:/i.test(text)){pct=12;phase='update_phase_prepare';}
+  if(/Checking remote|git .* fetch|Local\s+commit:|Remote commit:/i.test(text)){pct=22;phase='update_phase_download';}
+  if(/Fast-forward|Already up to date|merging|checkout|Repository is current|rebuilding/i.test(text)){pct=32;phase='update_phase_sync';}
+  if(/cargo build|Using cargo:|Host memory:|Running cargo as/i.test(text)){pct=42;phase='update_phase_build';}
+  const compiles=(text.match(/^\s*Compiling /gm)||[]).length;
+  if(compiles>0){pct=Math.min(82,48+compiles*2);phase='update_phase_build';}
+  if(/Finished|Installing release|install the|Installed /i.test(text)){pct=90;phase='update_phase_install';}
+  if(/Build successful|Restarting service/i.test(text)){pct=96;phase='update_phase_restart';}
+  return{pct,phase,line:last,failed:false};
+}
+function resetUpdateModalUi(){
+  updateLogExpanded=false;
+  const termEl=document.getElementById('update-terminal');
+  const toggle=document.getElementById('update-log-toggle');
+  if(termEl){termEl.textContent='';termEl.classList.add('collapsed');}
+  if(toggle)toggle.textContent=t('update_show_log');
+  setUpdateProgress(0,'update_phase_prepare','',false);
+}
 async function startUpdate(){
   if(!confirm(t('update_confirm')))return;
   document.getElementById('update-modal').classList.add('open');
@@ -8186,19 +8301,46 @@ async function startUpdate(){
   const termEl=document.getElementById('update-terminal');
   const msgEl=document.getElementById('update-status-msg');
   const closeBtn=document.getElementById('update-close-btn');
-  termEl.textContent='';msgEl.className='update-status running';msgEl.textContent=t('update_running');closeBtn.disabled=true;
+  resetUpdateModalUi();
+  msgEl.className='update-status running';msgEl.textContent=t('update_running');closeBtn.disabled=true;
+  setUpdateProgress(3,'update_phase_prepare',t('update_waiting'),false);
   try{
     const r=await fetch('/api/update',{method:'POST'});
-    if(!r.ok&&r.status!==409){msgEl.className='update-status err';msgEl.textContent='✗ '+await r.text();closeBtn.disabled=false;return;}
-  }catch(e){msgEl.className='update-status err';msgEl.textContent='✗ '+e.message;closeBtn.disabled=false;return;}
+    if(!r.ok&&r.status!==409){
+      msgEl.className='update-status err';msgEl.textContent='✗ '+await r.text();
+      setUpdateProgress(100,'update_phase_error','',true);closeBtn.disabled=false;return;
+    }
+  }catch(e){
+    msgEl.className='update-status err';msgEl.textContent='✗ '+e.message;
+    setUpdateProgress(100,'update_phase_error','',true);closeBtn.disabled=false;return;
+  }
   let lastLen=0;
   updatePollTimer=setInterval(async()=>{
     try{
       const r=await fetch('/api/update/status');if(!r.ok)return;
       const j=await r.json();
-      if(j.log&&j.log.length>lastLen){termEl.textContent+=j.log.slice(lastLen);lastLen=j.log.length;termEl.scrollTop=termEl.scrollHeight;}
-      if(j.status==='done_ok'){clearInterval(updatePollTimer);updatePollTimer=null;msgEl.className='update-status ok';msgEl.textContent=t('update_done_ok');closeBtn.disabled=false;}
-      else if(j.status==='done_err'){clearInterval(updatePollTimer);updatePollTimer=null;msgEl.className='update-status err';msgEl.textContent=t('update_done_err');closeBtn.disabled=false;}
+      if(j.log!=null){
+        if(j.log.length>lastLen){
+          termEl.textContent+=j.log.slice(lastLen);
+          lastLen=j.log.length;
+          if(updateLogExpanded)termEl.scrollTop=termEl.scrollHeight;
+        }
+        const est=estimateUpdateProgress(j.log,j.status);
+        setUpdateProgress(est.pct,est.phase,est.line,est.failed);
+      }
+      if(j.status==='done_ok'){
+        clearInterval(updatePollTimer);updatePollTimer=null;
+        msgEl.className='update-status ok';msgEl.textContent=t('update_done_ok');
+        setUpdateProgress(100,'update_phase_done',(j.log||'').trim().split('\n').filter(Boolean).pop()||'',false);
+        closeBtn.disabled=false;
+      }else if(j.status==='done_err'){
+        clearInterval(updatePollTimer);updatePollTimer=null;
+        msgEl.className='update-status err';msgEl.textContent=t('update_done_err');
+        const est=estimateUpdateProgress(j.log||'','done_err');
+        setUpdateProgress(est.pct,est.phase,est.line,true);
+        closeBtn.disabled=false;
+        if(!updateLogExpanded)toggleUpdateLog();
+      }
     }catch{}
   },1000);
 }
