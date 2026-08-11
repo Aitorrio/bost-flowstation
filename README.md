@@ -94,25 +94,43 @@ Open **Config** in the sidebar. Prefer the visual forms over raw TOML — that i
 3. **Update** the profile or **Save as** a new name.
 4. **Apply & Restart** to put that Cell × Brew combination on air.
 
+<p align="center">
+  <img src="Docs/screenshots/08-profiles.png" alt="Config — Cell × Brew profiles" width="720"/>
+</p>
+
 Use this to jump between networks (e.g. local cell vs BrandMeister) without rewriting `config.toml` by hand.
 
-### Live settings
+### Live settings (RF & network)
 
 **Save live** writes the forms into the running `/etc/flowstation/config.toml`. Use **Restart** (also available under **System**) when RF / network / Brew need a service restart.
+
+<p align="center">
+  <img src="Docs/screenshots/09-live-settings.png" alt="Config — live settings, RF frequencies and network identity" width="720"/>
+</p>
 
 ### Access control
 
 In **Access Control**, manage the ISSI whitelist from the GUI. Empty list = open network; with entries, only listed radios may register. Changes apply immediately and persist.
 
+<p align="center">
+  <img src="Docs/screenshots/10-access-control.png" alt="Config — ISSI whitelist / access control" width="720"/>
+</p>
+
 ### Remote control (U-STATUS)
 
 In **Control remoto (U-STATUS)**, authorize radios and map status codes to actions (`ip`, `temp`, `info`, `restart`, `shutdown`, `kick_all`). Configured from the dashboard; not stored inside Cell/Brew profiles.
+
+<p align="center">
+  <img src="Docs/screenshots/11-remote-control.png" alt="Config — remote control via U-STATUS" width="720"/>
+</p>
 
 ### Raw `config.toml`
 
 Still available under **Advanced** for power users: **Save** + **Restart** only. Full annotated reference: [`example_config/config.toml`](example_config/config.toml).
 
-> **Screenshots:** Config forms (profiles / RF / Brew / access / remote) will be added under [`Docs/screenshots/`](Docs/screenshots/) as you capture them from a running station. Drop PNGs named `07-config-profiles.png`, `08-config-rf.png`, etc., and we will wire them into this section.
+<p align="center">
+  <img src="Docs/screenshots/12-raw-config.png" alt="Config — raw config.toml editor with Save and Restart" width="720"/>
+</p>
 
 ---
 
@@ -148,8 +166,14 @@ All service actions live under **System → Control** (not in Config).
 
 When a newer commit is on GitHub, a banner appears here and a matching badge shows in the sidebar (click → System).
 
+The OTA dialog shows a progress bar and the current build line (expand **Ver todo** for the full log):
+
 <p align="center">
-  <img src="Docs/screenshots/06-ota-done.png" alt="OTA update completed from the dashboard" width="640"/>
+  <img src="Docs/screenshots/06-ota-updating.png" alt="OTA update in progress with progress bar" width="520"/>
+</p>
+
+<p align="center">
+  <img src="Docs/screenshots/07-ota-complete.png" alt="OTA update completed — restarting" width="520"/>
 </p>
 
 Compiles on a Pi can take several minutes — leave the window open until it finishes.
