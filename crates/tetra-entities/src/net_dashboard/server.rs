@@ -982,7 +982,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         tracing::info!("UPDATE: {}", label);
         let mut cmd = std::process::Command::new(program);
         cmd.args(args).current_dir(dir);
-        stream_cmd(update, cmd, label)
+        stream_cmd(update, label, cmd)
     }
 
     let src_str = src_dir.to_str().unwrap_or(".");
