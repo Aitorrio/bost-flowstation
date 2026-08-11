@@ -239,7 +239,7 @@ body{
   flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text);line-height:1.35;
 }
 
-/* ── Update-available badge (legacy sidebar; kept for CSS safety if reintroduced) ── */
+/* ── Update-available badge (sidebar glance notice → System) ── */
 .update-badge{
   display:none;
   margin:6px 12px 2px;
@@ -2338,6 +2338,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
     </div>
   </div>
+  <div id="update-badge" class="update-badge"
+       onclick="showPage('system',document.getElementById('nav-system'))"
+       title="Go to System to update"></div>
 
   <div class="sidebar-nav">
     <!-- MONITOR — live, read-mostly surfaces (ordered by glance-frequency). -->
@@ -9877,23 +9880,27 @@ window.addEventListener('resize', () => {
 
 // ── GitHub update-check ─────────────────────────────────────────────────────
 // Best-effort: query GitHub for the latest OTA tip once at boot (and when System
-// is opened). If a newer version exists, show the System banner and highlight
-// the Update button. Failures are silent.
+// is opened). If a newer version exists, show the sidebar glance badge + System
+// banner and highlight the Update button. Failures are silent.
 async function checkUpdate(){
   try{
     const r=await fetch('/api/update/check');
     if(!r.ok)return;
     const d=await r.json();
+    const badge=document.getElementById('update-badge');
     const banner=document.getElementById('sys-update-banner');
     const bannerText=document.getElementById('sys-update-banner-text');
     const btn=document.getElementById('update-btn');
     const btnLabel=btn?btn.querySelector('[data-i18n="update"]'):null;
     if(d&&d.update_available&&d.latest){
+      const msg='⬆ '+t('update_available')+' '+d.latest;
+      if(badge){badge.style.display='block';badge.textContent=msg;}
       if(banner)banner.style.display='flex';
-      if(bannerText)bannerText.textContent='⬆ '+t('update_available')+' '+d.latest;
+      if(bannerText)bannerText.textContent=msg;
       if(btn)btn.classList.add('btn-primary');
       if(btnLabel)btnLabel.textContent=t('update')+' → '+d.latest;
     }else{
+      if(badge)badge.style.display='none';
       if(banner)banner.style.display='none';
       if(btn)btn.classList.remove('btn-primary');
       if(btnLabel)btnLabel.textContent=t('update');
