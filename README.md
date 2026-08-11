@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="contrib/logo/flowstation_logo.png" alt="Bost FlowStation" width="360"/>
+<img src="contrib/logo/bost_flowstation_header.png" alt="Bost FlowStation" width="420"/>
 
-### Bost FlowStation — software-defined TETRA base station (fork), built in Rust for Raspberry Pi.
+### Software-defined TETRA base station (fork), built in Rust for Raspberry Pi.
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
