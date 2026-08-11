@@ -4201,9 +4201,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
           </div>
         </div>
-        <div class="card-body" style="color:var(--muted);font-size:13px" data-i18n="sys_control_help">
-          Restart or shut down the FlowStation service, or pull and rebuild from GitHub (OTA).
-        </div>
       </div>
 
       <!-- BTS + Brew status -->
