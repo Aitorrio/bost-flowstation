@@ -7411,6 +7411,10 @@ function formatLocalSsiRanges(arr){
   if(!Array.isArray(arr)||!arr.length)return '0-90';
   return arr.map(r=>Array.isArray(r)?(r[0]+'-'+r[1]):String(r)).join(', ');
 }
+// Access-control list for the Cell form (must be declared before collectVisualConfig).
+let whitelistEntries=[];
+// Invalidate in-flight Cell loads so a slow GET cannot wipe a just-saved whitelist.
+let cellLoadSeq=0;
 function collectVisualConfig(){
   const gains={};
   const rxLna=vcNum('vc-rx-lna'); if(rxLna!==null)gains.rx_gain_lna=rxLna;
@@ -7525,19 +7529,30 @@ async function refreshProfileSelects(active){
   const cellSel=document.getElementById('vc-cell-profile');
   const brewSel=document.getElementById('vc-brew-profile');
   if(!cellSel||!brewSel)return;
-  const [cells,brews,act]=await Promise.all([
-    fetch('/api/profiles/cell').then(r=>r.json()),
-    fetch('/api/profiles/brew').then(r=>r.json()),
-    active?Promise.resolve(active):fetch('/api/profiles/active').then(r=>r.json()),
-  ]);
-  cellSel.innerHTML='';
-  (cells||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');cellSel.appendChild(o);});
-  if(act?.cell)cellSel.value=act.cell;
-  brewSel.innerHTML='';
-  const off=document.createElement('option');off.value='';off.textContent='Offline (no Brew)';brewSel.appendChild(off);
-  (brews||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');brewSel.appendChild(o);});
-  brewSel.value=act?.brew||'';
-  updateEditingBanner();
+  // Rebuilding <option>s can fire onchange in some browsers and reload another Cell,
+  // wiping in-memory Access Control (and looking like Update did not persist).
+  const prevCellOnChange=cellSel.onchange;
+  const prevBrewOnChange=brewSel.onchange;
+  cellSel.onchange=null;
+  brewSel.onchange=null;
+  try{
+    const [cells,brews,act]=await Promise.all([
+      fetch('/api/profiles/cell').then(r=>r.json()),
+      fetch('/api/profiles/brew').then(r=>r.json()),
+      active?Promise.resolve(active):fetch('/api/profiles/active').then(r=>r.json()),
+    ]);
+    cellSel.innerHTML='';
+    (cells||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');cellSel.appendChild(o);});
+    if(act?.cell)cellSel.value=act.cell;
+    brewSel.innerHTML='';
+    const off=document.createElement('option');off.value='';off.textContent='Offline (no Brew)';brewSel.appendChild(off);
+    (brews||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');brewSel.appendChild(o);});
+    brewSel.value=act?.brew||'';
+    updateEditingBanner();
+  }finally{
+    cellSel.onchange=prevCellOnChange;
+    brewSel.onchange=prevBrewOnChange;
+  }
 }
 async function loadVisualConfig(){
   try{
@@ -7583,16 +7598,22 @@ function autoCalcCarrier(){
 }
 async function loadCellProfileIntoForm(){
   const name=document.getElementById('vc-cell-profile')?.value; if(!name)return;
+  const seq=++cellLoadSeq;
   try{
     const r=await fetch('/api/profiles/cell/'+encodeURIComponent(name));
+    if(seq!==cellLoadSeq)return;
     if(!r.ok){vcMsg('vc-profiles-msg',await r.text(),false);return;}
     const d=await r.json();
+    if(seq!==cellLoadSeq)return;
     // Keep current Brew fields; always refresh Access Control from this Cell
     // (missing security = empty/open for that profile — never keep the previous Cell's list).
     fillVisualConfig(Object.assign({},d,{brew:collectVisualConfig().brew}),{fromCell:true});
     updateEditingBanner();
     vcMsg('vc-profiles-msg','Cell loaded: '+name,true);
-  }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
+  }catch(e){
+    if(seq!==cellLoadSeq)return;
+    vcMsg('vc-profiles-msg',String(e),false);
+  }
 }
 async function loadBrewProfileIntoForm(){
   const name=document.getElementById('vc-brew-profile')?.value;
@@ -7611,11 +7632,18 @@ async function saveCellProfileFromForm(asNew){
   const name=asNew?vcStr('vc-save-cell-name'):(document.getElementById('vc-cell-profile')?.value||'');
   if(!name){vcMsg('vc-profiles-msg',asNew?t('cfg_need_name'):t('cfg_need_select'),false);return;}
   try{
+    // Cancel any in-flight Cell GET so it cannot overwrite the form (or a follow-up Update)
+    // with a stale profile that still lacks the whitelist we are about to save.
+    cellLoadSeq++;
     const body=Object.assign({name:name, from_visual:true}, collectVisualConfig());
     const r=await fetch('/api/profiles/cell',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const txt=await r.text();
     vcMsg('vc-profiles-msg',r.ok?(asNew?t('saved'):t('cfg_updated')):txt,r.ok);
-    if(r.ok){if(asNew)document.getElementById('vc-save-cell-name').value='';await refreshProfileSelects({cell:name,brew:document.getElementById('vc-brew-profile').value||null});}
+    if(r.ok){
+      if(asNew)document.getElementById('vc-save-cell-name').value='';
+      await refreshProfileSelects({cell:name,brew:document.getElementById('vc-brew-profile').value||null});
+      updateWhitelistBanner();
+    }
   }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
 }
 async function saveBrewProfileFromForm(asNew){
@@ -7651,6 +7679,17 @@ async function applySelectedProfiles(){
   if(!cell){vcMsg('vc-profiles-msg','Select a cell profile',false);return;}
   if(!confirm(t('cfg_apply_confirm')))return;
   try{
+    // Persist the forms (including Access Control) into the selected Cell before apply,
+    // same as RF/network — Apply must not use a stale profile JSON on disk.
+    cellLoadSeq++;
+    const saveBody=Object.assign({name:cell, from_visual:true}, collectVisualConfig());
+    const saveR=await fetch('/api/profiles/cell',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(saveBody)});
+    if(!saveR.ok){vcMsg('vc-profiles-msg',await saveR.text(),false);return;}
+    if(brew){
+      const brewBody={name:brew, from_visual:true, brew:collectVisualConfig().brew};
+      const brewR=await fetch('/api/profiles/brew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(brewBody)});
+      if(!brewR.ok){vcMsg('vc-profiles-msg',await brewR.text(),false);return;}
+    }
     const r=await fetch('/api/profiles/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cell:cell,brew:brew})});
     const txt=await r.text();
     if(!r.ok){vcMsg('vc-profiles-msg',txt,false);return;}
@@ -7660,7 +7699,6 @@ async function applySelectedProfiles(){
 }
 
 // ── ISSI Whitelist (bound to selected Cell profile) ─────────────────────────
-let whitelistEntries=[];
 function updateWhitelistBanner(){
   const banner=document.getElementById('whitelist-cell-banner');
   const badge=document.getElementById('whitelist-status');

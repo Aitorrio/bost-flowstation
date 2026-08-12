@@ -519,7 +519,7 @@ pub fn save_cell_from_visual(config_path: &str, name: &str, visual: &JsonValue) 
         .as_object()
         .ok_or_else(|| "body must be a JSON object".to_string())?;
     let mut cell = Map::new();
-    for key in ["config_version", "stack_mode", "phy_io", "net_info", "cell_info", "security"] {
+    for key in ["config_version", "stack_mode", "phy_io", "net_info", "cell_info"] {
         if let Some(v) = obj.get(key) {
             let mut cleaned = v.clone();
             if key == "cell_info" {
@@ -528,14 +528,13 @@ pub fn save_cell_from_visual(config_path: &str, name: &str, visual: &JsonValue) 
             cell.insert(key.to_string(), cleaned);
         }
     }
-    // RF/network Update must not wipe an existing Cell whitelist, and must not invent
-    // `security: { issi_whitelist: [] }` on legacy Cells that never had the key.
-    if !cell.contains_key("security") {
-        if let Ok(existing) = get_cell_profile(config_path, name) {
-            if let Some(sec) = existing.get("security") {
-                cell.insert("security".into(), sec.clone());
-            }
-        }
+    // Always persist Access Control from the visual form (empty = open for this Cell).
+    if let Some(v) = obj.get("security") {
+        cell.insert("security".to_string(), v.clone());
+    } else {
+        let mut sec = Map::new();
+        sec.insert("issi_whitelist".into(), JsonValue::Array(vec![]));
+        cell.insert("security".into(), JsonValue::Object(sec));
     }
     put_cell_profile(config_path, name, &JsonValue::Object(cell))
 }
