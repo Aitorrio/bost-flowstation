@@ -3758,7 +3758,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <label class="field"><span>Main carrier</span><input type="number" id="vc-main-carrier" class="form-input"></label>
               <label class="field"><span>Freq band</span><input type="number" id="vc-freq-band" class="form-input" value="4"></label>
               <label class="field"><span>Duplex spacing id</span><input type="number" id="vc-duplex-id" class="form-input" value="4"></label>
-              <label class="field"><span>Custom duplex (Hz)</span><input type="number" id="vc-custom-duplex" class="form-input" placeholder="optional"></label>
+              <label class="field"><span data-i18n="cfg_custom_duplex">Custom duplex (MHz)</span><input type="text" inputmode="decimal" id="vc-custom-duplex" class="form-input" placeholder="7.600000" onblur="normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'})" onkeydown="if(event.key==='Enter'){normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});this.blur();}"></label>
               <label class="field"><span>Freq offset (Hz)</span><input type="number" id="vc-freq-offset" class="form-input" value="0"></label>
               <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-reverse"> <span>Reverse operation</span></label>
               <label class="field"><span>PPM</span><input type="number" step="any" id="vc-ppm" class="form-input" value="0"></label>
@@ -3846,22 +3846,20 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
-      <!-- ── ISSI WHITELIST (part of the selected Cell profile) ──
-           Empty list = open network. Stored in the Cell JSON as security.issi_whitelist.
-           Apply & Restart puts it on air; Save updates the selected Cell (and live if active). -->
+      <!-- ── ISSI WHITELIST (part of the selected Cell profile form) ──
+           Empty list = open network. Saved with Update Cell / Save as; Apply puts it on air. -->
       <div class="section-label" data-i18n="cfg_sec_access">Access Control</div>
       <div class="card">
         <div class="card-head">
           <div class="card-title" data-i18n="whitelist_title">ISSI Whitelist</div>
           <div class="card-actions">
-            <span id="whitelist-status" class="badge" style="margin-right:8px"></span>
-            <button class="btn btn-primary" onclick="saveWhitelist()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
+            <span id="whitelist-status" class="badge"></span>
           </div>
         </div>
         <div class="card-body">
           <div id="whitelist-cell-banner" style="margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(77,166,255,0.10);border:1px solid rgba(77,166,255,0.28);font-size:12px;color:var(--text2)"></div>
           <div style="color:var(--muted);font-size:13px;margin-bottom:12px" data-i18n="whitelist_help">
-            Belongs to the selected Cell profile. Empty list = open network. Save updates that Cell; Apply &amp; Restart puts it on air with the rest of the Cell.
+            Part of the selected Cell profile. Empty = open network. Use Update Cell / Save as, then Apply &amp; Restart.
           </div>
           <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
             <input type="number" id="whitelist-input" class="form-input" min="1" max="16777215"
@@ -4740,8 +4738,8 @@ const LANGS={
     live_log:'Live Log',autoscroll:'Auto-scroll',filter_all:'All',
     clear:'Clear',export:'Export',restart:'Restart',shutdown:'Shutdown',save:'Save',
     cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_remote:'Remote control',cfg_sec_wx:'WX / METAR',    whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
-    whitelist_help:'Belongs to the selected Cell profile. Empty list = open network. Save updates that Cell; Apply & Restart puts it on air with the Cell.',
-    whitelist_cell_banner:'Editing access for Cell “{cell}”. Travels with that profile (not with Brew).',
+    whitelist_help:'Part of the selected Cell profile (same as RF/network). Empty = open network. Persist with Update Cell or Save as, then Apply & Restart to put it on air.',
+    whitelist_cell_banner:'Access control for Cell “{cell}”. Travels with that profile (not with Brew).',
     whitelist_need_cell:'Select a Cell profile first.',
     whitelist_enforced:'ENFORCED',whitelist_open:'OPEN',whitelist_invalid:'Enter a valid ISSI (1–16777215).',
     remote_title:'Remote control (U-STATUS)',remote_help:'Authorized radios send a U-STATUS to ISSI 9999. Each status code maps to an action (IP, temperature, info, restart…). Changes apply instantly and persist in config.toml; they are not part of Cell/Brew profiles.',
@@ -4784,14 +4782,14 @@ const LANGS={
     confirm_shutdown:'Shutdown Bost FlowStation?\nThe service will stop and must be restarted manually.',
     confirm_logout:'Log out?',
     saved:'✓ Saved — restart to apply.',save_fail:'✗ Save failed',conn_error:'Connection error.',
-    cfg_sec_profiles:'Profiles',cfg_profiles_title:'Scenarios',cfg_profiles_help:'1) Pick a Cell + Brew · 2) Edit the forms below · 3) Update profile or Save as new · 4) Apply & Restart to put it on air.',
+    cfg_sec_profiles:'Profiles',cfg_profiles_title:'Scenarios',cfg_profiles_help:'Choose a Cell (RF, network, access) and a Brew (backhaul). Edit the forms, then Update that profile or Save as a new name. Apply & Restart puts the selected pair on air.',
     cfg_cell_profile:'Cell (RF + network)',cfg_brew_profile:'Brew backhaul',cfg_apply_restart:'Apply & Restart',
     cfg_update_cell:'Update Cell',cfg_update_brew:'Update Brew',cfg_save_as_cell:'Save as',cfg_save_as_brew:'Save as',
     cfg_del_cell:'Delete',cfg_del_brew:'Delete',
-    cfg_editing:'Editing forms for Cell “{cell}” · Brew “{brew}”. Change fields below, then Update or Save as.',
+    cfg_editing:'Editing Cell “{cell}” · Brew “{brew}”. Change the forms below, then Update or Save as.',
     cfg_sec_live:'Live settings',cfg_live_title:'Write to running config.toml',cfg_save_live:'Save live',
     cfg_live_help:'Saves the forms below into the active config. Restart (or Apply & Restart above) is required for RF / network / Brew to take effect.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',
@@ -5093,12 +5091,13 @@ const LANGS={
     tg_enabled:'Activar alertas Telegram',
     tg_test:'Enviar prueba',tg_testing:'Enviando prueba…',tg_test_ok:'✓ Prueba enviada a {n} chat(s)',
     cfg_sec_profiles:'Perfiles',cfg_profiles_title:'Escenarios',cfg_apply_restart:'Aplicar y reiniciar',
-    cfg_profiles_help:'1) Elige Cell + Brew · 2) Edita los formularios · 3) Actualiza o Guarda como · 4) Aplicar y reiniciar para poner en aire.',
+    cfg_profiles_help:'Elige un Cell (RF, red y acceso) y un Brew (backhaul). Edita los formularios y pulsa Actualizar o Guardar como. Aplicar y reiniciar pone en aire el par seleccionado.',
     cfg_cell_profile:'Cell (RF + red)',cfg_brew_profile:'Brew backhaul',cfg_update_cell:'Actualizar Cell',cfg_del_cell:'Borrar',
     cfg_save_as_cell:'Guardar como',cfg_update_brew:'Actualizar Brew',cfg_del_brew:'Borrar',cfg_save_as_brew:'Guardar como',
+    cfg_editing:'Editando Cell “{cell}” · Brew “{brew}”. Cambia los formularios y pulsa Actualizar o Guardar como.',
     cfg_sec_live:'Ajustes en vivo',cfg_live_title:'Escribir en config.toml activo',cfg_save_live:'Guardar en vivo',
     cfg_live_help:'Guarda los formularios en la config activa. Reinicia (o Aplicar y reiniciar) para que RF / red / Brew tengan efecto.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
     rf_waiting:'esperando…',rf_live:'en vivo',rf_stale:'obsoleto',
@@ -5120,8 +5119,8 @@ const LANGS={
     live_log:'Log en Vivo',autoscroll:'Auto-desplaz.',filter_all:'Todos',
     clear:'Limpiar',export:'Exportar',restart:'Reiniciar',shutdown:'Apagar',save:'Guardar',
     cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_remote:'Control remoto',cfg_sec_wx:'WX / METAR',    whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
-    whitelist_help:'Pertenece al perfil Cell seleccionado. Lista vacía = red abierta. Guardar actualiza ese Cell; Aplicar y reiniciar lo pone en aire con el Cell.',
-    whitelist_cell_banner:'Editando acceso del Cell “{cell}”. Viaja con ese perfil (no con Brew).',
+    whitelist_help:'Forma parte del perfil Cell seleccionado (igual que RF/red). Lista vacía = red abierta. Persiste con Actualizar Cell o Guardar como; Aplicar y reiniciar lo pone en aire.',
+    whitelist_cell_banner:'Control de acceso del Cell “{cell}”. Viaja con ese perfil (no con Brew).',
     whitelist_need_cell:'Selecciona primero un perfil Cell.',
     whitelist_enforced:'ACTIVA',whitelist_open:'ABIERTA',whitelist_invalid:'Introduce un ISSI válido (1–16777215).',
     remote_title:'Control remoto (U-STATUS)',remote_help:'Radios autorizados envían un U-STATUS al ISSI 9999. Cada código se mapea a una acción (IP, temperatura, info, reinicio…). Los cambios aplican al instante y se guardan en config.toml; no forman parte de los perfiles Cell/Brew.',
@@ -5364,6 +5363,8 @@ function applyLang(){
     if(el)el.textContent=t(p);
   });
   renderStations();renderCalls();renderLastHeard();renderEmergencyBanner();
+  try{updateEditingBanner();}catch{}
+  try{updateWhitelistBanner();renderWhitelist();}catch{}
 }
 function setLang(l,btn){
   currentLang=l;localStorage.setItem('fs_lang',l);
@@ -7356,14 +7357,28 @@ function hzToMhzDisplay(hz){
   if(hz==null||hz===''||!Number.isFinite(Number(hz)))return '';
   return (Number(hz)/1e6).toFixed(6);
 }
-function normalizeMhzField(el){
+/**
+ * Normalize an MHz text field (comma/dot). opts:
+ *   min/max — inclusive range (default 100–1000 for RF carriers)
+ *   allowEmpty — empty is valid (optional fields like custom duplex)
+ *   invalidKey — i18n key for the error (default cfg_freq_invalid)
+ */
+function normalizeMhzField(el,opts){
+  opts=opts||{};
+  const min=opts.min!=null?opts.min:100;
+  const max=opts.max!=null?opts.max:1000;
+  const allowEmpty=!!opts.allowEmpty;
   if(!el)return null;
   const n=parseMhzInput(el.value);
-  if(n===null){el.value='';el.style.borderColor='';return null;}
-  if(!Number.isFinite(n)||n<100||n>1000){
+  if(n===null){
+    el.value='';
+    el.style.borderColor='';
+    return allowEmpty?null:null;
+  }
+  if(!Number.isFinite(n)||n<min||n>max){
     el.style.borderColor='var(--danger)';
-    vcMsg('vc-rf-msg',t('cfg_freq_invalid'),false);
-    return null;
+    vcMsg('vc-rf-msg',t(opts.invalidKey||'cfg_freq_invalid'),false);
+    return NaN;
   }
   el.style.borderColor='';
   el.value=n.toFixed(6);
@@ -7421,7 +7436,7 @@ function collectVisualConfig(){
     system_wide_services:!!document.getElementById('vc-syswide')?.checked,
     voice_service:!!document.getElementById('vc-voice')?.checked,
   };
-  const customDuplex=vcNum('vc-custom-duplex'); if(customDuplex!==null)cell_info.custom_duplex_spacing=customDuplex;
+  const customDuplex=mhzFieldToHz('vc-custom-duplex'); if(customDuplex!==null)cell_info.custom_duplex_spacing=customDuplex;
   const tz=vcStr('vc-tz'); if(tz)cell_info.timezone=tz;
   const ht=vcNum('vc-hangtime'); if(ht!==null)cell_info.hangtime_secs=ht;
   const ct=vcNum('vc-call-timeout'); if(ct!==null)cell_info.call_timeout_secs=ct;
@@ -7447,9 +7462,8 @@ function collectVisualConfig(){
     net_info:{mcc:vcNum('vc-mcc'),mnc:vcNum('vc-mnc')},
     cell_info,
     brew,
-    // security / issi_whitelist is NOT included here: it is owned by Access Control
-    // (POST /api/profiles/cell/{name}/whitelist). Omitting it avoids baking an empty
-    // whitelist into legacy Cells when the operator only updates RF/network.
+    // Access control is part of the Cell form (like RF/network): Update / Save as persist it.
+    security:{issi_whitelist:whitelistEntries.slice()},
   };
 }
 function fillVisualConfig(d){
@@ -7461,7 +7475,9 @@ function fillVisualConfig(d){
   vcSet('vc-tx-gain',soapy.tx_gain_pad??soapy.tx_gain_dac??soapy.tx_gain_mixer);
   const cell=d?.cell_info||{};
   vcSet('vc-freq-band',cell.freq_band??4); vcSet('vc-main-carrier',cell.main_carrier);
-  vcSet('vc-duplex-id',cell.duplex_spacing??4); vcSet('vc-custom-duplex',cell.custom_duplex_spacing);
+  vcSet('vc-duplex-id',cell.duplex_spacing??4);
+  vcSet('vc-custom-duplex', (cell.custom_duplex_spacing!=null && cell.custom_duplex_spacing!=='')
+    ? hzToMhzDisplay(cell.custom_duplex_spacing) : '');
   vcSet('vc-freq-offset',cell.freq_offset??0); vcSet('vc-reverse',!!cell.reverse_operation);
   vcSet('vc-colour',cell.colour_code??0); vcSet('vc-la',cell.location_area);
   vcSet('vc-tz',cell.timezone||''); vcSet('vc-hangtime',cell.hangtime_secs);
@@ -7496,7 +7512,7 @@ function updateEditingBanner(){
   const cell=document.getElementById('vc-cell-profile')?.value||'—';
   const brew=document.getElementById('vc-brew-profile')?.value||'Offline';
   banner.style.display='block';
-  banner.textContent=(t('cfg_editing')||'').replace('{cell}',cell).replace('{brew}',brew);
+  banner.textContent=t('cfg_editing',{cell:cell,brew:brew});
 }
 async function refreshProfileSelects(active){
   const cellSel=document.getElementById('vc-cell-profile');
@@ -7543,9 +7559,10 @@ function autoCalcCarrier(){
   const band=vcNum('vc-freq-band')??4;
   const reverse=!!document.getElementById('vc-reverse')?.checked;
   const offset=vcNum('vc-freq-offset')??0;
-  let duplex=vcNum('vc-custom-duplex');
-  if(duplex===null)duplex=5000000;
-  if(txMhz===null){vcMsg('vc-rf-msg','TX freq required',false);return;}
+  const duplexMhz=normalizeMhzField(document.getElementById('vc-custom-duplex'),{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});
+  if(duplexMhz!==null&&!Number.isFinite(duplexMhz))return;
+  const duplex=duplexMhz===null?5000000:Math.round(duplexMhz*1e6);
+  if(txMhz===null||!Number.isFinite(txMhz)){vcMsg('vc-rf-msg','TX freq required',false);return;}
   if(band!==4){vcMsg('vc-rf-msg','Auto supports freq_band=4',false);return;}
   if(reverse){vcMsg('vc-rf-msg','Auto supports reverse_operation=false',false);return;}
   const tx=Math.round(txMhz*1e6);
@@ -7562,10 +7579,17 @@ async function loadCellProfileIntoForm(){
     if(!r.ok){vcMsg('vc-profiles-msg',await r.text(),false);return;}
     const d=await r.json();
     fillVisualConfig(Object.assign({},d,{brew:collectVisualConfig().brew}));
-    // Legacy Cells without `security` show an empty list here; Apply leaves live
-    // [security] untouched until Access Control Save writes the key onto the Cell.
+    // Legacy Cells without `security`: seed Access Control from the live whitelist so
+    // Update Cell does not bake an empty list and later wipe on-air access on Apply.
     if(!Object.prototype.hasOwnProperty.call(d,'security')){
-      whitelistEntries=[];
+      try{
+        const wr=await fetch('/api/whitelist');
+        if(wr.ok){
+          const w=await wr.json();
+          whitelistEntries=(w.issi_whitelist||[]).map(Number)
+            .filter(n=>Number.isFinite(n)&&n>=1&&n<=16777215).sort((a,b)=>a-b);
+        }else whitelistEntries=[];
+      }catch{whitelistEntries=[];}
       renderWhitelist();
       updateWhitelistBanner();
     }
@@ -7706,22 +7730,6 @@ function addWhitelistEntry(){
 function removeWhitelistEntry(issi){
   whitelistEntries=whitelistEntries.filter(x=>x!==issi);
   renderWhitelist();
-}
-async function saveWhitelist(){
-  const cell=document.getElementById('vc-cell-profile')?.value;
-  if(!cell){setWhitelistMsg(t('whitelist_need_cell'),false);return;}
-  try{
-    // Persist into the selected Cell profile (does not wipe unrelated Cell keys).
-    const r=await fetch('/api/profiles/cell/'+encodeURIComponent(cell)+'/whitelist',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({issi_whitelist:whitelistEntries})
-    });
-    if(!r.ok){setWhitelistMsg(t('save_fail')+': '+await r.text(),false);return;}
-    const j=await r.json().catch(()=>({}));
-    // If this Cell is the active one, live TOML + runtime were updated too.
-    setWhitelistMsg(t('saved')+(j.applied_live?' (live)':''),true);
-    updateWhitelistBanner();
-  }catch{setWhitelistMsg(t('conn_error'),false);}
 }
 function setWhitelistMsg(txt,ok){const el=document.getElementById('whitelist-msg');if(!el)return;el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},4000);}
 

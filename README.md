@@ -102,7 +102,7 @@ Use this to jump between networks (e.g. local cell vs BrandMeister) without rewr
 
 ### Live settings (RF & network)
 
-Frequencies are entered in **MHz** (comma or dot). On blur the UI normalizes like Motorola CPS to six decimals (e.g. `432,2` → `432.200000`); the running `config.toml` still stores **Hz**.
+Frequencies (TX/RX and custom duplex) are entered in **MHz** (comma or dot). On blur the UI normalizes like Motorola CPS to six decimals (e.g. `432,2` → `432.200000`); the running `config.toml` still stores **Hz**.
 
 **Save live** writes the forms into the running `/etc/flowstation/config.toml`. Use **Restart** (also available under **System**) when RF / network / Brew need a service restart.
 
@@ -112,11 +112,11 @@ Frequencies are entered in **MHz** (comma or dot). On blur the UI normalizes lik
 
 ### Access control
 
-In **Access Control**, the ISSI whitelist belongs to the **selected Cell** profile (not Brew, not a global-only list). Empty list = open network for that Cell; with entries, only listed radios may register when that Cell is on air.
+In **Access Control**, the ISSI whitelist is part of the **selected Cell** form (same workflow as RF/network — not Brew). Empty list = open network for that Cell; with entries, only listed radios may register when that Cell is on air.
 
-- **Save** writes the list into the Cell JSON. If that Cell is active, live TOML + runtime update immediately.
-- **Apply & Restart** puts the Cell (including its whitelist, when present) on air.
-- Existing Cell profiles without a `security` key are left alone on Apply — your current live `[security]` is not cleared.
+- **Update Cell** / **Save as** persist the list into the Cell profile.
+- **Apply & Restart** puts the Cell (including its whitelist) on air.
+- Existing Cell profiles without a `security` key are left alone on Apply until you Update that Cell — your current live `[security]` is not cleared by accident.
 
 U-STATUS remote control stays station-wide (not stored in Cell/Brew).
 
