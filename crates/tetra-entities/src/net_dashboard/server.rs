@@ -2157,8 +2157,17 @@ fn handle_connection(
     // mobile usability issues (iOS Safari prompts 2-3 times, forgets credentials
     // between WebSocket reconnects, etc.). With cookies we control the UX fully.
     //
-    // Public routes (no auth required): GET /login, POST /api/login, static assets.
+    // Public routes (no auth required): GET /login, POST /api/login, favicon, static assets.
     // Every other route is checked here against the session store.
+    // Favicon must stay public so the browser can load it on /login before auth.
+    if req_line.starts_with("GET /favicon.svg")
+        || req_line.starts_with("GET /favicon.ico")
+        || req_line.starts_with("GET /apple-touch-icon")
+    {
+        serve_favicon(stream);
+        return;
+    }
+
     if let Some((ref expected_user, ref expected_pass)) = auth {
         // Login page and login API must remain reachable without a session.
         let is_login_page = req_line.starts_with("GET /login ") || req_line.starts_with("GET /login?");
@@ -4839,6 +4848,17 @@ fn serve_html(mut stream: TcpStream) {
     let body = dashboard_html_body().as_bytes();
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body);
+}
+
+/// Public brand favicon (antenna mark). Served without auth so /login and tab icons work.
+fn serve_favicon(mut stream: TcpStream) {
+    let body = crate::net_dashboard::html::FAVICON_SVG.as_bytes();
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nCache-Control: public, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(header.as_bytes());

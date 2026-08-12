@@ -1,9 +1,32 @@
+//! Dashboard SPA / login HTML (embedded).
+
+/// Favicon SVG — same antenna mark as login/sidebar, fixed colours for browser tabs.
+pub const FAVICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="7" fill="#111824"/>
+  <g stroke="#00d4a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 28 L16 8 L18 28"/>
+    <line x1="14.6" y1="22" x2="17.4" y2="22"/>
+    <line x1="14.9" y1="17" x2="17.1" y2="17"/>
+    <line x1="15.2" y1="13" x2="16.8" y2="13"/>
+    <line x1="16" y1="8" x2="16" y2="4"/>
+    <circle cx="16" cy="3" r="1" fill="#00d4a8" stroke="none"/>
+  </g>
+  <g stroke="#4da6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 8 Q6 11 6 16" opacity="0.75"/>
+    <path d="M23 8 Q26 11 26 16" opacity="0.75"/>
+    <path d="M11 6 Q7 9 7 14" opacity="0.45"/>
+    <path d="M21 6 Q25 9 25 14" opacity="0.45"/>
+  </g>
+</svg>"##;
+
 pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <html lang="es" data-uisize="m">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>TETRA {{PRODUCT_NAME}}</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/favicon.svg">
 <style>
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -10208,6 +10231,8 @@ pub const LOGIN_HTML: &str = r##"<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#eceff4">
 <title>{{PRODUCT_NAME}}</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/favicon.svg">
 <style>
 :root{
   --bg:#eceff4;--bg2:#ffffff;--bg3:#e6eaf1;--bg4:#d6dde7;
