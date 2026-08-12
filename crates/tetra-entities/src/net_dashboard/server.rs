@@ -2724,6 +2724,22 @@ fn handle_connection(
                                 cell,
                                 brew
                             );
+                            // If the Cell carries security, sync live whitelist before restart.
+                            // Legacy Cells without `security` leave live [security] untouched.
+                            if let Ok(cell_json) =
+                                crate::net_dashboard::profiles::get_cell_profile(&config_path, cell)
+                            {
+                                if let Some(list) =
+                                    crate::net_dashboard::profiles::extract_issi_whitelist(&cell_json)
+                                {
+                                    let _ = apply_issi_whitelist_live(
+                                        &shared_config,
+                                        &config_path,
+                                        &list,
+                                        &cmd_tx,
+                                    );
+                                }
+                            }
                             http_json_response(inner, 200, r#"{"ok":true}"#);
                         }
                         Err(e) => http_response(inner, 400, &e),
@@ -2777,6 +2793,16 @@ fn handle_connection(
                 Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
                 Err(e) => http_response(inner, 400, &e),
             }
+        } else if let Some(cell) = name.strip_suffix("/whitelist") {
+            let (inner, body_str) = read_post_body(stream);
+            serve_cell_whitelist_post(
+                inner,
+                &shared_config,
+                &config_path,
+                cell,
+                &body_str,
+                &cmd_tx,
+            );
         } else {
             let (inner, body_str) = read_post_body(stream);
             match serde_json::from_str::<serde_json::Value>(&body_str) {
@@ -4009,9 +4035,56 @@ fn serve_whitelist_get(mut stream: TcpStream, shared_config: &Option<tetra_confi
     let _ = stream.write_all(body.as_bytes());
 }
 
+/// Apply ISSI whitelist at runtime (override + kick) and persist to live TOML.
+/// Returns Ok(()) even if TOML write fails after runtime apply (warns).
+fn apply_issi_whitelist_live(
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+    config_path: &str,
+    list: &[u32],
+    cmd_tx: &Arc<Mutex<Option<CmdSender>>>,
+) -> Result<(), String> {
+    use crate::net_dashboard::whitelist;
+
+    let Some(cfg) = shared_config else {
+        return Err("Config not available".into());
+    };
+
+    {
+        let mut state = cfg.state_write();
+        state.issi_whitelist_override = Some(list.to_vec());
+    }
+
+    // Enforce on already-registered terminals (whitelist is checked at registration).
+    if !list.is_empty() {
+        let to_kick: Vec<u32> = {
+            let state = cfg.state_read();
+            state
+                .subscribers
+                .all_registered_issis()
+                .filter(|issi| !list.contains(issi))
+                .collect()
+        };
+        for issi in to_kick {
+            tracing::info!("Dashboard: whitelist change — kicking non-whitelisted ISSI {}", issi);
+            send_control_cmd(cmd_tx, ControlCommand::KickMs { issi });
+        }
+    }
+
+    if let Err(e) = whitelist::write_whitelist_to_toml(config_path, list) {
+        tracing::warn!(
+            "Dashboard: whitelist applied at runtime but failed to persist to TOML: {}",
+            e
+        );
+        return Err(format!("runtime ok; TOML write failed: {e}"));
+    }
+    Ok(())
+}
+
 /// POST /api/whitelist — set the whitelist. Body: JSON array `[1,2,3]` or
 /// `{"issi_whitelist":[1,2,3]}`. Applies immediately via the StackState override AND
 /// rewrites the TOML so it survives a restart. An empty list = open network.
+///
+/// Prefer `POST /api/profiles/cell/{name}/whitelist` so the list is bound to a Cell profile.
 fn serve_whitelist_post(
     stream: TcpStream,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
@@ -4029,49 +4102,79 @@ fn serve_whitelist_post(
         }
     };
 
-    let Some(cfg) = shared_config else {
-        http_response(stream, 503, "Config not available");
-        return;
+    match apply_issi_whitelist_live(shared_config, config_path, &list, cmd_tx) {
+        Ok(()) => {
+            tracing::info!("Dashboard: ISSI whitelist updated ({} entries)", list.len());
+            http_response(stream, 200, "OK");
+        }
+        Err(e) if e.contains("TOML write failed") => {
+            http_response(
+                stream,
+                200,
+                "Applied at runtime; failed to write config file (check permissions)",
+            );
+        }
+        Err(e) => http_response(stream, 503, &e),
+    }
+}
+
+/// POST /api/profiles/cell/{name}/whitelist — persist ISSI list on the Cell profile.
+/// If that Cell is active, also apply live TOML + runtime override.
+fn serve_cell_whitelist_post(
+    stream: TcpStream,
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+    config_path: &str,
+    cell_name: &str,
+    body: &str,
+    cmd_tx: &Arc<Mutex<Option<CmdSender>>>,
+) {
+    use crate::net_dashboard::whitelist;
+
+    let list = match whitelist::parse_whitelist_body(body) {
+        Ok(l) => l,
+        Err(e) => {
+            http_response(stream, 400, &format!("Invalid whitelist: {e}"));
+            return;
+        }
     };
 
-    // 1) Apply at runtime immediately so the next registration sees it.
-    {
-        let mut state = cfg.state_write();
-        state.issi_whitelist_override = Some(list.clone());
-    }
+    let is_active = match crate::net_dashboard::profiles::set_cell_whitelist(
+        config_path,
+        cell_name,
+        &list,
+    ) {
+        Ok(active) => active,
+        Err(e) => {
+            http_response(stream, 400, &e);
+            return;
+        }
+    };
 
-    // 2) Enforce immediately on terminals that are ALREADY registered. The whitelist is
-    //    only checked at registration time, so without this an enabling edit would leave
-    //    disallowed radios connected (looks like access control never turned on) and a
-    //    removal would only take effect when the terminal next re-registers — i.e. on a
-    //    reboot. Kick every currently-registered ISSI the new list no longer allows; it
-    //    re-registers and is then rejected by MM. Empty list = open network = kick nobody.
-    if !list.is_empty() {
-        let to_kick: Vec<u32> = {
-            let state = cfg.state_read();
-            state
-                .subscribers
-                .all_registered_issis()
-                .filter(|issi| !list.contains(issi))
-                .collect()
-        };
-        for issi in to_kick {
-            tracing::info!("Dashboard: whitelist change — kicking non-whitelisted ISSI {}", issi);
-            send_control_cmd(cmd_tx, ControlCommand::KickMs { issi });
+    let mut applied_live = false;
+    if is_active {
+        match apply_issi_whitelist_live(shared_config, config_path, &list, cmd_tx) {
+            Ok(()) => applied_live = true,
+            Err(e) if e.contains("TOML write failed") => applied_live = true,
+            Err(e) => {
+                tracing::warn!(
+                    "Dashboard: cell whitelist saved but live apply failed: {}",
+                    e
+                );
+            }
         }
     }
 
-    // 3) Persist to TOML so it survives a restart.
-    if let Err(e) = whitelist::write_whitelist_to_toml(config_path, &list) {
-        tracing::warn!("Dashboard: whitelist applied at runtime but failed to persist to TOML: {}", e);
-        // Runtime change still took effect; report partial success so the operator knows
-        // to check file permissions.
-        http_response(stream, 200, "Applied at runtime; failed to write config file (check permissions)");
-        return;
-    }
-
-    tracing::info!("Dashboard: ISSI whitelist updated ({} entries)", list.len());
-    http_response(stream, 200, "OK");
+    tracing::info!(
+        "Dashboard: Cell '{}' whitelist updated ({} entries, applied_live={})",
+        cell_name,
+        list.len(),
+        applied_live
+    );
+    http_json_response(
+        stream,
+        200,
+        &format!(r#"{{"ok":true,"applied_live":{}}}"#, applied_live),
+    );
 }
 
 // ---------------------------------------------------------------------------

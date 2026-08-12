@@ -102,6 +102,8 @@ Use this to jump between networks (e.g. local cell vs BrandMeister) without rewr
 
 ### Live settings (RF & network)
 
+Frequencies are entered in **MHz** (comma or dot). On blur the UI normalizes like Motorola CPS to six decimals (e.g. `432,2` → `432.200000`); the running `config.toml` still stores **Hz**.
+
 **Save live** writes the forms into the running `/etc/flowstation/config.toml`. Use **Restart** (also available under **System**) when RF / network / Brew need a service restart.
 
 <p align="center">
@@ -110,7 +112,13 @@ Use this to jump between networks (e.g. local cell vs BrandMeister) without rewr
 
 ### Access control
 
-In **Access Control**, manage the ISSI whitelist from the GUI. Empty list = open network; with entries, only listed radios may register. Changes apply immediately and persist.
+In **Access Control**, the ISSI whitelist belongs to the **selected Cell** profile (not Brew, not a global-only list). Empty list = open network for that Cell; with entries, only listed radios may register when that Cell is on air.
+
+- **Save** writes the list into the Cell JSON. If that Cell is active, live TOML + runtime update immediately.
+- **Apply & Restart** puts the Cell (including its whitelist, when present) on air.
+- Existing Cell profiles without a `security` key are left alone on Apply — your current live `[security]` is not cleared.
+
+U-STATUS remote control stays station-wide (not stored in Cell/Brew).
 
 <p align="center">
   <img src="Docs/screenshots/10-access-control.png" alt="Config — ISSI whitelist / access control" width="720"/>
@@ -146,7 +154,7 @@ Still available under **Advanced** for power users: **Save** + **Restart** only.
 | **DGNA** | Assign / deassign talkgroups over the air |
 | **Calls / Last Heard / Log** | Live traffic and diagnostics |
 | **RF / Health** | Spectrum / constellation and subsystem health |
-| **Config** | Profiles, whitelist, remote U-STATUS, live save |
+| **Config** | Profiles, Cell ISSI whitelist, remote U-STATUS, live save |
 | **System** | Host metrics, service control, OTA |
 | **Setup** | Re-run first-boot helper anytime |
 

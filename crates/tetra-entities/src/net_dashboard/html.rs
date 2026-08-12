@@ -3748,8 +3748,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <div class="group-list">
-            <label class="field"><span data-i18n="cfg_tx">Downlink TX (Hz)</span><input type="number" id="vc-tx-freq" class="form-input"></label>
-            <label class="field"><span data-i18n="cfg_rx">Uplink RX (Hz)</span><input type="number" id="vc-rx-freq" class="form-input"></label>
+            <label class="field"><span data-i18n="cfg_tx">Downlink TX (MHz)</span><input type="text" inputmode="decimal" id="vc-tx-freq" class="form-input" placeholder="438.025000" onblur="normalizeMhzField(this)" onkeydown="if(event.key==='Enter'){normalizeMhzField(this);this.blur();}"></label>
+            <label class="field"><span data-i18n="cfg_rx">Uplink RX (MHz)</span><input type="text" inputmode="decimal" id="vc-rx-freq" class="form-input" placeholder="430.800000" onblur="normalizeMhzField(this)" onkeydown="if(event.key==='Enter'){normalizeMhzField(this);this.blur();}"></label>
             <label class="field"><span data-i18n="cfg_colour">Colour code</span><input type="number" id="vc-colour" class="form-input" min="0" max="63"></label>
           </div>
           <details style="margin-top:14px">
@@ -3846,10 +3846,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
-      <!-- ── ISSI WHITELIST ──
-           Editable access-control list. Empty list = open network (any ISSI may
-           register). Changes apply immediately at runtime AND are written back to
-           config.toml so they survive a restart. -->
+      <!-- ── ISSI WHITELIST (part of the selected Cell profile) ──
+           Empty list = open network. Stored in the Cell JSON as security.issi_whitelist.
+           Apply & Restart puts it on air; Save updates the selected Cell (and live if active). -->
       <div class="section-label" data-i18n="cfg_sec_access">Access Control</div>
       <div class="card">
         <div class="card-head">
@@ -3860,10 +3859,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
         </div>
         <div class="card-body">
+          <div id="whitelist-cell-banner" style="margin-bottom:10px;padding:8px 10px;border-radius:6px;background:rgba(77,166,255,0.10);border:1px solid rgba(77,166,255,0.28);font-size:12px;color:var(--text2)"></div>
           <div style="color:var(--muted);font-size:13px;margin-bottom:12px" data-i18n="whitelist_help">
-            When the list is empty, any radio may register (open network). When non-empty,
-            only the listed ISSIs are accepted; all others are rejected. Changes apply
-            instantly and persist across restarts.
+            Belongs to the selected Cell profile. Empty list = open network. Save updates that Cell; Apply &amp; Restart puts it on air with the rest of the Cell.
           </div>
           <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
             <input type="number" id="whitelist-input" class="form-input" min="1" max="16777215"
@@ -4741,8 +4739,10 @@ const LANGS={
     no_terminals:'No radios registered',no_calls:'No active calls',
     live_log:'Live Log',autoscroll:'Auto-scroll',filter_all:'All',
     clear:'Clear',export:'Export',restart:'Restart',shutdown:'Shutdown',save:'Save',
-    cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_remote:'Remote control',cfg_sec_wx:'WX / METAR',whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
-    whitelist_help:'When the list is empty, any radio may register (open network). When non-empty, only the listed ISSIs are accepted; all others are rejected. Changes apply instantly and persist across restarts.',
+    cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_remote:'Remote control',cfg_sec_wx:'WX / METAR',    whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
+    whitelist_help:'Belongs to the selected Cell profile. Empty list = open network. Save updates that Cell; Apply & Restart puts it on air with the Cell.',
+    whitelist_cell_banner:'Editing access for Cell “{cell}”. Travels with that profile (not with Brew).',
+    whitelist_need_cell:'Select a Cell profile first.',
     whitelist_enforced:'ENFORCED',whitelist_open:'OPEN',whitelist_invalid:'Enter a valid ISSI (1–16777215).',
     remote_title:'Remote control (U-STATUS)',remote_help:'Authorized radios send a U-STATUS to ISSI 9999. Each status code maps to an action (IP, temperature, info, restart…). Changes apply instantly and persist in config.toml; they are not part of Cell/Brew profiles.',
     remote_enabled:'Enable remote control',remote_control_issi:'Control ISSI',remote_issis_title:'Authorized ISSIs',remote_issi_add:'Add ISSI',
@@ -4791,7 +4791,7 @@ const LANGS={
     cfg_editing:'Editing forms for Cell “{cell}” · Brew “{brew}”. Change fields below, then Update or Save as.',
     cfg_sec_live:'Live settings',cfg_live_title:'Write to running config.toml',cfg_save_live:'Save live',
     cfg_live_help:'Saves the forms below into the active config. Restart (or Apply & Restart above) is required for RF / network / Brew to take effect.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (Hz)',cfg_rx:'Uplink RX (Hz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',
@@ -5098,7 +5098,7 @@ const LANGS={
     cfg_save_as_cell:'Guardar como',cfg_update_brew:'Actualizar Brew',cfg_del_brew:'Borrar',cfg_save_as_brew:'Guardar como',
     cfg_sec_live:'Ajustes en vivo',cfg_live_title:'Escribir en config.toml activo',cfg_save_live:'Guardar en vivo',
     cfg_live_help:'Guarda los formularios en la config activa. Reinicia (o Aplicar y reiniciar) para que RF / red / Brew tengan efecto.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
     rf_waiting:'esperando…',rf_live:'en vivo',rf_stale:'obsoleto',
@@ -5119,8 +5119,10 @@ const LANGS={
     no_terminals:'No hay radios registrados',no_calls:'No hay llamadas activas',
     live_log:'Log en Vivo',autoscroll:'Auto-desplaz.',filter_all:'Todos',
     clear:'Limpiar',export:'Exportar',restart:'Reiniciar',shutdown:'Apagar',save:'Guardar',
-    cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_remote:'Control remoto',cfg_sec_wx:'WX / METAR',whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
-    whitelist_help:'Cuando la lista está vacía, cualquier radio puede registrarse (red abierta). Con entradas, solo se aceptan los ISSI listados; el resto se rechazan. Los cambios se aplican al instante y persisten tras reiniciar.',
+    cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_remote:'Control remoto',cfg_sec_wx:'WX / METAR',    whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
+    whitelist_help:'Pertenece al perfil Cell seleccionado. Lista vacía = red abierta. Guardar actualiza ese Cell; Aplicar y reiniciar lo pone en aire con el Cell.',
+    whitelist_cell_banner:'Editando acceso del Cell “{cell}”. Viaja con ese perfil (no con Brew).',
+    whitelist_need_cell:'Selecciona primero un perfil Cell.',
     whitelist_enforced:'ACTIVA',whitelist_open:'ABIERTA',whitelist_invalid:'Introduce un ISSI válido (1–16777215).',
     remote_title:'Control remoto (U-STATUS)',remote_help:'Radios autorizados envían un U-STATUS al ISSI 9999. Cada código se mapea a una acción (IP, temperatura, info, reinicio…). Los cambios aplican al instante y se guardan en config.toml; no forman parte de los perfiles Cell/Brew.',
     remote_enabled:'Activar control remoto',remote_control_issi:'ISSI de control',remote_issis_title:'ISSIs autorizados',remote_issi_add:'Añadir ISSI',
@@ -7341,6 +7343,41 @@ function vcMsg(id,msg,ok){const el=document.getElementById(id);if(!el)return;el.
 function vcNum(id){const el=document.getElementById(id);if(!el)return null;const v=el.value.trim();if(v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
 function vcStr(id){const el=document.getElementById(id);return el?el.value.trim():'';}
 function vcSet(id,v){const el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!v;else el.value=(v===undefined||v===null)?'':String(v);}
+/** Parse operator MHz input (comma or dot). Returns null if empty, NaN if invalid. */
+function parseMhzInput(raw){
+  if(raw==null)return null;
+  const s=String(raw).trim().replace(/\s+/g,'').replace(',','.');
+  if(s==='')return null;
+  const n=Number(s);
+  return Number.isFinite(n)?n:NaN;
+}
+/** Motorola CPS style: always 6 fractional digits, e.g. 432,2 → 432.200000 */
+function hzToMhzDisplay(hz){
+  if(hz==null||hz===''||!Number.isFinite(Number(hz)))return '';
+  return (Number(hz)/1e6).toFixed(6);
+}
+function normalizeMhzField(el){
+  if(!el)return null;
+  const n=parseMhzInput(el.value);
+  if(n===null){el.value='';el.style.borderColor='';return null;}
+  if(!Number.isFinite(n)||n<100||n>1000){
+    el.style.borderColor='var(--danger)';
+    vcMsg('vc-rf-msg',t('cfg_freq_invalid'),false);
+    return null;
+  }
+  el.style.borderColor='';
+  el.value=n.toFixed(6);
+  return n;
+}
+/** Read MHz field → Hz (integer) for config.toml / backend. */
+function mhzFieldToHz(id){
+  const el=document.getElementById(id);
+  if(!el)return null;
+  const n=parseMhzInput(el.value);
+  if(n===null)return null;
+  if(!Number.isFinite(n))return null;
+  return Math.round(n*1e6);
+}
 function toggleBrewFields(){
   const on=document.getElementById('vc-brew-enabled')?.checked;
   ['vc-brew-host','vc-brew-port','vc-brew-tls','vc-brew-user','vc-brew-pass','vc-brew-reconnect','vc-brew-sds','vc-brew-rssi'].forEach(id=>{
@@ -7365,8 +7402,8 @@ function collectVisualConfig(){
   const rxPga=vcNum('vc-rx-pga'); if(rxPga!==null)gains.rx_gain_pga=rxPga;
   const txG=vcNum('vc-tx-gain'); if(txG!==null){gains.tx_gain_pad=txG;gains.tx_gain_dac=txG;}
   const soapysdr={
-    tx_freq:vcNum('vc-tx-freq'),
-    rx_freq:vcNum('vc-rx-freq'),
+    tx_freq:mhzFieldToHz('vc-tx-freq'),
+    rx_freq:mhzFieldToHz('vc-rx-freq'),
     ppm_err:vcNum('vc-ppm')??0,
   };
   const device=vcStr('vc-device'); if(device)soapysdr.device=device;
@@ -7410,11 +7447,14 @@ function collectVisualConfig(){
     net_info:{mcc:vcNum('vc-mcc'),mnc:vcNum('vc-mnc')},
     cell_info,
     brew,
+    // security / issi_whitelist is NOT included here: it is owned by Access Control
+    // (POST /api/profiles/cell/{name}/whitelist). Omitting it avoids baking an empty
+    // whitelist into legacy Cells when the operator only updates RF/network.
   };
 }
 function fillVisualConfig(d){
   const soapy=d?.phy_io?.soapysdr||{};
-  vcSet('vc-tx-freq',soapy.tx_freq); vcSet('vc-rx-freq',soapy.rx_freq);
+  vcSet('vc-tx-freq',hzToMhzDisplay(soapy.tx_freq)); vcSet('vc-rx-freq',hzToMhzDisplay(soapy.rx_freq));
   vcSet('vc-ppm',soapy.ppm_err??0); vcSet('vc-device',soapy.device||'');
   vcSet('vc-rx-ant',soapy.rx_antenna||''); vcSet('vc-tx-ant',soapy.tx_antenna||'');
   vcSet('vc-rx-lna',soapy.rx_gain_lna); vcSet('vc-rx-pga',soapy.rx_gain_pga);
@@ -7441,6 +7481,14 @@ function fillVisualConfig(d){
   vcSet('vc-brew-reconnect',brew.reconnect_delay_secs??15);
   vcSet('vc-brew-sds',brew.feature_sds_enabled!==false); vcSet('vc-brew-rssi',!!brew.feature_rssi_export);
   toggleBrewFields();
+  // Only rewrite the Access Control list when the payload explicitly carries `security`
+  // (live visual always does). Brew-only merges omit it so the current Cell list is kept.
+  if(d&&Object.prototype.hasOwnProperty.call(d,'security')){
+    const wl=(d.security&&Array.isArray(d.security.issi_whitelist))?d.security.issi_whitelist:[];
+    whitelistEntries=wl.map(Number).filter(n=>Number.isFinite(n)&&n>=1&&n<=16777215).sort((a,b)=>a-b);
+    renderWhitelist();
+    updateWhitelistBanner();
+  }
 }
 function updateEditingBanner(){
   const banner=document.getElementById('vc-editing-banner');
@@ -7491,20 +7539,21 @@ async function saveVisualConfig(){
   }catch(e){vcMsg('vc-rf-msg',String(e),false);}
 }
 function autoCalcCarrier(){
-  const tx=vcNum('vc-tx-freq');
+  const txMhz=normalizeMhzField(document.getElementById('vc-tx-freq'));
   const band=vcNum('vc-freq-band')??4;
   const reverse=!!document.getElementById('vc-reverse')?.checked;
   const offset=vcNum('vc-freq-offset')??0;
   let duplex=vcNum('vc-custom-duplex');
   if(duplex===null)duplex=5000000;
-  if(tx===null){vcMsg('vc-rf-msg','TX freq required',false);return;}
+  if(txMhz===null){vcMsg('vc-rf-msg','TX freq required',false);return;}
   if(band!==4){vcMsg('vc-rf-msg','Auto supports freq_band=4',false);return;}
   if(reverse){vcMsg('vc-rf-msg','Auto supports reverse_operation=false',false);return;}
+  const tx=Math.round(txMhz*1e6);
   const main=(tx-400000000-offset)/25000;
   if(!Number.isInteger(main)){vcMsg('vc-rf-msg','main_carrier is not an integer',false);return;}
   vcSet('vc-main-carrier',main);
-  vcSet('vc-rx-freq',tx-duplex);
-  vcMsg('vc-rf-msg','Auto OK: main_carrier='+main+', rx_freq='+(tx-duplex),true);
+  vcSet('vc-rx-freq',hzToMhzDisplay(tx-duplex));
+  vcMsg('vc-rf-msg','Auto OK: main_carrier='+main+', rx_freq='+hzToMhzDisplay(tx-duplex)+' MHz',true);
 }
 async function loadCellProfileIntoForm(){
   const name=document.getElementById('vc-cell-profile')?.value; if(!name)return;
@@ -7513,6 +7562,13 @@ async function loadCellProfileIntoForm(){
     if(!r.ok){vcMsg('vc-profiles-msg',await r.text(),false);return;}
     const d=await r.json();
     fillVisualConfig(Object.assign({},d,{brew:collectVisualConfig().brew}));
+    // Legacy Cells without `security` show an empty list here; Apply leaves live
+    // [security] untouched until Access Control Save writes the key onto the Cell.
+    if(!Object.prototype.hasOwnProperty.call(d,'security')){
+      whitelistEntries=[];
+      renderWhitelist();
+      updateWhitelistBanner();
+    }
     updateEditingBanner();
     vcMsg('vc-profiles-msg','Cell loaded: '+name,true);
   }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
@@ -7582,22 +7638,51 @@ async function applySelectedProfiles(){
   }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
 }
 
-// ── ISSI Whitelist ─────────────────────────────────────────────────────────
+// ── ISSI Whitelist (bound to selected Cell profile) ─────────────────────────
 let whitelistEntries=[];
+function updateWhitelistBanner(){
+  const banner=document.getElementById('whitelist-cell-banner');
+  const badge=document.getElementById('whitelist-status');
+  const cell=document.getElementById('vc-cell-profile')?.value||'';
+  if(banner){
+    banner.textContent=cell
+      ? t('whitelist_cell_banner',{cell:cell})
+      : t('whitelist_need_cell');
+  }
+  if(badge){
+    if(whitelistEntries.length){badge.textContent=t('whitelist_enforced');badge.style.color='var(--accent)';}
+    else{badge.textContent=t('whitelist_open');badge.style.color='var(--muted)';}
+  }
+}
 async function loadWhitelist(){
+  // Prefer the selected Cell profile; fall back to live /api/whitelist only if no cell selected.
+  const cell=document.getElementById('vc-cell-profile')?.value;
+  if(cell){
+    try{
+      const r=await fetch('/api/profiles/cell/'+encodeURIComponent(cell));
+      if(r.ok){
+        const d=await r.json();
+        const wl=(d.security&&Array.isArray(d.security.issi_whitelist))?d.security.issi_whitelist:[];
+        whitelistEntries=wl.map(Number).filter(n=>Number.isFinite(n)&&n>=1&&n<=16777215).sort((a,b)=>a-b);
+        renderWhitelist();
+        updateWhitelistBanner();
+        return;
+      }
+    }catch{}
+  }
   try{
     const r=await fetch('/api/whitelist');
     if(!r.ok){setWhitelistMsg(t('conn_error'),false);return;}
     const d=await r.json();
     whitelistEntries=(d.issi_whitelist||[]).slice().sort((a,b)=>a-b);
     renderWhitelist();
-    const badge=document.getElementById('whitelist-status');
-    if(d.enabled){badge.textContent=t('whitelist_enforced');badge.style.color='var(--accent)';}
-    else{badge.textContent=t('whitelist_open');badge.style.color='var(--muted)';}
+    updateWhitelistBanner();
   }catch{setWhitelistMsg(t('conn_error'),false);}
 }
 function renderWhitelist(){
   const box=document.getElementById('whitelist-chips');
+  if(!box)return;
+  updateWhitelistBanner();
   if(!whitelistEntries.length){
     box.innerHTML='<span style="color:var(--muted);font-size:13px" data-i18n="whitelist_empty">'+t('whitelist_empty')+'</span>';
     return;
@@ -7623,14 +7708,22 @@ function removeWhitelistEntry(issi){
   renderWhitelist();
 }
 async function saveWhitelist(){
+  const cell=document.getElementById('vc-cell-profile')?.value;
+  if(!cell){setWhitelistMsg(t('whitelist_need_cell'),false);return;}
   try{
-    const r=await fetch('/api/whitelist',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({issi_whitelist:whitelistEntries})});
-    if(r.ok){setWhitelistMsg(t('saved'),true);loadWhitelist();}
-    else setWhitelistMsg(t('save_fail')+': '+await r.text(),false);
+    // Persist into the selected Cell profile (does not wipe unrelated Cell keys).
+    const r=await fetch('/api/profiles/cell/'+encodeURIComponent(cell)+'/whitelist',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({issi_whitelist:whitelistEntries})
+    });
+    if(!r.ok){setWhitelistMsg(t('save_fail')+': '+await r.text(),false);return;}
+    const j=await r.json().catch(()=>({}));
+    // If this Cell is the active one, live TOML + runtime were updated too.
+    setWhitelistMsg(t('saved')+(j.applied_live?' (live)':''),true);
+    updateWhitelistBanner();
   }catch{setWhitelistMsg(t('conn_error'),false);}
 }
-function setWhitelistMsg(txt,ok){const el=document.getElementById('whitelist-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},4000);}
+function setWhitelistMsg(txt,ok){const el=document.getElementById('whitelist-msg');if(!el)return;el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},4000);}
 
 // ── SDS remote control (U-STATUS → 9999) ────────────────────────────────────
 const REMOTE_ACTIONS=['ip','temp','info','restart','shutdown','kick_all'];

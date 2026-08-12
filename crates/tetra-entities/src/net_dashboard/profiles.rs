@@ -102,6 +102,11 @@ pub fn ensure_seeded(config_path: &str) -> Result<(), String> {
             cell_json.insert(key.to_string(), toml_to_json(v));
         }
     }
+    // Seed access control into the Default Cell so existing installs keep their whitelist
+    // when they start using Cell-bound access (missing key = open network).
+    if let Some(v) = table.get("security") {
+        cell_json.insert("security".into(), toml_to_json(v));
+    }
     // Keep stack_mode / config_version for completeness when re-materialising.
     if let Some(v) = table.get("config_version") {
         cell_json.insert("config_version".into(), toml_to_json(v));
@@ -331,6 +336,14 @@ pub fn visual_config_from_toml(config_path: &str) -> Result<JsonValue, String> {
             out.insert(key.to_string(), toml_to_json(v));
         }
     }
+    // Live access control for the visual Config form (MHz UI + Cell-bound whitelist).
+    if let Some(v) = table.get("security") {
+        out.insert("security".into(), toml_to_json(v));
+    } else {
+        let mut sec = Map::new();
+        sec.insert("issi_whitelist".into(), JsonValue::Array(vec![]));
+        out.insert("security".into(), JsonValue::Object(sec));
+    }
     if let Some(brew) = table.get("brew") {
         let mut brew_json = toml_to_json(brew);
         if let Some(obj) = brew_json.as_object_mut() {
@@ -384,6 +397,10 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
             deep_merge_toml(&mut table, key, json_to_toml(&cleaned)?);
         }
     }
+    // Optional: Save live may also write whitelist when the form includes security.
+    if let Some(v) = obj.get("security") {
+        deep_merge_toml(&mut table, "security", json_to_toml(v)?);
+    }
 
     if let Some(brew) = obj.get("brew") {
         let brew_obj = brew
@@ -433,6 +450,11 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
             }
             deep_merge_toml(&mut table, key, json_to_toml(&cleaned)?);
         }
+    }
+    // Access control is part of the Cell profile when present. If the legacy profile
+    // has no `security` key, leave the live [security] untouched (no config corruption).
+    if let Some(v) = cell_obj.get("security") {
+        deep_merge_toml(&mut table, "security", json_to_toml(v)?);
     }
     if let Some(v) = cell_obj.get("stack_mode") {
         table.insert("stack_mode".into(), json_to_toml(v)?);
@@ -492,13 +514,22 @@ pub fn save_cell_from_visual(config_path: &str, name: &str, visual: &JsonValue) 
         .as_object()
         .ok_or_else(|| "body must be a JSON object".to_string())?;
     let mut cell = Map::new();
-    for key in ["config_version", "stack_mode", "phy_io", "net_info", "cell_info"] {
+    for key in ["config_version", "stack_mode", "phy_io", "net_info", "cell_info", "security"] {
         if let Some(v) = obj.get(key) {
             let mut cleaned = v.clone();
             if key == "cell_info" {
                 strip_sds_command_control_json(&mut cleaned);
             }
             cell.insert(key.to_string(), cleaned);
+        }
+    }
+    // RF/network Update must not wipe an existing Cell whitelist, and must not invent
+    // `security: { issi_whitelist: [] }` on legacy Cells that never had the key.
+    if !cell.contains_key("security") {
+        if let Ok(existing) = get_cell_profile(config_path, name) {
+            if let Some(sec) = existing.get("security") {
+                cell.insert("security".into(), sec.clone());
+            }
         }
     }
     put_cell_profile(config_path, name, &JsonValue::Object(cell))
@@ -508,6 +539,40 @@ fn strip_sds_command_control_json(v: &mut JsonValue) {
     if let Some(obj) = v.as_object_mut() {
         obj.remove("sds_command_control");
     }
+}
+
+/// Read `security.issi_whitelist` from a Cell profile JSON. `None` = key absent (legacy).
+pub fn extract_issi_whitelist(cell: &JsonValue) -> Option<Vec<u32>> {
+    let sec = cell.get("security")?;
+    let arr = sec.get("issi_whitelist")?.as_array()?;
+    Some(
+        arr.iter()
+            .filter_map(|v| v.as_u64().map(|n| n as u32))
+            .collect(),
+    )
+}
+
+/// Patch only the Cell profile's ISSI whitelist. Returns `true` if that Cell is the active one.
+pub fn set_cell_whitelist(config_path: &str, name: &str, list: &[u32]) -> Result<bool, String> {
+    let name = sanitize_name(name)?;
+    let path = profile_file(&cell_dir(config_path), &name);
+    let txt = fs::read_to_string(&path).map_err(|e| format!("cell profile: {e}"))?;
+    let mut v: JsonValue = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
+    let obj = v
+        .as_object_mut()
+        .ok_or_else(|| "cell profile is not an object".to_string())?;
+    let mut sec = Map::new();
+    sec.insert(
+        "issi_whitelist".into(),
+        JsonValue::Array(
+            list.iter()
+                .map(|i| JsonValue::Number((*i).into()))
+                .collect(),
+        ),
+    );
+    obj.insert("security".into(), JsonValue::Object(sec));
+    save_json_profile(&cell_dir(config_path), &name, &v)?;
+    Ok(read_active(config_path).cell == name)
 }
 
 /// Capture brew form into a Brew profile.
