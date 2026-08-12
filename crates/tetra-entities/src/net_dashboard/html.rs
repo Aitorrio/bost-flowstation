@@ -1148,6 +1148,31 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .update-status.err{color:var(--danger);}
 #update-modal .modal{width:min(520px,100%);}
 
+/* Full-screen wait after service restart (OTA / Apply / Restart) */
+#restart-wait-overlay{
+  position:fixed;inset:0;z-index:9999;display:none;
+  align-items:center;justify-content:center;
+  background:rgba(8,12,18,0.82);backdrop-filter:blur(4px);
+  padding:24px;
+}
+#restart-wait-overlay.open{display:flex;}
+.restart-wait-card{
+  width:min(420px,100%);padding:28px 24px;border-radius:12px;
+  background:var(--bg2);border:1px solid var(--border);text-align:center;
+  box-shadow:0 16px 48px rgba(0,0,0,0.35);
+}
+.restart-wait-spinner{
+  width:36px;height:36px;margin:0 auto 16px;border-radius:50%;
+  border:3px solid rgba(77,166,255,0.25);border-top-color:var(--accent);
+  animation:restart-spin 0.8s linear infinite;
+}
+@keyframes restart-spin{to{transform:rotate(360deg);}}
+.restart-wait-title{font-size:17px;font-weight:700;margin-bottom:8px;color:var(--text);}
+.restart-wait-body{font-size:13px;color:var(--muted);line-height:1.45;margin-bottom:16px;}
+.restart-wait-card.timed-out .restart-wait-spinner{display:none;}
+.restart-wait-actions{display:none;justify-content:center;gap:8px;}
+.restart-wait-card.timed-out .restart-wait-actions{display:flex;}
+
 /* ── Profile list ── */
 .profile-item{
   display:flex;align-items:center;gap:10px;
@@ -4511,6 +4536,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
+<!-- Full-screen wait while the service restarts after OTA / Apply / Restart -->
+<div id="restart-wait-overlay" role="dialog" aria-modal="true" aria-labelledby="restart-wait-title">
+  <div class="restart-wait-card" id="restart-wait-card">
+    <div class="restart-wait-spinner" aria-hidden="true"></div>
+    <div class="restart-wait-title" id="restart-wait-title" data-i18n="restart_wait_title">Restarting…</div>
+    <div class="restart-wait-body" id="restart-wait-body" data-i18n="restart_wait_body">Waiting for the station to come back online. The page will reload automatically.</div>
+    <div class="restart-wait-actions">
+      <button type="button" class="btn btn-primary" onclick="beginServiceRestartWait()" data-i18n="restart_wait_retry">Retry / Reload</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="dgna-template-modal">
   <div class="modal">
     <div class="modal-title" id="dgna-template-title">DGNA Group</div>
@@ -4812,6 +4849,10 @@ const LANGS={
     update_phase_done:'Done',
     update_phase_error:'Update failed',
     update_waiting:'Waiting for first status…',
+    restart_wait_title:'Restarting…',
+    restart_wait_body:'Waiting for the station to come back online. The page will reload automatically. If login is enabled you will need to sign in again.',
+    restart_wait_retry:'Retry / Reload',
+    restart_wait_timeout:'The station did not come back in time. Check the service, then retry.',
     system:'System',sys_info:'System Info',sys_hostname:'Hostname',sys_uptime:'Uptime',
     sys_version:'Bost version',sys_os:'OS',sys_config:'Active Config',
     sys_cpu:'CPU',sys_cpu_load:'CPU Load',sys_ram:'RAM',sys_temp:'CPU Temp',
@@ -5170,6 +5211,10 @@ const LANGS={
     update_phase_done:'Listo',
     update_phase_error:'Actualización fallida',
     update_waiting:'Esperando el primer estado…',
+    restart_wait_title:'Reiniciando…',
+    restart_wait_body:'Esperando a que la estación vuelva. La página se recargará sola. Si hay login, tendrás que iniciar sesión de nuevo.',
+    restart_wait_retry:'Reintentar / Recargar',
+    restart_wait_timeout:'La estación no ha vuelto a tiempo. Comprueba el servicio y reintenta.',
     system:'Sistema',sys_info:'Info del Sistema',sys_hostname:'Hostname',sys_uptime:'Tiempo activo',
     sys_os:'OS',sys_version:'Versión Bost',sys_config:'Config Activa',
     sys_cpu:'CPU',sys_cpu_load:'Carga CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
@@ -7695,6 +7740,7 @@ async function applySelectedProfiles(){
     if(!r.ok){vcMsg('vc-profiles-msg',txt,false);return;}
     vcMsg('vc-profiles-msg',t('cfg_applied'),true);
     wsSend({type:'restart'});
+    beginServiceRestartWait();
   }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
 }
 
@@ -7992,7 +8038,7 @@ function setTgRecipMsg(txt,ok){const el=document.getElementById('tg-recipients-m
 
 
 function wsSend(msg){if(ws&&ws.readyState===WebSocket.OPEN){ws.send(JSON.stringify(msg));return true;}return false;}
-async function restartService(){if(!confirm(t('confirm_restart')))return;wsSend({type:'restart'});}
+async function restartService(){if(!confirm(t('confirm_restart')))return;wsSend({type:'restart'});beginServiceRestartWait();}
 async function shutdownService(){if(!confirm(t('confirm_shutdown')))return;wsSend({type:'shutdown'});}
 function kickMs(issi){if(!confirm(t('confirm_kick',{issi})))return;wsSend({type:'kick',issi});}
 function toggleSdsCallout(){const on=document.getElementById('sds-callout').checked;document.getElementById('sds-callout-fields').style.display=on?'block':'none';}
@@ -8426,12 +8472,70 @@ function deleteDgnaGroupEverywhere(gssiArg){
 }
 setInterval(refreshOpenDgna,1000);
 
+// ── Service restart wait (OTA / Apply / Restart) ───────────────────────────
+// Sessions are in-memory only: a restart always requires login again when auth is on.
+// This overlay avoids a stuck SPA by polling a public URL until the service is back,
+// then reloading (browser shows /login if needed).
+let restartWaitTimer=null;
+let restartWaitDeadline=0;
+let restartWaitOkStreak=0;
+let updateSucceeded=false;
+
+function beginServiceRestartWait(){
+  const overlay=document.getElementById('restart-wait-overlay');
+  const card=document.getElementById('restart-wait-card');
+  const title=document.getElementById('restart-wait-title');
+  const body=document.getElementById('restart-wait-body');
+  if(!overlay){location.reload();return;}
+  if(restartWaitTimer){clearInterval(restartWaitTimer);restartWaitTimer=null;}
+  restartWaitOkStreak=0;
+  restartWaitDeadline=Date.now()+5*60*1000;
+  if(card)card.classList.remove('timed-out');
+  if(title)title.textContent=t('restart_wait_title');
+  if(body)body.textContent=t('restart_wait_body');
+  overlay.classList.add('open');
+  // Brief delay so the restart command can leave before we start probing.
+  setTimeout(()=>{
+    restartWaitTimer=setInterval(pollServiceBackOnline,1500);
+    pollServiceBackOnline();
+  },2500);
+}
+
+async function pollServiceBackOnline(){
+  if(Date.now()>restartWaitDeadline){
+    if(restartWaitTimer){clearInterval(restartWaitTimer);restartWaitTimer=null;}
+    const card=document.getElementById('restart-wait-card');
+    const body=document.getElementById('restart-wait-body');
+    if(card)card.classList.add('timed-out');
+    if(body)body.textContent=t('restart_wait_timeout');
+    return;
+  }
+  try{
+    // Public favicon — no auth; cache-bust so we do not hit a stale browser cache.
+    const r=await fetch('/favicon.png?ts='+Date.now(),{cache:'no-store',credentials:'omit'});
+    if(!r.ok){restartWaitOkStreak=0;return;}
+    restartWaitOkStreak++;
+    // Two successes in a row avoids a half-open accept during systemd restart.
+    if(restartWaitOkStreak>=2){
+      if(restartWaitTimer){clearInterval(restartWaitTimer);restartWaitTimer=null;}
+      location.reload();
+    }
+  }catch{
+    restartWaitOkStreak=0;
+  }
+}
+
 // ── OTA Update ────────────────────────────────────────────────────────────
 let updatePollTimer=null;
 let updateLogExpanded=false;
 function closeUpdateModal(){
   document.getElementById('update-modal').classList.remove('open');
   if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null;}
+  // Successful OTA restarts the service — wait for it instead of leaving a zombie SPA.
+  if(updateSucceeded){
+    updateSucceeded=false;
+    beginServiceRestartWait();
+  }
 }
 function toggleUpdateLog(){
   updateLogExpanded=!updateLogExpanded;
@@ -8483,6 +8587,7 @@ function resetUpdateModalUi(){
 }
 async function startUpdate(){
   if(!confirm(t('update_confirm')))return;
+  updateSucceeded=false;
   document.getElementById('update-modal').classList.add('open');
   document.getElementById('update-modal-title').textContent=t('update_title');
   const termEl=document.getElementById('update-terminal');
@@ -8517,11 +8622,21 @@ async function startUpdate(){
       }
       if(j.status==='done_ok'){
         clearInterval(updatePollTimer);updatePollTimer=null;
+        updateSucceeded=true;
         msgEl.className='update-status ok';msgEl.textContent=t('update_done_ok');
         setUpdateProgress(100,'update_phase_done',(j.log||'').trim().split('\n').filter(Boolean).pop()||'',false);
         closeBtn.disabled=false;
+        // Auto-enter wait overlay shortly so the user need not hunt for Close on mobile.
+        setTimeout(()=>{
+          if(updateSucceeded){
+            document.getElementById('update-modal')?.classList.remove('open');
+            updateSucceeded=false;
+            beginServiceRestartWait();
+          }
+        },1800);
       }else if(j.status==='done_err'){
         clearInterval(updatePollTimer);updatePollTimer=null;
+        updateSucceeded=false;
         msgEl.className='update-status err';msgEl.textContent=t('update_done_err');
         const est=estimateUpdateProgress(j.log||'','done_err');
         setUpdateProgress(est.pct,est.phase,est.line,true);
@@ -8597,7 +8712,7 @@ async function onDualCarrierToggle(el){
   try{
     const body=want?{enabled:true,secondary_carrier:secondary}:{enabled:false};
     const r=await fetch('/api/dualcarrier',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(r.ok){setDcSub(t('dc_restarting'));}
+    if(r.ok){setDcSub(t('dc_restarting'));beginServiceRestartWait();}
     else{const err=await r.text();alert(t('dc_failed')+': '+err);el.checked=!want;el.disabled=false;loadDualCarrier();}
   }catch(e){alert(t('conn_error'));el.checked=!want;el.disabled=false;}
 }
@@ -8852,7 +8967,7 @@ async function activateProfile(name){
   if(!confirm(t('sys_activate_confirm').replace('{name}',name)))return;
   try{
     const r=await fetch('/api/configs/activate',{method:'POST',body:name});
-    if(r.ok){wsSend({type:'restart'});}
+    if(r.ok){wsSend({type:'restart'});beginServiceRestartWait();}
     else alert('Failed: '+await r.text());
   }catch(e){alert('Error: '+e.message);}
 }
