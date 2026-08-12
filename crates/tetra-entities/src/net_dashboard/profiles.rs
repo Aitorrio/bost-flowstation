@@ -460,7 +460,7 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
         sec.insert("issi_whitelist".into(), JsonValue::Array(vec![]));
         JsonValue::Object(sec)
     };
-    deep_merge_toml(&mut table, "security", json_to_toml(&security_val)?)?;
+    deep_merge_toml(&mut table, "security", json_to_toml(&security_val)?);
     if let Some(v) = cell_obj.get("stack_mode") {
         table.insert("stack_mode".into(), json_to_toml(v)?);
     }
