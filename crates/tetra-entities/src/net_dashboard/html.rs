@@ -5465,7 +5465,7 @@ function showPage(name,el){
   if(name==='dapnet'){loadDapnet();loadDapnetLog();}
   if(name==='geoalarm'){loadGeoalarm();}
   if(name==='setup'){refreshSetupPage();}
-  if(name==='config'){loadConfig();loadVisualConfig();loadWhitelist();loadSdsCommands();loadWx();}
+  if(name==='config'){loadConfig();loadVisualConfig();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
   if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();checkUpdate();}
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
@@ -7466,7 +7466,8 @@ function collectVisualConfig(){
     security:{issi_whitelist:whitelistEntries.slice()},
   };
 }
-function fillVisualConfig(d){
+function fillVisualConfig(d,opts){
+  opts=opts||{};
   const soapy=d?.phy_io?.soapysdr||{};
   vcSet('vc-tx-freq',hzToMhzDisplay(soapy.tx_freq)); vcSet('vc-rx-freq',hzToMhzDisplay(soapy.rx_freq));
   vcSet('vc-ppm',soapy.ppm_err??0); vcSet('vc-device',soapy.device||'');
@@ -7497,9 +7498,15 @@ function fillVisualConfig(d){
   vcSet('vc-brew-reconnect',brew.reconnect_delay_secs??15);
   vcSet('vc-brew-sds',brew.feature_sds_enabled!==false); vcSet('vc-brew-rssi',!!brew.feature_rssi_export);
   toggleBrewFields();
-  // Only rewrite the Access Control list when the payload explicitly carries `security`
-  // (live visual always does). Brew-only merges omit it so the current Cell list is kept.
-  if(d&&Object.prototype.hasOwnProperty.call(d,'security')){
+  // Access control follows the payload:
+  // - fromCell: always refresh (missing security = open list for that Cell)
+  // - otherwise only when `security` is present (live visual); Brew-only merges omit it
+  if(opts&&opts.fromCell){
+    const wl=(d.security&&Array.isArray(d.security.issi_whitelist))?d.security.issi_whitelist:[];
+    whitelistEntries=wl.map(Number).filter(n=>Number.isFinite(n)&&n>=1&&n<=16777215).sort((a,b)=>a-b);
+    renderWhitelist();
+    updateWhitelistBanner();
+  } else if(d&&Object.prototype.hasOwnProperty.call(d,'security')){
     const wl=(d.security&&Array.isArray(d.security.issi_whitelist))?d.security.issi_whitelist:[];
     whitelistEntries=wl.map(Number).filter(n=>Number.isFinite(n)&&n>=1&&n<=16777215).sort((a,b)=>a-b);
     renderWhitelist();
@@ -7539,6 +7546,8 @@ async function loadVisualConfig(){
     const d=await r.json();
     fillVisualConfig(d);
     await refreshProfileSelects(d.active);
+    // Reload the selected Cell so Access Control matches the dropdown (not a stale live list).
+    await loadCellProfileIntoForm();
     vcMsg('vc-rf-msg','',true);
   }catch(e){vcMsg('vc-rf-msg',String(e),false);}
 }
@@ -7578,21 +7587,9 @@ async function loadCellProfileIntoForm(){
     const r=await fetch('/api/profiles/cell/'+encodeURIComponent(name));
     if(!r.ok){vcMsg('vc-profiles-msg',await r.text(),false);return;}
     const d=await r.json();
-    fillVisualConfig(Object.assign({},d,{brew:collectVisualConfig().brew}));
-    // Legacy Cells without `security`: seed Access Control from the live whitelist so
-    // Update Cell does not bake an empty list and later wipe on-air access on Apply.
-    if(!Object.prototype.hasOwnProperty.call(d,'security')){
-      try{
-        const wr=await fetch('/api/whitelist');
-        if(wr.ok){
-          const w=await wr.json();
-          whitelistEntries=(w.issi_whitelist||[]).map(Number)
-            .filter(n=>Number.isFinite(n)&&n>=1&&n<=16777215).sort((a,b)=>a-b);
-        }else whitelistEntries=[];
-      }catch{whitelistEntries=[];}
-      renderWhitelist();
-      updateWhitelistBanner();
-    }
+    // Keep current Brew fields; always refresh Access Control from this Cell
+    // (missing security = empty/open for that profile — never keep the previous Cell's list).
+    fillVisualConfig(Object.assign({},d,{brew:collectVisualConfig().brew}),{fromCell:true});
     updateEditingBanner();
     vcMsg('vc-profiles-msg','Cell loaded: '+name,true);
   }catch(e){vcMsg('vc-profiles-msg',String(e),false);}

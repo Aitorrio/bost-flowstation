@@ -115,8 +115,8 @@ Frequencies (TX/RX and custom duplex) are entered in **MHz** (comma or dot). On 
 In **Access Control**, the ISSI whitelist is part of the **selected Cell** form (same workflow as RF/network — not Brew). Empty list = open network for that Cell; with entries, only listed radios may register when that Cell is on air.
 
 - **Update Cell** / **Save as** persist the list into the Cell profile.
-- **Apply & Restart** puts the Cell (including its whitelist) on air.
-- Existing Cell profiles without a `security` key are left alone on Apply until you Update that Cell — your current live `[security]` is not cleared by accident.
+- Changing the Cell dropdown reloads that Cell’s whitelist in the form.
+- **Apply & Restart** puts the Cell on air, including its whitelist (a Cell without a saved list is treated as open).
 
 U-STATUS remote control stays station-wide (not stored in Cell/Brew).
 

@@ -2724,21 +2724,20 @@ fn handle_connection(
                                 cell,
                                 brew
                             );
-                            // If the Cell carries security, sync live whitelist before restart.
-                            // Legacy Cells without `security` leave live [security] untouched.
+                            // Sync live whitelist to the Cell being applied (missing = open).
                             if let Ok(cell_json) =
                                 crate::net_dashboard::profiles::get_cell_profile(&config_path, cell)
                             {
-                                if let Some(list) =
-                                    crate::net_dashboard::profiles::extract_issi_whitelist(&cell_json)
-                                {
-                                    let _ = apply_issi_whitelist_live(
-                                        &shared_config,
-                                        &config_path,
-                                        &list,
-                                        &cmd_tx,
-                                    );
-                                }
+                                let list = crate::net_dashboard::profiles::extract_issi_whitelist(
+                                    &cell_json,
+                                )
+                                .unwrap_or_default();
+                                let _ = apply_issi_whitelist_live(
+                                    &shared_config,
+                                    &config_path,
+                                    &list,
+                                    &cmd_tx,
+                                );
                             }
                             http_json_response(inner, 200, r#"{"ok":true}"#);
                         }

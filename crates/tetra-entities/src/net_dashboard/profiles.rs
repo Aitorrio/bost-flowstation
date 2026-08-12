@@ -451,11 +451,16 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
             deep_merge_toml(&mut table, key, json_to_toml(&cleaned)?);
         }
     }
-    // Access control is part of the Cell profile when present. If the legacy profile
-    // has no `security` key, leave the live [security] untouched (no config corruption).
-    if let Some(v) = cell_obj.get("security") {
-        deep_merge_toml(&mut table, "security", json_to_toml(v)?);
-    }
+    // Access control is part of the Cell profile. Missing key = open network for this
+    // Cell (empty whitelist), so Apply switches access when changing profiles.
+    let security_val = if let Some(v) = cell_obj.get("security") {
+        v.clone()
+    } else {
+        let mut sec = Map::new();
+        sec.insert("issi_whitelist".into(), JsonValue::Array(vec![]));
+        JsonValue::Object(sec)
+    };
+    deep_merge_toml(&mut table, "security", json_to_toml(&security_val)?)?;
     if let Some(v) = cell_obj.get("stack_mode") {
         table.insert("stack_mode".into(), json_to_toml(v)?);
     }
