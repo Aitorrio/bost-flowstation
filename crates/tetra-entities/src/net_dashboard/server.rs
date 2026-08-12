@@ -2160,11 +2160,14 @@ fn handle_connection(
     // Public routes (no auth required): GET /login, POST /api/login, favicon, static assets.
     // Every other route is checked here against the session store.
     // Favicon must stay public so the browser can load it on /login before auth.
-    if req_line.starts_with("GET /favicon.svg")
+    // Match path prefix carefully: browsers request /favicon.ico, /favicon.png, /favicon.svg.
+    if req_line.starts_with("GET /favicon.")
         || req_line.starts_with("GET /favicon.ico")
         || req_line.starts_with("GET /apple-touch-icon")
     {
-        serve_favicon(stream);
+        drain_http_headers(&mut stream);
+        let want_svg = req_line.contains("/favicon.svg");
+        serve_favicon(stream, want_svg);
         return;
     }
 
@@ -4854,11 +4857,15 @@ fn serve_html(mut stream: TcpStream) {
     let _ = stream.write_all(body);
 }
 
-/// Public brand favicon (antenna mark). Served without auth so /login and tab icons work.
-fn serve_favicon(mut stream: TcpStream) {
-    let body = crate::net_dashboard::html::FAVICON_SVG.as_bytes();
+/// Public brand favicon (antenna mark). PNG for Edge/Chrome tab compatibility; SVG optional.
+fn serve_favicon(mut stream: TcpStream, svg: bool) {
+    let (ctype, body): (&str, &[u8]) = if svg {
+        ("image/svg+xml", crate::net_dashboard::html::FAVICON_SVG.as_bytes())
+    } else {
+        ("image/png", include_bytes!("favicon.png").as_slice())
+    };
     let header = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nCache-Control: public, max-age=86400\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nCache-Control: public, max-age=3600\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(header.as_bytes());

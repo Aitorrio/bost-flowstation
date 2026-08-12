@@ -13,7 +13,7 @@ pub const GIT_HASH: &str = git_version::git_version!(
 pub const PRODUCT_NAME: &str = "Bost FlowStation";
 
 /// Our release line (independent of upstream crate package version).
-pub const BOST_VERSION: &str = "0.1.10";
+pub const BOST_VERSION: &str = "0.1.11";
 
 /// Upstream project this fork is based on.
 pub const UPSTREAM_NAME: &str = "FlowStation";
