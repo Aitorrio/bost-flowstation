@@ -1171,7 +1171,18 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .restart-wait-body{font-size:13px;color:var(--muted);line-height:1.45;margin-bottom:16px;}
 .restart-wait-card.timed-out .restart-wait-spinner{display:none;}
 .restart-wait-actions{display:none;justify-content:center;gap:8px;}
-.restart-wait-card.timed-out .restart-wait-actions{display:flex;}
+#restart-wait-card.timed-out .restart-wait-actions{display:flex;}
+
+/* Soft-shutdown standby banner (System → Control) */
+.svc-standby-banner{
+  display:none;margin:0 0 12px;padding:12px 14px;border-radius:var(--r);
+  background:rgba(255,170,50,0.12);border:1px solid rgba(255,170,50,0.45);
+  color:var(--text);
+}
+.svc-standby-banner.show{display:block;}
+.svc-standby-banner-title{font-weight:700;font-size:14px;margin-bottom:4px;color:var(--warn);}
+.svc-standby-banner-body{font-size:13px;color:var(--muted);line-height:1.4;}
+#svc-power-btn.is-start{border-color:var(--accent);color:var(--accent);}
 
 /* ── Profile list ── */
 .profile-item{
@@ -4241,14 +4252,21 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="sys-update-banner-text" id="sys-update-banner-text"></div>
         <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
       </div>
+      <div id="svc-standby-banner" class="svc-standby-banner" role="status">
+        <div class="svc-standby-banner-title" data-i18n="svc_standby_title">Service on standby</div>
+        <div class="svc-standby-banner-body" data-i18n="svc_standby_body">The radio stack is stopped. The dashboard stays available — press Start to bring the station back.</div>
+      </div>
       <div class="card" style="margin-bottom:12px">
         <div class="card-head">
           <div class="card-title" data-i18n="sys_control_title">Service control</div>
           <div class="card-actions" style="flex-wrap:wrap">
-            <button class="btn btn-warn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
-            <button class="btn btn-danger" onclick="shutdownService()"><span class="btn-icon" data-icon="shutdown"></span><span data-i18n="shutdown">Shutdown</span></button>
+            <button class="btn btn-warn" id="svc-restart-btn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
+            <button class="btn btn-danger" id="svc-power-btn" onclick="toggleServicePower()"><span class="btn-icon" data-icon="shutdown"></span><span id="svc-power-label" data-i18n="shutdown">Shutdown</span></button>
             <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
           </div>
+        </div>
+        <div class="card-body" style="padding-top:0">
+          <div style="color:var(--muted);font-size:13px" data-i18n="sys_control_help">Restart or shut down the FlowStation service, or pull and rebuild from GitHub (OTA).</div>
         </div>
       </div>
 
@@ -4816,8 +4834,14 @@ const LANGS={
     dgna:'DGNA',dgna_title:'Dynamic group assignment',dgna_modal_title:'⬡ Dynamic Group Assignment',dgna_issi:'Terminal ISSI',dgna_current:'Current groups',dgna_gssi:'Group (GSSI)',dgna_assign:'Assign',dgna_deassign:'Deassign',
     dgna_name:'TG name',dgna_center:'DGNA',dgna_center_sub:'Bulk assign, update, and deassign groups across radios.',dgna_groups_count:'Groups',dgna_radios_count:'Targets',dgna_group_library:'Group Library',dgna_new_group:'New',dgna_search:'Search',dgna_scope:'Coverage',dgna_editor:'Group Editor',dgna_attachment_mode:'Attachment mode',dgna_select_all:'Select all',dgna_select_none:'Clear',dgna_select_attached:'Attached',dgna_select_dynamic:'Dynamic',dgna_assign_selected:'Assign selected',dgna_assign_all:'Assign all radios',dgna_update_selected:'Update selected',dgna_deassign_selected:'Deassign selected',dgna_targets:'Target Radios',dgna_status_col:'Group state',dgna_last_result:'Last result',dgna_activity:'DGNA Activity',
     confirm_restart:'Restart Bost FlowStation?\nAll active calls will be dropped.',
-    confirm_shutdown:'Shutdown Bost FlowStation?\nThe service will stop and must be restarted manually.',
+    confirm_shutdown:'Put Bost FlowStation on standby?\nThe radio stack stops; the dashboard stays available. Press Start to bring it back.',
+    confirm_start:'Start Bost FlowStation?\nThe service will restart and the page will reload.',
     confirm_logout:'Log out?',
+    svc_standby_title:'Service on standby',
+    svc_standby_body:'The radio stack is stopped. The dashboard stays available — press Start to bring the station back.',
+    svc_start:'Start',
+    svc_need_running:'“{action}” needs the full service running. Press Start in System → Control first.',
+    svc_standby_will_start:'The service is on standby. “{action}” will start it again. Continue?',
     saved:'✓ Saved — restart to apply.',save_fail:'✗ Save failed',conn_error:'Connection error.',
     cfg_sec_profiles:'Profiles',cfg_profiles_title:'Scenarios',cfg_profiles_help:'Choose a Cell (RF, network, access) and a Brew (backhaul). Edit the forms, then Update that profile or Save as a new name. Apply & Restart puts the selected pair on air.',
     cfg_cell_profile:'Cell (RF + network)',cfg_brew_profile:'Brew backhaul',cfg_apply_restart:'Apply & Restart',
@@ -4863,7 +4887,7 @@ const LANGS={
     sys_profiles:'Config Profiles',sys_activate:'Activate & Restart',
     sys_active_badge:'ACTIVE',sys_no_profiles:'No .toml profiles found in config directory.',
     sys_activate_confirm:'Switch to profile "{name}" and restart?\nCurrent config will be backed up.',
-    sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart or shut down the FlowStation service, or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
+    sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, put it on standby (dashboard stays up), or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
     sys_bts:'BTS Connection',
     cr_original:'© 2026 Razvan Zeces — YO6RZV',
     cr_enhanced:'Enhanced version by Aitor, EA4HBL',
@@ -5192,8 +5216,14 @@ const LANGS={
     confirm_kick:'¿Expulsar ISSI {issi}?\nEl terminal será desregistrado y forzado a reconectarse.',
     dgna:'DGNA',dgna_title:'Asignación dinámica de grupo',dgna_modal_title:'⬡ Asignación dinámica de grupo',dgna_issi:'ISSI del terminal',dgna_current:'Grupos actuales',dgna_gssi:'Grupo (GSSI)',dgna_assign:'Asignar',dgna_deassign:'Quitar',
     confirm_restart:'¿Reiniciar Bost FlowStation?\nTodas las llamadas activas se interrumpirán.',
-    confirm_shutdown:'¿Apagar Bost FlowStation?\nEl servicio se detendrá y deberá reiniciarse manualmente.',
+    confirm_shutdown:'¿Poner Bost FlowStation en espera?\nSe detiene el stack de radio; el dashboard sigue disponible. Pulsa Arrancar para volver.',
+    confirm_start:'¿Arrancar Bost FlowStation?\nEl servicio se reiniciará y la página se recargará.',
     confirm_logout:'¿Cerrar sesión?',
+    svc_standby_title:'Servicio en espera',
+    svc_standby_body:'El stack de radio está parado. El dashboard sigue disponible — pulsa Arrancar para poner la estación en marcha.',
+    svc_start:'Arrancar',
+    svc_need_running:'“{action}” necesita el servicio completo en marcha. Pulsa Arrancar en Sistema → Control primero.',
+    svc_standby_will_start:'El servicio está en espera. “{action}” lo arrancará de nuevo. ¿Continuar?',
     saved:'✓ Guardado — reinicia para aplicar.',save_fail:'✗ Error al guardar',conn_error:'Error de conexión.',
     update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
     update_confirm:'¿Obtener la última versión de bost y recompilar?\nEl servicio se reiniciará automáticamente.',
@@ -5224,7 +5254,7 @@ const LANGS={
     sys_profiles:'Perfiles de Config',sys_activate:'Activar y Reiniciar',
     sys_active_badge:'ACTIVO',sys_no_profiles:'No se encontraron perfiles .toml en el directorio.',
     sys_activate_confirm:'¿Cambiar al perfil "{name}" y reiniciar?\nLa config actual será respaldada.',
-    sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia o apaga el servicio FlowStation, o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
+    sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, ponla en espera (el dashboard sigue) o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
     sys_bts:'Conexión BTS',
   },
   hu:{
@@ -5410,6 +5440,7 @@ function applyLang(){
   renderStations();renderCalls();renderLastHeard();renderEmergencyBanner();
   try{updateEditingBanner();}catch{}
   try{updateWhitelistBanner();renderWhitelist();}catch{}
+  try{applyServiceStateUi();}catch{}
 }
 function setLang(l,btn){
   currentLang=l;localStorage.setItem('fs_lang',l);
@@ -5512,7 +5543,7 @@ function showPage(name,el){
   if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
-  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();checkUpdate();}
+  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();checkUpdate();startServiceStatusPolling();}
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
   if(name==='wifi')wifiRefresh();
   if(window.innerWidth<=700)closeMobileSidebar();
@@ -7723,6 +7754,7 @@ async function applySelectedProfiles(){
   const brew=document.getElementById('vc-brew-profile')?.value||null;
   if(!cell){vcMsg('vc-profiles-msg','Select a cell profile',false);return;}
   if(!confirm(t('cfg_apply_confirm')))return;
+  if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
   try{
     // Persist the forms (including Access Control) into the selected Cell before apply,
     // same as RF/network — Apply must not use a stale profile JSON on disk.
@@ -7739,7 +7771,10 @@ async function applySelectedProfiles(){
     const txt=await r.text();
     if(!r.ok){vcMsg('vc-profiles-msg',txt,false);return;}
     vcMsg('vc-profiles-msg',t('cfg_applied'),true);
-    wsSend({type:'restart'});
+    try{
+      const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
+      if(!rr.ok)wsSend({type:'restart'});
+    }catch{wsSend({type:'restart'});}
     beginServiceRestartWait();
   }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
 }
@@ -8038,9 +8073,86 @@ function setTgRecipMsg(txt,ok){const el=document.getElementById('tg-recipients-m
 
 
 function wsSend(msg){if(ws&&ws.readyState===WebSocket.OPEN){ws.send(JSON.stringify(msg));return true;}return false;}
-async function restartService(){if(!confirm(t('confirm_restart')))return;wsSend({type:'restart'});beginServiceRestartWait();}
-async function shutdownService(){if(!confirm(t('confirm_shutdown')))return;wsSend({type:'shutdown'});}
-function kickMs(issi){if(!confirm(t('confirm_kick',{issi})))return;wsSend({type:'kick',issi});}
+async function restartService(){
+  if(!confirm(t('confirm_restart')))return;
+  try{
+    const r=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
+    if(!r.ok){alert(await r.text());return;}
+  }catch{wsSend({type:'restart'});}
+  beginServiceRestartWait();
+}
+async function shutdownService(){
+  if(!confirm(t('confirm_shutdown')))return;
+  try{
+    const r=await fetch('/api/service/shutdown',{method:'POST',credentials:'same-origin'});
+    if(!r.ok){alert(await r.text());return;}
+  }catch{wsSend({type:'shutdown'});}
+  // Soft standby: process stays up — poll until status flips, then update UI.
+  for(let i=0;i<40;i++){
+    await new Promise(r=>setTimeout(r,250));
+    await refreshServiceState();
+    if(serviceStandby)return;
+  }
+}
+async function startService(){
+  if(!confirm(t('confirm_start')))return;
+  try{
+    const r=await fetch('/api/service/start',{method:'POST',credentials:'same-origin'});
+    if(!r.ok){alert(await r.text());return;}
+  }catch(e){alert(t('conn_error'));return;}
+  beginServiceRestartWait();
+}
+function toggleServicePower(){
+  if(serviceStandby)startService();
+  else shutdownService();
+}
+
+let serviceStandby=false;
+let serviceStatusTimer=null;
+async function refreshServiceState(){
+  try{
+    const r=await fetch('/api/service/status',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)return;
+    const j=await r.json();
+    serviceStandby=(j.state==='standby');
+  }catch{/* keep last known */}
+  applyServiceStateUi();
+}
+function applyServiceStateUi(){
+  const banner=document.getElementById('svc-standby-banner');
+  const powerBtn=document.getElementById('svc-power-btn');
+  const powerLabel=document.getElementById('svc-power-label');
+  const restartBtn=document.getElementById('svc-restart-btn');
+  if(banner)banner.classList.toggle('show',!!serviceStandby);
+  if(powerBtn){
+    powerBtn.classList.toggle('btn-danger',!serviceStandby);
+    powerBtn.classList.toggle('is-start',!!serviceStandby);
+    powerBtn.classList.toggle('btn-primary',!!serviceStandby);
+  }
+  if(powerLabel)powerLabel.textContent=serviceStandby?t('svc_start'):t('shutdown');
+  if(restartBtn)restartBtn.disabled=!!serviceStandby;
+}
+async function ensureServiceRunning(actionLabel){
+  await refreshServiceState();
+  if(!serviceStandby)return true;
+  alert(t('svc_need_running',{action:actionLabel||''}));
+  return false;
+}
+async function ensureServiceOrOfferStart(actionLabel){
+  await refreshServiceState();
+  if(!serviceStandby)return true;
+  return confirm(t('svc_standby_will_start',{action:actionLabel||''}));
+}
+function startServiceStatusPolling(){
+  if(serviceStatusTimer)return;
+  refreshServiceState();
+  serviceStatusTimer=setInterval(refreshServiceState,4000);
+}
+async function kickMs(issi){
+  if(!await ensureServiceRunning(t('kick')))return;
+  if(!confirm(t('confirm_kick',{issi})))return;
+  wsSend({type:'kick',issi});
+}
 function toggleSdsCallout(){const on=document.getElementById('sds-callout').checked;document.getElementById('sds-callout-fields').style.display=on?'block':'none';}
 function resetSdsCallout(){document.getElementById('sds-callout').checked=false;document.getElementById('sds-callout-source').value='9999';document.getElementById('sds-callout-incident').value='1';document.getElementById('sds-callout-text').value='ALARM';document.getElementById('sds-callout-raw').value='';toggleSdsCallout();}
 function openSds(issi){sdsDest=issi;document.getElementById('sds-dest').value=issi;document.getElementById('sds-msg').value='';resetSdsCallout();document.getElementById('sds-modal').classList.add('open');}
@@ -8587,6 +8699,7 @@ function resetUpdateModalUi(){
 }
 async function startUpdate(){
   if(!confirm(t('update_confirm')))return;
+  if(!await ensureServiceOrOfferStart(t('update')))return;
   updateSucceeded=false;
   document.getElementById('update-modal').classList.add('open');
   document.getElementById('update-modal-title').textContent=t('update_title');
@@ -8708,6 +8821,7 @@ async function onDualCarrierToggle(el){
     if(!Number.isInteger(secondary)||secondary<=0){el.checked=false;alert(t('dc_bad_carrier'));return;}
   }
   if(!confirm(want?t('dc_confirm_on'):t('dc_confirm_off'))){el.checked=!want;return;}
+  if(!await ensureServiceOrOfferStart(t('dc_applying'))){el.checked=!want;return;}
   el.disabled=true;setDcSub(t('dc_applying'));
   try{
     const body=want?{enabled:true,secondary_carrier:secondary}:{enabled:false};
@@ -8965,9 +9079,16 @@ async function loadConfigProfiles(){
 
 async function activateProfile(name){
   if(!confirm(t('sys_activate_confirm').replace('{name}',name)))return;
+  if(!await ensureServiceOrOfferStart(t('sys_activate')))return;
   try{
     const r=await fetch('/api/configs/activate',{method:'POST',body:name});
-    if(r.ok){wsSend({type:'restart'});beginServiceRestartWait();}
+    if(r.ok){
+      try{
+        const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
+        if(!rr.ok)wsSend({type:'restart'});
+      }catch{wsSend({type:'restart'});}
+      beginServiceRestartWait();
+    }
     else alert('Failed: '+await r.text());
   }catch(e){alert('Error: '+e.message);}
 }
@@ -10198,6 +10319,7 @@ async function boot(){
   }
   if(anonymous){ enterPublicMode(); return; }
   connect();
+  startServiceStatusPolling();
   // Populate the topbar SDR badge (and prime system data) immediately on load,
   // instead of waiting for the user to open the System tab.
   loadSystemInfo();

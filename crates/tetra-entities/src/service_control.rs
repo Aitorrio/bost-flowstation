@@ -16,6 +16,9 @@ struct LifecycleControl {
 
 static LIFECYCLE_CONTROL: OnceLock<LifecycleControl> = OnceLock::new();
 
+/// True after a soft Shutdown: core stack stopped, process+dashboard still alive.
+static STANDBY_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 /// Service unit configured from the TOML config file (e.g. service_name = "tetra").
 /// Takes precedence over cgroup auto-detection but is overridden by FLOWSTATION_SERVICE_UNIT env var.
 static CONFIGURED_SERVICE_UNIT: OnceLock<String> = OnceLock::new();
@@ -57,12 +60,23 @@ pub fn install_lifecycle_control(running: Arc<AtomicBool>) {
         running,
         exit_code: AtomicI32::new(NO_EXIT_REQUESTED),
     });
+    STANDBY_ACTIVE.store(false, Ordering::SeqCst);
 }
 
 pub fn requested_exit_code() -> Option<i32> {
     let lifecycle = LIFECYCLE_CONTROL.get()?;
     let code = lifecycle.exit_code.load(Ordering::SeqCst);
     (code != NO_EXIT_REQUESTED).then_some(code)
+}
+
+/// Soft-shutdown standby: stack loop stopped, HTTP dashboard still serving.
+pub fn is_standby() -> bool {
+    STANDBY_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Ask systemd (via exit 75) to bring a fresh process up after soft standby.
+pub fn request_start() {
+    schedule_service_action(ServiceAction::Restart, Duration::from_millis(300));
 }
 
 pub fn schedule_service_action(action: ServiceAction, delay: Duration) {
@@ -85,13 +99,17 @@ pub fn schedule_service_action(action: ServiceAction, delay: Duration) {
                     ServiceAction::Restart => RESTART_EXIT_CODE,
                     ServiceAction::Stop => 0,
                 };
+                if matches!(action, ServiceAction::Stop) {
+                    STANDBY_ACTIVE.store(true, Ordering::SeqCst);
+                }
                 lifecycle.exit_code.store(exit_code, Ordering::SeqCst);
                 lifecycle.running.store(false, Ordering::SeqCst);
                 tracing::info!(
-                    "Service control: {} requested internally for {} with exit code {}",
+                    "Service control: {} requested internally for {} with exit code {} (standby={})",
                     action.label(),
                     unit,
-                    exit_code
+                    exit_code,
+                    STANDBY_ACTIVE.load(Ordering::SeqCst)
                 );
             } else {
                 match run_service_action(action, &unit) {

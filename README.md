@@ -169,7 +169,7 @@ All service actions live under **System → Control** (not in Config).
 </p>
 
 - **Reiniciar** — soft restart of `bluestation-bs`
-- **Apagar** — stop the service (needs a manual start afterwards)
+- **Apagar** — soft standby: radio stack stops, dashboard stays up; the button becomes **Arrancar** to bring the station back
 - **Actualizar** — OTA: `git fetch` on branch `bost`, rebuild, install binary, restart
 
 When a newer commit is on GitHub, a banner appears here and a matching badge shows in the sidebar (click → System).

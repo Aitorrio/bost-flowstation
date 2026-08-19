@@ -2343,6 +2343,43 @@ fn handle_connection(
     // blocked operators doing DGNA/SDS from the BTS itself. Set a username/password to lock it down.
     if req_line.contains("/ws") {
         handle_ws(stream, state, clients, cmd_tx, update_state, shared_config.clone());
+    } else if req_line.contains("GET /api/service/status") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let state = if crate::service_control::is_standby() {
+            "standby"
+        } else {
+            "running"
+        };
+        http_json_response(s, 200, &format!(r#"{{"state":"{state}"}}"#));
+    } else if req_line.contains("POST /api/service/start") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        if !crate::service_control::is_standby() {
+            http_json_response(s, 200, r#"{"ok":true,"already":"running"}"#);
+        } else {
+            tracing::info!("Dashboard: service start requested (exit 75)");
+            crate::service_control::request_start();
+            http_json_response(s, 200, r#"{"ok":true,"action":"start"}"#);
+        }
+    } else if req_line.contains("POST /api/service/restart") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        tracing::info!("Dashboard: service restart requested via HTTP");
+        crate::service_control::schedule_service_action(
+            crate::service_control::ServiceAction::Restart,
+            std::time::Duration::from_millis(500),
+        );
+        http_json_response(s, 200, r#"{"ok":true,"action":"restart"}"#);
+    } else if req_line.contains("POST /api/service/shutdown") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        tracing::info!("Dashboard: soft shutdown requested via HTTP");
+        crate::service_control::schedule_service_action(
+            crate::service_control::ServiceAction::Stop,
+            std::time::Duration::from_millis(500),
+        );
+        http_json_response(s, 200, r#"{"ok":true,"action":"shutdown"}"#);
     } else if req_line.contains("GET /api/system/brightness") {
         // Backlight status probe (FH-FEAT-008) — lets the UI hide the slider on a panel-less host.
         drain_http_headers(&mut stream);
@@ -3481,11 +3518,17 @@ fn handle_ws_command(
         }
         Some("restart") => {
             tracing::info!("Dashboard: restart service requested");
-            send_cmd(ControlCommand::RestartService);
+            crate::service_control::schedule_service_action(
+                crate::service_control::ServiceAction::Restart,
+                std::time::Duration::from_millis(500),
+            );
         }
         Some("shutdown") => {
-            tracing::info!("Dashboard: shutdown service requested");
-            send_cmd(ControlCommand::ShutdownService);
+            tracing::info!("Dashboard: soft shutdown (standby) requested");
+            crate::service_control::schedule_service_action(
+                crate::service_control::ServiceAction::Stop,
+                std::time::Duration::from_millis(500),
+            );
         }
         Some("update") => {
             let mut u = update_state.lock().unwrap();

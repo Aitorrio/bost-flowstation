@@ -660,11 +660,16 @@ fn main() {
     // Also installs lifecycle control so RestartService / ShutdownService commands
     // can request shutdown with the correct exit code (75 for restart, signaling
     // systemd to restart us instead of treating it as a normal exit).
+    // Soft Shutdown (exit 0) enters standby: dashboard HTTP stays up until Start/Restart
+    // requests exit 75, or Ctrl+C ends the process.
     let is_running = Arc::new(AtomicBool::new(true));
+    let ctrlc_stop = Arc::new(AtomicBool::new(false));
     tetra_entities::service_control::install_lifecycle_control(is_running.clone());
     let is_running_clone = is_running.clone();
+    let ctrlc_stop_clone = ctrlc_stop.clone();
     ctrlc::set_handler(move || {
         is_running_clone.store(false, Ordering::SeqCst);
+        ctrlc_stop_clone.store(true, Ordering::SeqCst);
     })
     .expect("failed to set Ctrl+C handler");
 
@@ -675,10 +680,33 @@ fn main() {
     // Start the stack
     router.run_stack(None, Some(is_running));
 
-    // router drops here → entities are dropped, networked entities disconnect.
-    // If RestartService/ShutdownService was triggered, exit with the requested code
-    // so systemd can restart us (exit 75) or stop cleanly (exit 0).
-    if let Some(code) = tetra_entities::service_control::requested_exit_code() {
-        std::process::exit(code);
+    // Keep `router` alive while we may enter soft standby so the dashboard thread
+    // (and SharedConfig) remain available for Arrancar / config / OTA.
+    match tetra_entities::service_control::requested_exit_code() {
+        Some(75) => {
+            // Restart / Start / OTA — systemd brings a fresh process.
+            std::process::exit(75);
+        }
+        Some(0) => {
+            eprintln!(
+                "\n[INFO] Soft shutdown — stack stopped, dashboard remains available.\n\
+                 Use System → Arrancar (or Restart) to bring the station back."
+            );
+            tracing::warn!("Service control: entering standby (dashboard still serving)");
+            loop {
+                if ctrlc_stop.load(Ordering::SeqCst) {
+                    tracing::info!("Standby interrupted by Ctrl+C — exiting");
+                    break;
+                }
+                if let Some(75) = tetra_entities::service_control::requested_exit_code() {
+                    tracing::info!("Standby: start/restart requested — exiting 75 for systemd");
+                    std::process::exit(75);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+        }
+        _ => {
+            // Ctrl+C or other clean stop while the stack was running.
+        }
     }
 }
