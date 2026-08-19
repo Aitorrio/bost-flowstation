@@ -4839,6 +4839,7 @@ const LANGS={
     confirm_logout:'Log out?',
     svc_standby_title:'Service on standby',
     svc_standby_body:'The radio stack is stopped. The dashboard stays available — press Start to bring the station back.',
+    svc_standby_short:'STANDBY',
     svc_start:'Start',
     svc_need_running:'“{action}” needs the full service running. Press Start in System → Control first.',
     svc_standby_will_start:'The service is on standby. “{action}” will start it again. Continue?',
@@ -5221,6 +5222,7 @@ const LANGS={
     confirm_logout:'¿Cerrar sesión?',
     svc_standby_title:'Servicio en espera',
     svc_standby_body:'El stack de radio está parado. El dashboard sigue disponible — pulsa Arrancar para poner la estación en marcha.',
+    svc_standby_short:'EN ESPERA',
     svc_start:'Arrancar',
     svc_need_running:'“{action}” necesita el servicio completo en marcha. Pulsa Arrancar en Sistema → Control primero.',
     svc_standby_will_start:'El servicio está en espera. “{action}” lo arrancará de nuevo. ¿Continuar?',
@@ -5943,24 +5945,26 @@ function clearEmergency(issi){if(!confirm(t('confirm_clear_emergency',{issi})))r
 // Mirrors the footer LEDs + emergency state onto the .pill chips in the header.
 function syncTopbarChips(){
   const led=document.getElementById('connLed');
-  const bsOn=!!(led&&led.classList.contains('on'));
+  const bsOn=serviceStandby?false:!!(led&&led.classList.contains('on'));
+  const brewOn=serviceStandby?false:!!state.brewOnline;
   const bs=document.getElementById('chip-bs');
   if(bs){
-    bs.className='pill '+(bsOn?'pill-ok':'pill-idle');
+    bs.className='pill '+(bsOn?'pill-ok':(serviceStandby?'pill-warn':'pill-idle'));
     const lbl=bs.querySelector('[data-i18n="bs_label"]');
-    if(lbl)lbl.textContent='BS '+(bsOn?t('online'):t('offline'));
+    if(lbl)lbl.textContent='BS '+(serviceStandby?t('svc_standby_short'):(bsOn?t('online'):t('offline')));
   }
   const brew=document.getElementById('chip-brew');
   if(brew){
-    brew.className='pill '+(state.brewOnline?'pill-info':'pill-idle');
+    brew.className='pill '+(brewOn?'pill-info':(serviceStandby?'pill-warn':'pill-idle'));
     const span=brew.querySelector('span');
-    if(span)span.textContent=state.brewOnline?('Brew v'+(state.brewVer||0)):'Brew';
+    if(span)span.textContent=serviceStandby?('Brew '+t('svc_standby_short')):(brewOn?('Brew v'+(state.brewVer||0)):'Brew');
   }
   const emg=document.getElementById('chip-emergency');
   if(emg)emg.style.display=Object.keys(state.emergencies||{}).length?'inline-flex':'none';
 }
 
 function setBrewStatus(online,version){
+  if(serviceStandby)online=false;
   state.brewOnline=online;state.brewVer=version||0;
   const led=document.getElementById('brewLed');
   const txt=document.getElementById('brewText');
@@ -5975,20 +5979,23 @@ function setBrewStatus(online,version){
       else{vbadge.style.background='rgba(255,178,36,0.15)';vbadge.style.color='var(--warn)';vbadge.style.border='1px solid rgba(255,178,36,0.4)';}
     }
   } else {
-    led.classList.remove('on');txt.textContent=t('brew_offline');txt.style.color='';
+    led.classList.remove('on');
+    txt.textContent=serviceStandby?t('svc_standby_short'):t('brew_offline');
+    txt.style.color=serviceStandby?'var(--warn)':'';
     if(vbadge)vbadge.style.display='none';
   }
   // Update stat card — state via ONE class (kills inline color split).
   const bv=document.getElementById('stat-brew-val');
   const bs=document.getElementById('stat-brew-sub');
   const bcard=document.getElementById('stat-brew-card');
-  if(bv){bv.textContent=online?t('brew_online'):t('brew_offline');}
-  if(bcard){bcard.classList.remove('is-info','is-danger');bcard.classList.add(online?'is-info':'is-danger');}
-  if(bs)bs.textContent=online?`Brew v${version||0}`:'—';
+  if(bv){bv.textContent=serviceStandby?t('svc_standby_short'):(online?t('brew_online'):t('brew_offline'));}
+  if(bcard){bcard.classList.remove('is-info','is-danger','is-warn');bcard.classList.add(online?'is-info':(serviceStandby?'is-warn':'is-danger'));}
+  if(bs)bs.textContent=online?`Brew v${version||0}`:(serviceStandby?t('svc_standby_title'):'—');
   const hb=document.getElementById('stations-hero-brew');
-  if(hb)hb.textContent=online?`v${version||0}`:t('brew_offline');
+  if(hb)hb.textContent=online?`v${version||0}`:(serviceStandby?t('svc_standby_short'):t('brew_offline'));
   // System panel
-  updateSysBtsPanel(document.getElementById('connLed').classList.contains('on'),online,version||0);
+  const bsOnline=serviceStandby?false:document.getElementById('connLed').classList.contains('on');
+  updateSysBtsPanel(bsOnline,online,version||0);
   syncTopbarChips();
 }
 
@@ -5996,6 +6003,11 @@ function connect(){
   const proto=location.protocol==='https:'?'wss:':'ws:';
   ws=new WebSocket(`${proto}//${location.host}/ws`);
   ws.onopen=()=>{
+    if(serviceStandby){
+      paintStandbyConnectivity();
+      try{ws.send(JSON.stringify({type:'subscribe'}));}catch{}
+      return;
+    }
     document.getElementById('connLed').classList.add('on');
     const ct=document.getElementById('connText');ct.textContent=t('online');ct.style.color='var(--accent)';
     updateSysBtsPanel(true,state.brewOnline,state.brewVer);
@@ -6010,7 +6022,10 @@ function connect(){
     syncTopbarChips();
     setTimeout(connect,3000);
   };
-  ws.onmessage=(e)=>{try{handleMsg(JSON.parse(e.data));}catch{}};
+  ws.onmessage=(e)=>{
+    if(serviceStandby)return; // stack frozen — ignore stale live telemetry
+    try{handleMsg(JSON.parse(e.data));}catch{}
+  };
 }
 
 function handleMsg(msg){
@@ -6240,6 +6255,17 @@ function updateTsBlocks(){
     const label=block.querySelector('.ts-label');
     const sub=block.querySelector('.ts-sub');
     const dur=block.querySelector('.ts-duration-bar');
+    const timer=block.querySelector('.ts-timer');
+
+    if(serviceStandby){
+      block.className='ts-block';
+      if(label)label.textContent='—';
+      if(sub)sub.textContent=t('svc_standby_short');
+      tsApplyWave(ts,false);
+      if(timer)timer.textContent='';
+      if(dur)dur.style.width='0%';
+      continue;
+    }
 
     if(ts===1){
       block.className='ts-block mcch';
@@ -6253,7 +6279,6 @@ function updateTsBlocks(){
     }
 
     const st=tsState[i];
-    const timer=block.querySelector('.ts-timer');
     if(!st){
       block.className='ts-block';
       label.textContent='—';
@@ -6597,6 +6622,16 @@ function updateTsBlocksCarrier(){
       const dur=block.querySelector('.ts-duration-bar');
       const timer=block.querySelector('.ts-timer');
       const st=tsStateCarrier[tsCarrierKey(carrierNum,ts)];
+
+      if(serviceStandby){
+        block.className='ts-block';
+        if(label)label.textContent='—';
+        if(sub)sub.textContent=t('svc_standby_short');
+        tsApplyWaveCarrier(carrierNum,ts,false);
+        if(timer)timer.textContent='';
+        if(dur)dur.style.width='0%';
+        continue;
+      }
 
       if(ts===1&&carrierNum===state.mainCarrierNum){
         block.className='ts-block mcch';
@@ -8109,7 +8144,35 @@ function toggleServicePower(){
 
 let serviceStandby=false;
 let serviceStatusTimer=null;
+function paintStandbyConnectivity(){
+  const led=document.getElementById('connLed');
+  if(led)led.classList.remove('on');
+  const ct=document.getElementById('connText');
+  if(ct){ct.textContent=t('svc_standby_short');ct.style.color='var(--warn)';}
+  state.brewOnline=false;
+  setBrewStatus(false,0);
+  updateSysBtsPanel(false,false,0);
+  syncTopbarChips();
+  try{updateRfStatusBanner({state:'offline',detail:t('svc_standby_title')});}catch{}
+  try{
+    setText('rf-age', t('svc_standby_short'));
+    setText('rf-hero-sub', t('svc_standby_title'));
+    setText('rf-spectrum-hint', t('svc_standby_title'));
+  }catch{}
+  // Health badge: standby is intentional, not a core-loop crash.
+  try{
+    const badge=document.getElementById('health-badge');
+    const lbl=document.getElementById('health-badge-label');
+    if(badge&&lbl){
+      lbl.textContent=t('svc_standby_short');
+      lbl.style.color='var(--warn)';
+      badge.style.display='flex';
+      badge.title=t('svc_standby_title')+'\n'+t('svc_standby_body');
+    }
+  }catch{}
+}
 async function refreshServiceState(){
+  const was=serviceStandby;
   try{
     const r=await fetch('/api/service/status',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)return;
@@ -8117,6 +8180,18 @@ async function refreshServiceState(){
     serviceStandby=(j.state==='standby');
   }catch{/* keep last known */}
   applyServiceStateUi();
+  if(serviceStandby&&!was){
+    // Just entered standby: clear live radio/call view so the UI is not "frozen online".
+    state.ms={};state.calls={};state.emergencies={};
+    for(let i=0;i<tsState.length;i++)tsState[i]=null;
+    Object.keys(tsStateCarrier).forEach(k=>{delete tsStateCarrier[k];});
+    try{renderStations();}catch{}
+    try{renderCalls();}catch{}
+    try{renderLastHeard();}catch{}
+    try{updateTsBlocks();}catch{}
+    try{updateTsBlocksCarrier();}catch{}
+    paintStandbyConnectivity();
+  }
 }
 function applyServiceStateUi(){
   const banner=document.getElementById('svc-standby-banner');
@@ -8131,6 +8206,7 @@ function applyServiceStateUi(){
   }
   if(powerLabel)powerLabel.textContent=serviceStandby?t('svc_start'):t('shutdown');
   if(restartBtn)restartBtn.disabled=!!serviceStandby;
+  if(serviceStandby)paintStandbyConnectivity();
 }
 async function ensureServiceRunning(actionLabel){
   await refreshServiceState();
@@ -9036,13 +9112,17 @@ function updateSysHero(){
   const sub=document.getElementById('sysHeroSub');
   const tempV=document.getElementById('sysHeroTemp');
   const btsCard=document.getElementById('sysBtsCard');
-  const btsOnline=btsCard&&btsCard.classList.contains('is-ok');
+  const btsOnline=!serviceStandby&&btsCard&&btsCard.classList.contains('is-ok');
   const brewCard=document.getElementById('sysBrewCard');
-  const brewOnline=brewCard&&brewCard.classList.contains('is-info');
-  if(dot) dot.className='hero-dot '+(btsOnline?'is-ok':'is-danger');
+  const brewOnline=!serviceStandby&&brewCard&&brewCard.classList.contains('is-info');
+  if(dot) dot.className='hero-dot '+(serviceStandby?'is-warn':(btsOnline?'is-ok':'is-danger'));
   if(sub){
     const host=(sysData&&sysData.hostname)||document.getElementById('sysHostname').textContent||'—';
-    sub.textContent=(btsOnline?t('online'):t('offline'))+' · '+(brewOnline?t('brew_online'):t('brew_offline'))+' · '+host;
+    if(serviceStandby){
+      sub.textContent=t('svc_standby_title')+' · '+host;
+    } else {
+      sub.textContent=(btsOnline?t('online'):t('offline'))+' · '+(brewOnline?t('brew_online'):t('brew_offline'))+' · '+host;
+    }
   }
   if(tempV){
     const tc=document.getElementById('sysCpuTemp');
@@ -9094,6 +9174,7 @@ async function activateProfile(name){
 }
 
 function updateSysBtsPanel(online,brewOnline,brewVer){
+  if(serviceStandby){online=false;brewOnline=false;}
   const ipEl=document.getElementById('sysBtsIp');
   const stEl=document.getElementById('sysBtsStatus');
   const bsEl=document.getElementById('sysBrewStatus');
@@ -9101,11 +9182,11 @@ function updateSysBtsPanel(online,brewOnline,brewVer){
   const btsCard=document.getElementById('sysBtsCard');
   const brewCard=document.getElementById('sysBrewCard');
   if(ipEl)ipEl.textContent=online?location.hostname:'—';
-  if(stEl)stEl.textContent=online?t('online'):t('offline');
-  if(btsCard)btsCard.className='stat-card '+(online?'is-ok':'is-danger');
-  if(bsEl)bsEl.textContent=brewOnline?t('brew_online'):t('brew_offline');
-  if(brewCard)brewCard.className='stat-card '+(brewOnline?'is-info':'is-danger');
-  if(bdEl){bdEl.textContent=brewOnline?`Brew v${brewVer||0}`:'—';}
+  if(stEl)stEl.textContent=serviceStandby?t('svc_standby_short'):(online?t('online'):t('offline'));
+  if(btsCard)btsCard.className='stat-card '+(online?'is-ok':(serviceStandby?'is-warn':'is-danger'));
+  if(bsEl)bsEl.textContent=serviceStandby?t('svc_standby_short'):(brewOnline?t('brew_online'):t('brew_offline'));
+  if(brewCard)brewCard.className='stat-card '+(brewOnline?'is-info':(serviceStandby?'is-warn':'is-danger'));
+  if(bdEl){bdEl.textContent=brewOnline?`Brew v${brewVer||0}`:(serviceStandby?t('svc_standby_title'):'—');}
   updateSysHero();
 }
 
