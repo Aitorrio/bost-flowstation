@@ -217,6 +217,13 @@ else
   log "Keeping existing $CFG_PATH"
 fi
 
+# Always ensure a sibling .fallback exists (recovery if primary is hand-edited broken).
+# Never overwrite an existing .fallback — it is the operator's known-good anchor.
+if [[ ! -f "${CFG_PATH}.fallback" ]]; then
+  cp "$CFG_PATH" "${CFG_PATH}.fallback"
+  log "Created ${CFG_PATH}.fallback (dashboard + RF-safe boot reserve)"
+fi
+
 if [[ ! -f "${CFG_DIR}/setup.json" ]]; then
   cat >"${CFG_DIR}/setup.json" <<'EOF'
 {

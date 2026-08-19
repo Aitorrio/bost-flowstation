@@ -55,21 +55,32 @@ enum ConfigLoadResult {
     },
 }
 
-/// Try to load the primary config. If it fails, try the fallback
-/// (`<config>.fallback` alongside the primary file).
-/// Returns Ok(ConfigLoadResult) or exits if both fail.
+/// Parse a config file and run semantic validation.
+/// Used so a primary that *parses* but fails `validate()` still triggers `.fallback`
+/// (instead of panicking later in `SharedConfig::from_parts`).
+fn try_load_stack_config(path: &str) -> Result<StackConfig, String> {
+    let cfg = parsing::from_file(path).map_err(|e| format!("parse error: {e}"))?;
+    cfg.validate()
+        .map_err(|e| format!("validation error: {e}"))?;
+    Ok(cfg)
+}
+
+/// Try to load the primary config (parse + validate). If it fails, try the fallback
+/// (`<config>.fallback` alongside the primary file) with the same checks.
+/// Returns ConfigLoadResult or exits if both fail.
 fn load_config_with_fallback(cfg_path: &str) -> ConfigLoadResult {
-    match parsing::from_file(cfg_path) {
+    match try_load_stack_config(cfg_path) {
         Ok(c) => ConfigLoadResult::Primary(c),
         Err(primary_err) => {
-            let primary_err_str = primary_err.to_string();
-            eprintln!("WARNING: Failed to load primary config '{}': {}", cfg_path, primary_err_str);
+            eprintln!(
+                "WARNING: Failed to load primary config '{}': {}",
+                cfg_path, primary_err
+            );
 
-            // Fallback path: same directory, same name + ".fallback"
             let fallback_path = format!("{}.fallback", cfg_path);
 
             eprintln!("WARNING: Trying fallback config '{}'...", fallback_path);
-            match parsing::from_file(&fallback_path) {
+            match try_load_stack_config(&fallback_path) {
                 Ok(c) => {
                     eprintln!(
                         "WARNING: Started on FALLBACK config '{}'. Primary config is invalid!",
@@ -78,13 +89,19 @@ fn load_config_with_fallback(cfg_path: &str) -> ConfigLoadResult {
                     ConfigLoadResult::Fallback {
                         config: c,
                         fallback_path,
-                        primary_error: primary_err_str,
+                        primary_error: primary_err,
                     }
                 }
                 Err(fallback_err) => {
-                    eprintln!("ERROR: Fallback config '{}' also failed: {}", fallback_path, fallback_err);
+                    eprintln!(
+                        "ERROR: Fallback config '{}' also failed: {}",
+                        fallback_path, fallback_err
+                    );
                     eprintln!("ERROR: No valid config available. Cannot start.");
-                    eprintln!("HINT:  Fix '{}' or create a valid fallback at '{}'", cfg_path, fallback_path);
+                    eprintln!(
+                        "HINT:  Fix '{}' or create a valid fallback at '{}'",
+                        cfg_path, fallback_path
+                    );
                     std::process::exit(1);
                 }
             }
@@ -381,7 +398,7 @@ fn main() {
     // Parse command-line arguments
     let args = Args::parse();
 
-    // Load config — tries primary, falls back to <config>.fallback if primary is invalid.
+    // Load config — parse+validate primary; on failure try <config>.fallback the same way.
     let (stack_cfg, fallback_info) = match load_config_with_fallback(&args.config) {
         ConfigLoadResult::Primary(c) => (c, None),
         ConfigLoadResult::Fallback {
@@ -526,7 +543,7 @@ fn main() {
             // If we started on fallback config, tell the dashboard to show the warning banner.
             if let Some((ref fb_path, ref fb_reason)) = fallback_info {
                 let reason = format!(
-                    "Primary config '{}' failed to load: {}. Running on fallback '{}'.",
+                    "Primary config '{}' failed ({}). Running on fallback '{}'. Fix the primary under Config, then Restart.",
                     args.config, fb_reason, fb_path
                 );
                 tracing::warn!("{}", reason);

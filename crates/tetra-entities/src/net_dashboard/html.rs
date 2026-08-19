@@ -2605,6 +2605,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="banner-body">
       <div data-i18n="fallback_title">FALLBACK CONFIG ACTIVE — Primary config failed to load</div>
       <div id="fallback-reason" class="banner-sub"></div>
+      <div data-i18n="fallback_help" class="banner-sub" style="margin-top:4px">Repair the primary config.toml under Config (forms, raw TOML, or Restore .bak), then Restart. The .fallback file is not updated automatically.</div>
     </div>
   </div>
 
@@ -4817,6 +4818,7 @@ const LANGS={
     live_sds_clear_all:'Clear All',live_sds_empty:'No active broadcasts.',
     live_sds_sent:'sent',live_sds_times:'×',live_sds_forever:'∞',live_sds_delete:'✕',
     fallback_title:'⚠ FALLBACK CONFIG ACTIVE — Primary config failed to load',
+    fallback_help:'Repair the primary config.toml under Config (forms, raw TOML, or Restore .bak), then Restart. The .fallback file is not updated automatically.',
     sds_msg_label:'Message',cancel:'Cancel',send:'Send',
     th_issi:'ISSI',th_issi_cs:'ISSI / Callsign',th_groups:'Groups',th_ee:'Energy Economy',th_signal:'Signal',
     tg_selected:'Selected talkgroup (last keyed up)',
@@ -5202,6 +5204,7 @@ const LANGS={
     live_sds_clear_all:'Borrar Todo',live_sds_empty:'No hay difusiones activas.',
     live_sds_sent:'enviado',live_sds_times:'×',live_sds_forever:'∞',live_sds_delete:'✕',
     fallback_title:'⚠ CONFIGURACIÓN DE RESERVA ACTIVA — No se pudo cargar la configuración principal',
+    fallback_help:'Repara el config.toml principal en Config (formularios, TOML en bruto o Restaurar .bak) y reinicia. El fichero .fallback no se actualiza solo.',
     sds_title:'⬡ Enviar Mensaje SDS',sds_dest:'ISSI Destino',
     sds_msg_label:'Mensaje',cancel:'Cancelar',send:'Enviar',
     th_issi:'ISSI',th_groups:'Grupos',th_ee:'Ahorro Energía',th_signal:'Señal',
@@ -5914,6 +5917,8 @@ function showFallbackBanner(reason){
   banner.style.display='flex';
   const titleEl=banner.querySelector('[data-i18n="fallback_title"]');
   if(titleEl)titleEl.textContent=t('fallback_title');
+  const helpEl=banner.querySelector('[data-i18n="fallback_help"]');
+  if(helpEl)helpEl.textContent=t('fallback_help');
   const reasonEl=document.getElementById('fallback-reason');
   if(reasonEl)reasonEl.textContent=reason;
 }

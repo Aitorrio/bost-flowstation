@@ -56,7 +56,7 @@ When it finishes you should see something like:
 |---|---|
 | Dashboard | `http://<pi-ip>:8080` |
 | Default login | `admin` / `1234` |
-| Config on disk | `/etc/flowstation/config.toml` (kept across reinstalls) |
+| Config on disk | `/etc/flowstation/config.toml` (+ `.fallback` reserve) |
 | Sources | `/opt/bost-flowstation` (branch `bost`) |
 
 More detail (env vars, force-clean, helper script): [`Docs/install-and-setup.md`](Docs/install-and-setup.md).
@@ -136,9 +136,23 @@ In **Control remoto (U-STATUS)**, authorize radios and map status codes to actio
 
 Still available under **Advanced** for power users: **Save** + **Restart** only. Full annotated reference: [`example_config/config.toml`](example_config/config.toml).
 
+GUI saves validate before writing, so normal dashboard use should not brick the service. Prefer the forms over SSH hand-edits.
+
 <p align="center">
   <img src="Docs/screenshots/12-raw-config.png" alt="Config — raw config.toml editor with Save and Restart" width="720"/>
 </p>
+
+### Config recovery (`.fallback`)
+
+Next to the live file, install creates **`/etc/flowstation/config.toml.fallback`** — a known-good copy that is **not** overwritten when you save from the GUI.
+
+If the primary `config.toml` fails to **parse** or **validate** at boot (typical after a bad SSH edit), the service loads the `.fallback` instead, starts the dashboard, and shows a red warning banner. Fix the primary under **Config**, then **Restart**. Create or refresh the reserve yourself when you have a good config:
+
+```bash
+sudo cp /etc/flowstation/config.toml /etc/flowstation/config.toml.fallback
+```
+
+This is separate from RF-off / missing SDR: those still use a valid primary with `phy_io.backend = "None"` (or a failed Soapy open) and do not need `.fallback`.
 
 ---
 

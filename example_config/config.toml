@@ -19,9 +19,9 @@ stack_mode = "Bs"
 ###############################################################################
 # FALLBACK CONFIG
 #
-# If FlowStation fails to parse this config file (e.g. after a bad edit in the
-# dashboard), it automatically tries the fallback file at the same path with
-# ".fallback" appended — e.g. /opt/tetra/config.toml.fallback
+# If FlowStation fails to parse or validate this config file (e.g. after a bad
+# hand-edit), it automatically tries the fallback file at the same path with
+# ".fallback" appended — e.g. /etc/flowstation/config.toml.fallback
 #
 # The fallback file is NEVER overwritten automatically. Create it once with a
 # known-good config and leave it alone:
@@ -29,7 +29,7 @@ stack_mode = "Bs"
 #   cp config.toml config.toml.fallback
 #
 # When the fallback is active, the dashboard shows a persistent red warning
-# banner and logs the parse error from the primary config. This lets you fix
+# banner and logs the error from the primary config. This lets you fix
 # the broken config.toml from the dashboard without losing remote access.
 ###############################################################################
 
