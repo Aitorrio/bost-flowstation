@@ -1,5 +1,6 @@
 pub mod callsign;
 pub mod dapnet;
+pub mod dashboard_auth;
 pub mod dual_carrier;
 pub mod geoalarm;
 pub mod html;

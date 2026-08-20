@@ -263,6 +263,11 @@ impl SessionStore {
         self.sessions.remove(token);
     }
 
+    /// Drop every session (e.g. after a password change). Callers must re-login.
+    fn invalidate_all(&mut self) {
+        self.sessions.clear();
+    }
+
     fn prune(&mut self) {
         let now = std::time::Instant::now();
         let ttl = self.ttl;
@@ -271,6 +276,9 @@ impl SessionStore {
 }
 
 type SharedSessionStore = Arc<Mutex<SessionStore>>;
+/// Live dashboard credentials — shared so a System-tab password change takes effect
+/// without restarting the service.
+type SharedAuth = Arc<RwLock<Option<(String, String)>>>;
 
 /// Failed-login tracking, shared across every dashboard connection.
 ///
@@ -1231,7 +1239,8 @@ pub struct DashboardServer {
     source_dir_override: Option<String>,
     /// Authentication credentials. None = no auth (open access). When set, requests
     /// must carry a valid `fs_session` cookie obtained from `POST /api/login`.
-    auth: Option<(String, String)>,
+    /// Wrapped in `Arc<RwLock<_>>` so System-tab credential changes hot-update without restart.
+    auth: SharedAuth,
     /// When true AND `auth` is Some, anonymous visitors get a read-only public overview instead of
     /// being bounced to /login. Inert without auth. (FH-FEAT-033)
     public_overview: bool,
@@ -1260,7 +1269,7 @@ impl DashboardServer {
             cmd_tx: None,
             update_state: Arc::new(Mutex::new(UpdateState::new())),
             source_dir_override: None,
-            auth: None,
+            auth: Arc::new(RwLock::new(None)),
             public_overview: false,
             sessions: Arc::new(Mutex::new(SessionStore::new())),
             login_throttle: Arc::new(Mutex::new(LoginThrottle::new())),
@@ -1283,9 +1292,9 @@ impl DashboardServer {
         self.source_dir_override = source_dir;
     }
 
-    /// Configure HTTP Basic Auth credentials.
+    /// Configure dashboard login credentials (cookie session; not browser Basic Auth).
     pub fn set_auth(&mut self, auth: Option<(String, String)>) {
-        self.auth = auth;
+        *self.auth.write().unwrap_or_else(|e| e.into_inner()) = auth;
     }
 
     /// Enable the anonymous read-only public overview (only effective when auth is set).
@@ -1310,7 +1319,7 @@ impl DashboardServer {
         let cmd_tx: Arc<Mutex<Option<CmdSender>>> = Arc::new(Mutex::new(self.cmd_tx.take()));
         let update_state = Arc::clone(&self.update_state);
         let source_dir_override = self.source_dir_override.clone();
-        let auth = self.auth.clone();
+        let auth: SharedAuth = Arc::clone(&self.auth);
         let public_overview = self.public_overview;
         let shared_config = self.shared_config.clone();
         let sessions = Arc::clone(&self.sessions);
@@ -1352,7 +1361,7 @@ impl DashboardServer {
                     let cmd_tx = Arc::clone(&cmd_tx);
                     let update_state = Arc::clone(&update_state);
                     let source_dir_override = source_dir_override.clone();
-                    let auth = auth.clone();
+                    let auth = Arc::clone(&auth);
                     let shared_config = shared_config.clone();
                     let sessions = Arc::clone(&sessions);
                     let login_throttle = Arc::clone(&login_throttle);
@@ -2116,7 +2125,7 @@ fn handle_connection(
     cmd_tx: Arc<Mutex<Option<CmdSender>>>,
     update_state: SharedUpdateState,
     source_dir_override: Option<String>,
-    auth: Option<(String, String)>,
+    auth: SharedAuth,
     shared_config: Option<tetra_config::bluestation::SharedConfig>,
     sessions: SharedSessionStore,
     login_throttle: SharedLoginThrottle,
@@ -2171,7 +2180,10 @@ fn handle_connection(
         return;
     }
 
-    if let Some((ref expected_user, ref expected_pass)) = auth {
+    // Snapshot credentials for this connection. SharedAuth lets System-tab changes take
+    // effect on the next request without restarting the service.
+    let auth_creds = auth.read().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some((ref expected_user, ref expected_pass)) = auth_creds {
         // Login page and login API must remain reachable without a session.
         let is_login_page = req_line.starts_with("GET /login ") || req_line.starts_with("GET /login?");
         let is_login_api = req_line.starts_with("POST /api/login ");
@@ -2990,6 +3002,13 @@ fn handle_connection(
         let _ = buf.read_exact(&mut body);
         let body_str = String::from_utf8_lossy(&body);
         serve_whitelist_post(buf.into_inner(), &shared_config, &config_path, body_str.as_ref(), &cmd_tx);
+    } else if req_line.contains("GET /api/dashboard-auth") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        serve_dashboard_auth_get(s, &auth);
+    } else if req_line.contains("POST /api/dashboard-auth") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_dashboard_auth_post(inner, &auth, &sessions, &config_path, &body_str);
     } else if req_line.contains("GET /api/wx") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -4216,6 +4235,156 @@ fn serve_cell_whitelist_post(
         stream,
         200,
         &format!(r#"{{"ok":true,"applied_live":{}}}"#, applied_live),
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard account (single username/password in [dashboard]). System-tab GUI.
+// ---------------------------------------------------------------------------
+
+/// GET /api/dashboard-auth — `{auth_enabled, username}` (never the password).
+fn serve_dashboard_auth_get(stream: TcpStream, auth: &SharedAuth) {
+    let creds = auth.read().unwrap_or_else(|e| e.into_inner()).clone();
+    let body = match creds {
+        Some((user, _)) => {
+            let escaped = user.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(r#"{{"auth_enabled":true,"username":"{escaped}"}}"#)
+        }
+        None => r#"{"auth_enabled":false,"username":null}"#.to_string(),
+    };
+    http_json_response(stream, 200, &body);
+}
+
+/// POST /api/dashboard-auth — enable auth or change username/password.
+///
+/// Body (JSON):
+/// - Enable (auth currently off): `{username, new_password, confirm_password}`
+/// - Change (auth on): `{current_password, username?, new_password?, confirm_password?}`
+///   At least one of username / new_password must be present when auth is on.
+///
+/// Persists via validate-before-write, hot-updates SharedAuth, invalidates sessions.
+fn serve_dashboard_auth_post(
+    stream: TcpStream,
+    auth: &SharedAuth,
+    sessions: &SharedSessionStore,
+    config_path: &str,
+    body: &str,
+) {
+    let json: serde_json::Value = match serde_json::from_str(body.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            http_response(stream, 400, &format!("Invalid JSON: {e}"));
+            return;
+        }
+    };
+
+    let current = auth.read().unwrap_or_else(|e| e.into_inner()).clone();
+
+    let json_str = |k: &str| {
+        json.get(k)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+    };
+
+    let (new_user, new_pass) = match &current {
+        None => {
+            // Enable auth from open access.
+            let user = match json_str("username").or_else(|| json_str("new_username")) {
+                Some(u) => u,
+                None => {
+                    http_response(stream, 400, "username required to enable dashboard auth");
+                    return;
+                }
+            };
+            let pass = match json_str("new_password") {
+                Some(p) => p,
+                None => {
+                    http_response(stream, 400, "new_password required to enable dashboard auth");
+                    return;
+                }
+            };
+            let confirm = json_str("confirm_password").unwrap_or_default();
+            if pass != confirm {
+                http_response(stream, 400, "new_password and confirm_password do not match");
+                return;
+            }
+            if user.trim().is_empty() || pass.is_empty() {
+                http_response(stream, 400, "username and password cannot be empty");
+                return;
+            }
+            (user.trim().to_string(), pass)
+        }
+        Some((cur_user, cur_pass)) => {
+            let current_password = json_str("current_password").unwrap_or_default();
+            if !timing_safe_eq(current_password.as_bytes(), cur_pass.as_bytes()) {
+                http_response(stream, 403, "current_password is incorrect");
+                return;
+            }
+
+            let next_user = json_str("username")
+                .or_else(|| json_str("new_username"))
+                .unwrap_or_else(|| cur_user.clone());
+            let next_user = next_user.trim().to_string();
+            if next_user.is_empty() {
+                http_response(stream, 400, "username cannot be empty");
+                return;
+            }
+
+            let next_pass = match json_str("new_password") {
+                Some(p) => {
+                    let confirm = json_str("confirm_password").unwrap_or_default();
+                    if p != confirm {
+                        http_response(stream, 400, "new_password and confirm_password do not match");
+                        return;
+                    }
+                    if p.is_empty() {
+                        http_response(stream, 400, "new_password cannot be empty");
+                        return;
+                    }
+                    p
+                }
+                None => cur_pass.clone(),
+            };
+
+            if next_user == *cur_user && next_pass == *cur_pass {
+                http_response(stream, 400, "no changes requested");
+                return;
+            }
+            (next_user, next_pass)
+        }
+    };
+
+    // Persist: patch TOML → parse+validate → atomic write (same safety as /api/config).
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => {
+            http_response(stream, 500, &format!("cannot read config: {e}"));
+            return;
+        }
+    };
+    let patched =
+        crate::net_dashboard::dashboard_auth::patch_dashboard_credentials(&original, &new_user, &new_pass);
+    if let Err((code, msg)) = write_config_validated(config_path, &patched) {
+        http_response(stream, code, &msg);
+        return;
+    }
+
+    // Hot-update runtime credentials and force re-login.
+    *auth.write().unwrap_or_else(|e| e.into_inner()) = Some((new_user.clone(), new_pass));
+    sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .invalidate_all();
+
+    tracing::info!("Dashboard: account updated (user={})", new_user);
+    http_json_response(
+        stream,
+        200,
+        &format!(
+            r#"{{"ok":true,"auth_enabled":true,"username":"{}","reauth":true}}"#,
+            new_user.replace('\\', "\\\\").replace('"', "\\\"")
+        ),
     );
 }
 

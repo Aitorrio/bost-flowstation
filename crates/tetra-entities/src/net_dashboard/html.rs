@@ -4271,6 +4271,70 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <!-- Panel account: single [dashboard] username/password -->
+      <div class="section-label" data-i18n="sys_sec_account">Account</div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-head">
+          <div class="card-title" data-i18n="sys_account_title">Panel access</div>
+          <div class="card-actions">
+            <span id="sys-auth-badge" class="pill pill-idle" style="font-size:11px">—</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div style="color:var(--muted);font-size:13px;margin-bottom:14px" data-i18n="sys_account_help">Change the dashboard login without editing config.toml. One account only — same as [dashboard] username/password.</div>
+          <div class="info-row"><div class="info-key" data-i18n="sys_account_user">Username</div><div class="info-val" id="sys-auth-username">—</div></div>
+
+          <div id="sys-auth-change" style="display:none;margin-top:16px">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)" data-i18n="sys_account_change">Change credentials</div>
+            <div style="display:grid;gap:10px;max-width:360px">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+                <span data-i18n="sys_account_current_pass">Current password</span>
+                <input type="password" id="sys-auth-cur" autocomplete="current-password" class="form-input" style="width:100%">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+                <span data-i18n="sys_account_new_user">New username (optional)</span>
+                <input type="text" id="sys-auth-new-user" autocomplete="username" class="form-input" style="width:100%">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+                <span data-i18n="sys_account_new_pass">New password (optional)</span>
+                <input type="password" id="sys-auth-new-pass" autocomplete="new-password" class="form-input" style="width:100%">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+                <span data-i18n="sys_account_confirm">Confirm new password</span>
+                <input type="password" id="sys-auth-confirm" autocomplete="new-password" class="form-input" style="width:100%">
+              </label>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <button type="button" class="btn btn-primary btn-sm" onclick="saveDashboardAuth()"><span data-i18n="sys_account_save">Save</span></button>
+                <span id="sys-auth-msg" style="font-size:12px;color:var(--muted)"></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="sys-auth-enable" style="display:none;margin-top:16px">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text2)" data-i18n="sys_account_enable_title">Enable login</div>
+            <div style="color:var(--muted);font-size:13px;margin-bottom:10px" data-i18n="sys_account_enable_help">Dashboard access is currently open. Set a username and password to require sign-in.</div>
+            <div style="display:grid;gap:10px;max-width:360px">
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+                <span data-i18n="sys_account_user">Username</span>
+                <input type="text" id="sys-auth-en-user" autocomplete="username" class="form-input" style="width:100%" value="admin">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+                <span data-i18n="sys_account_new_pass">New password</span>
+                <input type="password" id="sys-auth-en-pass" autocomplete="new-password" class="form-input" style="width:100%">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">
+                <span data-i18n="sys_account_confirm">Confirm new password</span>
+                <input type="password" id="sys-auth-en-confirm" autocomplete="new-password" class="form-input" style="width:100%">
+              </label>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <button type="button" class="btn btn-primary btn-sm" onclick="enableDashboardAuth()"><span data-i18n="sys_account_enable_btn">Enable login</span></button>
+                <span id="sys-auth-en-msg" style="font-size:12px;color:var(--muted)"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- BTS + Brew status -->
       <div class="section-label" data-i18n="sys_sec_status">Status</div>
       <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
@@ -4891,6 +4955,7 @@ const LANGS={
     sys_active_badge:'ACTIVE',sys_no_profiles:'No .toml profiles found in config directory.',
     sys_activate_confirm:'Switch to profile "{name}" and restart?\nCurrent config will be backed up.',
     sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, put it on standby (dashboard stays up), or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
+    sys_sec_account:'Account',sys_account_title:'Panel access',sys_account_help:'Change the dashboard login without editing config.toml. One account only — same as [dashboard] username/password.',sys_account_user:'Username',sys_account_change:'Change credentials',sys_account_current_pass:'Current password',sys_account_new_user:'New username (optional)',sys_account_new_pass:'New password (optional)',sys_account_confirm:'Confirm new password',sys_account_save:'Save',sys_account_enable_title:'Enable login',sys_account_enable_help:'Dashboard access is currently open. Set a username and password to require sign-in.',sys_account_enable_btn:'Enable login',sys_account_open:'OPEN',sys_account_protected:'PROTECTED',sys_account_ok:'Saved — sign in again',sys_account_err:'Could not save',sys_account_need_cur:'Current password required',sys_account_need_change:'Set a new username and/or password',sys_account_mismatch:'Passwords do not match',
     sys_bts:'BTS Connection',
     cr_original:'© 2026 Razvan Zeces — YO6RZV',
     cr_enhanced:'Enhanced version by Aitor, EA4HBL',
@@ -5260,6 +5325,7 @@ const LANGS={
     sys_active_badge:'ACTIVO',sys_no_profiles:'No se encontraron perfiles .toml en el directorio.',
     sys_activate_confirm:'¿Cambiar al perfil "{name}" y reiniciar?\nLa config actual será respaldada.',
     sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, ponla en espera (el dashboard sigue) o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
+    sys_sec_account:'Cuenta',sys_account_title:'Acceso al panel',sys_account_help:'Cambia el login del dashboard sin editar config.toml. Una sola cuenta — igual que username/password en [dashboard].',sys_account_user:'Usuario',sys_account_change:'Cambiar credenciales',sys_account_current_pass:'Contraseña actual',sys_account_new_user:'Nuevo usuario (opcional)',sys_account_new_pass:'Nueva contraseña (opcional)',sys_account_confirm:'Confirmar nueva contraseña',sys_account_save:'Guardar',sys_account_enable_title:'Activar acceso',sys_account_enable_help:'El dashboard está abierto. Define usuario y contraseña para exigir inicio de sesión.',sys_account_enable_btn:'Activar acceso',sys_account_open:'ABIERTO',sys_account_protected:'PROTEGIDO',sys_account_ok:'Guardado — vuelve a iniciar sesión',sys_account_err:'No se pudo guardar',sys_account_need_cur:'Contraseña actual obligatoria',sys_account_need_change:'Indica un nuevo usuario y/o contraseña',sys_account_mismatch:'Las contraseñas no coinciden',
     sys_bts:'Conexión BTS',
   },
   hu:{
@@ -5548,7 +5614,7 @@ function showPage(name,el){
   if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
-  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();checkUpdate();startServiceStatusPolling();}
+  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();checkUpdate();startServiceStatusPolling();loadDashboardAuth();}
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
   if(name==='wifi')wifiRefresh();
   if(window.innerWidth<=700)closeMobileSidebar();
@@ -9027,6 +9093,70 @@ async function loadBtsInfoLegacy(){
         : t('bts_wl_open');
     }
   }catch(e){/* config endpoint unavailable - leave placeholders */}
+}
+
+async function loadDashboardAuth(){
+  try{
+    const r=await fetch('/api/dashboard-auth',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)return;
+    const d=await r.json();
+    const badge=document.getElementById('sys-auth-badge');
+    const userEl=document.getElementById('sys-auth-username');
+    const change=document.getElementById('sys-auth-change');
+    const enable=document.getElementById('sys-auth-enable');
+    if(d.auth_enabled){
+      if(badge){badge.textContent=t('sys_account_protected');badge.className='pill pill-ok';}
+      if(userEl)userEl.textContent=d.username||'—';
+      if(change)change.style.display='';
+      if(enable)enable.style.display='none';
+      const nu=document.getElementById('sys-auth-new-user');
+      if(nu && !nu.value)nu.placeholder=d.username||'';
+    }else{
+      if(badge){badge.textContent=t('sys_account_open');badge.className='pill pill-warn';}
+      if(userEl)userEl.textContent='—';
+      if(change)change.style.display='none';
+      if(enable)enable.style.display='';
+    }
+  }catch(e){console.error('loadDashboardAuth',e);}
+}
+
+async function saveDashboardAuth(){
+  const msg=document.getElementById('sys-auth-msg');
+  const cur=(document.getElementById('sys-auth-cur')||{}).value||'';
+  const newUser=((document.getElementById('sys-auth-new-user')||{}).value||'').trim();
+  const newPass=(document.getElementById('sys-auth-new-pass')||{}).value||'';
+  const confirm=(document.getElementById('sys-auth-confirm')||{}).value||'';
+  if(!cur){if(msg)msg.textContent=t('sys_account_need_cur');return;}
+  if(!newUser && !newPass){if(msg)msg.textContent=t('sys_account_need_change');return;}
+  if(newPass && newPass!==confirm){if(msg)msg.textContent=t('sys_account_mismatch');return;}
+  const body={current_password:cur};
+  if(newUser)body.username=newUser;
+  if(newPass){body.new_password=newPass;body.confirm_password=confirm;}
+  if(msg)msg.textContent='…';
+  try{
+    const r=await fetch('/api/dashboard-auth',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const text=await r.text();
+    if(!r.ok){if(msg)msg.textContent=text||t('sys_account_err');return;}
+    if(msg)msg.textContent=t('sys_account_ok');
+    setTimeout(()=>{location.href='/login';},600);
+  }catch(e){if(msg)msg.textContent=t('sys_account_err');}
+}
+
+async function enableDashboardAuth(){
+  const msg=document.getElementById('sys-auth-en-msg');
+  const user=((document.getElementById('sys-auth-en-user')||{}).value||'').trim();
+  const pass=(document.getElementById('sys-auth-en-pass')||{}).value||'';
+  const confirm=(document.getElementById('sys-auth-en-confirm')||{}).value||'';
+  if(!user||!pass){if(msg)msg.textContent=t('sys_account_need_change');return;}
+  if(pass!==confirm){if(msg)msg.textContent=t('sys_account_mismatch');return;}
+  if(msg)msg.textContent='…';
+  try{
+    const r=await fetch('/api/dashboard-auth',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,new_password:pass,confirm_password:confirm})});
+    const text=await r.text();
+    if(!r.ok){if(msg)msg.textContent=text||t('sys_account_err');return;}
+    if(msg)msg.textContent=t('sys_account_ok');
+    setTimeout(()=>{location.href='/login';},600);
+  }catch(e){if(msg)msg.textContent=t('sys_account_err');}
 }
 
 async function loadSystemInfo(){

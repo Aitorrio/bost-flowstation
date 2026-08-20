@@ -66,7 +66,7 @@ More detail (env vars, force-clean, helper script): [`Docs/install-and-setup.md`
 ## First login & Setup wizard
 
 1. Open the dashboard URL printed by the installer.
-2. Sign in with `admin` / `1234` (change the password later in Config).
+2. Sign in with `admin` / `1234` (change them later under **System → Account**).
 
 <p align="center">
   <img src="Docs/screenshots/01-login.png" alt="Bost FlowStation login screen" width="420"/>
@@ -186,7 +186,7 @@ If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/inst
 | **Calls / Last Heard / Log** | Live traffic and diagnostics |
 | **RF / Health** | Spectrum / constellation and subsystem health |
 | **Config** | Profiles, Cell ISSI whitelist, remote U-STATUS, live save |
-| **System** | Host metrics, service control, OTA |
+| **System** | Host metrics, service control, OTA, panel account |
 | **Setup** | Re-run first-boot helper anytime |
 
 ---
@@ -194,6 +194,8 @@ If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/inst
 ## System control & OTA updates
 
 All service actions live under **System → Control** (not in Config).
+
+Under **System → Account** you can change the dashboard username/password (or enable login if the panel is open) without editing `[dashboard]` in `config.toml` by hand.
 
 <p align="center">
   <img src="Docs/screenshots/05-system-control.png" alt="System — update banner and service control buttons" width="720"/>
