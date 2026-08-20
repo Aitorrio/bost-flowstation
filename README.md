@@ -32,7 +32,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | First-run **Setup** wizard | Install SDR drivers and finish RF / net / Brew from the browser |
 | Visual **Config** (Cell × Brew profiles) | Switch networks without hand-editing TOML |
 | Access control & U-STATUS remote control in GUI | Whitelist + walkie commands (`ip` / `temp` / `info` / `restart`…) without SSH |
-| **System** control panel | Restart, shut down, and **OTA update** from the dashboard |
+| **System** control panel | Restart, standby, **OTA**, and **panel account** (user/password) from the dashboard |
 | Sidebar update badge | Glance notice when a newer `bost` commit is available |
 | Spanish-first UI (multi-language) | Ready for operators who prefer ES |
 
@@ -195,8 +195,6 @@ If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/inst
 
 All service actions live under **System → Control** (not in Config).
 
-Under **System → Account** you can change the dashboard username/password (or enable login if the panel is open) without editing `[dashboard]` in `config.toml` by hand.
-
 <p align="center">
   <img src="Docs/screenshots/05-system-control.png" alt="System — update banner and service control buttons" width="720"/>
 </p>
@@ -218,6 +216,20 @@ The OTA dialog shows a progress bar and the current build line (expand **Ver tod
 </p>
 
 Compiles on a Pi can take several minutes — leave the window open until it finishes.
+
+### Panel account (login)
+
+Under **System → Account** you manage the single dashboard login (the same `[dashboard]` username/password in `config.toml`) without editing TOML by hand. Station-wide — like U-STATUS, **not** part of Cell/Brew profiles.
+
+<p align="center">
+  <img src="Docs/screenshots/13-dashboard-user.png" alt="System — panel account: change dashboard username and password" width="720"/>
+</p>
+
+- Change **username** and/or **password** (current password required).
+- If the panel was open (no auth), **enable login** from the same card.
+- Changes apply immediately and persist across restart; you are asked to sign in again.
+
+Default after install remains `admin` / `1234` — change it here on first opportunity.
 
 ---
 
