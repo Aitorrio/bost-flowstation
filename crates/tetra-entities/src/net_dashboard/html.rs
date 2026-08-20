@@ -4309,9 +4309,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
           </div>
         </div>
-        <div class="card-body" style="padding-top:0">
-          <div style="color:var(--muted);font-size:13px" data-i18n="sys_control_help">Restart or shut down the FlowStation service, or pull and rebuild from GitHub (OTA).</div>
-        </div>
       </div>
 
       <!-- Panel account: single [dashboard] username/password -->
@@ -4323,7 +4320,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <span id="sys-auth-badge" class="pill pill-idle" style="font-size:11px">—</span>
           </div>
         </div>
-        <div class="card-body">
+        <div class="card-body" style="padding:14px 18px">
           <div class="help-text" style="margin-bottom:14px" data-i18n="sys_account_help">Change the dashboard login here. One station account — not part of Cell/Brew profiles.</div>
 
           <div class="sys-auth-identity">
