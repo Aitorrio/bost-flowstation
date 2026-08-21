@@ -1723,6 +1723,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .sys-hero-head{
   display:flex;align-items:center;gap:16px;min-width:0;
 }
+.sys-hero-actions{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  flex-shrink:0;margin-left:auto;
+}
+@media (max-width:700px){
+  .sys-hero-head{flex-wrap:wrap;}
+  .sys-hero-actions{margin-left:0;width:100%;}
+}
 .sys-hero .sys-hero-stats{
   margin:0;width:100%;
   grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
@@ -4289,13 +4297,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     </div>
 
     <div class="page" id="page-system">
-      <!-- System hero — title + nested BTS / Brew / uptime / CPU status cards -->
+      <div class="sys-update-banner" id="sys-update-banner" style="display:none" role="status">
+        <div class="sys-update-banner-text" id="sys-update-banner-text"></div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
+      </div>
+      <div id="svc-standby-banner" class="svc-standby-banner" role="status">
+        <div class="svc-standby-banner-title" data-i18n="svc_standby_title">Service on standby</div>
+        <div class="svc-standby-banner-body" data-i18n="svc_standby_body">The radio stack is stopped. The dashboard stays available — press Start to bring the station back.</div>
+      </div>
+
+      <!-- System hero — title + service actions + nested status cards -->
       <div class="hero sys-hero">
         <div class="sys-hero-head">
           <span class="hero-dot is-idle" id="sysHeroDot"></span>
           <div class="hero-main">
             <div class="hero-title" id="sysHeroTitle" data-i18n="sys_title">System</div>
             <div class="hero-sub" id="sysHeroSub">—</div>
+          </div>
+          <div class="sys-hero-actions">
+            <button class="btn btn-warn" id="svc-restart-btn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
+            <button class="btn btn-danger" id="svc-power-btn" onclick="toggleServicePower()"><span class="btn-icon" data-icon="shutdown"></span><span id="svc-power-label" data-i18n="shutdown">Shutdown</span></button>
+            <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
           </div>
         </div>
         <div class="stat-grid sys-hero-stats">
@@ -4318,27 +4340,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <div class="stat-label" data-i18n="sys_temp">CPU Temp</div>
             <div class="stat-value is-text" id="sysCpuTemp">—</div>
             <div class="stat-sub" id="sysCpuTempSub">—</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Service control: restart / shutdown / OTA (belongs in System, not Config) -->
-      <div class="section-label" data-i18n="sys_sec_control">Control</div>
-      <div class="sys-update-banner" id="sys-update-banner" style="display:none" role="status">
-        <div class="sys-update-banner-text" id="sys-update-banner-text"></div>
-        <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
-      </div>
-      <div id="svc-standby-banner" class="svc-standby-banner" role="status">
-        <div class="svc-standby-banner-title" data-i18n="svc_standby_title">Service on standby</div>
-        <div class="svc-standby-banner-body" data-i18n="svc_standby_body">The radio stack is stopped. The dashboard stays available — press Start to bring the station back.</div>
-      </div>
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-head">
-          <div class="card-title" data-i18n="sys_control_title">Service control</div>
-          <div class="card-actions" style="flex-wrap:wrap">
-            <button class="btn btn-warn" id="svc-restart-btn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
-            <button class="btn btn-danger" id="svc-power-btn" onclick="toggleServicePower()"><span class="btn-icon" data-icon="shutdown"></span><span id="svc-power-label" data-i18n="shutdown">Shutdown</span></button>
-            <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
           </div>
         </div>
       </div>

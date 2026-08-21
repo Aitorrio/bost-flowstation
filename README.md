@@ -193,7 +193,7 @@ If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/inst
 
 ## System control & OTA updates
 
-All service actions live under **System → Control** (not in Config).
+Restart, standby and OTA live in the **System** hero (top-right actions) — not in Config.
 
 <p align="center">
   <img src="Docs/screenshots/05-system-control.png" alt="System — update banner and service control buttons" width="720"/>
@@ -203,7 +203,7 @@ All service actions live under **System → Control** (not in Config).
 - **Apagar** — soft standby: radio stack stops, dashboard stays up; the button becomes **Arrancar** to bring the station back
 - **Actualizar** — OTA: `git fetch` on branch `bost`, rebuild, install binary, restart
 
-When a newer commit is on GitHub, a banner appears here and a matching badge shows in the sidebar (click → System).
+When a newer commit is on GitHub, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).
 
 The OTA dialog shows a progress bar and the current build line (expand **Ver todo** for the full log):
 
