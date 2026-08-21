@@ -4344,77 +4344,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
-      <!-- Panel account: single [dashboard] username/password -->
-      <div class="section-label" data-i18n="sys_sec_account">Account</div>
-      <div class="card sys-auth-card" style="margin-bottom:12px">
-        <div class="card-head">
-          <div class="card-title" data-i18n="sys_account_title">Panel access</div>
-          <div class="card-actions">
-            <span id="sys-auth-badge" class="pill pill-idle" style="font-size:11px">—</span>
-          </div>
-        </div>
-        <div class="card-body" style="padding:14px 18px">
-          <div class="help-text" style="margin-bottom:14px" data-i18n="sys_account_help">Change the dashboard login here. One station account — not part of Cell/Brew profiles.</div>
-
-          <div class="sys-auth-identity">
-            <div class="sys-auth-avatar" id="sys-auth-avatar" aria-hidden="true">?</div>
-            <div class="sys-auth-identity-text">
-              <div class="sys-auth-identity-label" data-i18n="sys_account_user">Username</div>
-              <div class="sys-auth-identity-name" id="sys-auth-username">—</div>
-            </div>
-          </div>
-
-          <div id="sys-auth-change" style="display:none">
-            <div class="sys-auth-form-title" data-i18n="sys_account_change">Change credentials</div>
-            <div class="group-list">
-              <div class="field">
-                <span class="field-label" data-i18n="sys_account_current_pass">Current password</span>
-                <span class="field-control"><input type="password" id="sys-auth-cur" autocomplete="current-password" class="form-input"></span>
-              </div>
-              <div class="field">
-                <span class="field-label" data-i18n="sys_account_new_user">New username (optional)</span>
-                <span class="field-control"><input type="text" id="sys-auth-new-user" autocomplete="username" class="form-input"></span>
-              </div>
-              <div class="field">
-                <span class="field-label" data-i18n="sys_account_new_pass">New password (optional)</span>
-                <span class="field-control"><input type="password" id="sys-auth-new-pass" autocomplete="new-password" class="form-input"></span>
-              </div>
-              <div class="field">
-                <span class="field-label" data-i18n="sys_account_confirm">Confirm new password</span>
-                <span class="field-control"><input type="password" id="sys-auth-confirm" autocomplete="new-password" class="form-input"></span>
-              </div>
-            </div>
-            <div class="sys-auth-actions">
-              <button type="button" class="btn btn-primary" onclick="saveDashboardAuth()"><span class="btn-icon" data-icon="save"></span><span data-i18n="sys_account_save">Save</span></button>
-              <span id="sys-auth-msg" class="sys-auth-msg"></span>
-            </div>
-          </div>
-
-          <div id="sys-auth-enable" style="display:none">
-            <div class="sys-auth-form-title" data-i18n="sys_account_enable_title">Enable login</div>
-            <div class="help-text" style="margin-bottom:10px" data-i18n="sys_account_enable_help">Dashboard access is currently open. Set a username and password to require sign-in.</div>
-            <div class="group-list">
-              <div class="field">
-                <span class="field-label" data-i18n="sys_account_user">Username</span>
-                <span class="field-control"><input type="text" id="sys-auth-en-user" autocomplete="username" class="form-input" value="admin"></span>
-              </div>
-              <div class="field">
-                <span class="field-label" data-i18n="sys_account_new_pass_req">New password</span>
-                <span class="field-control"><input type="password" id="sys-auth-en-pass" autocomplete="new-password" class="form-input"></span>
-              </div>
-              <div class="field">
-                <span class="field-label" data-i18n="sys_account_confirm">Confirm new password</span>
-                <span class="field-control"><input type="password" id="sys-auth-en-confirm" autocomplete="new-password" class="form-input"></span>
-              </div>
-            </div>
-            <div class="sys-auth-actions">
-              <button type="button" class="btn btn-primary" onclick="enableDashboardAuth()"><span class="btn-icon" data-icon="login"></span><span data-i18n="sys_account_enable_btn">Enable login</span></button>
-              <span id="sys-auth-en-msg" class="sys-auth-msg"></span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <!-- Display brightness (FH-FEAT-008) — hidden unless a backlight panel exists -->
       <div class="card" id="brightness-card" style="display:none">
         <div class="card-head">
@@ -4493,6 +4422,77 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-body" style="padding:14px 18px">
           <div id="sys-sensors-empty" style="font-size:12px;color:var(--text3);font-style:italic;display:none" data-i18n="sys_sensors_empty">No sensors detected on this host.</div>
           <div id="sys-sensors-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));gap:8px"></div>
+        </div>
+      </div>
+
+      <!-- Panel account: single [dashboard] username/password -->
+      <div class="section-label" data-i18n="sys_sec_account">Account</div>
+      <div class="card sys-auth-card" style="margin-bottom:12px">
+        <div class="card-head">
+          <div class="card-title" data-i18n="sys_account_title">Panel access</div>
+          <div class="card-actions">
+            <span id="sys-auth-badge" class="pill pill-idle" style="font-size:11px">—</span>
+          </div>
+        </div>
+        <div class="card-body" style="padding:14px 18px">
+          <div class="help-text" style="margin-bottom:14px" data-i18n="sys_account_help">Change the dashboard login here. One station account — not part of Cell/Brew profiles.</div>
+
+          <div class="sys-auth-identity">
+            <div class="sys-auth-avatar" id="sys-auth-avatar" aria-hidden="true">?</div>
+            <div class="sys-auth-identity-text">
+              <div class="sys-auth-identity-label" data-i18n="sys_account_user">Username</div>
+              <div class="sys-auth-identity-name" id="sys-auth-username">—</div>
+            </div>
+          </div>
+
+          <div id="sys-auth-change" style="display:none">
+            <div class="sys-auth-form-title" data-i18n="sys_account_change">Change credentials</div>
+            <div class="group-list">
+              <div class="field">
+                <span class="field-label" data-i18n="sys_account_current_pass">Current password</span>
+                <span class="field-control"><input type="password" id="sys-auth-cur" autocomplete="current-password" class="form-input"></span>
+              </div>
+              <div class="field">
+                <span class="field-label" data-i18n="sys_account_new_user">New username (optional)</span>
+                <span class="field-control"><input type="text" id="sys-auth-new-user" autocomplete="username" class="form-input"></span>
+              </div>
+              <div class="field">
+                <span class="field-label" data-i18n="sys_account_new_pass">New password (optional)</span>
+                <span class="field-control"><input type="password" id="sys-auth-new-pass" autocomplete="new-password" class="form-input"></span>
+              </div>
+              <div class="field">
+                <span class="field-label" data-i18n="sys_account_confirm">Confirm new password</span>
+                <span class="field-control"><input type="password" id="sys-auth-confirm" autocomplete="new-password" class="form-input"></span>
+              </div>
+            </div>
+            <div class="sys-auth-actions">
+              <button type="button" class="btn btn-primary" onclick="saveDashboardAuth()"><span class="btn-icon" data-icon="save"></span><span data-i18n="sys_account_save">Save</span></button>
+              <span id="sys-auth-msg" class="sys-auth-msg"></span>
+            </div>
+          </div>
+
+          <div id="sys-auth-enable" style="display:none">
+            <div class="sys-auth-form-title" data-i18n="sys_account_enable_title">Enable login</div>
+            <div class="help-text" style="margin-bottom:10px" data-i18n="sys_account_enable_help">Dashboard access is currently open. Set a username and password to require sign-in.</div>
+            <div class="group-list">
+              <div class="field">
+                <span class="field-label" data-i18n="sys_account_user">Username</span>
+                <span class="field-control"><input type="text" id="sys-auth-en-user" autocomplete="username" class="form-input" value="admin"></span>
+              </div>
+              <div class="field">
+                <span class="field-label" data-i18n="sys_account_new_pass_req">New password</span>
+                <span class="field-control"><input type="password" id="sys-auth-en-pass" autocomplete="new-password" class="form-input"></span>
+              </div>
+              <div class="field">
+                <span class="field-label" data-i18n="sys_account_confirm">Confirm new password</span>
+                <span class="field-control"><input type="password" id="sys-auth-en-confirm" autocomplete="new-password" class="form-input"></span>
+              </div>
+            </div>
+            <div class="sys-auth-actions">
+              <button type="button" class="btn btn-primary" onclick="enableDashboardAuth()"><span class="btn-icon" data-icon="login"></span><span data-i18n="sys_account_enable_btn">Enable login</span></button>
+              <span id="sys-auth-en-msg" class="sys-auth-msg"></span>
+            </div>
+          </div>
         </div>
       </div>
 
