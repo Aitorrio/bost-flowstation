@@ -1714,6 +1714,24 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .hero-metric{display:flex;flex-direction:column;gap:2px;text-align:right;}
 .hero-metric-label{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text3);}
 .hero-metric-value{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums;}
+
+/* System hero: title row + nested status KPI cards */
+.sys-hero{
+  flex-direction:column;align-items:stretch;gap:16px;
+  padding:18px 20px 20px;
+}
+.sys-hero-head{
+  display:flex;align-items:center;gap:16px;min-width:0;
+}
+.sys-hero .sys-hero-stats{
+  margin:0;width:100%;
+  grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:12px;
+}
+.sys-hero .sys-hero-stats .stat-card{
+  margin:0;
+  box-shadow:var(--hair);
+}
 .dgna-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:16px;margin-bottom:16px;}
 .dgna-library-wrap{max-height:420px;}
 .dgna-library-wrap tbody tr{cursor:pointer;}
@@ -4271,21 +4289,35 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     </div>
 
     <div class="page" id="page-system">
-      <!-- System hero — at-a-glance BTS / Brew / uptime / CPU temp summary. -->
-      <div class="hero">
-        <span class="hero-dot is-idle" id="sysHeroDot"></span>
-        <div class="hero-main">
-          <div class="hero-title" id="sysHeroTitle" data-i18n="sys_title">System</div>
-          <div class="hero-sub" id="sysHeroSub">—</div>
-        </div>
-        <div class="hero-metrics">
-          <div class="hero-metric">
-            <div class="hero-metric-label" data-i18n="sys_uptime">Uptime</div>
-            <div class="hero-metric-value" id="sysHeroUptime">—</div>
+      <!-- System hero — title + nested BTS / Brew / uptime / CPU status cards -->
+      <div class="hero sys-hero">
+        <div class="sys-hero-head">
+          <span class="hero-dot is-idle" id="sysHeroDot"></span>
+          <div class="hero-main">
+            <div class="hero-title" id="sysHeroTitle" data-i18n="sys_title">System</div>
+            <div class="hero-sub" id="sysHeroSub">—</div>
           </div>
-          <div class="hero-metric">
-            <div class="hero-metric-label" data-i18n="sys_temp">CPU Temp</div>
-            <div class="hero-metric-value" id="sysHeroTemp">—</div>
+        </div>
+        <div class="stat-grid sys-hero-stats">
+          <div class="stat-card is-danger" id="sysBtsCard">
+            <div class="stat-label" data-i18n="sys_bts">BTS Connection</div>
+            <div class="stat-value is-text" id="sysBtsStatus">OFFLINE</div>
+            <div class="stat-sub" id="sysBtsIp">—</div>
+          </div>
+          <div class="stat-card is-danger" id="sysBrewCard">
+            <div class="stat-label">BREW</div>
+            <div class="stat-value is-text" id="sysBrewStatus">OFFLINE</div>
+            <div class="stat-sub" id="sysBrewBadge">—</div>
+          </div>
+          <div class="stat-card is-idle">
+            <div class="stat-label" data-i18n="sys_uptime">Uptime</div>
+            <div class="stat-value is-text" id="sysUptime">—</div>
+            <div class="stat-sub" id="sysHostname">—</div>
+          </div>
+          <div class="stat-card is-warn" id="cpu-temp-card" style="display:none">
+            <div class="stat-label" data-i18n="sys_temp">CPU Temp</div>
+            <div class="stat-value is-text" id="sysCpuTemp">—</div>
+            <div class="stat-sub" id="sysCpuTempSub">—</div>
           </div>
         </div>
       </div>
@@ -4379,31 +4411,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <span id="sys-auth-en-msg" class="sys-auth-msg"></span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- BTS + Brew status -->
-      <div class="section-label" data-i18n="sys_sec_status">Status</div>
-      <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-        <div class="stat-card is-danger" id="sysBtsCard">
-          <div class="stat-label" data-i18n="sys_bts">BTS Connection</div>
-          <div class="stat-value is-text" id="sysBtsStatus">OFFLINE</div>
-          <div class="stat-sub" id="sysBtsIp">—</div>
-        </div>
-        <div class="stat-card is-danger" id="sysBrewCard">
-          <div class="stat-label">BREW</div>
-          <div class="stat-value is-text" id="sysBrewStatus">OFFLINE</div>
-          <div class="stat-sub" id="sysBrewBadge">—</div>
-        </div>
-        <div class="stat-card is-idle">
-          <div class="stat-label" data-i18n="sys_uptime">Uptime</div>
-          <div class="stat-value is-text" id="sysUptime">—</div>
-          <div class="stat-sub" id="sysHostname">—</div>
-        </div>
-        <div class="stat-card is-warn" id="cpu-temp-card" style="display:none">
-          <div class="stat-label" data-i18n="sys_temp">CPU Temp</div>
-          <div class="stat-value is-text" id="sysCpuTemp">—</div>
-          <div class="stat-sub" id="sysCpuTempSub">—</div>
         </div>
       </div>
 
@@ -9296,13 +9303,11 @@ function updateSystemUptime(){
   const d=Math.floor(u/86400),h=Math.floor((u%86400)/3600),m=Math.floor((u%3600)/60),s=u%60;
   let str='';if(d>0)str+=d+'d ';if(h>0||d>0)str+=h+'h ';if(m>0||h>0||d>0)str+=m+'m ';str+=s+'s';
   document.getElementById('sysUptime').textContent=str;
-  const hu=document.getElementById('sysHeroUptime');if(hu)hu.textContent=str;
 }
 // Mirror the System tab's key state into its hero banner.
 function updateSysHero(){
   const dot=document.getElementById('sysHeroDot');
   const sub=document.getElementById('sysHeroSub');
-  const tempV=document.getElementById('sysHeroTemp');
   const btsCard=document.getElementById('sysBtsCard');
   const btsOnline=!serviceStandby&&btsCard&&btsCard.classList.contains('is-ok');
   const brewCard=document.getElementById('sysBrewCard');
@@ -9315,11 +9320,6 @@ function updateSysHero(){
     } else {
       sub.textContent=(btsOnline?t('online'):t('offline'))+' · '+(brewOnline?t('brew_online'):t('brew_offline'))+' · '+host;
     }
-  }
-  if(tempV){
-    const tc=document.getElementById('sysCpuTemp');
-    const card=document.getElementById('cpu-temp-card');
-    tempV.textContent=(card&&card.style.display!=='none'&&tc)?tc.textContent:'—';
   }
 }
 
