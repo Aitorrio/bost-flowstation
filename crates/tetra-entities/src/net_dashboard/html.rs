@@ -1962,7 +1962,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   border-radius:var(--r-card);box-shadow:var(--shadow-lg),var(--hair);
   -webkit-backdrop-filter:blur(24px) saturate(1.3);
   backdrop-filter:blur(24px) saturate(1.3);
+  /* Match #content embedded scrollbar (not OS chrome with arrows). */
+  scrollbar-width:thin;
+  scrollbar-color:var(--border) transparent;
 }
+.sheet::-webkit-scrollbar{width:6px;height:6px;}
+.sheet::-webkit-scrollbar-track{background:transparent;}
+.sheet::-webkit-scrollbar-thumb{
+  background:var(--border);border-radius:3px;
+}
+.sheet::-webkit-scrollbar-thumb:hover{background:var(--border2);}
+.sheet::-webkit-scrollbar-button{display:none;width:0;height:0;}
+.sheet::-webkit-scrollbar-corner{background:transparent;}
 .sheet-head{
   display:flex;align-items:center;gap:12px;
   padding:16px 18px;border-bottom:1px solid var(--sep);
