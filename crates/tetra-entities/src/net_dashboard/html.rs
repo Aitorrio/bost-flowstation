@@ -761,13 +761,53 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-config .card-body,
 #page-dapnet .card-body,
 #page-wifi .card-body{padding:16px 18px;}
-.cfg-sheet-name-row{margin-bottom:14px;}
-.sheet-body .config-msg{border-top:none;padding-left:0;padding-right:0;}
 .cfg-adv-body #config-editor{
   min-height:320px;width:100%;box-sizing:border-box;
   margin:0 0 4px;border-radius:8px;
 }
 .cfg-adv-body .config-msg{border-top:none;padding-left:0;padding-right:0;}
+
+/* Profile sheets borrow forms out of #page-config — restore Live card padding
+   and give Advanced <details> / footer actions the same breathing room. */
+#cfg-cell-sheet .sheet-body,
+#cfg-brew-sheet .sheet-body{
+  padding:18px 20px 20px;
+}
+#cfg-cell-sheet .card-body,
+#cfg-brew-sheet .card-body{
+  padding:16px 18px;
+}
+#cfg-cell-sheet .card,
+#cfg-brew-sheet .card{
+  margin-bottom:14px;
+}
+#cfg-cell-sheet .card:last-child,
+#cfg-brew-sheet .card:last-child{
+  margin-bottom:0;
+}
+#cfg-cell-sheet .card-body > details,
+#cfg-brew-sheet .card-body > details{
+  margin:12px 0 0;
+  padding:4px 0 2px;
+}
+#cfg-cell-sheet .card-body > details > summary,
+#cfg-brew-sheet .card-body > details > summary{
+  margin-bottom:0;
+  padding:6px 0;
+}
+#cfg-cell-sheet .cfg-sheet-name-row,
+#cfg-brew-sheet .cfg-sheet-name-row{
+  margin-bottom:16px;
+}
+#cfg-cell-sheet .cfg-sheet-actions,
+#cfg-brew-sheet .cfg-sheet-actions{
+  display:flex;gap:8px;flex-wrap:wrap;
+  margin-top:16px;padding-top:2px;
+}
+#cfg-cell-sheet .sheet-body .config-msg,
+#cfg-brew-sheet .sheet-body .config-msg{
+  border-top:none;padding:8px 0 0;
+}
 
 /* ── Content area ── */
 #content{
@@ -1955,8 +1995,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .cfg-adv-warn{
   color:var(--danger);font-size:13px;font-weight:700;margin:0 0 12px;
 }
-.cfg-sheet-name-row{margin-bottom:14px;}
-.cfg-sheet-name-row .form-label{margin-bottom:6px;}
+.cfg-sheet-name-row .form-label{display:block;margin-bottom:6px;}
 @media (max-width:700px){
   .cfg-profile-label{flex-basis:100%;}
   .cfg-profile-actions{width:100%;}
@@ -4139,7 +4178,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <input type="text" id="cfg-cell-sheet-name" class="form-input" autocomplete="off" spellcheck="false">
           </div>
           <div id="cfg-cell-sheet-mount"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+          <div class="cfg-sheet-actions">
             <button type="button" class="btn btn-primary" onclick="saveCellProfileSheet()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
             <button type="button" class="btn" onclick="closeCellProfileSheet()" data-i18n="cancel">Cancel</button>
           </div>
@@ -4161,7 +4200,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <input type="text" id="cfg-brew-sheet-name" class="form-input" autocomplete="off" spellcheck="false">
           </div>
           <div id="cfg-brew-sheet-mount"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+          <div class="cfg-sheet-actions">
             <button type="button" class="btn btn-primary" onclick="saveBrewProfileSheet()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
             <button type="button" class="btn" onclick="closeBrewProfileSheet()" data-i18n="cancel">Cancel</button>
           </div>
