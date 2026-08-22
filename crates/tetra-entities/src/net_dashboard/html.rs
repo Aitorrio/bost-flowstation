@@ -760,6 +760,7 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-telegram .card-body,
 #page-config .card-body,
 #page-setup .card-body,
+#page-geoalarm .card-body,
 #page-dapnet .card-body,
 #page-wifi .card-body{padding:16px 18px;}
 /* Setup info rows already pad themselves — avoid double inset once card-body has air. */
@@ -772,6 +773,24 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-setup .card-body .help-text{margin-top:10px;}
 #page-setup .card-head{
   padding-left:18px;padding-right:18px;
+}
+/* GeoAlarm: same breathing room; events table stays full-bleed. */
+#page-geoalarm .card-body .info-row{padding-left:0;padding-right:0;}
+#page-geoalarm .card-body:has(> .table-wrap){padding:0;}
+#page-geoalarm .card-body .config-msg{border-top:none;padding:8px 0 0;min-height:0;}
+#page-geoalarm .stat-grid{margin-bottom:16px;}
+#page-geoalarm .info-grid{margin-bottom:16px;}
+#page-geoalarm .geo-section{margin-top:16px;}
+#page-geoalarm .geo-section-title{
+  font-size:12px;font-weight:600;color:var(--text2);margin:0 0 8px;
+}
+#page-geoalarm .group-list .form-input{width:min(240px,48vw);min-width:120px;}
+#page-geoalarm .group-list textarea.form-input{width:100%;min-width:0;}
+#page-geoalarm .geo-route-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;
+}
+#page-geoalarm .geo-filter-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;
 }
 .cfg-adv-body #config-editor{
   min-height:320px;width:100%;box-sizing:border-box;
@@ -3707,7 +3726,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
         </div>
         <div class="card-body">
-          <div class="stat-grid" style="margin-bottom:14px">
+          <div class="stat-grid">
             <div class="stat-card">
               <div class="stat-label">Positions</div>
               <div class="stat-value" id="geo-seen">0</div>
@@ -3719,33 +3738,42 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <div class="stat-sub" id="geo-radius">—</div>
             </div>
           </div>
-          <div class="info-grid" style="margin-bottom:14px">
+          <div class="info-grid">
             <div class="info-row"><div class="info-key">Last position</div><div class="info-val" id="geo-last-position">—</div></div>
             <div class="info-row"><div class="info-key">Last alarm</div><div class="info-val" id="geo-last-alarm">—</div></div>
             <div class="info-row"><div class="info-key">Last error</div><div class="info-val" id="geo-last-error">—</div></div>
           </div>
 
-          <label class="sw-row">
-            <span class="sw-text">Enable GeoAlarm</span>
-            <span class="sw"><input type="checkbox" id="geo-enabled"><i></i></span>
-          </label>
-          <div class="h-form" style="margin-top:14px">
-            <label class="h-flabel" data-i18n="geo_lat">Bost FlowStation latitude</label>
-            <input type="number" id="geo-lat" class="form-input" step="0.000001" min="-90" max="90" placeholder="50.775346">
-            <label class="h-flabel" data-i18n="geo_lon">Bost FlowStation longitude</label>
-            <input type="number" id="geo-lon" class="form-input" step="0.000001" min="-180" max="180" placeholder="6.083887">
-            <label class="h-flabel">Radius / cooldown</label>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <input type="number" id="geo-radius-m" class="form-input" min="1" step="1" placeholder="500">
-              <input type="number" id="geo-cooldown" class="form-input" min="1" max="86400" placeholder="300">
+          <div class="group-list">
+            <label class="field" style="cursor:pointer">
+              <span class="field-label">Enable GeoAlarm</span>
+              <span class="field-control"><span class="sw"><input type="checkbox" id="geo-enabled"><i></i></span></span>
+            </label>
+            <div class="field">
+              <span class="field-label" data-i18n="geo_lat">Bost FlowStation latitude</span>
+              <span class="field-control"><input type="number" id="geo-lat" class="form-input" step="0.000001" min="-90" max="90" placeholder="50.775346"></span>
             </div>
-            <label class="h-flabel">Input sources</label>
-            <div class="h-fopts">
-              <label class="h-fopt"><span class="sw"><input type="checkbox" id="geo-trigger-tetra"><i></i></span><span class="h-flabel-sm">TETRA LIP</span></label>
-              <label class="h-fopt"><span class="sw"><input type="checkbox" id="geo-trigger-meshcom"><i></i></span><span class="h-flabel-sm">MeshCom</span></label>
+            <div class="field">
+              <span class="field-label" data-i18n="geo_lon">Bost FlowStation longitude</span>
+              <span class="field-control"><input type="number" id="geo-lon" class="form-input" step="0.000001" min="-180" max="180" placeholder="6.083887"></span>
+            </div>
+            <div class="field">
+              <span class="field-label">Radius (m)</span>
+              <span class="field-control"><input type="number" id="geo-radius-m" class="form-input" min="1" step="1" placeholder="500"></span>
+            </div>
+            <div class="field">
+              <span class="field-label">Cooldown (s)</span>
+              <span class="field-control"><input type="number" id="geo-cooldown" class="form-input" min="1" max="86400" placeholder="300"></span>
+            </div>
+            <div class="field">
+              <span class="field-label">Input sources</span>
+              <span class="field-control" style="flex-wrap:wrap;gap:14px">
+                <label class="h-fopt" style="cursor:pointer"><span class="sw"><input type="checkbox" id="geo-trigger-tetra"><i></i></span><span class="h-flabel-sm">TETRA LIP</span></label>
+                <label class="h-fopt" style="cursor:pointer"><span class="sw"><input type="checkbox" id="geo-trigger-meshcom"><i></i></span><span class="h-flabel-sm">MeshCom</span></label>
+              </span>
             </div>
           </div>
-          <div class="help-text" style="margin-top:10px">GeoAlarm fires when an allowed device enters the radius, then suppresses repeated alarms for the cooldown time.</div>
+          <div class="help-text" style="margin-top:12px">GeoAlarm fires when an allowed device enters the radius, then suppresses repeated alarms for the cooldown time.</div>
           <div class="config-msg" id="geo-msg"></div>
         </div>
       </div>
@@ -3755,44 +3783,77 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="card-title">GeoAlarm Routing</div>
         </div>
         <div class="card-body">
-          <div class="h-form wide" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+          <div class="geo-route-grid">
             <div>
-              <label class="sw-row">
-                <span class="sw-text">Alarm → TPG2200</span>
-                <span class="sw"><input type="checkbox" id="geo-forward-tpg"><i></i></span>
-              </label>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
-                <input type="number" id="geo-tpg-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI">
-                <input type="number" id="geo-tpg-dest" class="form-input" min="0" max="16777215" placeholder="TPG ISSI">
+              <div class="geo-section-title">Alarm → TPG2200</div>
+              <div class="group-list">
+                <label class="field" style="cursor:pointer">
+                  <span class="field-label">Enabled</span>
+                  <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-tpg"><i></i></span></span>
+                </label>
+                <div class="field">
+                  <span class="field-label">Source ISSI</span>
+                  <span class="field-control"><input type="number" id="geo-tpg-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI"></span>
+                </div>
+                <div class="field">
+                  <span class="field-label">TPG ISSI</span>
+                  <span class="field-control"><input type="number" id="geo-tpg-dest" class="form-input" min="0" max="16777215" placeholder="TPG ISSI"></span>
+                </div>
+                <div class="field">
+                  <span class="field-label">Incident base</span>
+                  <span class="field-control"><input type="number" id="geo-tpg-incident" class="form-input" min="1" max="256" placeholder="Incident base"></span>
+                </div>
+                <div class="field">
+                  <span class="field-label">Max chars</span>
+                  <span class="field-control"><input type="number" id="geo-tpg-max" class="form-input" min="8" max="160" placeholder="Max chars"></span>
+                </div>
+                <div class="field">
+                  <span class="field-label">Text prefix</span>
+                  <span class="field-control"><input type="text" id="geo-tpg-prefix" class="form-input" placeholder="TPG text prefix"></span>
+                </div>
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
-                <input type="number" id="geo-tpg-incident" class="form-input" min="1" max="256" placeholder="Incident base">
-                <input type="number" id="geo-tpg-max" class="form-input" min="8" max="160" placeholder="Max chars">
-              </div>
-              <input type="text" id="geo-tpg-prefix" class="form-input" placeholder="TPG text prefix" style="margin-top:10px">
             </div>
             <div>
-              <label class="sw-row">
-                <span class="sw-text">Alarm → SDS</span>
-                <span class="sw"><input type="checkbox" id="geo-forward-sds"><i></i></span>
-              </label>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
-                <input type="number" id="geo-sds-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI">
-                <input type="number" id="geo-sds-dest" class="form-input" min="0" max="16777215" placeholder="Destination ISSI/GSSI">
+              <div class="geo-section-title">Alarm → SDS</div>
+              <div class="group-list">
+                <label class="field" style="cursor:pointer">
+                  <span class="field-label">Enabled</span>
+                  <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-sds"><i></i></span></span>
+                </label>
+                <div class="field">
+                  <span class="field-label">Source ISSI</span>
+                  <span class="field-control"><input type="number" id="geo-sds-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI"></span>
+                </div>
+                <div class="field">
+                  <span class="field-label">Destination</span>
+                  <span class="field-control"><input type="number" id="geo-sds-dest" class="form-input" min="0" max="16777215" placeholder="ISSI/GSSI"></span>
+                </div>
+                <label class="field" style="cursor:pointer">
+                  <span class="field-label">Destination is group/GSSI</span>
+                  <span class="field-control"><span class="sw"><input type="checkbox" id="geo-sds-group"><i></i></span></span>
+                </label>
               </div>
-              <label class="h-finline" style="margin-top:10px"><span class="sw"><input type="checkbox" id="geo-sds-group"><i></i></span><span class="h-flabel-sm">Destination is group/GSSI</span></label>
             </div>
             <div>
-              <label class="sw-row">
-                <span class="sw-text">Alarm → SIP/Snom</span>
-                <span class="sw"><input type="checkbox" id="geo-forward-sip"><i></i></span>
-              </label>
-              <input type="text" id="geo-sip-prefix" class="form-input" placeholder="Snom title prefix" style="margin-top:10px">
-              <label class="sw-row" style="margin-top:14px">
-                <span class="sw-text">Alarm → Telegram</span>
-                <span class="sw"><input type="checkbox" id="geo-forward-telegram"><i></i></span>
-              </label>
-              <input type="text" id="geo-telegram-prefix" class="form-input" placeholder="Telegram prefix" style="margin-top:10px">
+              <div class="geo-section-title">Alarm → SIP / Telegram</div>
+              <div class="group-list">
+                <label class="field" style="cursor:pointer">
+                  <span class="field-label">SIP/Snom</span>
+                  <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-sip"><i></i></span></span>
+                </label>
+                <div class="field">
+                  <span class="field-label">Snom title prefix</span>
+                  <span class="field-control"><input type="text" id="geo-sip-prefix" class="form-input" placeholder="Snom title prefix"></span>
+                </div>
+                <label class="field" style="cursor:pointer">
+                  <span class="field-label">Telegram</span>
+                  <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-telegram"><i></i></span></span>
+                </label>
+                <div class="field">
+                  <span class="field-label">Telegram prefix</span>
+                  <span class="field-control"><input type="text" id="geo-telegram-prefix" class="form-input" placeholder="Telegram prefix"></span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -3803,25 +3864,25 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="card-title">GeoAlarm Filters</div>
         </div>
         <div class="card-body">
-          <div class="h-form wide">
+          <div class="geo-filter-grid">
             <div>
-              <label class="h-flabel">TETRA ISSI whitelist</label>
-              <textarea id="geo-tetra-white" class="form-input" rows="4" placeholder="empty = all TETRA ISSIs"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px">TETRA ISSI whitelist</label>
+              <textarea id="geo-tetra-white" class="form-input" rows="4" placeholder="empty = all TETRA ISSIs" style="width:100%"></textarea>
             </div>
             <div>
-              <label class="h-flabel">TETRA ISSI blacklist</label>
-              <textarea id="geo-tetra-black" class="form-input" rows="4" placeholder="blocked ISSIs"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px">TETRA ISSI blacklist</label>
+              <textarea id="geo-tetra-black" class="form-input" rows="4" placeholder="blocked ISSIs" style="width:100%"></textarea>
             </div>
             <div>
-              <label class="h-flabel">MeshCom source whitelist</label>
-              <textarea id="geo-mesh-white" class="form-input" rows="4" placeholder="empty = all MeshCom sources"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px">MeshCom source whitelist</label>
+              <textarea id="geo-mesh-white" class="form-input" rows="4" placeholder="empty = all MeshCom sources" style="width:100%"></textarea>
             </div>
             <div>
-              <label class="h-flabel">MeshCom source blacklist</label>
-              <textarea id="geo-mesh-black" class="form-input" rows="4" placeholder="blocked MeshCom sources"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px">MeshCom source blacklist</label>
+              <textarea id="geo-mesh-black" class="form-input" rows="4" placeholder="blocked MeshCom sources" style="width:100%"></textarea>
             </div>
           </div>
-          <div class="help-text" style="margin-top:10px">Whitelist empty means allow all. Blacklists always win. MeshCom source matching is case-insensitive.</div>
+          <div class="help-text" style="margin-top:12px">Whitelist empty means allow all. Blacklists always win. MeshCom source matching is case-insensitive.</div>
         </div>
       </div>
 
