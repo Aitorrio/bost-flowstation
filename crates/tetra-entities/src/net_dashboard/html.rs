@@ -759,8 +759,20 @@ input[type="radio"]{accent-color:var(--accent);}
    except the full-bleed code editor, which stays edge-to-edge. */
 #page-telegram .card-body,
 #page-config .card-body,
+#page-setup .card-body,
 #page-dapnet .card-body,
 #page-wifi .card-body{padding:16px 18px;}
+/* Setup info rows already pad themselves — avoid double inset once card-body has air. */
+#page-setup .card-body .info-row{padding-left:0;padding-right:0;}
+#page-setup .setup-device-list{margin:0 0 12px;}
+#page-setup .setup-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
+#page-setup .card-body .config-msg{
+  border-top:none;padding:6px 0 0;min-height:0;
+}
+#page-setup .card-body .help-text{margin-top:10px;}
+#page-setup .card-head{
+  padding-left:18px;padding-right:18px;
+}
 .cfg-adv-body #config-editor{
   min-height:320px;width:100%;box-sizing:border-box;
   margin:0 0 4px;border-radius:8px;
@@ -2464,6 +2476,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;
   font-size:12px;font-weight:600;border:1px solid var(--border);
 }
+.setup-rf-pill-wrap{margin-bottom:12px;}
 .setup-rf-pill.online{color:var(--ok,#3ecf8e);border-color:rgba(62,207,142,0.4);}
 .setup-rf-pill.offline{color:var(--muted);}
 .setup-rf-pill.error{color:var(--danger);border-color:rgba(255,80,80,0.4);}
@@ -3841,13 +3854,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
         </div>
         <div class="card-body">
-          <div style="margin-bottom:12px"><span class="setup-rf-pill" id="setup-rf-pill">RF —</span></div>
+          <div class="setup-rf-pill-wrap"><span class="setup-rf-pill" id="setup-rf-pill">RF —</span></div>
           <div class="info-row"><div class="info-key" data-i18n="setup_complete_key">Setup completo</div><div class="info-val" id="setup-complete-val">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="setup_backend_key">Backend config</div><div class="info-val" id="setup-backend-val">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="setup_device_key">Device</div><div class="info-val" id="setup-device-val">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="setup_unit_key">Unidad systemd</div><div class="info-val" id="setup-unit-val">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="setup_helper_key">Helper</div><div class="info-val" id="setup-helper-val">—</div></div>
-          <div class="help-text" id="setup-rf-detail" style="margin-top:12px"></div>
+          <div class="help-text" id="setup-rf-detail"></div>
         </div>
       </div>
       <div class="card">
@@ -3862,7 +3875,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-body">
           <div class="setup-device-list" id="setup-device-list"></div>
           <div class="config-msg" id="setup-page-msg"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <div class="setup-actions">
             <button class="btn btn-primary" onclick="setupEnableRfAndRestart()"><span data-i18n="setup_enable_rf">Activar RF y reiniciar</span></button>
             <button class="btn" onclick="setupEnsureAutostart()"><span data-i18n="setup_autostart">Asegurar autostart</span></button>
             <button class="btn" onclick="setupMarkComplete(false)"><span data-i18n="setup_mark_done">Marcar setup hecho</span></button>
