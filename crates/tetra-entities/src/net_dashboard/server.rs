@@ -2841,6 +2841,16 @@ fn handle_connection(
                 Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
                 Err(e) => http_response(inner, 400, &e),
             }
+        } else if let Some(src) = name.strip_suffix("/rename") {
+            let (inner, body_str) = read_post_body(stream);
+            let new_name = serde_json::from_str::<serde_json::Value>(&body_str)
+                .ok()
+                .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                .unwrap_or_default();
+            match crate::net_dashboard::profiles::rename_cell_profile(&config_path, src, &new_name) {
+                Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                Err(e) => http_response(inner, 400, &e),
+            }
         } else if let Some(cell) = name.strip_suffix("/whitelist") {
             let (inner, body_str) = read_post_body(stream);
             serve_cell_whitelist_post(
@@ -2869,6 +2879,16 @@ fn handle_connection(
                 .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
                 .unwrap_or_default();
             match crate::net_dashboard::profiles::duplicate_brew_profile(&config_path, src, &new_name) {
+                Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
+                Err(e) => http_response(inner, 400, &e),
+            }
+        } else if let Some(src) = name.strip_suffix("/rename") {
+            let (inner, body_str) = read_post_body(stream);
+            let new_name = serde_json::from_str::<serde_json::Value>(&body_str)
+                .ok()
+                .and_then(|v| v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                .unwrap_or_default();
+            match crate::net_dashboard::profiles::rename_brew_profile(&config_path, src, &new_name) {
                 Ok(()) => http_json_response(inner, 200, r#"{"ok":true}"#),
                 Err(e) => http_response(inner, 400, &e),
             }

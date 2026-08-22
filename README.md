@@ -87,12 +87,11 @@ The stack starts with `phy_io.backend = "None"` so the web UI works even before 
 
 Open **Config** in the sidebar. Prefer the visual forms over raw TOML — that is the point of this fork.
 
-### Cell × Brew profiles
+### TMO profiles (Cell × Brew)
 
-1. Pick a **Cell** profile (RF + TETRA identity) and a **Brew** profile (backhaul).
-2. Edit the forms below (frequencies, MCC/MNC, Brew host/user…).
-3. **Update** the profile or **Save as** a new name.
-4. **Apply & Restart** to put that Cell × Brew combination on air.
+1. Pick a **TMO Cell** and a **Core Net (Brew)** (or Offline).
+2. **Add / Edit** opens a floating sheet with the full Cell or Brew form (including Auto RX + carrier and MHz normalization). **Save** stores the profile JSON only — it does not restart.
+3. **Apply & Restart** puts the selected pair on air from the profiles on disk (edit in a sheet first if you need changes).
 
 <p align="center">
   <img src="Docs/screenshots/08-profiles.png" alt="Config — Cell × Brew profiles" width="720"/>
@@ -100,23 +99,23 @@ Open **Config** in the sidebar. Prefer the visual forms over raw TOML — that i
 
 Use this to jump between networks (e.g. local cell vs BrandMeister) without rewriting `config.toml` by hand.
 
-### Live settings (RF & network)
+### Live settings
 
-Frequencies (TX/RX and custom duplex) are entered in **MHz** (comma or dot). On blur the UI normalizes like Motorola CPS to six decimals (e.g. `432,2` → `432.200000`); the running `config.toml` still stores **Hz**.
+Expand **Live settings** to edit the running station (RF, network, Brew, ISSI whitelist). Frequencies (TX/RX and custom duplex) are entered in **MHz** (comma or dot). On blur the UI normalizes like Motorola CPS to six decimals (e.g. `432,2` → `432.200000`); the running `config.toml` still stores **Hz**.
 
-**Save live** writes the forms into the running `/etc/flowstation/config.toml`. Use **Restart** (also available under **System**) when RF / network / Brew need a service restart.
+**Apply & Restart** writes those forms into `/etc/flowstation/config.toml` only — it does **not** update a Cell/Brew profile JSON.
 
 <p align="center">
   <img src="Docs/screenshots/09-live-settings.png" alt="Config — live settings, RF frequencies and network identity" width="720"/>
 </p>
 
-### Access control
+### Access control (ISSI whitelist)
 
-In **Access Control**, the ISSI whitelist is part of the **selected Cell** form (same workflow as RF/network — not Brew). Empty list = open network for that Cell; with entries, only listed radios may register when that Cell is on air.
+The ISSI whitelist lives inside the **Cell** form (profile sheet) and inside **Live settings** — not as a separate page section. Empty list = open network; with entries, only listed radios may register.
 
-- **Update Cell** / **Save as** persist the list into the Cell profile.
-- Changing the Cell dropdown reloads that Cell’s whitelist in the form.
-- **Apply & Restart** puts the Cell on air, including its whitelist (a Cell without a saved list is treated as open).
+- In a **profile sheet**, **Save** stores the list on that Cell profile.
+- In **Live settings**, **Apply & Restart** writes it to the active config only.
+- **Apply & Restart** on Profiles puts the selected Cell on air, including its saved whitelist.
 
 U-STATUS remote control stays station-wide (not stored in Cell/Brew).
 
@@ -132,9 +131,9 @@ In **Control remoto (U-STATUS)**, authorize radios and map status codes to actio
   <img src="Docs/screenshots/11-remote-control.png" alt="Config — remote control via U-STATUS" width="720"/>
 </p>
 
-### Raw `config.toml`
+### Advanced (raw `config.toml`)
 
-Still available under **Advanced** for power users: **Save** + **Restart** only. Full annotated reference: [`example_config/config.toml`](example_config/config.toml).
+Collapsed under **Advanced** for power users: red warning, then **Save** and **Apply & Restart**. Full annotated reference: [`example_config/config.toml`](example_config/config.toml).
 
 <p align="center">
   <img src="Docs/screenshots/12-raw-config.png" alt="Config — raw config.toml editor with Save and Restart" width="720"/>
@@ -185,7 +184,7 @@ If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/inst
 | **DGNA** | Assign / deassign talkgroups over the air |
 | **Calls / Last Heard / Log** | Live traffic and diagnostics |
 | **RF / Health** | Spectrum / constellation and subsystem health |
-| **Config** | Profiles, Cell ISSI whitelist, remote U-STATUS, live save |
+| **Config** | TMO profiles (sheets), live settings, Cell ISSI whitelist, remote U-STATUS, advanced TOML |
 | **System** | Host metrics, service control, OTA, panel account |
 | **Setup** | Re-run first-boot helper anytime |
 

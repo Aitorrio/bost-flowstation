@@ -302,6 +302,10 @@ pub fn delete_cell_profile(config_path: &str, name: &str) -> Result<(), String> 
     if active.cell == name {
         return Err("cannot delete the active cell profile".into());
     }
+    let names = list_names(&cell_dir(config_path));
+    if names.len() <= 1 {
+        return Err("cannot delete the last cell profile".into());
+    }
     let path = profile_file(&cell_dir(config_path), &name);
     fs::remove_file(&path).map_err(|e| e.to_string())
 }
@@ -314,6 +318,56 @@ pub fn delete_brew_profile(config_path: &str, name: &str) -> Result<(), String> 
     }
     let path = profile_file(&brew_dir(config_path), &name);
     fs::remove_file(&path).map_err(|e| e.to_string())
+}
+
+/// Rename a cell profile file and update `active.json` when needed.
+pub fn rename_cell_profile(config_path: &str, old_name: &str, new_name: &str) -> Result<(), String> {
+    let old = sanitize_name(old_name)?;
+    let new = sanitize_name(new_name)?;
+    if old == new {
+        return Ok(());
+    }
+    let dir = cell_dir(config_path);
+    let from = profile_file(&dir, &old);
+    let to = profile_file(&dir, &new);
+    if !from.exists() {
+        return Err(format!("cell profile '{old}' not found"));
+    }
+    if to.exists() {
+        return Err(format!("cell profile '{new}' already exists"));
+    }
+    fs::rename(&from, &to).map_err(|e| e.to_string())?;
+    let mut active = read_active(config_path);
+    if active.cell == old {
+        active.cell = new;
+        write_active(config_path, &active)?;
+    }
+    Ok(())
+}
+
+/// Rename a brew profile file and update `active.json` when needed.
+pub fn rename_brew_profile(config_path: &str, old_name: &str, new_name: &str) -> Result<(), String> {
+    let old = sanitize_name(old_name)?;
+    let new = sanitize_name(new_name)?;
+    if old == new {
+        return Ok(());
+    }
+    let dir = brew_dir(config_path);
+    let from = profile_file(&dir, &old);
+    let to = profile_file(&dir, &new);
+    if !from.exists() {
+        return Err(format!("brew profile '{old}' not found"));
+    }
+    if to.exists() {
+        return Err(format!("brew profile '{new}' already exists"));
+    }
+    fs::rename(&from, &to).map_err(|e| e.to_string())?;
+    let mut active = read_active(config_path);
+    if active.brew.as_deref() == Some(old.as_str()) {
+        active.brew = Some(new);
+        write_active(config_path, &active)?;
+    }
+    Ok(())
 }
 
 pub fn duplicate_cell_profile(config_path: &str, name: &str, new_name: &str) -> Result<(), String> {
