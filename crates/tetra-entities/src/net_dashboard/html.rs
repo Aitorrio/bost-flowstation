@@ -9311,16 +9311,11 @@ function updateSysHero(){
   const sub=document.getElementById('sysHeroSub');
   const btsCard=document.getElementById('sysBtsCard');
   const btsOnline=!serviceStandby&&btsCard&&btsCard.classList.contains('is-ok');
-  const brewCard=document.getElementById('sysBrewCard');
-  const brewOnline=!serviceStandby&&brewCard&&brewCard.classList.contains('is-info');
   if(dot) dot.className='hero-dot '+(serviceStandby?'is-warn':(btsOnline?'is-ok':'is-danger'));
   if(sub){
     const host=(sysData&&sysData.hostname)||document.getElementById('sysHostname').textContent||'—';
-    if(serviceStandby){
-      sub.textContent=t('svc_standby_title')+' · '+host;
-    } else {
-      sub.textContent=(btsOnline?t('online'):t('offline'))+' · '+(brewOnline?t('brew_online'):t('brew_offline'))+' · '+host;
-    }
+    // BTS/Brew online status already lives in the nested KPI cards — subtitle is hostname only.
+    sub.textContent=serviceStandby?(t('svc_standby_title')+' · '+host):host;
   }
 }
 
