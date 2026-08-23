@@ -434,6 +434,56 @@ pub fn visual_config_from_toml(config_path: &str) -> Result<JsonValue, String> {
     Ok(JsonValue::Object(out))
 }
 
+/// Optional Soapy keys the visual Config form owns. Absent in a Save/Apply payload
+/// means “use device defaults” — they must be removed from TOML, not left behind by
+/// deep_merge (which only inserts/overwrites).
+const SOAPY_VISUAL_OPTIONAL: &[&str] = &[
+    "rx_gain_lna",
+    "rx_gain_pga",
+    "tx_gain_pad",
+    "tx_gain_dac",
+    "tx_gain_mixer",
+    "tx_gain_iamp",
+    "rx_antenna",
+    "tx_antenna",
+];
+
+/// After merging `phy_io` from the visual form / Cell profile, drop optional Soapy
+/// keys that were intentionally cleared in the UI.
+fn prune_soapysdr_visual_optional(table: &mut toml::Table, incoming_phy: &JsonValue) {
+    let Some(incoming_soapy) = incoming_phy.get("soapysdr").and_then(|v| v.as_object()) else {
+        return;
+    };
+    let Some(TomlValue::Table(phy)) = table.get_mut("phy_io") else {
+        return;
+    };
+    let Some(TomlValue::Table(soapy)) = phy.get_mut("soapysdr") else {
+        return;
+    };
+    for key in SOAPY_VISUAL_OPTIONAL {
+        if !incoming_soapy.contains_key(*key) {
+            soapy.remove(*key);
+        }
+    }
+}
+
+/// Optional `cell_info` keys the visual form owns (empty field = omit from JSON).
+const CELL_VISUAL_OPTIONAL: &[&str] = &["custom_duplex_spacing", "timezone"];
+
+fn prune_cell_info_visual_optional(table: &mut toml::Table, incoming_cell: &JsonValue) {
+    let Some(incoming) = incoming_cell.as_object() else {
+        return;
+    };
+    let Some(TomlValue::Table(cell)) = table.get_mut("cell_info") else {
+        return;
+    };
+    for key in CELL_VISUAL_OPTIONAL {
+        if !incoming.contains_key(*key) {
+            cell.remove(*key);
+        }
+    }
+}
+
 /// Merge a visual-config POST body into the live TOML and validate.
 pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), String> {
     let obj = body
@@ -449,6 +499,12 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
                 strip_sds_command_control_json(&mut cleaned);
             }
             deep_merge_toml(&mut table, key, json_to_toml(&cleaned)?);
+            if key == "phy_io" {
+                prune_soapysdr_visual_optional(&mut table, v);
+            }
+            if key == "cell_info" {
+                prune_cell_info_visual_optional(&mut table, &cleaned);
+            }
         }
     }
     // Optional: Save live may also write whitelist when the form includes security.
@@ -503,6 +559,12 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
                 strip_sds_command_control_json(&mut cleaned);
             }
             deep_merge_toml(&mut table, key, json_to_toml(&cleaned)?);
+            if key == "phy_io" {
+                prune_soapysdr_visual_optional(&mut table, v);
+            }
+            if key == "cell_info" {
+                prune_cell_info_visual_optional(&mut table, &cleaned);
+            }
         }
     }
     // Access control is part of the Cell profile. Missing key = open network for this
@@ -838,6 +900,78 @@ password = "secret"
         assert!(txt.contains("main_carrier"));
         let active = read_active(cfg.to_str().unwrap());
         assert!(active.brew.is_none());
+    }
+
+    #[test]
+    fn write_visual_clears_omitted_tx_gains() {
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        let mut toml = minimal_toml();
+        toml = toml.replace(
+            "rx_freq = 433025000.0\n",
+            "rx_freq = 433025000.0\ntx_gain_pad = 24.0\ntx_gain_dac = 24.0\n",
+        );
+        fs::write(&cfg, &toml).unwrap();
+        let visual = serde_json::json!({
+            "phy_io": {
+                "backend": "SoapySdr",
+                "soapysdr": {
+                    "tx_freq": 438_025_000.0,
+                    "rx_freq": 433_025_000.0,
+                    "ppm_err": 0,
+                    "device": "driver=sx"
+                }
+            },
+            "net_info": { "mcc": 204, "mnc": 1337 },
+            "cell_info": {
+                "freq_band": 4,
+                "main_carrier": 1521,
+                "duplex_spacing": 4,
+                "freq_offset": 0,
+                "reverse_operation": false,
+                "colour_code": 1,
+                "location_area": 2,
+                "system_wide_services": true,
+                "voice_service": true,
+                "local_ssi_ranges": [[0, 90]]
+            }
+        });
+        write_visual_config(cfg.to_str().unwrap(), &visual).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(
+            !txt.contains("tx_gain_pad") && !txt.contains("tx_gain_dac"),
+            "cleared gains must leave TOML: {txt}"
+        );
+        assert!(txt.contains("driver=sx"));
+    }
+
+    #[test]
+    fn apply_profile_clears_omitted_tx_gains() {
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        let mut toml = minimal_toml();
+        toml = toml.replace(
+            "rx_freq = 433025000.0\n",
+            "rx_freq = 433025000.0\ntx_gain_pad = 24.0\n",
+        );
+        fs::write(&cfg, &toml).unwrap();
+        ensure_seeded(cfg.to_str().unwrap()).unwrap();
+        // Default seed comes from live TOML (with pad). Re-save Cell without gains.
+        let mut cell = get_cell_profile(cfg.to_str().unwrap(), "Default").unwrap();
+        if let Some(soapy) = cell
+            .pointer_mut("/phy_io/soapysdr")
+            .and_then(|v| v.as_object_mut())
+        {
+            soapy.remove("tx_gain_pad");
+            soapy.remove("tx_gain_dac");
+        }
+        put_cell_profile(cfg.to_str().unwrap(), "Default", &cell).unwrap();
+        apply_profiles(cfg.to_str().unwrap(), "Default", None).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(
+            !txt.contains("tx_gain_pad"),
+            "apply must drop omitted pad: {txt}"
+        );
     }
 
     #[test]

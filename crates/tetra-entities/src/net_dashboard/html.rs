@@ -4034,7 +4034,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                       <label class="field"><span>TX antenna</span><input type="text" id="vc-tx-ant" class="form-input"></label>
                       <label class="field"><span>RX gain LNA</span><input type="number" step="any" id="vc-rx-lna" class="form-input"></label>
                       <label class="field"><span>RX gain PGA</span><input type="number" step="any" id="vc-rx-pga" class="form-input"></label>
-                      <label class="field"><span>TX gain</span><input type="number" step="any" id="vc-tx-gain" class="form-input"></label>
+                      <label class="field"><span>TX gain</span><input type="number" step="any" id="vc-tx-gain" class="form-input" title="Leave empty for device defaults. SXceiver uses DAC; Lime uses PAD. Clearing the field removes the keys from config."></label>
                     </div>
                   </details>
                   <div class="config-msg" id="vc-rf-msg"></div>
@@ -7893,7 +7893,16 @@ function collectVisualConfig(){
   const gains={};
   const rxLna=vcNum('vc-rx-lna'); if(rxLna!==null)gains.rx_gain_lna=rxLna;
   const rxPga=vcNum('vc-rx-pga'); if(rxPga!==null)gains.rx_gain_pga=rxPga;
-  const txG=vcNum('vc-tx-gain'); if(txG!==null){gains.tx_gain_pad=txG;gains.tx_gain_dac=txG;}
+  const txG=vcNum('vc-tx-gain');
+  if(txG!==null){
+    // One UI field — map to the stage the selected driver actually accepts.
+    // SXceiver: DAC/MIXER (pad is Lime-only and aborts open with "Unsupported TX gains").
+    // Lime: PAD. Unknown: write neither pad nor dac blindly; prefer pad for historical Lime configs.
+    const device=(vcStr('vc-device')||'').toLowerCase();
+    if(device.includes('sx'))gains.tx_gain_dac=txG;
+    else if(device.includes('lime'))gains.tx_gain_pad=txG;
+    else gains.tx_gain_pad=txG;
+  }
   const soapysdr={
     tx_freq:mhzFieldToHz('vc-tx-freq'),
     rx_freq:mhzFieldToHz('vc-rx-freq'),
