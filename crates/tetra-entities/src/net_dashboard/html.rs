@@ -4026,15 +4026,37 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                       <label class="field"><span>Freq band</span><input type="number" id="vc-freq-band" class="form-input" value="4"></label>
                       <label class="field"><span>Duplex spacing id</span><input type="number" id="vc-duplex-id" class="form-input" value="4"></label>
                       <label class="field"><span data-i18n="cfg_custom_duplex">Custom duplex (MHz)</span><input type="text" inputmode="decimal" id="vc-custom-duplex" class="form-input" placeholder="7.600000" onblur="normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'})" onkeydown="if(event.key==='Enter'){normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});this.blur();}"></label>
-                      <label class="field"><span>Freq offset (Hz)</span><input type="number" id="vc-freq-offset" class="form-input" value="0"></label>
+                      <label class="field"><span>Freq offset (Hz)</span>
+                        <select id="vc-freq-offset" class="form-input">
+                          <option value="0">0</option>
+                          <option value="6250">6250</option>
+                          <option value="-6250">-6250</option>
+                          <option value="12500">12500</option>
+                        </select>
+                      </label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-reverse"> <span>Reverse operation</span></label>
-                      <label class="field"><span>PPM</span><input type="number" step="any" id="vc-ppm" class="form-input" value="0"></label>
-                      <label class="field"><span>Device</span><input type="text" id="vc-device" class="form-input" placeholder="driver=sx"></label>
-                      <label class="field"><span>RX antenna</span><input type="text" id="vc-rx-ant" class="form-input"></label>
-                      <label class="field"><span>TX antenna</span><input type="text" id="vc-tx-ant" class="form-input"></label>
-                      <label class="field"><span>RX gain LNA</span><input type="number" step="any" id="vc-rx-lna" class="form-input"></label>
-                      <label class="field"><span>RX gain PGA</span><input type="number" step="any" id="vc-rx-pga" class="form-input"></label>
-                      <label class="field"><span>TX gain</span><input type="number" step="any" id="vc-tx-gain" class="form-input" title="Leave empty for device defaults. SXceiver uses DAC; Lime uses PAD. Clearing the field removes the keys from config."></label>
+                    </div>
+                  </details>
+                  <details style="margin-top:14px" id="vc-hw-rf-details">
+                    <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_hw_rf">Hardware RF</summary>
+                    <div class="help-text" style="margin:0 0 10px" data-i18n="cfg_hw_rf_help">SDR device comes from Setup. Gains/antennas depend on that driver — leave empty for device defaults.</div>
+                    <div class="group-list">
+                      <div class="field">
+                        <span data-i18n="cfg_hw_device">Device</span>
+                        <span class="field-control"><span class="setup-rf-pill" id="vc-device-display">—</span></span>
+                        <input type="hidden" id="vc-device" value="">
+                      </div>
+                      <label class="field"><span>PPM</span><input type="number" step="any" id="vc-ppm" class="form-input" value="0" placeholder="0"></label>
+                      <label class="field vc-hw-row" data-hw="ant"><span>RX antenna</span><select id="vc-rx-ant" class="form-input"><option value="">(default)</option></select></label>
+                      <label class="field vc-hw-row" data-hw="ant"><span>TX antenna</span><select id="vc-tx-ant" class="form-input"><option value="">(default)</option></select></label>
+                      <label class="field vc-hw-row" data-hw="rx-lna"><span>RX gain LNA</span><input type="number" step="any" id="vc-rx-lna" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="rx-tia"><span>RX gain TIA</span><input type="number" step="any" id="vc-rx-tia" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="rx-pga"><span>RX gain PGA</span><input type="number" step="any" id="vc-rx-pga" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="tx-pad"><span>TX gain PAD</span><input type="number" step="any" id="vc-tx-pad" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="tx-iamp"><span>TX gain IAMP</span><input type="number" step="any" id="vc-tx-iamp" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="tx-dac"><span>TX gain DAC</span><input type="number" step="any" id="vc-tx-dac" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="tx-mixer"><span>TX gain MIXER</span><input type="number" step="any" id="vc-tx-mixer" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="tx-pga"><span>TX gain PGA</span><input type="number" step="any" id="vc-tx-pga" class="form-input" placeholder="empty = default"></label>
                     </div>
                   </details>
                   <div class="config-msg" id="vc-rf-msg"></div>
@@ -5192,7 +5214,7 @@ const LANGS={
     cfg_live_help:'Changes apply to the active config.toml only — they are not saved into a TMO/Brew profile. Use Apply & Restart to put them on air.',
     cfg_live_apply_confirm:'Write live settings to config.toml and restart?',
     cfg_raw_apply_confirm:'Save raw config.toml and restart?',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver — leave empty for device defaults.',cfg_hw_device:'Device',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',cfg_advanced_warn:'Advanced users only',
@@ -5521,7 +5543,7 @@ const LANGS={
     cfg_need_name:'Introduce un nombre de perfil.',cfg_need_select:'Selecciona primero un perfil.',
     cfg_deleted:'✓ Eliminado',cfg_applied:'✓ Aplicado — reiniciando…',cfg_updated:'✓ Perfil guardado',
     cfg_apply_confirm:'¿Aplicar los perfiles Cell × Brew seleccionados y reiniciar? Se hará copia de seguridad del config.toml actual.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver — vacío = valores por defecto del equipo.',cfg_hw_device:'Dispositivo',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
     rf_waiting:'esperando…',rf_live:'en vivo',rf_stale:'obsoleto',
@@ -7889,26 +7911,78 @@ function formatLocalSsiRanges(arr){
 let whitelistEntries=[];
 // Invalidate in-flight Cell loads so a slow GET cannot wipe a just-saved whitelist.
 let cellLoadSeq=0;
+/** Driver family → stages/antennas shown in Hardware RF (mirrors tetra-config soapy_driver). */
+const HW_RF={
+  sx:{rx:['lna','pga'],tx:['dac','mixer'],rxAnt:['RX'],txAnt:['TX']},
+  lime:{rx:['lna','tia','pga'],tx:['pad','iamp'],rxAnt:['LNAL','LNAH','LNAW'],txAnt:['BAND1','BAND2']},
+  pluto:{rx:['pga'],tx:['pga'],rxAnt:['A_BALANCED','A_N','A_P'],txAnt:['A']},
+  usrp:{rx:['pga'],tx:['pga'],rxAnt:['TX/RX','RX2'],txAnt:['TX/RX']},
+};
+function hwRfFamily(device){
+  const d=(device||'').toLowerCase();
+  if(!d)return null;
+  if(d.includes('sx')||d.includes('sxceiver'))return 'sx';
+  if(d.includes('lime'))return 'lime';
+  if(d.includes('pluto'))return 'pluto';
+  if(d.includes('usrp')||d.includes('b200')||d.includes('b210')||d.includes('uhd'))return 'usrp';
+  return null;
+}
+function fillHwAntSelect(id,opts,current){
+  const el=document.getElementById(id);if(!el)return;
+  const cur=(current!=null&&current!==undefined)?String(current):(el.value||'');
+  el.innerHTML='';
+  const o0=document.createElement('option');o0.value='';o0.textContent='(default)';el.appendChild(o0);
+  (opts||[]).forEach(a=>{const o=document.createElement('option');o.value=a;o.textContent=a;el.appendChild(o);});
+  if(cur&&![...el.options].some(o=>o.value===cur)){
+    const o=document.createElement('option');o.value=cur;o.textContent=cur;el.appendChild(o);
+  }
+  el.value=cur;
+}
+function updateHwRfUi(rxAnt,txAnt){
+  const device=vcStr('vc-device')||'';
+  const disp=document.getElementById('vc-device-display');
+  if(disp)disp.textContent=device||'—';
+  const fam=hwRfFamily(device);
+  const cat=fam?HW_RF[fam]:null;
+  const rows=document.querySelectorAll('.vc-hw-row');
+  const rx=rxAnt!==undefined?rxAnt:vcStr('vc-rx-ant');
+  const tx=txAnt!==undefined?txAnt:vcStr('vc-tx-ant');
+  if(!cat){
+    rows.forEach(el=>{el.style.display='';});
+    fillHwAntSelect('vc-rx-ant',[],rx);
+    fillHwAntSelect('vc-tx-ant',[],tx);
+    return;
+  }
+  const show=new Set(['ant']);
+  cat.rx.forEach(s=>show.add('rx-'+s));
+  cat.tx.forEach(s=>show.add('tx-'+s));
+  rows.forEach(el=>{
+    const k=el.getAttribute('data-hw');
+    el.style.display=show.has(k)?'':'none';
+  });
+  fillHwAntSelect('vc-rx-ant',cat.rxAnt,rx);
+  fillHwAntSelect('vc-tx-ant',cat.txAnt,tx);
+}
 function collectVisualConfig(){
+  const device=vcStr('vc-device');
+  const fam=hwRfFamily(device);
   const gains={};
-  const rxLna=vcNum('vc-rx-lna'); if(rxLna!==null)gains.rx_gain_lna=rxLna;
-  const rxPga=vcNum('vc-rx-pga'); if(rxPga!==null)gains.rx_gain_pga=rxPga;
-  const txG=vcNum('vc-tx-gain');
-  if(txG!==null){
-    // One UI field — map to the stage the selected driver actually accepts.
-    // SXceiver: DAC/MIXER (pad is Lime-only and aborts open with "Unsupported TX gains").
-    // Lime: PAD. Unknown: write neither pad nor dac blindly; prefer pad for historical Lime configs.
-    const device=(vcStr('vc-device')||'').toLowerCase();
-    if(device.includes('sx'))gains.tx_gain_dac=txG;
-    else if(device.includes('lime'))gains.tx_gain_pad=txG;
-    else gains.tx_gain_pad=txG;
+  const putGain=(id,key)=>{const n=vcNum(id);if(n!==null)gains[key]=n;};
+  if(!fam){
+    putGain('vc-rx-lna','rx_gain_lna'); putGain('vc-rx-tia','rx_gain_tia'); putGain('vc-rx-pga','rx_gain_pga');
+    putGain('vc-tx-pad','tx_gain_pad'); putGain('vc-tx-iamp','tx_gain_iamp');
+    putGain('vc-tx-dac','tx_gain_dac'); putGain('vc-tx-mixer','tx_gain_mixer'); putGain('vc-tx-pga','tx_gain_pga');
+  } else {
+    const cat=HW_RF[fam];
+    cat.rx.forEach(s=>putGain('vc-rx-'+s,'rx_gain_'+s));
+    cat.tx.forEach(s=>putGain('vc-tx-'+s,'tx_gain_'+s));
   }
   const soapysdr={
     tx_freq:mhzFieldToHz('vc-tx-freq'),
     rx_freq:mhzFieldToHz('vc-rx-freq'),
     ppm_err:vcNum('vc-ppm')??0,
   };
-  const device=vcStr('vc-device'); if(device)soapysdr.device=device;
+  if(device)soapysdr.device=device;
   const rxAnt=vcStr('vc-rx-ant'); if(rxAnt)soapysdr.rx_antenna=rxAnt;
   const txAnt=vcStr('vc-tx-ant'); if(txAnt)soapysdr.tx_antenna=txAnt;
   Object.assign(soapysdr,gains);
@@ -7958,9 +8032,10 @@ function fillVisualConfig(d,opts){
   const soapy=d?.phy_io?.soapysdr||{};
   vcSet('vc-tx-freq',hzToMhzDisplay(soapy.tx_freq)); vcSet('vc-rx-freq',hzToMhzDisplay(soapy.rx_freq));
   vcSet('vc-ppm',soapy.ppm_err??0); vcSet('vc-device',soapy.device||'');
-  vcSet('vc-rx-ant',soapy.rx_antenna||''); vcSet('vc-tx-ant',soapy.tx_antenna||'');
-  vcSet('vc-rx-lna',soapy.rx_gain_lna); vcSet('vc-rx-pga',soapy.rx_gain_pga);
-  vcSet('vc-tx-gain',soapy.tx_gain_pad??soapy.tx_gain_dac??soapy.tx_gain_mixer);
+  updateHwRfUi(soapy.rx_antenna||'',soapy.tx_antenna||'');
+  vcSet('vc-rx-lna',soapy.rx_gain_lna); vcSet('vc-rx-tia',soapy.rx_gain_tia); vcSet('vc-rx-pga',soapy.rx_gain_pga);
+  vcSet('vc-tx-pad',soapy.tx_gain_pad); vcSet('vc-tx-iamp',soapy.tx_gain_iamp);
+  vcSet('vc-tx-dac',soapy.tx_gain_dac); vcSet('vc-tx-mixer',soapy.tx_gain_mixer); vcSet('vc-tx-pga',soapy.tx_gain_pga);
   const cell=d?.cell_info||{};
   vcSet('vc-freq-band',cell.freq_band??4); vcSet('vc-main-carrier',cell.main_carrier);
   vcSet('vc-duplex-id',cell.duplex_spacing??4);

@@ -440,10 +440,12 @@ pub fn visual_config_from_toml(config_path: &str) -> Result<JsonValue, String> {
 const SOAPY_VISUAL_OPTIONAL: &[&str] = &[
     "rx_gain_lna",
     "rx_gain_pga",
+    "rx_gain_tia",
     "tx_gain_pad",
     "tx_gain_dac",
     "tx_gain_mixer",
     "tx_gain_iamp",
+    "tx_gain_pga",
     "rx_antenna",
     "tx_antenna",
 ];
@@ -718,7 +720,14 @@ fn rehydrate_brew_password(brew_toml: &mut toml::Table, existing: Option<&TomlVa
 
 fn validate_toml_str(toml_str: &str) -> Result<(), String> {
     match tetra_config::bluestation::parsing::from_toml_str(toml_str) {
-        Ok(cfg) => cfg.validate().map_err(|e| format!("config is invalid: {e}")),
+        Ok(cfg) => {
+            cfg.validate()
+                .map_err(|e| format!("config is invalid: {e}"))?;
+            if let Some(soapy) = cfg.phy_io.soapysdr.as_ref() {
+                tetra_config::bluestation::validate_soapysdr_driver_keys(soapy)?;
+            }
+            Ok(())
+        }
         Err(e) => Err(format!("config does not parse: {e}")),
     }
 }
