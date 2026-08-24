@@ -4039,24 +4039,24 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                   </details>
                   <details style="margin-top:14px" id="vc-hw-rf-details">
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_hw_rf">Hardware RF</summary>
-                    <div class="help-text" style="margin:0 0 10px" data-i18n="cfg_hw_rf_help">SDR device comes from Setup. Gains/antennas depend on that driver — leave empty for device defaults.</div>
+                    <div class="help-text" style="margin:0 0 10px" data-i18n="cfg_hw_rf_help">SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).</div>
                     <div class="group-list">
                       <div class="field">
                         <span data-i18n="cfg_hw_device">Device</span>
                         <span class="field-control"><span class="setup-rf-pill" id="vc-device-display">—</span></span>
                         <input type="hidden" id="vc-device" value="">
                       </div>
-                      <label class="field"><span>PPM</span><input type="number" step="any" id="vc-ppm" class="form-input" value="0" placeholder="0"></label>
+                      <label class="field"><span>PPM</span><input type="text" inputmode="decimal" id="vc-ppm" class="form-input" value="0" placeholder="e.g. 0 or -1.2" title="Frequency correction in PPM" onblur="normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'});this.blur();}"></label>
                       <label class="field vc-hw-row" data-hw="ant"><span>RX antenna</span><select id="vc-rx-ant" class="form-input"><option value="">(default)</option></select></label>
                       <label class="field vc-hw-row" data-hw="ant"><span>TX antenna</span><select id="vc-tx-ant" class="form-input"><option value="">(default)</option></select></label>
-                      <label class="field vc-hw-row" data-hw="rx-lna"><span>RX gain LNA</span><input type="number" step="any" id="vc-rx-lna" class="form-input" placeholder="empty = default"></label>
-                      <label class="field vc-hw-row" data-hw="rx-tia"><span>RX gain TIA</span><input type="number" step="any" id="vc-rx-tia" class="form-input" placeholder="empty = default"></label>
-                      <label class="field vc-hw-row" data-hw="rx-pga"><span>RX gain PGA</span><input type="number" step="any" id="vc-rx-pga" class="form-input" placeholder="empty = default"></label>
-                      <label class="field vc-hw-row" data-hw="tx-pad"><span>TX gain PAD</span><input type="number" step="any" id="vc-tx-pad" class="form-input" placeholder="empty = default"></label>
-                      <label class="field vc-hw-row" data-hw="tx-iamp"><span>TX gain IAMP</span><input type="number" step="any" id="vc-tx-iamp" class="form-input" placeholder="empty = default"></label>
-                      <label class="field vc-hw-row" data-hw="tx-dac"><span>TX gain DAC</span><input type="number" step="any" id="vc-tx-dac" class="form-input" placeholder="empty = default"></label>
-                      <label class="field vc-hw-row" data-hw="tx-mixer"><span>TX gain MIXER</span><input type="number" step="any" id="vc-tx-mixer" class="form-input" placeholder="empty = default"></label>
-                      <label class="field vc-hw-row" data-hw="tx-pga"><span>TX gain PGA</span><input type="number" step="any" id="vc-tx-pga" class="form-input" placeholder="empty = default"></label>
+                      <label class="field vc-hw-row" data-hw="rx-lna"><span>RX gain LNA</span><input type="text" inputmode="decimal" id="vc-rx-lna" class="form-input" data-hw-ex="40" placeholder="e.g. 40 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="rx-tia"><span>RX gain TIA</span><input type="text" inputmode="decimal" id="vc-rx-tia" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="rx-pga"><span>RX gain PGA</span><input type="text" inputmode="decimal" id="vc-rx-pga" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-pad"><span>TX gain PAD</span><input type="text" inputmode="decimal" id="vc-tx-pad" class="form-input" data-hw-ex="30" placeholder="e.g. 30 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-iamp"><span>TX gain IAMP</span><input type="text" inputmode="decimal" id="vc-tx-iamp" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-dac"><span>TX gain DAC</span><input type="text" inputmode="decimal" id="vc-tx-dac" class="form-input" data-hw-ex="9" placeholder="e.g. 9 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-mixer"><span>TX gain MIXER</span><input type="text" inputmode="decimal" id="vc-tx-mixer" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-pga"><span>TX gain PGA</span><input type="text" inputmode="decimal" id="vc-tx-pga" class="form-input" data-hw-ex="30" placeholder="e.g. 30 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
                     </div>
                   </details>
                   <div class="config-msg" id="vc-rf-msg"></div>
@@ -5214,7 +5214,7 @@ const LANGS={
     cfg_live_help:'Changes apply to the active config.toml only — they are not saved into a TMO/Brew profile. Use Apply & Restart to put them on air.',
     cfg_live_apply_confirm:'Write live settings to config.toml and restart?',
     cfg_raw_apply_confirm:'Save raw config.toml and restart?',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver — leave empty for device defaults.',cfg_hw_device:'Device',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',cfg_advanced_warn:'Advanced users only',
@@ -5543,7 +5543,7 @@ const LANGS={
     cfg_need_name:'Introduce un nombre de perfil.',cfg_need_select:'Selecciona primero un perfil.',
     cfg_deleted:'✓ Eliminado',cfg_applied:'✓ Aplicado — reiniciando…',cfg_updated:'✓ Perfil guardado',
     cfg_apply_confirm:'¿Aplicar los perfiles Cell × Brew seleccionados y reiniciar? Se hará copia de seguridad del config.toml actual.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver — vacío = valores por defecto del equipo.',cfg_hw_device:'Dispositivo',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
     rf_waiting:'esperando…',rf_live:'en vivo',rf_stale:'obsoleto',
@@ -5826,6 +5826,7 @@ function applyLang(){
   renderStations();renderCalls();renderLastHeard();renderEmergencyBanner();
   try{updateWhitelistBanner();renderWhitelist();}catch{}
   try{applyServiceStateUi();}catch{}
+  try{if(typeof updateHwRfUi==='function')updateHwRfUi();}catch{}
 }
 function setLang(l,btn){
   currentLang=l;localStorage.setItem('fs_lang',l);
@@ -7837,7 +7838,7 @@ function setConfigMsg(txt,ok){const el=document.getElementById('config-msg');el.
 
 // ── Visual configurator + Cell/Brew profiles ───────────────────────────────
 function vcMsg(id,msg,ok){const el=document.getElementById(id);if(!el)return;el.textContent=msg||'';el.style.color=ok?'var(--ok)':'var(--danger)';}
-function vcNum(id){const el=document.getElementById(id);if(!el)return null;const v=el.value.trim();if(v==='')return null;const n=Number(v);return Number.isFinite(n)?n:null;}
+function vcNum(id){const el=document.getElementById(id);if(!el)return null;const n=parseMhzInput(el.value);if(n===null)return null;return Number.isFinite(n)?n:null;}
 function vcStr(id){const el=document.getElementById(id);return el?el.value.trim():'';}
 function vcSet(id,v){const el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!v;else el.value=(v===undefined||v===null)?'':String(v);}
 /** Parse operator MHz input (comma or dot). Returns null if empty, NaN if invalid. */
@@ -7847,6 +7848,39 @@ function parseMhzInput(raw){
   if(s==='')return null;
   const n=Number(s);
   return Number.isFinite(n)?n:NaN;
+}
+/** Compact display for PPM / Soapy gain stages (no invented min/max). */
+function formatHwRfNumber(n){
+  if(!Number.isFinite(n))return '';
+  if(Math.abs(n-Math.round(n))<1e-9)return String(Math.round(n));
+  return String(Number(n.toFixed(3)));
+}
+/**
+ * Normalize PPM / gain text fields (comma or dot). opts:
+ *   allowEmpty — empty clears the field (gains omit TOML key)
+ *   emptyValue — if !allowEmpty and empty, write this (PPM → "0")
+ */
+function normalizeHwRfField(el,opts){
+  opts=opts||{};
+  const allowEmpty=!!opts.allowEmpty;
+  if(!el)return null;
+  const n=parseMhzInput(el.value);
+  if(n===null){
+    el.style.borderColor='';
+    if(allowEmpty){el.value='';return null;}
+    el.value=opts.emptyValue!=null?String(opts.emptyValue):'0';
+    return Number(el.value)||0;
+  }
+  if(!Number.isFinite(n)){
+    el.style.borderColor='var(--danger)';
+    vcMsg('vc-rf-msg',t('cfg_hw_num_invalid'),false);
+    return NaN;
+  }
+  el.style.borderColor='';
+  el.value=formatHwRfNumber(n);
+  const msg=document.getElementById('vc-rf-msg');
+  if(msg&&msg.textContent===t('cfg_hw_num_invalid'))vcMsg('vc-rf-msg','',true);
+  return n;
 }
 /** Motorola CPS style: always 6 fractional digits, e.g. 432,2 → 432.200000 */
 function hzToMhzDisplay(hz){
@@ -7931,12 +7965,27 @@ function fillHwAntSelect(id,opts,current){
   const el=document.getElementById(id);if(!el)return;
   const cur=(current!=null&&current!==undefined)?String(current):(el.value||'');
   el.innerHTML='';
-  const o0=document.createElement('option');o0.value='';o0.textContent='(default)';el.appendChild(o0);
+  const o0=document.createElement('option');o0.value='';o0.textContent=t('cfg_hw_ant_default');el.appendChild(o0);
   (opts||[]).forEach(a=>{const o=document.createElement('option');o.value=a;o.textContent=a;el.appendChild(o);});
   if(cur&&![...el.options].some(o=>o.value===cur)){
     const o=document.createElement('option');o.value=cur;o.textContent=cur;el.appendChild(o);
   }
   el.value=cur;
+}
+function hwRfGainPlaceholder(ex){
+  return t('cfg_hw_gain_ph').replace('{ex}',String(ex!=null&&ex!==''?ex:'0'));
+}
+function refreshHwRfPlaceholders(){
+  const ppm=document.getElementById('vc-ppm');
+  if(ppm){
+    ppm.placeholder=t('cfg_hw_ppm_ph');
+    ppm.title=t('cfg_hw_ppm_hint');
+  }
+  document.querySelectorAll('.vc-hw-row input[data-hw-ex]').forEach(inp=>{
+    const ex=inp.getAttribute('data-hw-ex')||'0';
+    inp.placeholder=hwRfGainPlaceholder(ex);
+    inp.title=t('cfg_hw_gain_hint');
+  });
 }
 function updateHwRfUi(rxAnt,txAnt){
   const device=vcStr('vc-device')||'';
@@ -7951,6 +8000,7 @@ function updateHwRfUi(rxAnt,txAnt){
     rows.forEach(el=>{el.style.display='';});
     fillHwAntSelect('vc-rx-ant',[],rx);
     fillHwAntSelect('vc-tx-ant',[],tx);
+    refreshHwRfPlaceholders();
     return;
   }
   const show=new Set(['ant']);
@@ -7962,6 +8012,7 @@ function updateHwRfUi(rxAnt,txAnt){
   });
   fillHwAntSelect('vc-rx-ant',cat.rxAnt,rx);
   fillHwAntSelect('vc-tx-ant',cat.txAnt,tx);
+  refreshHwRfPlaceholders();
 }
 function collectVisualConfig(){
   const device=vcStr('vc-device');
@@ -8031,11 +8082,12 @@ function fillVisualConfig(d,opts){
   opts=opts||{};
   const soapy=d?.phy_io?.soapysdr||{};
   vcSet('vc-tx-freq',hzToMhzDisplay(soapy.tx_freq)); vcSet('vc-rx-freq',hzToMhzDisplay(soapy.rx_freq));
-  vcSet('vc-ppm',soapy.ppm_err??0); vcSet('vc-device',soapy.device||'');
+  vcSet('vc-ppm',soapy.ppm_err!=null&&soapy.ppm_err!==''?formatHwRfNumber(Number(soapy.ppm_err)):0); vcSet('vc-device',soapy.device||'');
   updateHwRfUi(soapy.rx_antenna||'',soapy.tx_antenna||'');
-  vcSet('vc-rx-lna',soapy.rx_gain_lna); vcSet('vc-rx-tia',soapy.rx_gain_tia); vcSet('vc-rx-pga',soapy.rx_gain_pga);
-  vcSet('vc-tx-pad',soapy.tx_gain_pad); vcSet('vc-tx-iamp',soapy.tx_gain_iamp);
-  vcSet('vc-tx-dac',soapy.tx_gain_dac); vcSet('vc-tx-mixer',soapy.tx_gain_mixer); vcSet('vc-tx-pga',soapy.tx_gain_pga);
+  const setGain=(id,v)=>vcSet(id,(v===undefined||v===null||v==='')?'':formatHwRfNumber(Number(v)));
+  setGain('vc-rx-lna',soapy.rx_gain_lna); setGain('vc-rx-tia',soapy.rx_gain_tia); setGain('vc-rx-pga',soapy.rx_gain_pga);
+  setGain('vc-tx-pad',soapy.tx_gain_pad); setGain('vc-tx-iamp',soapy.tx_gain_iamp);
+  setGain('vc-tx-dac',soapy.tx_gain_dac); setGain('vc-tx-mixer',soapy.tx_gain_mixer); setGain('vc-tx-pga',soapy.tx_gain_pga);
   const cell=d?.cell_info||{};
   vcSet('vc-freq-band',cell.freq_band??4); vcSet('vc-main-carrier',cell.main_carrier);
   vcSet('vc-duplex-id',cell.duplex_spacing??4);
