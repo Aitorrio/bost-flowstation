@@ -8408,8 +8408,8 @@ async function applyLiveAndRestart(){
   const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_live_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
   if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
-  const ok=await saveVisualConfig();
-  if(!ok)return;
+  const saved=await saveVisualConfig();
+  if(!saved)return;
   try{
     const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
     if(!rr.ok)wsSend({type:'restart'});
