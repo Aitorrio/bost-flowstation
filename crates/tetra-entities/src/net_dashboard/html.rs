@@ -4943,7 +4943,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
-<!-- ── Service confirm (Suspend / Start / Host power off) ── -->
+<!-- ── Dashboard confirm / alert (replaces browser confirm/alert) ── -->
 <div class="modal-overlay" id="svc-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="svc-confirm-title">
   <div class="modal">
     <div class="modal-title" id="svc-confirm-title"></div>
@@ -5226,7 +5226,7 @@ const LANGS={
     readability:'Readability',size_small:'Small',size_small_d:'Compact · normal contrast',size_medium:'Medium',size_medium_d:'Default · comfortable',size_high:'High',size_high_d:'Larger · stronger contrast',size_ultra:'Ultra',size_ultra_d:'Largest · maximum contrast',sdr:'SDR',power:'Power',
     no_terminals:'No radios registered',no_calls:'No active calls',
     live_log:'Live Log',autoscroll:'Auto-scroll',filter_all:'All',
-    clear:'Clear',export:'Export',restart:'Restart',shutdown:'Shutdown',save:'Save',
+    clear:'Clear',export:'Export',restart:'Restart',shutdown:'Shutdown',delete:'Delete',save:'Save',
     cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_remote:'Remote control',cfg_sec_wx:'WX / METAR',    whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
     whitelist_help:'Part of the Cell profile. Empty = open network. In a profile sheet, Save stores it on that profile; in Live settings, Apply & Restart writes the active config only.',
     whitelist_cell_banner:'Access control for Cell “{cell}”. Travels with that profile (not with Brew).',
@@ -5255,7 +5255,7 @@ const LANGS={
     live_sds_sent:'sent',live_sds_times:'×',live_sds_forever:'∞',live_sds_delete:'✕',
     fallback_title:'⚠ FALLBACK CONFIG ACTIVE — Primary config failed to load',
     fallback_help:'Repair the primary config.toml under Config (forms, raw TOML, or Restore .bak), then Restart. The .fallback file is not updated automatically.',
-    sds_msg_label:'Message',cancel:'Cancel',confirm:'Confirm',send:'Send',
+    sds_msg_label:'Message',cancel:'Cancel',confirm:'Confirm',ok:'OK',notice:'Notice',action_failed:'Failed',send:'Send',
     th_issi:'ISSI',th_issi_cs:'ISSI / Callsign',th_groups:'Groups',th_ee:'Energy Economy',th_signal:'Signal',
     tg_selected:'Selected talkgroup (last keyed up)',
     tg_affiliated_short:'affiliated',tg_affiliated_hint:'Other talkgroups this radio is affiliated to (kept attached on the BS even when scan is off on the device)',
@@ -5268,9 +5268,16 @@ const LANGS={
     online_badge:'ONLINE',kick:'Kick',sds:'SDS',
     call_group:'GROUP',call_p2p_s:'P2P-S',call_p2p_d:'P2P-D',call_emergency:'EMERGENCY',
     emg_banner_title:'EMERGENCY ACTIVE',integrations:'Integrations',integ_enabled:'Enabled',integ_disabled:'Disabled',integ_error:'Error',system_sec:'System',emg_chip:'EMERGENCY',bs_label:'BS',emg_clear:'Clear',confirm_clear_emergency:'Clear emergency for ISSI {issi}?',
-    confirm_kick:'Kick ISSI {issi}?\nTerminal will be deregistered and forced to re-attach.',
+    confirm_kick:'Kick ISSI {issi}?\nThe terminal will be deregistered and forced to reconnect.',
     dgna:'DGNA',dgna_title:'Dynamic group assignment',dgna_modal_title:'⬡ Dynamic Group Assignment',dgna_issi:'Terminal ISSI',dgna_current:'Current groups',dgna_gssi:'Group (GSSI)',dgna_assign:'Assign',dgna_deassign:'Deassign',
     dgna_name:'TG name',dgna_center:'DGNA',dgna_center_sub:'Bulk assign, update, and deassign groups across radios.',dgna_groups_count:'Groups',dgna_radios_count:'Targets',dgna_group_library:'Group Library',dgna_new_group:'New',dgna_search:'Search',dgna_scope:'Coverage',dgna_editor:'Group Editor',dgna_attachment_mode:'Attachment mode',dgna_select_all:'Select all',dgna_select_none:'Clear',dgna_select_attached:'Attached',dgna_select_dynamic:'Dynamic',dgna_assign_selected:'Assign selected',dgna_assign_all:'Assign all radios',dgna_update_selected:'Update selected',dgna_deassign_selected:'Deassign selected',dgna_targets:'Target Radios',dgna_status_col:'Group state',dgna_last_result:'Last result',dgna_activity:'DGNA Activity',
+    confirm_clear_sds_log:'Clear the SDS log?',
+    confirm_clear_dapnet_log:'Clear the DAPNET log?',
+    confirm_dgna_detach_static:'Detach static GSSI {gssi} from ISSI {issi}?\nThis forces the radio to drop a non-DGNA group.',
+    confirm_dgna_detach_bulk:'Detach static GSSI {gssi} from {n} radio(s)?\nThis forces a non-DGNA group off the device.',
+    confirm_dgna_delete:'Delete GSSI {gssi}?\nThis will deassign it from all radios and remove it from the local library.',
+    confirm_live_sds_clear:'Clear all live SDS broadcasts?',
+    wifi_confirm_forget_body:'Forget network “{name}”?',
     confirm_restart:'Restart Bost FlowStation?\nAll active calls will be dropped.',
     confirm_shutdown:'The BTS service will be suspended, but you can still access the Dashboard and start the service again from the web UI.\nDo you want to suspend the BTS?',
     confirm_suspend:'The BTS service will be suspended, but you can still access the Dashboard and start the service again from the web UI.\nDo you want to suspend the BTS?',
@@ -5657,7 +5664,7 @@ const LANGS={
     registered_terminals:'Radios Registrados',
     no_terminals:'No hay radios registrados',no_calls:'No hay llamadas activas',
     live_log:'Log en Vivo',autoscroll:'Auto-desplaz.',filter_all:'Todos',
-    clear:'Limpiar',export:'Exportar',restart:'Reiniciar',shutdown:'Apagar',save:'Guardar',
+    clear:'Limpiar',export:'Exportar',restart:'Reiniciar',shutdown:'Apagar',delete:'Eliminar',save:'Guardar',
     cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_remote:'Control remoto',cfg_sec_wx:'WX / METAR',    whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
     whitelist_help:'Forma parte del perfil Cell. Lista vacía = red abierta. En la hoja de perfil, Guardar lo guarda en ese perfil; en Ajustes en vivo, Aplicar y reiniciar escribe solo la config activa.',
     whitelist_cell_banner:'Control de acceso del Cell “{cell}”. Viaja con ese perfil (no con Brew).',
@@ -5680,7 +5687,7 @@ const LANGS={
     fallback_title:'⚠ CONFIGURACIÓN DE RESERVA ACTIVA — No se pudo cargar la configuración principal',
     fallback_help:'Repara el config.toml principal en Config (formularios, TOML en bruto o Restaurar .bak) y reinicia. El fichero .fallback no se actualiza solo.',
     sds_title:'⬡ Enviar Mensaje SDS',sds_dest:'ISSI Destino',
-    sds_msg_label:'Mensaje',cancel:'Cancelar',confirm:'Confirmar',send:'Enviar',
+    sds_msg_label:'Mensaje',cancel:'Cancelar',confirm:'Confirmar',ok:'Aceptar',notice:'Aviso',action_failed:'Error',send:'Enviar',
     th_issi:'ISSI',th_groups:'Grupos',th_ee:'Ahorro Energía',th_signal:'Señal',
     th_status:'Estado',th_last_seen:'Visto',th_actions:'Acciones',
     th_id:'ID',th_type:'Tipo',th_caller:'Llamante',
@@ -5693,6 +5700,13 @@ const LANGS={
     emg_banner_title:'EMERGENCIA ACTIVA',integrations:'Integraciones',integ_enabled:'Activado',integ_disabled:'Desactivado',integ_error:'Error',system_sec:'Sistema',emg_chip:'EMERGENCIA',bs_label:'BS',emg_clear:'Borrar',confirm_clear_emergency:'¿Borrar emergencia para ISSI {issi}?',
     confirm_kick:'¿Expulsar ISSI {issi}?\nEl terminal será desregistrado y forzado a reconectarse.',
     dgna:'DGNA',dgna_title:'Asignación dinámica de grupo',dgna_modal_title:'⬡ Asignación dinámica de grupo',dgna_issi:'ISSI del terminal',dgna_current:'Grupos actuales',dgna_gssi:'Grupo (GSSI)',dgna_assign:'Asignar',dgna_deassign:'Quitar',
+    confirm_clear_sds_log:'¿Vaciar el registro SDS?',
+    confirm_clear_dapnet_log:'¿Vaciar el registro DAPNET?',
+    confirm_dgna_detach_static:'¿Quitar el GSSI estático {gssi} del ISSI {issi}?\nObliga a la radio a soltar un grupo que no es DGNA.',
+    confirm_dgna_detach_bulk:'¿Quitar el GSSI estático {gssi} de {n} radio(s)?\nObliga a soltar un grupo que no es DGNA.',
+    confirm_dgna_delete:'¿Eliminar el GSSI {gssi}?\nSe quitará de todas las radios y de la biblioteca local.',
+    confirm_live_sds_clear:'¿Borrar todas las difusiones SDS en vivo?',
+    wifi_confirm_forget_body:'¿Olvidar la red “{name}”?',
     confirm_restart:'¿Reiniciar Bost FlowStation?\nTodas las llamadas activas se interrumpirán.',
     confirm_shutdown:'Se suspenderá el servicio de BTS, pero podrá seguir accediendo al panel Dashboard e iniciar de nuevo el servicio desde WEB.\n¿Desea suspender la BTS?',
     confirm_suspend:'Se suspenderá el servicio de BTS, pero podrá seguir accediendo al panel Dashboard e iniciar de nuevo el servicio desde WEB.\n¿Desea suspender la BTS?',
@@ -6020,7 +6034,16 @@ document.addEventListener('click',e=>{
   if(pp&&pp.classList.contains('open')&&!e.target.closest('.power-wrap'))closePowerPop();
 });
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){closeReadPop();closePowerPop();}
+  if(e.key==='Escape'){
+    closeReadPop();
+    closePowerPop();
+    const cm=document.getElementById('svc-confirm-modal');
+    if(cm&&cm.classList.contains('open')){
+      const cancel=document.getElementById('svc-confirm-cancel');
+      if(cancel&&cancel.style.display==='none')closeSvcConfirm(true);
+      else closeSvcConfirm(false);
+    }
+  }
 });
 
 // ── Touch mode (FH-FEAT-008) ─────────────────────────────────────────────────
@@ -6378,7 +6401,8 @@ async function wifiDisconnect(){
 }
 
 async function wifiForget(uuid, name){
-  if(!confirm(`${t('wifi_confirm_forget')||'Forget network'} "${name}"?`)) return;
+  const ok=await dashConfirm(t('wifi_forget'),t('wifi_confirm_forget_body',{name:name||''}),{danger:true,confirmLabel:t('wifi_forget')});
+  if(!ok) return;
   await wifiCall('/api/wifi/forget', { uuid });
   await wifiRefresh();
 }
@@ -6472,7 +6496,11 @@ function renderEmergencyBanner(){
     return `<span style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.18);border-radius:4px;padding:2px 8px"><code style="color:#fff">${who}</code><button onclick="clearEmergency(${e.issi})" style="padding:1px 7px;background:#fff;color:var(--danger);border:none;border-radius:3px;font-weight:600;cursor:pointer;font-size:11px">${t('emg_clear')}</button></span>`;
   }).join('');
 }
-function clearEmergency(issi){if(!confirm(t('confirm_clear_emergency',{issi})))return;wsSend({type:'emergency_clear',issi});}
+async function clearEmergency(issi){
+  const ok=await dashConfirm(t('emg_clear'),t('confirm_clear_emergency',{issi}),{danger:true,confirmLabel:t('emg_clear')});
+  if(!ok)return;
+  wsSend({type:'emergency_clear',issi});
+}
 
 // ── Topbar status chips (BS / Brew / Emergency) — calm always-visible state.
 // Mirrors the footer LEDs + emergency state onto the .pill chips in the header.
@@ -7397,7 +7425,8 @@ async function loadSdsLog(){
 function sdsLogPrevPage(){sdsLogPageIndex--;renderSdsLog();}
 function sdsLogNextPage(){sdsLogPageIndex++;renderSdsLog();}
 async function clearSdsLog(){
-  if(!confirm('Clear SDS Log?'))return;
+  const ok=await dashConfirm(t('clear'),t('confirm_clear_sds_log'),{danger:true,confirmLabel:t('clear')});
+  if(!ok)return;
   try{const r=await fetch('/api/sds-log',{method:'DELETE'});if(!r.ok)return;state.sdsLog=[];sdsLogPageIndex=0;renderSdsLog();}catch{}
 }
 function exportSdsLog(){
@@ -7497,7 +7526,8 @@ async function loadDapnetLog(){
 function dapnetLogPrevPage(){dapnetLogPageIndex--;renderDapnetLog();}
 function dapnetLogNextPage(){dapnetLogPageIndex++;renderDapnetLog();}
 async function clearDapnetLog(){
-  if(!confirm('Clear DAPNET Log?'))return;
+  const ok=await dashConfirm(t('clear'),t('confirm_clear_dapnet_log'),{danger:true,confirmLabel:t('clear')});
+  if(!ok)return;
   try{const r=await fetch('/api/dapnet-log',{method:'DELETE'});if(!r.ok)return;state.dapnetLog=[];dapnetLogPageIndex=0;renderDapnetLog();}catch{}
 }
 function exportDapnetLog(){
@@ -8352,7 +8382,8 @@ async function saveVisualConfig(){
   }catch(e){vcMsg('vc-rf-msg',String(e),false);return false;}
 }
 async function applyLiveAndRestart(){
-  if(!confirm(t('cfg_live_apply_confirm')))return;
+  const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_live_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
+  if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
   const ok=await saveVisualConfig();
   if(!ok)return;
@@ -8363,7 +8394,8 @@ async function applyLiveAndRestart(){
   beginServiceRestartWait();
 }
 async function applyRawConfigAndRestart(){
-  if(!confirm(t('cfg_raw_apply_confirm')))return;
+  const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_raw_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
+  if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
   try{
     const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});
@@ -8516,7 +8548,8 @@ async function saveBrewProfileSheet(){
 }
 async function deleteSelectedCellProfile(){
   const name=document.getElementById('vc-cell-profile')?.value; if(!name)return;
-  if(!confirm(t('cfg_del_cell_confirm',{name:name})))return;
+  const ok=await dashConfirm(t('cfg_del_cell'),t('cfg_del_cell_confirm',{name:name}),{danger:true,confirmLabel:t('cfg_del_cell')});
+  if(!ok)return;
   const r=await fetch('/api/profiles/cell/'+encodeURIComponent(name),{method:'DELETE'});
   vcMsg('vc-profiles-msg',r.ok?t('cfg_deleted'):await r.text(),r.ok);
   if(r.ok)await refreshProfileSelects();
@@ -8524,7 +8557,8 @@ async function deleteSelectedCellProfile(){
 async function deleteSelectedBrewProfile(){
   const name=document.getElementById('vc-brew-profile')?.value;
   if(!name){vcMsg('vc-profiles-msg',t('cfg_brew_offline_nodel'),false);return;}
-  if(!confirm(t('cfg_del_brew_confirm',{name:name})))return;
+  const ok=await dashConfirm(t('cfg_del_brew'),t('cfg_del_brew_confirm',{name:name}),{danger:true,confirmLabel:t('cfg_del_brew')});
+  if(!ok)return;
   const r=await fetch('/api/profiles/brew/'+encodeURIComponent(name),{method:'DELETE'});
   vcMsg('vc-profiles-msg',r.ok?t('cfg_deleted'):await r.text(),r.ok);
   if(r.ok)await refreshProfileSelects();
@@ -8533,7 +8567,8 @@ async function applySelectedProfiles(){
   const cell=document.getElementById('vc-cell-profile')?.value;
   const brew=document.getElementById('vc-brew-profile')?.value||null;
   if(!cell){vcMsg('vc-profiles-msg',t('cfg_need_select'),false);return;}
-  if(!confirm(t('cfg_apply_confirm')))return;
+  const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
+  if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
   try{
     // Apply the JSON profiles on disk as-is (edit them in sheets first if needed).
@@ -8843,7 +8878,7 @@ async function restartService(){
   if(!ok)return;
   try{
     const r=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
-    if(!r.ok){alert(await r.text());return;}
+    if(!r.ok){await dashAlert(t('notice'),await r.text());return;}
   }catch{wsSend({type:'restart'});}
   beginServiceRestartWait();
 }
@@ -8854,10 +8889,12 @@ function openSvcConfirm(opts){
   const title=document.getElementById('svc-confirm-title');
   const body=document.getElementById('svc-confirm-body');
   const ok=document.getElementById('svc-confirm-ok');
+  const cancel=document.getElementById('svc-confirm-cancel');
   if(title)title.textContent=opts.title||'';
   if(body)body.textContent=opts.body||'';
+  if(cancel)cancel.style.display=opts.alertOnly?'none':'';
   if(ok){
-    ok.textContent=opts.confirmLabel||t('confirm');
+    ok.textContent=opts.confirmLabel||(opts.alertOnly?t('ok'):t('confirm'));
     ok.className='btn '+(opts.danger?'btn-danger':'btn-primary');
   }
   return new Promise(resolve=>{
@@ -8872,6 +8909,14 @@ function closeSvcConfirm(ok){
   _svcConfirmResolve=null;
   if(r)r(!!ok);
 }
+/** Floating confirm (Cancel + Confirm). Same look as Restart / Power off. */
+function dashConfirm(title,body,opts){
+  return openSvcConfirm(Object.assign({title:title||'',body:body||''},opts||{}));
+}
+/** Floating notice (OK only) — replaces browser alert(). */
+function dashAlert(title,body){
+  return openSvcConfirm({title:title||t('notice'),body:body||'',confirmLabel:t('ok'),alertOnly:true});
+}
 async function shutdownService(){
   const ok=await openSvcConfirm({
     title:t('svc_suspend'),
@@ -8882,7 +8927,7 @@ async function shutdownService(){
   if(!ok)return;
   try{
     const r=await fetch('/api/service/shutdown',{method:'POST',credentials:'same-origin'});
-    if(!r.ok){alert(await r.text());return;}
+    if(!r.ok){await dashAlert(t('notice'),await r.text());return;}
   }catch{wsSend({type:'shutdown'});}
   // Soft standby: process stays up — poll until status flips, then update UI.
   for(let i=0;i<40;i++){
@@ -8901,8 +8946,8 @@ async function startService(){
   if(!ok)return;
   try{
     const r=await fetch('/api/service/start',{method:'POST',credentials:'same-origin'});
-    if(!r.ok){alert(await r.text());return;}
-  }catch(e){alert(t('conn_error'));return;}
+    if(!r.ok){await dashAlert(t('notice'),await r.text());return;}
+  }catch(e){await dashAlert(t('notice'),t('conn_error'));return;}
   beginServiceRestartWait();
 }
 function toggleServicePower(){
@@ -8919,8 +8964,8 @@ async function poweroffHost(){
   if(!ok)return;
   try{
     const r=await fetch('/api/system/poweroff',{method:'POST',credentials:'same-origin'});
-    if(!r.ok){alert(await r.text());return;}
-  }catch(e){alert(t('conn_error'));return;}
+    if(!r.ok){await dashAlert(t('notice'),await r.text());return;}
+  }catch(e){await dashAlert(t('notice'),t('conn_error'));return;}
   const modal=document.getElementById('svc-powering-off-modal');
   if(modal)modal.classList.add('open');
 }
@@ -8997,13 +9042,13 @@ function applyServiceStateUi(){
 async function ensureServiceRunning(actionLabel){
   await refreshServiceState();
   if(!serviceStandby)return true;
-  alert(t('svc_need_running',{action:actionLabel||''}));
+  await dashAlert(t('svc_standby_title'),t('svc_need_running',{action:actionLabel||''}));
   return false;
 }
 async function ensureServiceOrOfferStart(actionLabel){
   await refreshServiceState();
   if(!serviceStandby)return true;
-  return confirm(t('svc_standby_will_start',{action:actionLabel||''}));
+  return dashConfirm(t('svc_start'),t('svc_standby_will_start',{action:actionLabel||''}),{confirmLabel:t('svc_start')});
 }
 function startServiceStatusPolling(){
   if(serviceStatusTimer)return;
@@ -9012,7 +9057,8 @@ function startServiceStatusPolling(){
 }
 async function kickMs(issi){
   if(!await ensureServiceRunning(t('kick')))return;
-  if(!confirm(t('confirm_kick',{issi})))return;
+  const ok=await dashConfirm(t('kick'),t('confirm_kick',{issi}),{danger:true,confirmLabel:t('kick')});
+  if(!ok)return;
   wsSend({type:'kick',issi});
 }
 function toggleSdsCallout(){const on=document.getElementById('sds-callout').checked;document.getElementById('sds-callout-fields').style.display=on?'block':'none';}
@@ -9088,7 +9134,20 @@ function selectDgnaGroup(issi,gssi){
 }
 function openDgna(issi){document.getElementById('dgna-issi').value=issi;document.getElementById('dgna-gssi').value='';document.getElementById('dgna-name').value='';document.getElementById('dgna-attachment-mode').value=String(state.dgnaDefaultAttachmentMode||0);setDgnaStatus('',true);syncDgnaAttachmentModePicker();renderDgnaGroups(issi);document.getElementById('dgna-modal').classList.add('open');}
 function closeDgnaModal(){document.getElementById('dgna-modal').classList.remove('open');setDgnaStatus('',true);}
-function sendDgna(attach){const issi=parseInt(document.getElementById('dgna-issi').value),gssi=parseInt(document.getElementById('dgna-gssi').value),mnemonic=document.getElementById('dgna-name').value.trim(),attachment_mode=(state.dgnaAttachmentModePickerEnabled?(parseInt(document.getElementById('dgna-attachment-mode').value)||0):(state.dgnaDefaultAttachmentMode||0));if(!issi||!gssi)return;const sel=dgnaGroupsFor(issi).find(g=>g.gssi===gssi);if(!attach){if(!sel)return;if(!sel.is_dynamic){if(!confirm(`Detach static GSSI ${gssi} from ISSI ${issi}? This forces the radio to drop a non-DGNA group.`))return;}}setDgnaStatus(`Waiting for backend: ${attach?'assign':'deassign'} ISSI ${issi} GSSI ${gssi}`,true);if(!wsSend({type:'dgna',issi,gssi,mnemonic,attachment_mode,attach}))setDgnaStatus('Backend unavailable - command was not sent',false);}
+async function sendDgna(attach){
+  const issi=parseInt(document.getElementById('dgna-issi').value),gssi=parseInt(document.getElementById('dgna-gssi').value),mnemonic=document.getElementById('dgna-name').value.trim(),attachment_mode=(state.dgnaAttachmentModePickerEnabled?(parseInt(document.getElementById('dgna-attachment-mode').value)||0):(state.dgnaDefaultAttachmentMode||0));
+  if(!issi||!gssi)return;
+  const sel=dgnaGroupsFor(issi).find(g=>g.gssi===gssi);
+  if(!attach){
+    if(!sel)return;
+    if(!sel.is_dynamic){
+      const ok=await dashConfirm(t('dgna_deassign'),t('confirm_dgna_detach_static',{gssi,issi}),{danger:true,confirmLabel:t('dgna_deassign')});
+      if(!ok)return;
+    }
+  }
+  setDgnaStatus(`Waiting for backend: ${attach?'assign':'deassign'} ISSI ${issi} GSSI ${gssi}`,true);
+  if(!wsSend({type:'dgna',issi,gssi,mnemonic,attachment_mode,attach}))setDgnaStatus('Backend unavailable - command was not sent',false);
+}
 const DGNA_TEMPLATE_KEY='fs_dgna_templates_v1';
 function loadDgnaTemplates(){
   try{
@@ -9289,7 +9348,8 @@ function pushDgnaActivity(msg){
   if(dgnaUi.statusLog.length>200)dgnaUi.statusLog.length=200;
 }
 async function clearDgnaActivity(){
-  if(!confirm(t('confirm_clear_log')))return;
+  const ok=await dashConfirm(t('clear'),t('confirm_clear_log'),{danger:true,confirmLabel:t('clear')});
+  if(!ok)return;
   try{
     const r=await fetch('/api/dgna-log',{method:'DELETE'});
     if(!r.ok)return;
@@ -9410,7 +9470,7 @@ function renderDgnaPage(){
   renderDgnaTargetsTable();
   renderDgnaActivity();
 }
-function sendDgnaBulk(attach,allRadios,forceUpdate){
+async function sendDgnaBulk(attach,allRadios,forceUpdate){
   const group=dgnaEditorGroup();
   if(!group){setDgnaPageStatus('Select a group from the library first',false);return;}
   const gssi=group.gssi;
@@ -9420,7 +9480,10 @@ function sendDgnaBulk(attach,allRadios,forceUpdate){
   if(!targets.length){setDgnaPageStatus('Select at least one target radio',false);return;}
   if(!attach){
     const staticTargets=targets.filter(issi=>{const st=dgnaTargetState(issi,gssi);return st&&st.is_attached&&!st.is_dynamic;});
-    if(staticTargets.length&&!confirm(`Detach static GSSI ${gssi} from ${staticTargets.length} radio(s)? This forces a non-DGNA group off the device.`))return;
+    if(staticTargets.length){
+      const ok=await dashConfirm(t('dgna_deassign'),t('confirm_dgna_detach_bulk',{gssi,n:staticTargets.length}),{danger:true,confirmLabel:t('dgna_deassign')});
+      if(!ok)return;
+    }
   }
   const action=forceUpdate?'update':(attach?'assign':'deassign');
   setDgnaPageStatus(`Waiting for backend: ${action} GSSI ${gssi} on ${allRadios?'all radios':targets.length+' selected radio(s)'}`,true);
@@ -9428,12 +9491,13 @@ function sendDgnaBulk(attach,allRadios,forceUpdate){
     setDgnaPageStatus('Backend unavailable - command was not sent',false);
   }
 }
-function deleteDgnaGroupEverywhere(gssiArg){
+async function deleteDgnaGroupEverywhere(gssiArg){
   const group=gssiArg?dgnaLibraryGroups().find(g=>g.gssi===gssiArg):dgnaEditorGroup();
   if(!group){setDgnaPageStatus('Select a group from the library first',false);return;}
   if(!(group.template_only||group.dynamic_count>0)){setDgnaPageStatus(`GSSI ${group.gssi} is static and cannot be deleted`,false);return;}
   const gssi=group.gssi;
-  if(!confirm(`Delete GSSI ${gssi}? This will deassign it from all radios and remove it from the local library.`))return;
+  const ok=await dashConfirm(t('delete'),t('confirm_dgna_delete',{gssi}),{danger:true,confirmLabel:t('delete')});
+  if(!ok)return;
   if(!wsSend({type:'dgna_bulk',targets:dgnaAllRadios().map(ms=>ms.issi),gssi,mnemonic:group.mnemonic,attachment_mode:group.attachment_mode,attach:false,all_radios:true})){
     setDgnaPageStatus('Backend unavailable - delete was not sent',false);
     return;
@@ -9686,17 +9750,18 @@ async function onDualCarrierToggle(el){
     const v=prompt(t('dc_enter_carrier'),def);
     if(v===null){el.checked=false;return;}
     secondary=parseInt(v,10);
-    if(!Number.isInteger(secondary)||secondary<=0){el.checked=false;alert(t('dc_bad_carrier'));return;}
+    if(!Number.isInteger(secondary)||secondary<=0){el.checked=false;await dashAlert(t('notice'),t('dc_bad_carrier'));return;}
   }
-  if(!confirm(want?t('dc_confirm_on'):t('dc_confirm_off'))){el.checked=!want;return;}
+  const ok=await dashConfirm(t('dc_applying'),want?t('dc_confirm_on'):t('dc_confirm_off'),{confirmLabel:t('confirm')});
+  if(!ok){el.checked=!want;return;}
   if(!await ensureServiceOrOfferStart(t('dc_applying'))){el.checked=!want;return;}
   el.disabled=true;setDcSub(t('dc_applying'));
   try{
     const body=want?{enabled:true,secondary_carrier:secondary}:{enabled:false};
     const r=await fetch('/api/dualcarrier',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(r.ok){setDcSub(t('dc_restarting'));beginServiceRestartWait();}
-    else{const err=await r.text();alert(t('dc_failed')+': '+err);el.checked=!want;el.disabled=false;loadDualCarrier();}
-  }catch(e){alert(t('conn_error'));el.checked=!want;el.disabled=false;}
+    else{const err=await r.text();await dashAlert(t('notice'),t('dc_failed')+': '+err);el.checked=!want;el.disabled=false;loadDualCarrier();}
+  }catch(e){await dashAlert(t('notice'),t('conn_error'));el.checked=!want;el.disabled=false;}
 }
 async function loadBtsInfo(){
   try{
@@ -10012,7 +10077,8 @@ async function loadConfigProfiles(){
 }
 
 async function activateProfile(name){
-  if(!confirm(t('sys_activate_confirm').replace('{name}',name)))return;
+  const ok=await dashConfirm(t('sys_activate'),t('sys_activate_confirm').replace('{name}',name),{confirmLabel:t('sys_activate')});
+  if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('sys_activate')))return;
   try{
     const r=await fetch('/api/configs/activate',{method:'POST',body:name});
@@ -10023,8 +10089,8 @@ async function activateProfile(name){
       }catch{wsSend({type:'restart'});}
       beginServiceRestartWait();
     }
-    else alert('Failed: '+await r.text());
-  }catch(e){alert('Error: '+e.message);}
+    else await dashAlert(t('notice'),t('action_failed')+': '+await r.text());
+  }catch(e){await dashAlert(t('notice'),t('action_failed')+': '+e.message);}
 }
 
 function updateSysBtsPanel(online,brewOnline,brewVer){
@@ -10147,24 +10213,25 @@ async function addLiveSds() {
       document.getElementById('live-sds-repeat').value = '0';
       await loadLiveSds();
     } else {
-      alert('Error: ' + await r.text());
+      await dashAlert(t('notice'),t('action_failed')+': ' + await r.text());
     }
-  } catch(e) { alert('Error: ' + e.message); }
+  } catch(e) { await dashAlert(t('notice'),t('action_failed')+': ' + e.message); }
 }
 
 async function deleteLiveSds(id) {
   try {
     const r = await fetch(`/api/live-sds/${id}`, { method: 'DELETE' });
     if (r.ok) await loadLiveSds();
-  } catch(e) { alert('Error: ' + e.message); }
+  } catch(e) { await dashAlert(t('notice'),t('action_failed')+': ' + e.message); }
 }
 
 async function clearAllLiveSds() {
-  if (!confirm(t('live_sds_clear_all') + '?')) return;
+  const ok=await dashConfirm(t('live_sds_clear_all'),t('confirm_live_sds_clear'),{danger:true,confirmLabel:t('clear')});
+  if (!ok) return;
   try {
     const r = await fetch('/api/live-sds', { method: 'DELETE' });
     if (r.ok) await loadLiveSds();
-  } catch(e) { alert('Error: ' + e.message); }
+  } catch(e) { await dashAlert(t('notice'),t('action_failed')+': ' + e.message); }
 }
 
 // ── Tick ──────────────────────────────────────────────────────────────────
