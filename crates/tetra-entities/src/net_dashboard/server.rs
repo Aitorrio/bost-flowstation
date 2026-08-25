@@ -2392,6 +2392,12 @@ fn handle_connection(
             std::time::Duration::from_millis(500),
         );
         http_json_response(s, 200, r#"{"ok":true,"action":"shutdown"}"#);
+    } else if req_line.contains("POST /api/system/poweroff") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        tracing::warn!("Dashboard: HOST poweroff requested via HTTP (full system shutdown)");
+        crate::service_control::schedule_host_poweroff(std::time::Duration::from_millis(800));
+        http_json_response(s, 200, r#"{"ok":true,"action":"poweroff"}"#);
     } else if req_line.contains("GET /api/system/brightness") {
         // Backlight status probe (FH-FEAT-008) — lets the UI hide the slider on a panel-less host.
         drain_http_headers(&mut stream);

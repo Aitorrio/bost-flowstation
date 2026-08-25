@@ -32,7 +32,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | First-run **Setup** wizard | Install SDR drivers and finish RF / net / Brew from the browser |
 | Visual **Config** (Cell × Brew profiles) | Switch networks without hand-editing TOML |
 | Access control & U-STATUS remote control in GUI | Whitelist + walkie commands (`ip` / `temp` / `info` / `restart`…) without SSH |
-| **System** control panel | Restart, standby, **OTA**, and **panel account** (user/password) from the dashboard |
+| **System** control panel | Restart, suspend, full power-off, **OTA**, and **panel account** from the dashboard |
 | Sidebar update badge | Glance notice when a newer `bost` commit is available |
 | Spanish-first UI (multi-language) | Ready for operators who prefer ES |
 
@@ -194,14 +194,15 @@ If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/inst
 
 ## System control & OTA updates
 
-Restart, standby and OTA live in the **System** hero (top-right actions) — not in Config.
+Restart, suspend, full power-off and OTA live in the **System** hero (top-right actions) — not in Config.
 
 <p align="center">
   <img src="Docs/screenshots/05-system-control.png" alt="System — update banner and service control buttons" width="720"/>
 </p>
 
 - **Reiniciar** — soft restart of `bluestation-bs`
-- **Apagar** — soft standby: radio stack stops, dashboard stays up; the button becomes **Arrancar** to bring the station back
+- **Suspender** — soft standby: radio stack stops, dashboard stays up; the button becomes **Iniciar** to bring the station back
+- **Apagar** — full host shutdown (`systemctl poweroff`); you will likely need to cycle power to boot again
 - **Actualizar** — OTA: `git fetch` on branch `bost`, rebuild, install binary, restart
 
 When a newer commit is on GitHub, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).

@@ -158,6 +158,48 @@ fn run_command(program: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// Schedule a full host power-off (`systemctl poweroff` / `shutdown -h now`).
+/// Used by System → Apagar. Soft standby remains [`ServiceAction::Stop`].
+pub fn schedule_host_poweroff(delay: Duration) {
+    tracing::warn!(
+        "Service control: scheduling HOST poweroff in {:?} (full system shutdown)",
+        delay
+    );
+    std::thread::Builder::new()
+        .name("host-poweroff".into())
+        .spawn(move || {
+            std::thread::sleep(delay);
+            match run_host_poweroff() {
+                Ok(how) => tracing::info!("Service control: host poweroff requested via {how}"),
+                Err(e) => tracing::error!("Service control: host poweroff failed: {e}"),
+            }
+        })
+        .ok();
+}
+
+fn run_host_poweroff() -> Result<&'static str, String> {
+    // Prefer systemd; fall back for minimal images. Process typically runs as root (bost unit).
+    if run_command("systemctl", &["poweroff"]).is_ok() {
+        return Ok("systemctl poweroff");
+    }
+    if run_command("sudo", &["-n", "systemctl", "poweroff"]).is_ok() {
+        return Ok("sudo systemctl poweroff");
+    }
+    if run_command("shutdown", &["-h", "now"]).is_ok() {
+        return Ok("shutdown -h now");
+    }
+    if run_command("sudo", &["-n", "shutdown", "-h", "now"]).is_ok() {
+        return Ok("sudo shutdown -h now");
+    }
+    if run_command("poweroff", &[]).is_ok() {
+        return Ok("poweroff");
+    }
+    Err(
+        "could not power off host (tried systemctl poweroff, shutdown -h now, poweroff)"
+            .into(),
+    )
+}
+
 fn output_error(output: Output) -> String {
     let status = output.status.to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();

@@ -4546,7 +4546,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
           <div class="sys-hero-actions">
             <button class="btn btn-warn" id="svc-restart-btn" onclick="restartService()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span></button>
-            <button class="btn btn-danger" id="svc-power-btn" onclick="toggleServicePower()"><span class="btn-icon" data-icon="shutdown"></span><span id="svc-power-label" data-i18n="shutdown">Shutdown</span></button>
+            <button class="btn btn-warn" id="svc-power-btn" onclick="toggleServicePower()"><span class="btn-icon" data-icon="power"></span><span id="svc-power-label" data-i18n="svc_suspend">Suspend</span></button>
+            <button class="btn btn-danger" id="svc-host-poweroff-btn" onclick="poweroffHost()"><span class="btn-icon" data-icon="shutdown"></span><span data-i18n="svc_poweroff">Power off</span></button>
             <button class="btn" id="update-btn" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
           </div>
         </div>
@@ -4879,6 +4880,26 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
+<!-- ── Service confirm (Suspend / Start / Host power off) ── -->
+<div class="modal-overlay" id="svc-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="svc-confirm-title">
+  <div class="modal">
+    <div class="modal-title" id="svc-confirm-title"></div>
+    <div id="svc-confirm-body" style="font-size:14px;color:var(--text2);line-height:1.5;white-space:pre-line;margin:4px 0 0"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="svc-confirm-cancel" onclick="closeSvcConfirm(false)" data-i18n="cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="svc-confirm-ok" onclick="closeSvcConfirm(true)" data-i18n="confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Host powering off — connection will drop -->
+<div class="modal-overlay" id="svc-powering-off-modal" role="dialog" aria-modal="true">
+  <div class="modal">
+    <div class="modal-title" data-i18n="svc_powering_off_title">Powering off…</div>
+    <div style="font-size:14px;color:var(--text2);line-height:1.5" data-i18n="svc_powering_off_body">The system is shutting down. You will lose connection to the dashboard.</div>
+  </div>
+</div>
+
 <!-- ── Update Modal ── -->
 <div class="modal-overlay" id="update-modal">
   <div class="modal">
@@ -5170,7 +5191,7 @@ const LANGS={
     live_sds_sent:'sent',live_sds_times:'×',live_sds_forever:'∞',live_sds_delete:'✕',
     fallback_title:'⚠ FALLBACK CONFIG ACTIVE — Primary config failed to load',
     fallback_help:'Repair the primary config.toml under Config (forms, raw TOML, or Restore .bak), then Restart. The .fallback file is not updated automatically.',
-    sds_msg_label:'Message',cancel:'Cancel',send:'Send',
+    sds_msg_label:'Message',cancel:'Cancel',confirm:'Confirm',send:'Send',
     th_issi:'ISSI',th_issi_cs:'ISSI / Callsign',th_groups:'Groups',th_ee:'Energy Economy',th_signal:'Signal',
     tg_selected:'Selected talkgroup (last keyed up)',
     tg_affiliated_short:'affiliated',tg_affiliated_hint:'Other talkgroups this radio is affiliated to (kept attached on the BS even when scan is off on the device)',
@@ -5187,9 +5208,15 @@ const LANGS={
     dgna:'DGNA',dgna_title:'Dynamic group assignment',dgna_modal_title:'⬡ Dynamic Group Assignment',dgna_issi:'Terminal ISSI',dgna_current:'Current groups',dgna_gssi:'Group (GSSI)',dgna_assign:'Assign',dgna_deassign:'Deassign',
     dgna_name:'TG name',dgna_center:'DGNA',dgna_center_sub:'Bulk assign, update, and deassign groups across radios.',dgna_groups_count:'Groups',dgna_radios_count:'Targets',dgna_group_library:'Group Library',dgna_new_group:'New',dgna_search:'Search',dgna_scope:'Coverage',dgna_editor:'Group Editor',dgna_attachment_mode:'Attachment mode',dgna_select_all:'Select all',dgna_select_none:'Clear',dgna_select_attached:'Attached',dgna_select_dynamic:'Dynamic',dgna_assign_selected:'Assign selected',dgna_assign_all:'Assign all radios',dgna_update_selected:'Update selected',dgna_deassign_selected:'Deassign selected',dgna_targets:'Target Radios',dgna_status_col:'Group state',dgna_last_result:'Last result',dgna_activity:'DGNA Activity',
     confirm_restart:'Restart Bost FlowStation?\nAll active calls will be dropped.',
-    confirm_shutdown:'Put Bost FlowStation on standby?\nThe radio stack stops; the dashboard stays available. Press Start to bring it back.',
+    confirm_shutdown:'The BTS service will be suspended, but you can still access the Dashboard and start the service again from the web UI.\nDo you want to suspend the BTS?',
+    confirm_suspend:'The BTS service will be suspended, but you can still access the Dashboard and start the service again from the web UI.\nDo you want to suspend the BTS?',
+    confirm_poweroff:'The BTS will power off completely. You will probably need to disconnect and reconnect the power supply to start it again.\nDo you want to fully power off the BTS?',
     confirm_start:'Start Bost FlowStation?\nThe service will restart and the page will reload.',
     confirm_logout:'Log out?',
+    svc_suspend:'Suspend',
+    svc_poweroff:'Power off',
+    svc_powering_off_title:'Powering off…',
+    svc_powering_off_body:'The system is shutting down. You will lose connection to the dashboard.',
     svc_standby_title:'Service on standby',
     svc_standby_body:'The radio stack is stopped. The dashboard stays available — press Start to bring the station back.',
     svc_standby_short:'STANDBY',
@@ -5252,7 +5279,7 @@ const LANGS={
     sys_profiles:'Config Profiles',sys_activate:'Activate & Restart',
     sys_active_badge:'ACTIVE',sys_no_profiles:'No .toml profiles found in config directory.',
     sys_activate_confirm:'Switch to profile "{name}" and restart?\nCurrent config will be backed up.',
-    sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, put it on standby (dashboard stays up), or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
+    sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, suspend the radio stack (dashboard stays up), power off the whole Pi, or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
     sys_sec_account:'Account',sys_account_title:'Panel access',sys_account_help:'Change the dashboard login here. One station account — not part of Cell/Brew profiles.',sys_account_user:'Username',sys_account_change:'Change credentials',sys_account_current_pass:'Current password',sys_account_new_user:'New username (optional)',sys_account_new_pass:'New password (optional)',sys_account_new_pass_req:'New password',sys_account_confirm:'Confirm new password',sys_account_save:'Save',sys_account_enable_title:'Enable login',sys_account_enable_help:'Dashboard access is currently open. Set a username and password to require sign-in.',sys_account_enable_btn:'Enable login',sys_account_open:'OPEN',sys_account_protected:'PROTECTED',sys_account_ok:'Saved — sign in again',sys_account_err:'Could not save',sys_account_need_cur:'Current password required',sys_account_need_change:'Set a new username and/or password',sys_account_mismatch:'Passwords do not match',
     sys_bts:'BTS Connection',
     cr_original:'© 2026 Razvan Zeces — YO6RZV',
@@ -5586,7 +5613,7 @@ const LANGS={
     fallback_title:'⚠ CONFIGURACIÓN DE RESERVA ACTIVA — No se pudo cargar la configuración principal',
     fallback_help:'Repara el config.toml principal en Config (formularios, TOML en bruto o Restaurar .bak) y reinicia. El fichero .fallback no se actualiza solo.',
     sds_title:'⬡ Enviar Mensaje SDS',sds_dest:'ISSI Destino',
-    sds_msg_label:'Mensaje',cancel:'Cancelar',send:'Enviar',
+    sds_msg_label:'Mensaje',cancel:'Cancelar',confirm:'Confirmar',send:'Enviar',
     th_issi:'ISSI',th_groups:'Grupos',th_ee:'Ahorro Energía',th_signal:'Señal',
     th_status:'Estado',th_last_seen:'Visto',th_actions:'Acciones',
     th_id:'ID',th_type:'Tipo',th_caller:'Llamante',
@@ -5600,15 +5627,21 @@ const LANGS={
     confirm_kick:'¿Expulsar ISSI {issi}?\nEl terminal será desregistrado y forzado a reconectarse.',
     dgna:'DGNA',dgna_title:'Asignación dinámica de grupo',dgna_modal_title:'⬡ Asignación dinámica de grupo',dgna_issi:'ISSI del terminal',dgna_current:'Grupos actuales',dgna_gssi:'Grupo (GSSI)',dgna_assign:'Asignar',dgna_deassign:'Quitar',
     confirm_restart:'¿Reiniciar Bost FlowStation?\nTodas las llamadas activas se interrumpirán.',
-    confirm_shutdown:'¿Poner Bost FlowStation en espera?\nSe detiene el stack de radio; el dashboard sigue disponible. Pulsa Arrancar para volver.',
-    confirm_start:'¿Arrancar Bost FlowStation?\nEl servicio se reiniciará y la página se recargará.',
+    confirm_shutdown:'Se suspenderá el servicio de BTS, pero podrá seguir accediendo al panel Dashboard e iniciar de nuevo el servicio desde WEB.\n¿Desea suspender la BTS?',
+    confirm_suspend:'Se suspenderá el servicio de BTS, pero podrá seguir accediendo al panel Dashboard e iniciar de nuevo el servicio desde WEB.\n¿Desea suspender la BTS?',
+    confirm_poweroff:'Se apagará la BTS por completo. Es probable que para volver a iniciarla, deba desconectar y conectar de nuevo la alimentación.\n¿Desea apagar por completo la BTS?',
+    confirm_start:'¿Iniciar Bost FlowStation?\nEl servicio se reiniciará y la página se recargará.',
     confirm_logout:'¿Cerrar sesión?',
+    svc_suspend:'Suspender',
+    svc_poweroff:'Apagar',
+    svc_powering_off_title:'Apagando…',
+    svc_powering_off_body:'El sistema se está apagando. Perderás la conexión con el dashboard.',
     svc_standby_title:'Servicio en espera',
-    svc_standby_body:'El stack de radio está parado. El dashboard sigue disponible — pulsa Arrancar para poner la estación en marcha.',
+    svc_standby_body:'El stack de radio está parado. El dashboard sigue disponible — pulsa Iniciar para poner la estación en marcha.',
     svc_standby_short:'EN ESPERA',
-    svc_start:'Arrancar',
-    svc_need_running:'“{action}” necesita el servicio completo en marcha. Pulsa Arrancar en Sistema → Control primero.',
-    svc_standby_will_start:'El servicio está en espera. “{action}” lo arrancará de nuevo. ¿Continuar?',
+    svc_start:'Iniciar',
+    svc_need_running:'“{action}” necesita el servicio completo en marcha. Pulsa Iniciar en Sistema → Control primero.',
+    svc_standby_will_start:'El servicio está en espera. “{action}” lo iniciará de nuevo. ¿Continuar?',
     saved:'✓ Guardado — reinicia para aplicar.',save_fail:'✗ Error al guardar',conn_error:'Error de conexión.',
     update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
     update_confirm:'¿Obtener la última versión de bost y recompilar?\nEl servicio se reiniciará automáticamente.',
@@ -5639,7 +5672,7 @@ const LANGS={
     sys_profiles:'Perfiles de Config',sys_activate:'Activar y Reiniciar',
     sys_active_badge:'ACTIVO',sys_no_profiles:'No se encontraron perfiles .toml en el directorio.',
     sys_activate_confirm:'¿Cambiar al perfil "{name}" y reiniciar?\nLa config actual será respaldada.',
-    sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, ponla en espera (el dashboard sigue) o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
+    sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, suspende el stack de radio (el dashboard sigue), apaga toda la Pi, o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
     sys_sec_account:'Cuenta',sys_account_title:'Acceso al panel',sys_account_help:'Cambia el login del panel aquí. Una sola cuenta de estación — no forma parte de los perfiles Cell/Brew.',sys_account_user:'Usuario',sys_account_change:'Cambiar credenciales',sys_account_current_pass:'Contraseña actual',sys_account_new_user:'Nuevo usuario (opcional)',sys_account_new_pass:'Nueva contraseña (opcional)',sys_account_new_pass_req:'Nueva contraseña',sys_account_confirm:'Confirmar nueva contraseña',sys_account_save:'Guardar',sys_account_enable_title:'Activar acceso',sys_account_enable_help:'El dashboard está abierto. Define usuario y contraseña para exigir inicio de sesión.',sys_account_enable_btn:'Activar acceso',sys_account_open:'ABIERTO',sys_account_protected:'PROTEGIDO',sys_account_ok:'Guardado — vuelve a iniciar sesión',sys_account_err:'No se pudo guardar',sys_account_need_cur:'Contraseña actual obligatoria',sys_account_need_change:'Indica un nuevo usuario y/o contraseña',sys_account_mismatch:'Las contraseñas no coinciden',
     sys_bts:'Conexión BTS',
   },
@@ -8694,8 +8727,39 @@ async function restartService(){
   }catch{wsSend({type:'restart'});}
   beginServiceRestartWait();
 }
+let _svcConfirmResolve=null;
+function openSvcConfirm(opts){
+  opts=opts||{};
+  const modal=document.getElementById('svc-confirm-modal');
+  const title=document.getElementById('svc-confirm-title');
+  const body=document.getElementById('svc-confirm-body');
+  const ok=document.getElementById('svc-confirm-ok');
+  if(title)title.textContent=opts.title||'';
+  if(body)body.textContent=opts.body||'';
+  if(ok){
+    ok.textContent=opts.confirmLabel||t('confirm');
+    ok.className='btn '+(opts.danger?'btn-danger':'btn-primary');
+  }
+  return new Promise(resolve=>{
+    _svcConfirmResolve=resolve;
+    if(modal)modal.classList.add('open');
+  });
+}
+function closeSvcConfirm(ok){
+  const modal=document.getElementById('svc-confirm-modal');
+  if(modal)modal.classList.remove('open');
+  const r=_svcConfirmResolve;
+  _svcConfirmResolve=null;
+  if(r)r(!!ok);
+}
 async function shutdownService(){
-  if(!confirm(t('confirm_shutdown')))return;
+  const ok=await openSvcConfirm({
+    title:t('svc_suspend'),
+    body:t('confirm_suspend'),
+    confirmLabel:t('svc_suspend'),
+    danger:false,
+  });
+  if(!ok)return;
   try{
     const r=await fetch('/api/service/shutdown',{method:'POST',credentials:'same-origin'});
     if(!r.ok){alert(await r.text());return;}
@@ -8708,7 +8772,13 @@ async function shutdownService(){
   }
 }
 async function startService(){
-  if(!confirm(t('confirm_start')))return;
+  const ok=await openSvcConfirm({
+    title:t('svc_start'),
+    body:t('confirm_start'),
+    confirmLabel:t('svc_start'),
+    danger:false,
+  });
+  if(!ok)return;
   try{
     const r=await fetch('/api/service/start',{method:'POST',credentials:'same-origin'});
     if(!r.ok){alert(await r.text());return;}
@@ -8718,6 +8788,21 @@ async function startService(){
 function toggleServicePower(){
   if(serviceStandby)startService();
   else shutdownService();
+}
+async function poweroffHost(){
+  const ok=await openSvcConfirm({
+    title:t('svc_poweroff'),
+    body:t('confirm_poweroff'),
+    confirmLabel:t('svc_poweroff'),
+    danger:true,
+  });
+  if(!ok)return;
+  try{
+    const r=await fetch('/api/system/poweroff',{method:'POST',credentials:'same-origin'});
+    if(!r.ok){alert(await r.text());return;}
+  }catch(e){alert(t('conn_error'));return;}
+  const modal=document.getElementById('svc-powering-off-modal');
+  if(modal)modal.classList.add('open');
 }
 
 let serviceStandby=false;
@@ -8776,14 +8861,16 @@ function applyServiceStateUi(){
   const powerBtn=document.getElementById('svc-power-btn');
   const powerLabel=document.getElementById('svc-power-label');
   const restartBtn=document.getElementById('svc-restart-btn');
+  const hostOffBtn=document.getElementById('svc-host-poweroff-btn');
   if(banner)banner.classList.toggle('show',!!serviceStandby);
   if(powerBtn){
-    powerBtn.classList.toggle('btn-danger',!serviceStandby);
+    powerBtn.classList.toggle('btn-warn',!serviceStandby);
     powerBtn.classList.toggle('is-start',!!serviceStandby);
     powerBtn.classList.toggle('btn-primary',!!serviceStandby);
   }
-  if(powerLabel)powerLabel.textContent=serviceStandby?t('svc_start'):t('shutdown');
+  if(powerLabel)powerLabel.textContent=serviceStandby?t('svc_start'):t('svc_suspend');
   if(restartBtn)restartBtn.disabled=!!serviceStandby;
+  if(hostOffBtn)hostOffBtn.disabled=false;
   if(serviceStandby)paintStandbyConnectivity();
 }
 async function ensureServiceRunning(actionLabel){
