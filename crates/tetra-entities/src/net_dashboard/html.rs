@@ -1255,6 +1255,9 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   transition:width 0.35s ease;
 }
 .update-progress-bar.err{background:var(--danger);}
+.update-progress-bar.is-active{animation:update-bar-pulse 1.6s ease-in-out infinite;}
+@keyframes update-bar-pulse{0%,100%{filter:brightness(1);}50%{filter:brightness(1.2);}}
+.update-elapsed{margin:6px 0 0;font-size:12px;color:var(--text3);font-variant-numeric:tabular-nums;}
 .update-progress-meta{
   display:flex;justify-content:space-between;align-items:center;gap:10px;
   margin-top:8px;font-size:12px;color:var(--text2);
@@ -5011,6 +5014,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
     </div>
     <div class="update-current-line" id="update-current-line" title=""></div>
+    <div class="update-elapsed" id="update-elapsed" aria-live="polite"></div>
     <div class="update-log-toolbar">
       <button type="button" class="update-log-toggle" id="update-log-toggle" onclick="toggleUpdateLog()" data-i18n="update_show_log">Show details</button>
     </div>
@@ -5372,10 +5376,15 @@ const LANGS={
     update_phase_done:'Done',
     update_phase_error:'Update failed',
     update_waiting:'Waiting for first status…',
+    update_elapsed:'Elapsed {m}m {s}s — compiling on a Pi can take 10–20 minutes; do not power-cycle.',
+    update_lost_link:'Lost contact with the station (normal while it restarts after OTA). Waiting for it to come back…',
+    update_build_hint:'Long step: compiling dashboard sources. Progress may sit still for several minutes.',
     restart_wait_title:'Restarting…',
     restart_wait_body:'Waiting for the station to come back online. The page will reload automatically. If login is enabled you will need to sign in again.',
+    restart_wait_ota_title:'Applying update…',
+    restart_wait_ota_body:'The service is restarting with the new build. This can take a few minutes on a Pi after a heavy compile. The page will reload automatically — avoid power-cycling unless it stays down for 15+ minutes.',
     restart_wait_retry:'Retry / Reload',
-    restart_wait_timeout:'The station did not come back in time. Check the service, then retry.',
+    restart_wait_timeout:'The station did not come back in time. Check power and run: systemctl status bluestation-bs — then Retry. Only power-cycle as a last resort.',
     system:'System',sys_info:'System Info',sys_hostname:'Hostname',sys_uptime:'Uptime',
     sys_version:'Bost version',sys_os:'OS',sys_config:'Active Config',
     sys_cpu:'CPU',sys_cpu_load:'CPU Load',sys_ram:'RAM',sys_temp:'CPU Temp',
@@ -5781,10 +5790,15 @@ const LANGS={
     update_phase_done:'Listo',
     update_phase_error:'Actualización fallida',
     update_waiting:'Esperando el primer estado…',
+    update_elapsed:'Transcurrido {m}m {s}s — en una Pi compilar puede llevar 10–20 min; no cortes la alimentación.',
+    update_lost_link:'Se perdió el contacto con la estación (normal al reiniciar tras OTA). Esperando a que vuelva…',
+    update_build_hint:'Paso largo: compilando el dashboard. El progreso puede quedarse quieto varios minutos.',
     restart_wait_title:'Reiniciando…',
     restart_wait_body:'Esperando a que la estación vuelva. La página se recargará sola. Si hay login, tendrás que iniciar sesión de nuevo.',
+    restart_wait_ota_title:'Aplicando actualización…',
+    restart_wait_ota_body:'El servicio se reinicia con la nueva versión. Tras una compilación pesada en Pi puede tardar varios minutos. La página se recargará sola — evita cortar la alimentación salvo que lleve más de 15 minutos caída.',
     restart_wait_retry:'Reintentar / Recargar',
-    restart_wait_timeout:'La estación no ha vuelto a tiempo. Comprueba el servicio y reintenta.',
+    restart_wait_timeout:'La estación no ha vuelto a tiempo. Revisa la alimentación y ejecuta: systemctl status bluestation-bs — luego Reintentar. Solo corta la corriente como último recurso.',
     system:'Sistema',sys_info:'Info del Sistema',sys_hostname:'Hostname',sys_uptime:'Tiempo activo',
     sys_os:'OS',sys_version:'Versión Bost',sys_config:'Config Activa',
     sys_cpu:'CPU',sys_cpu_load:'Carga CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
@@ -9595,8 +9609,13 @@ let restartWaitTimer=null;
 let restartWaitDeadline=0;
 let restartWaitOkStreak=0;
 let updateSucceeded=false;
+let updateStartedAt=0;
+let updateFailStreak=0;
+let updateElapsedTimer=null;
 
-function beginServiceRestartWait(){
+/** opts: {timeoutMs, title, body} — OTA uses a longer timeout and clearer copy. */
+function beginServiceRestartWait(opts){
+  opts=opts||{};
   const overlay=document.getElementById('restart-wait-overlay');
   const card=document.getElementById('restart-wait-card');
   const title=document.getElementById('restart-wait-title');
@@ -9604,16 +9623,24 @@ function beginServiceRestartWait(){
   if(!overlay){location.reload();return;}
   if(restartWaitTimer){clearInterval(restartWaitTimer);restartWaitTimer=null;}
   restartWaitOkStreak=0;
-  restartWaitDeadline=Date.now()+5*60*1000;
+  restartWaitDeadline=Date.now()+(opts.timeoutMs||5*60*1000);
   if(card)card.classList.remove('timed-out');
-  if(title)title.textContent=t('restart_wait_title');
-  if(body)body.textContent=t('restart_wait_body');
+  if(title)title.textContent=opts.title||t('restart_wait_title');
+  if(body)body.textContent=opts.body||t('restart_wait_body');
   overlay.classList.add('open');
   // Brief delay so the restart command can leave before we start probing.
   setTimeout(()=>{
     restartWaitTimer=setInterval(pollServiceBackOnline,1500);
     pollServiceBackOnline();
   },2500);
+}
+
+function beginOtaRestartWait(){
+  beginServiceRestartWait({
+    timeoutMs:15*60*1000,
+    title:t('restart_wait_ota_title'),
+    body:t('restart_wait_ota_body'),
+  });
 }
 
 async function pollServiceBackOnline(){
@@ -9646,10 +9673,11 @@ let updateLogExpanded=false;
 function closeUpdateModal(){
   document.getElementById('update-modal').classList.remove('open');
   if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null;}
+  if(updateElapsedTimer){clearInterval(updateElapsedTimer);updateElapsedTimer=null;}
   // Successful OTA restarts the service — wait for it instead of leaving a zombie SPA.
   if(updateSucceeded){
     updateSucceeded=false;
-    beginServiceRestartWait();
+    beginOtaRestartWait();
   }
 }
 function toggleUpdateLog(){
@@ -9660,13 +9688,17 @@ function toggleUpdateLog(){
   if(btn)btn.textContent=updateLogExpanded?t('update_hide_log'):t('update_show_log');
   if(updateLogExpanded&&term)term.scrollTop=term.scrollHeight;
 }
-function setUpdateProgress(pct,phaseKey,currentLine,failed){
+function setUpdateProgress(pct,phaseKey,currentLine,failed,active){
   const bar=document.getElementById('update-progress-bar');
   const pctEl=document.getElementById('update-progress-pct');
   const phaseEl=document.getElementById('update-phase');
   const lineEl=document.getElementById('update-current-line');
   const p=Math.max(0,Math.min(100,pct|0));
-  if(bar){bar.style.width=p+'%';bar.classList.toggle('err',!!failed);}
+  if(bar){
+    bar.style.width=p+'%';
+    bar.classList.toggle('err',!!failed);
+    bar.classList.toggle('is-active',!!active&&!failed&&p<100);
+  }
   if(pctEl)pctEl.textContent=p+'%';
   if(phaseEl)phaseEl.textContent=t(phaseKey||'update_phase_prepare');
   if(lineEl){
@@ -9674,6 +9706,14 @@ function setUpdateProgress(pct,phaseKey,currentLine,failed){
     lineEl.textContent=line;
     lineEl.title=line;
   }
+}
+function formatUpdateElapsed(){
+  if(!updateStartedAt)return;
+  const el=document.getElementById('update-elapsed');
+  if(!el)return;
+  const sec=Math.max(0,Math.floor((Date.now()-updateStartedAt)/1000));
+  const m=Math.floor(sec/60),s=sec%60;
+  el.textContent=t('update_elapsed',{m:m,s:String(s).padStart(2,'0')});
 }
 function estimateUpdateProgress(log,status){
   const text=log||'';
@@ -9687,7 +9727,13 @@ function estimateUpdateProgress(log,status){
   if(/Fast-forward|Already up to date|merging|checkout|Repository is current|rebuilding/i.test(text)){pct=32;phase='update_phase_sync';}
   if(/cargo build|Using cargo:|Host memory:|Running cargo as/i.test(text)){pct=42;phase='update_phase_build';}
   const compiles=(text.match(/^\s*Compiling /gm)||[]).length;
-  if(compiles>0){pct=Math.min(82,48+compiles*2);phase='update_phase_build';}
+  if(compiles>0){pct=Math.min(78,48+compiles*2);phase='update_phase_build';}
+  // Soft creep while a single crate (often tetra-entities) compiles for a long time.
+  if(phase==='update_phase_build'&&updateStartedAt){
+    const mins=Math.max(0,(Date.now()-updateStartedAt)/60000);
+    pct=Math.min(88,pct+Math.floor(mins*1.5));
+  }
+  if(/still working/i.test(last)){phase='update_phase_build';pct=Math.max(pct,55);}
   if(/Finished|Installing release|install the|Installed /i.test(text)){pct=90;phase='update_phase_install';}
   if(/Build successful|Restarting service/i.test(text)){pct=96;phase='update_phase_restart';}
   return{pct,phase,line:last,failed:false};
@@ -9696,9 +9742,27 @@ function resetUpdateModalUi(){
   updateLogExpanded=false;
   const termEl=document.getElementById('update-terminal');
   const toggle=document.getElementById('update-log-toggle');
+  const elapsed=document.getElementById('update-elapsed');
   if(termEl){termEl.textContent='';termEl.classList.add('collapsed');}
   if(toggle)toggle.textContent=t('update_show_log');
-  setUpdateProgress(0,'update_phase_prepare','',false);
+  if(elapsed)elapsed.textContent='';
+  setUpdateProgress(0,'update_phase_prepare','',false,false);
+}
+function finishUpdatePoll(){
+  if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null;}
+  if(updateElapsedTimer){clearInterval(updateElapsedTimer);updateElapsedTimer=null;}
+  const bar=document.getElementById('update-progress-bar');
+  if(bar)bar.classList.remove('is-active');
+}
+function enterOtaLostContact(){
+  finishUpdatePoll();
+  updateSucceeded=true;
+  const msgEl=document.getElementById('update-status-msg');
+  if(msgEl){msgEl.className='update-status running';msgEl.textContent=t('update_lost_link');}
+  setUpdateProgress(96,'update_phase_restart',t('update_lost_link'),false,true);
+  document.getElementById('update-modal')?.classList.remove('open');
+  updateSucceeded=false;
+  beginOtaRestartWait();
 }
 async function startUpdate(){
   const ok=await openSvcConfirm({
@@ -9710,6 +9774,8 @@ async function startUpdate(){
   if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('update')))return;
   updateSucceeded=false;
+  updateFailStreak=0;
+  updateStartedAt=Date.now();
   document.getElementById('update-modal').classList.add('open');
   document.getElementById('update-modal-title').textContent=t('update_title');
   const termEl=document.getElementById('update-terminal');
@@ -9717,21 +9783,27 @@ async function startUpdate(){
   const closeBtn=document.getElementById('update-close-btn');
   resetUpdateModalUi();
   msgEl.className='update-status running';msgEl.textContent=t('update_running');closeBtn.disabled=true;
-  setUpdateProgress(3,'update_phase_prepare',t('update_waiting'),false);
+  setUpdateProgress(3,'update_phase_prepare',t('update_waiting'),false,true);
+  formatUpdateElapsed();
+  if(updateElapsedTimer)clearInterval(updateElapsedTimer);
+  updateElapsedTimer=setInterval(formatUpdateElapsed,1000);
   try{
     const r=await fetch('/api/update',{method:'POST'});
     if(!r.ok&&r.status!==409){
       msgEl.className='update-status err';msgEl.textContent='✗ '+await r.text();
-      setUpdateProgress(100,'update_phase_error','',true);closeBtn.disabled=false;return;
+      setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();return;
     }
   }catch(e){
     msgEl.className='update-status err';msgEl.textContent='✗ '+e.message;
-    setUpdateProgress(100,'update_phase_error','',true);closeBtn.disabled=false;return;
+    setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();return;
   }
   let lastLen=0;
+  let sawBuild=false;
   updatePollTimer=setInterval(async()=>{
     try{
-      const r=await fetch('/api/update/status');if(!r.ok)return;
+      const r=await fetch('/api/update/status',{cache:'no-store'});
+      if(!r.ok){updateFailStreak++;if(updateFailStreak>=5)enterOtaLostContact();return;}
+      updateFailStreak=0;
       const j=await r.json();
       if(j.log!=null){
         if(j.log.length>lastLen){
@@ -9739,33 +9811,44 @@ async function startUpdate(){
           lastLen=j.log.length;
           if(updateLogExpanded)termEl.scrollTop=termEl.scrollHeight;
         }
+        if(/cargo build|Compiling /i.test(j.log)){
+          if(!sawBuild){
+            sawBuild=true;
+            msgEl.textContent=t('update_running')+' — '+t('update_build_hint');
+          }
+        }
         const est=estimateUpdateProgress(j.log,j.status);
-        setUpdateProgress(est.pct,est.phase,est.line,est.failed);
+        setUpdateProgress(est.pct,est.phase,est.line,est.failed,j.status==='running');
       }
       if(j.status==='done_ok'){
-        clearInterval(updatePollTimer);updatePollTimer=null;
+        finishUpdatePoll();
         updateSucceeded=true;
         msgEl.className='update-status ok';msgEl.textContent=t('update_done_ok');
-        setUpdateProgress(100,'update_phase_done',(j.log||'').trim().split('\n').filter(Boolean).pop()||'',false);
+        setUpdateProgress(100,'update_phase_done',(j.log||'').trim().split('\n').filter(Boolean).pop()||'',false,false);
         closeBtn.disabled=false;
-        // Auto-enter wait overlay shortly so the user need not hunt for Close on mobile.
+        // Enter wait overlay quickly — the service restarts ~5s after done_ok.
         setTimeout(()=>{
           if(updateSucceeded){
             document.getElementById('update-modal')?.classList.remove('open');
             updateSucceeded=false;
-            beginServiceRestartWait();
+            beginOtaRestartWait();
           }
-        },1800);
+        },900);
       }else if(j.status==='done_err'){
-        clearInterval(updatePollTimer);updatePollTimer=null;
+        finishUpdatePoll();
         updateSucceeded=false;
         msgEl.className='update-status err';msgEl.textContent=t('update_done_err');
         const est=estimateUpdateProgress(j.log||'','done_err');
-        setUpdateProgress(est.pct,est.phase,est.line,true);
+        setUpdateProgress(est.pct,est.phase,est.line,true,false);
         closeBtn.disabled=false;
         if(!updateLogExpanded)toggleUpdateLog();
       }
-    }catch{}
+    }catch{
+      updateFailStreak++;
+      // After several failed polls the HTTP server is likely restarting (or OOM'd).
+      // Prefer the wait overlay over a forever-stuck "58%" modal.
+      if(updateFailStreak>=5)enterOtaLostContact();
+    }
   },1000);
 }
 

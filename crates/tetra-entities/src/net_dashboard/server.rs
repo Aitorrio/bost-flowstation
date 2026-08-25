@@ -732,6 +732,7 @@ fn stream_cmd(
     mut cmd: std::process::Command,
 ) -> Option<String> {
     use std::io::{BufRead, BufReader};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     update.lock().unwrap().append(&label);
     cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     let mut child = match cmd.spawn() {
@@ -743,11 +744,58 @@ fn stream_cmd(
             return None;
         }
     };
+
+    // Heartbeat while cargo/rustc is quiet for a long stretch (e.g. Compiling tetra-entities
+    // on a Pi). Without this the dashboard freezes at ~50% and looks hung.
+    let last_activity = Arc::new(AtomicU64::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    ));
+    let stop_hb = Arc::new(AtomicBool::new(false));
+    let hb = {
+        let u = Arc::clone(update);
+        let last = Arc::clone(&last_activity);
+        let stop = Arc::clone(&stop_hb);
+        let started = std::time::Instant::now();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_secs(20));
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let quiet = now.saturating_sub(last.load(Ordering::Relaxed));
+                if quiet >= 25 {
+                    let mins = started.elapsed().as_secs() / 60;
+                    let secs = started.elapsed().as_secs() % 60;
+                    u.lock().unwrap().append(&format!(
+                        "… still working ({mins}m {secs:02}s elapsed — long compiles on Pi are normal)"
+                    ));
+                }
+            }
+        })
+    };
+
+    let touch = |last: &AtomicU64| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        last.store(now, Ordering::Relaxed);
+    };
+
     // stderr on a side thread (cargo writes its progress there), stdout collected on this one.
     let err_handle = child.stderr.take().map(|err| {
-        let u = std::sync::Arc::clone(update);
+        let u = Arc::clone(update);
+        let last = Arc::clone(&last_activity);
         std::thread::spawn(move || {
             for line in BufReader::new(err).lines().map_while(Result::ok) {
+                touch(&last);
                 u.lock().unwrap().append(&line);
             }
         })
@@ -755,6 +803,7 @@ fn stream_cmd(
     let mut collected = String::new();
     if let Some(out) = child.stdout.take() {
         for line in BufReader::new(out).lines().map_while(Result::ok) {
+            touch(&last_activity);
             update.lock().unwrap().append(&line);
             collected.push_str(&line);
             collected.push('\n');
@@ -763,6 +812,10 @@ fn stream_cmd(
     if let Some(h) = err_handle {
         let _ = h.join();
     }
+    stop_hb.store(true, Ordering::Relaxed);
+    // Do not join the heartbeat thread — it may be mid-sleep; joining would stall
+    // the success path for up to the heartbeat interval.
+    let _ = hb;
     match child.wait() {
         Ok(s) if s.success() => Some(collected),
         Ok(s) => {
@@ -1219,11 +1272,22 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
-    // Step 9: done — schedule restart.
-    log!(update, "--- Build successful. Restarting service in 2s... ---");
+    // Flush filesystem buffers so a hard power-loss mid-restart cannot leave a half-written binary.
+    let _ = std::process::Command::new("sync").status();
+
+    // Step 9: done — schedule restart. Give the browser a few seconds to observe done_ok
+    // before the HTTP server dies (Pi OTA builds leave memory tight; restart can be slow).
+    log!(update, "--- Build successful. Restarting service in 5s… ---");
+    log!(
+        update,
+        "Dashboard will disconnect briefly — wait for automatic reload (do not power-cycle yet)."
+    );
     update.lock().unwrap().finish(true);
 
-    crate::service_control::schedule_service_action(crate::service_control::ServiceAction::Restart, std::time::Duration::from_secs(2));
+    crate::service_control::schedule_service_action(
+        crate::service_control::ServiceAction::Restart,
+        std::time::Duration::from_secs(5),
+    );
 }
 
 pub struct DashboardServer {
