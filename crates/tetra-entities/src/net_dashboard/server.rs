@@ -582,21 +582,25 @@ fn source_tree_owner_name(_dir: &std::path::Path) -> Option<String> {
     None
 }
 
-/// Ensure `target/` (and nested build artifacts) are writable by `user` before a non-root build.
-/// A previous OTA that ran cargo as root can leave root-owned objects that stall/`Permission denied`
-/// the next build as `bts`.
-fn fix_target_ownership(src_dir: &std::path::Path, user: &str, update: &SharedUpdateState) {
-    let target = src_dir.join("target");
-    if !target.exists() {
-        return;
-    }
+/// Ensure the OTA source tree (including `Cargo.lock` and `target/`) is owned by `user`
+/// before a non-root build. Git sync runs as the service identity (often root), so a
+/// `reset --hard` can leave root-owned sources; cargo as `bts` then fails with
+/// `Permission denied` on `Cargo.lock`.
+fn fix_source_tree_ownership(src_dir: &std::path::Path, user: &str, update: &SharedUpdateState) {
     update.lock().unwrap().append(&format!(
-        "Ensuring {} is owned by {} (avoids stuck builds after a root cargo run)",
-        target.display(),
+        "Ensuring {} is owned by {} (avoids Permission denied on Cargo.lock / target after root git sync)",
+        src_dir.display(),
         user
     ));
+    let Some(path) = src_dir.to_str() else {
+        update
+            .lock()
+            .unwrap()
+            .append("WARNING: source dir path is not valid UTF-8; skipping chown".to_string());
+        return;
+    };
     let status = std::process::Command::new("chown")
-        .args(["-R", user, target.to_str().unwrap_or("target")])
+        .args(["-R", user, path])
         .status();
     match status {
         Ok(s) if s.success() => {}
@@ -679,7 +683,7 @@ fn cargo_build_command(
 
     let mut build = if run_as_owner {
         let user = owner.unwrap();
-        fix_target_ownership(src_dir, &user, update);
+        fix_source_tree_ownership(src_dir, &user, update);
         update.lock().unwrap().append(&format!(
             "Running cargo as user '{}' (source tree owner)",
             user
