@@ -596,7 +596,7 @@ fn fix_source_tree_ownership(src_dir: &std::path::Path, user: &str, update: &Sha
         update
             .lock()
             .unwrap()
-            .append("WARNING: source dir path is not valid UTF-8; skipping chown".to_string());
+            .append("WARNING: source dir path is not valid UTF-8; skipping chown");
         return;
     };
     let status = std::process::Command::new("chown")
