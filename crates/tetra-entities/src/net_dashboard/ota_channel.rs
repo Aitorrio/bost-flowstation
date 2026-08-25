@@ -69,7 +69,7 @@ pub fn compute_toml(original: &str, channel: &str) -> String {
         out.push(raw.to_string());
     }
     if in_dash && !wrote {
-        out.push(line);
+        out.push(line.clone());
         wrote = true;
     }
     if !saw_dash {
