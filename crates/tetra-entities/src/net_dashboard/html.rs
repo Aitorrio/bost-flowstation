@@ -123,6 +123,7 @@ body.touch-mode .theme-btn,
 body.touch-mode .lang-btn,
 body.touch-mode .touch-btn{min-height:40px;padding:8px 12px;font-size:13px;}
 body.touch-mode .logout-btn{width:42px;height:42px;font-size:18px;}
+body.touch-mode .power-opt{min-height:44px;padding:12px 10px;}
 body.touch-mode input[type="text"],
 body.touch-mode input[type="number"],
 body.touch-mode input[type="password"],
@@ -598,7 +599,7 @@ body{
   padding:12px 18px;border-top:1px solid var(--border);
 }
 
-/* Logout button: muted icon in topbar, becomes warning-red on hover. */
+/* Logout / power-menu buttons: muted icon in topbar. */
 .logout-btn{
   width:30px;height:30px;
   display:flex;align-items:center;justify-content:center;
@@ -608,6 +609,49 @@ body{
   margin-left:4px;
 }
 .logout-btn:hover{color:var(--danger);border-color:var(--danger);background:rgba(255,77,94,0.08);}
+.power-menu-btn:hover,.power-menu-btn[aria-expanded="true"]{
+  color:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 45%,var(--border));
+  background:color-mix(in srgb,var(--accent) 8%,transparent);
+}
+.power-wrap{position:relative;display:flex;margin-left:4px;}
+.power-wrap .logout-btn{margin-left:0;}
+.power-pop{
+  position:absolute;top:calc(100% + 9px);right:0;
+  width:220px;padding:6px;z-index:300;
+  background:color-mix(in srgb,var(--bg2) 88%,transparent);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+  backdrop-filter:saturate(180%) blur(20px);
+  border:1px solid var(--border);border-radius:14px;
+  box-shadow:
+    0 18px 48px -16px rgba(20,30,50,0.34),
+    0 4px 12px rgba(20,30,50,0.10),
+    var(--hair);
+  opacity:0;transform:translateY(-6px) scale(0.98);transform-origin:top right;
+  pointer-events:none;
+  transition:opacity 0.16s ease,transform 0.16s cubic-bezier(.2,.8,.2,1);
+}
+.power-pop.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto;}
+.power-pop-title{
+  font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.12em;
+  text-transform:uppercase;color:var(--text3);padding:8px 10px 6px;
+}
+.power-opt{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:10px 10px;border-radius:9px;
+  background:transparent;border:none;cursor:pointer;text-align:left;color:var(--text);
+  font-family:var(--sans);font-size:13px;font-weight:600;
+  transition:background 0.12s;
+}
+.power-opt + .power-opt{box-shadow:inset 0 1px 0 var(--border);}
+.power-opt:hover{background:var(--bg3);}
+.power-opt:hover + .power-opt{box-shadow:none;}
+.power-opt .btn-icon{width:16px;height:16px;margin:0;color:var(--text3);flex-shrink:0;}
+.power-opt:hover .btn-icon{color:var(--text);}
+.power-opt.is-danger{color:var(--danger);}
+.power-opt.is-danger .btn-icon{color:var(--danger);}
+.power-opt:disabled{opacity:0.45;cursor:not-allowed;}
+@media (max-width:700px){ .power-pop{width:200px;} }
 
 /* Theme picker */
 .theme-picker{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
@@ -2786,8 +2830,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="lang-btn" onclick="setLang('hu',this)">HU</button>
         <button class="lang-btn" onclick="setLang('zh',this)">CN</button>
       </div>
-      <!-- Logout: clears session cookie and redirects to /login. Hidden when auth is off. -->
-      <button class="logout-btn" id="logout-btn" onclick="doLogout()" title="Log out" aria-label="Log out" style="display:none"><span class="ico18" data-icon="shutdown"></span></button>
+      <!-- Session logout (person + arrow). Only when auth is on. -->
+      <button class="logout-btn" id="logout-btn" onclick="doLogout()" title="Log out" aria-label="Log out" style="display:none"><span class="ico18" data-icon="logout"></span></button>
+      <!-- Station power menu: Restart / Suspend / Power off (dropdown). Always for operators. -->
+      <div class="power-wrap" id="power-wrap">
+        <button class="logout-btn power-menu-btn" id="power-menu-btn" onclick="togglePowerPop(event)"
+                title="Station control" aria-haspopup="true" aria-expanded="false" aria-label="Station control">
+          <span class="ico18" data-icon="shutdown"></span>
+        </button>
+        <div class="power-pop" id="power-pop" role="menu" aria-label="Station control">
+          <div class="power-pop-title" data-i18n="top_power_menu">CONTROL</div>
+          <button type="button" class="power-opt" id="power-opt-restart" role="menuitem" onclick="powerMenuRun('restart')">
+            <span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span>
+          </button>
+          <button type="button" class="power-opt" id="power-opt-suspend" role="menuitem" onclick="powerMenuRun('suspend')">
+            <span class="btn-icon" data-icon="power"></span><span id="power-opt-suspend-label" data-i18n="svc_suspend">Suspend</span>
+          </button>
+          <button type="button" class="power-opt is-danger" id="power-opt-poweroff" role="menuitem" onclick="powerMenuRun('poweroff')">
+            <span class="btn-icon" data-icon="shutdown"></span><span data-i18n="svc_poweroff">Power off</span>
+          </button>
+        </div>
+      </div>
       <!-- Login: shown only in anonymous public-overview mode (FH-FEAT-033). -->
       <button class="logout-btn" id="login-btn" onclick="window.location='/login'" title="Log in" aria-label="Log in" style="display:none"><span class="ico18" data-icon="login"></span></button>
     </div>
@@ -5085,6 +5148,7 @@ const ICONS = {
   emergency:'<path d="M12 3 19 6v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6Z"/><path d="M12 8v4M12 15v.2"/>',
   power:'<path d="M13 3 5 13h6l-1 8 8-10h-6Z"/>',
   login:'<circle cx="8" cy="12" r="3.5"/><path d="M11.5 12H20M17 12v3M20 12v2.5"/>',
+  logout:'<circle cx="8.5" cy="8" r="3.2"/><path d="M3.2 19c0-2.9 2.4-5 5.3-5s5.3 2.1 5.3 5"/><path d="M15.5 12H21M18.5 9.2 21.3 12 18.5 14.8"/>',
   // chrome
   collapse:'<path d="M14 7l-5 5 5 5"/><path d="M19 5v14"/>',
   chevrondown:'<path d="m7 10 5 5 5-5"/>',
@@ -5213,6 +5277,9 @@ const LANGS={
     confirm_poweroff:'The BTS will power off completely. You will probably need to disconnect and reconnect the power supply to start it again.\nDo you want to fully power off the BTS?',
     confirm_start:'Start Bost FlowStation?\nThe service will restart and the page will reload.',
     confirm_logout:'Log out?',
+    logout:'Log out',
+    top_power_menu:'CONTROL',
+    top_power_menu_hint:'Restart, suspend or power off',
     svc_suspend:'Suspend',
     svc_poweroff:'Power off',
     svc_powering_off_title:'Powering off…',
@@ -5632,6 +5699,9 @@ const LANGS={
     confirm_poweroff:'Se apagará la BTS por completo. Es probable que para volver a iniciarla, deba desconectar y conectar de nuevo la alimentación.\n¿Desea apagar por completo la BTS?',
     confirm_start:'¿Iniciar Bost FlowStation?\nEl servicio se reiniciará y la página se recargará.',
     confirm_logout:'¿Cerrar sesión?',
+    logout:'Cerrar sesión',
+    top_power_menu:'CONTROL',
+    top_power_menu_hint:'Reiniciar, suspender o apagar',
     svc_suspend:'Suspender',
     svc_poweroff:'Apagar',
     svc_powering_off_title:'Apagando…',
@@ -5860,6 +5930,7 @@ function applyLang(){
   try{updateWhitelistBanner();renderWhitelist();}catch{}
   try{applyServiceStateUi();}catch{}
   try{if(typeof updateHwRfUi==='function')updateHwRfUi();}catch{}
+  try{syncPowerMenuUi();}catch{}
 }
 function setLang(l,btn){
   currentLang=l;localStorage.setItem('fs_lang',l);
@@ -5893,6 +5964,7 @@ function setUiSize(s){
 }
 function toggleReadPop(e){
   if(e)e.stopPropagation();
+  closePowerPop();
   const pop=document.getElementById('read-pop'),btn=document.getElementById('read-btn');
   const open=pop.classList.toggle('open');
   if(btn)btn.setAttribute('aria-expanded',open?'true':'false');
@@ -5902,12 +5974,54 @@ function closeReadPop(){
   if(pop)pop.classList.remove('open');
   if(btn)btn.setAttribute('aria-expanded','false');
 }
+function togglePowerPop(e){
+  if(e)e.stopPropagation();
+  closeReadPop();
+  const pop=document.getElementById('power-pop'),btn=document.getElementById('power-menu-btn');
+  if(!pop)return;
+  const open=pop.classList.toggle('open');
+  if(btn)btn.setAttribute('aria-expanded',open?'true':'false');
+  if(open)syncPowerMenuUi();
+}
+function closePowerPop(){
+  const pop=document.getElementById('power-pop'),btn=document.getElementById('power-menu-btn');
+  if(pop)pop.classList.remove('open');
+  if(btn)btn.setAttribute('aria-expanded','false');
+}
+function syncPowerMenuUi(){
+  const lab=document.getElementById('power-opt-suspend-label');
+  if(lab)lab.textContent=serviceStandby?t('svc_start'):t('svc_suspend');
+  const restart=document.getElementById('power-opt-restart');
+  if(restart)restart.disabled=!!serviceStandby;
+  const btn=document.getElementById('power-menu-btn');
+  if(btn){
+    btn.title=t('top_power_menu_hint');
+    btn.setAttribute('aria-label',t('top_power_menu_hint'));
+  }
+  const lo=document.getElementById('logout-btn');
+  if(lo){
+    lo.title=t('logout');
+    lo.setAttribute('aria-label',t('logout'));
+  }
+  const pt=document.querySelector('#power-pop .power-pop-title');
+  if(pt)pt.textContent=t('top_power_menu');
+}
+function powerMenuRun(action){
+  closePowerPop();
+  if(action==='restart')restartService();
+  else if(action==='suspend')toggleServicePower();
+  else if(action==='poweroff')poweroffHost();
+}
 // Outside-click + Esc dismissal (matches native popover behavior)
 document.addEventListener('click',e=>{
   const pop=document.getElementById('read-pop');
   if(pop&&pop.classList.contains('open')&&!e.target.closest('.eye-wrap'))closeReadPop();
+  const pp=document.getElementById('power-pop');
+  if(pp&&pp.classList.contains('open')&&!e.target.closest('.power-wrap'))closePowerPop();
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeReadPop();});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeReadPop();closePowerPop();}
+});
 
 // ── Touch mode (FH-FEAT-008) ─────────────────────────────────────────────────
 // '1' = forced on, '0' = forced off, null = auto (on for coarse pointers).
@@ -8877,6 +8991,7 @@ function applyServiceStateUi(){
   if(powerLabel)powerLabel.textContent=serviceStandby?t('svc_start'):t('svc_suspend');
   if(restartBtn)restartBtn.disabled=!!serviceStandby;
   if(hostOffBtn)hostOffBtn.disabled=false;
+  try{syncPowerMenuUi();}catch{}
   if(serviceStandby)paintStandbyConnectivity();
 }
 async function ensureServiceRunning(actionLabel){
@@ -10094,8 +10209,14 @@ applyTouchMode();
 // Logout: hits /api/logout (clears the session cookie server-side) and navigates
 // to /login. We surface the button only when auth is actually in effect — detected
 // by whether the fs_session cookie is present.
-function doLogout(){
-  if(!confirm(t('confirm_logout')||'Log out?'))return;
+async function doLogout(){
+  const ok=await openSvcConfirm({
+    title:t('logout'),
+    body:t('confirm_logout'),
+    confirmLabel:t('logout'),
+    danger:false,
+  });
+  if(!ok)return;
   fetch('/api/logout',{method:'POST',credentials:'same-origin'})
     .finally(()=>{ window.location='/login'; });
 }
@@ -11385,6 +11506,7 @@ function enterPublicMode(){
   document.querySelectorAll('.nav-item').forEach(n=>{ n.style.display='none'; });
   const lb=document.getElementById('login-btn'); if(lb) lb.style.display='inline-flex';
   const lo=document.getElementById('logout-btn'); if(lo) lo.style.display='none';
+  const pw=document.getElementById('power-wrap'); if(pw) pw.style.display='none';
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   const pp=document.getElementById('page-public'); if(pp) pp.classList.add('active');
   pollPublic();
