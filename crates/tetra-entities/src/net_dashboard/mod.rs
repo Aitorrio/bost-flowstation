@@ -4,6 +4,7 @@ pub mod dashboard_auth;
 pub mod dual_carrier;
 pub mod geoalarm;
 pub mod html;
+pub mod ota_channel;
 pub mod profiles;
 pub mod radioid;
 pub mod sds_commands;

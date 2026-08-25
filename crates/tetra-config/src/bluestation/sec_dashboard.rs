@@ -19,8 +19,10 @@ pub struct CfgDashboard {
     ///   3. Falling back to the current working directory if it is a git repo
     /// Set this explicitly when the binary is installed outside the repo (e.g. /opt/tetra/
     /// with the git clone elsewhere), or when auto-detection picks the wrong directory.
-    /// OTA pulls from github.com/Aitorrio/bost-flowstation branch `bost`.
+    /// OTA pulls from github.com/Aitorrio/bost-flowstation (`ota_channel` selects the branch).
     pub source_dir: Option<String>,
+    /// OTA release channel: `"stable"` → git branch `bost`, `"beta"` → `beta`. Default `stable`.
+    pub ota_channel: String,
     /// Optional HTTP Basic Auth credentials.
     /// When both username and password are set, all dashboard requests require authentication.
     /// When omitted, the dashboard is accessible without a password (default, home-network use).
@@ -46,6 +48,7 @@ impl Default for CfgDashboard {
             port: 8080,
             bind: "0.0.0.0".to_string(),
             source_dir: None,
+            ota_channel: "stable".to_string(),
             username: None,
             password: None,
             public_overview: false,
@@ -62,6 +65,8 @@ pub struct CfgDashboardDto {
     pub bind: String,
     #[serde(default)]
     pub source_dir: Option<String>,
+    #[serde(default = "default_ota_channel")]
+    pub ota_channel: String,
     #[serde(default)]
     pub username: Option<String>,
     #[serde(default)]
@@ -87,6 +92,10 @@ fn default_bind() -> String {
     // net_dashboard::server), so off-host without credentials is read-only — a wide default exposes a
     // view, not the control surface. Set `bind = "127.0.0.1"` to keep it on this host.
     "0.0.0.0".to_string()
+}
+
+fn default_ota_channel() -> String {
+    "stable".to_string()
 }
 
 pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, String> {
@@ -119,10 +128,20 @@ pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, Strin
         (None, None) => {}
         _ => return Err("dashboard: set both 'username' and 'password', or neither".to_string()),
     }
+    let ota_channel = match src.ota_channel.trim().to_ascii_lowercase().as_str() {
+        "stable" | "beta" => src.ota_channel.trim().to_ascii_lowercase(),
+        other if other.is_empty() => "stable".to_string(),
+        other => {
+            return Err(format!(
+                "dashboard: ota_channel must be \"stable\" or \"beta\" (got '{other}')"
+            ));
+        }
+    };
     Ok(CfgDashboard {
         port: src.port,
         bind: src.bind,
         source_dir: src.source_dir,
+        ota_channel,
         username: src.username,
         password: src.password,
         // public_overview is inert unless auth is set (with no auth the dashboard is already open),

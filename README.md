@@ -203,9 +203,10 @@ Restart, suspend, full power-off and OTA live in the **System** hero (top-right 
 - **Reiniciar** — soft restart of `bluestation-bs`
 - **Suspender** — soft standby: radio stack stops, dashboard stays up; the button becomes **Iniciar** to bring the station back
 - **Apagar** — full host shutdown (`systemctl poweroff`); you will likely need to cycle power to boot again
-- **Actualizar** — OTA: `git fetch` on branch `bost`, rebuild, install binary, restart
+- **Canal OTA** — **Estable** (`bost`, day-to-day) or **Beta** (`beta`, previews); persisted as `[dashboard] ota_channel`
+- **Actualizar** — OTA on the selected channel: `git fetch` + `reset --hard` to that branch (keeps `target/` for incremental builds), rebuild only if the running binary is behind, install, restart
 
-When a newer commit is on GitHub, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).
+When a newer commit is on GitHub for the **active channel**, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).
 
 The OTA dialog shows a progress bar and the current build line (expand **Ver todo** for the full log):
 

@@ -10,7 +10,8 @@
 #
 # Env:
 #   BOST_SRC            existing checkout (default: /opt/bost-flowstation)
-#   BOST_BRANCH         git branch (default: bost)
+#   BOST_BRANCH         git branch (default: bost). Use `beta` for the preview channel.
+#                       Dashboard OTA channel is set to match (stable↔bost, beta↔beta).
 #   BOST_REPO           git URL (default: https://github.com/Aitorrio/bost-flowstation.git)
 #   BOST_FORCE_CLEAN=1  delete source tree and re-clone (keeps /etc/flowstation)
 #   BOST_USE_DEB=1      prefer .deb asset if available (optional)
@@ -146,11 +147,14 @@ log "Installed $BIN_PATH"
 mkdir -p "$CFG_DIR"
 if [[ ! -f "$CFG_PATH" ]]; then
   log "Writing initial $CFG_PATH (backend=None, dashboard admin/1234)"
+  OTA_CHANNEL="stable"
+  [[ "$BRANCH" == "beta" ]] && OTA_CHANNEL="beta"
   if [[ -f "$SRC_ROOT/example_config/config.toml" ]]; then
     cp "$SRC_ROOT/example_config/config.toml" "$CFG_PATH"
-    python3 - "$CFG_PATH" <<'PY'
+    python3 - "$CFG_PATH" "$OTA_CHANNEL" <<'PY'
 import sys, re
 path = sys.argv[1]
+ota_channel = sys.argv[2] if len(sys.argv) > 2 else "stable"
 text = open(path, encoding="utf-8").read()
 text = re.sub(r'(?m)^backend\s*=\s*".*"', 'backend = "None"', text, count=1)
 if re.search(r'(?m)^\s*service_name\s*=', text):
@@ -169,13 +173,14 @@ dash = (
     'username = "admin"\n'
     'password = "1234"\n'
     'source_dir = "/opt/bost-flowstation"\n'
+    f'ota_channel = "{ota_channel}"\n'
 )
 if not has_live_dashboard:
     text = text.rstrip() + "\n" + dash
 open(path, "w", encoding="utf-8").write(text)
 PY
   else
-    cat >"$CFG_PATH" <<'EOF'
+    cat >"$CFG_PATH" <<EOF
 # bost-flowstation first-boot config — complete Setup in the web UI
 config_version = "0.6"
 stack_mode = "Bs"
@@ -210,6 +215,7 @@ port = 8080
 username = "admin"
 password = "1234"
 source_dir = "/opt/bost-flowstation"
+ota_channel = "${OTA_CHANNEL}"
 EOF
   fi
   cp "$CFG_PATH" "${CFG_PATH}.fallback"

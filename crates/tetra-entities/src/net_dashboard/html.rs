@@ -281,6 +281,17 @@ body{
 .sys-update-banner-text{
   flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text);line-height:1.35;
 }
+.ota-channel-row{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:0 0 12px;padding:10px 14px;
+  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+}
+.ota-channel-row label{font-size:12px;font-weight:600;color:var(--text2);}
+.ota-channel-row select{
+  font:inherit;font-size:13px;padding:6px 10px;border-radius:6px;
+  border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;
+}
+.ota-channel-hint{font-size:11px;color:var(--text3);flex:1;min-width:140px;}
 
 /* ── Update-available badge (sidebar glance notice → System) ── */
 .update-badge{
@@ -4614,6 +4625,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="sys-update-banner-text" id="sys-update-banner-text"></div>
         <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
       </div>
+      <div class="ota-channel-row" id="ota-channel-row">
+        <label for="ota-channel-select" data-i18n="ota_channel_title">OTA channel</label>
+        <select id="ota-channel-select" onchange="saveOtaChannel()">
+          <option value="stable" data-i18n="ota_channel_stable">Stable (bost)</option>
+          <option value="beta" data-i18n="ota_channel_beta">Beta</option>
+        </select>
+        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = day-to-day. Beta = previews. Update uses the selected channel.</span>
+      </div>
       <div id="svc-standby-banner" class="svc-standby-banner" role="status">
         <div class="svc-standby-banner-title" data-i18n="svc_standby_title">Service on standby</div>
         <div class="svc-standby-banner-body" data-i18n="svc_standby_body">The radio stack is stopped. The dashboard stays available — press Start to bring the station back.</div>
@@ -5361,7 +5380,13 @@ const LANGS={
     cfg_need_name:'Enter a profile name.',cfg_need_select:'Select a profile first.',cfg_deleted:'✓ Deleted',cfg_applied:'✓ Applied — restarting…',cfg_updated:'✓ Profile saved',
 
     update:'Update',update_available:'Update available',update_title:'OTA Update — github.com/Aitorrio/bost-flowstation',
-    update_confirm:'Pull latest from the bost branch and rebuild?\nThe service will restart automatically.',
+    update_confirm:'Pull latest from the {channel} channel (branch {branch}) and rebuild?\nThe service will restart automatically if a new build is needed.',
+    ota_channel_title:'OTA channel',
+    ota_channel_stable:'Stable (bost)',
+    ota_channel_beta:'Beta',
+    ota_channel_help:'Stable = day-to-day. Beta = previews. Update uses the selected channel.',
+    ota_channel_saved:'✓ Channel saved — next Update uses {channel} ({branch}).',
+    ota_channel_save_fail:'✗ Could not save OTA channel',
     update_running:'Updating… do not close this window.',
     update_done_ok:'✓ Update complete. Restarting…',
     update_done_current:'✓ Already up to date — no rebuild needed.',
@@ -5776,7 +5801,13 @@ const LANGS={
     svc_standby_will_start:'El servicio está en espera. “{action}” lo iniciará de nuevo. ¿Continuar?',
     saved:'✓ Guardado — reinicia para aplicar.',save_fail:'✗ Error al guardar',conn_error:'Error de conexión.',
     update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
-    update_confirm:'¿Obtener la última versión de bost y recompilar?\nEl servicio se reiniciará automáticamente.',
+    update_confirm:'¿Obtener lo último del canal {channel} (rama {branch}) y recompilar?\nEl servicio se reiniciará automáticamente si hace falta una build nueva.',
+    ota_channel_title:'Canal OTA',
+    ota_channel_stable:'Estable (bost)',
+    ota_channel_beta:'Beta',
+    ota_channel_help:'Estable = día a día. Beta = novedades. Actualizar usa el canal seleccionado.',
+    ota_channel_saved:'✓ Canal guardado — el próximo Actualizar usa {channel} ({branch}).',
+    ota_channel_save_fail:'✗ No se pudo guardar el canal OTA',
     update_running:'Actualizando… no cierres esta ventana.',
     update_done_ok:'✓ Actualización completa. Reiniciando…',
     update_done_current:'✓ Ya estás al día — no hace falta recompilar.',
@@ -6155,7 +6186,7 @@ function showPage(name,el){
   if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
-  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();checkUpdate();startServiceStatusPolling();loadDashboardAuth();}
+  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();loadOtaChannel();checkUpdate();startServiceStatusPolling();loadDashboardAuth();}
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
   if(name==='wifi')wifiRefresh();
   if(window.innerWidth<=700)closeMobileSidebar();
@@ -9725,8 +9756,8 @@ function estimateUpdateProgress(log,status){
   if(status==='done_err')return{pct:Math.max(8,estimateUpdateProgress(text,'running').pct),phase:'update_phase_error',line:last,failed:true};
   let pct=6,phase='update_phase_prepare';
   if(/Verifying git|Ensuring OTA remote|Source dir:/i.test(text)){pct=12;phase='update_phase_prepare';}
-  if(/Checking remote|git .* fetch|Local\s+commit:|Remote commit:/i.test(text)){pct=22;phase='update_phase_download';}
-  if(/Fast-forward|Already up to date|merging|checkout|Repository is current|rebuilding/i.test(text)){pct=32;phase='update_phase_sync';}
+  if(/Checking remote|git .* fetch|Local\s+commit:|Remote commit:|OTA channel=/i.test(text)){pct=22;phase='update_phase_download';}
+  if(/reset --hard|Aligning sources|Already up to date|checkout|rebuilding|incremental/i.test(text)){pct=32;phase='update_phase_sync';}
   if(/cargo build|Using cargo:|Host memory:|Running cargo as/i.test(text)){pct=42;phase='update_phase_build';}
   const compiles=(text.match(/^\s*Compiling /gm)||[]).length;
   if(compiles>0){pct=Math.min(78,48+compiles*2);phase='update_phase_build';}
@@ -9769,9 +9800,12 @@ function otaLogSchedulesRestart(log){
   return /Restarting service|Build successful/i.test(log||'');
 }
 async function startUpdate(){
+  const sel=document.getElementById('ota-channel-select');
+  const channel=(sel&&sel.value)||'stable';
+  const branch=channel==='beta'?'beta':'bost';
   const ok=await openSvcConfirm({
     title:t('update'),
-    body:t('update_confirm'),
+    body:t('update_confirm',{channel:channel,branch:branch}),
     confirmLabel:t('update'),
     danger:false,
   });
@@ -11496,11 +11530,54 @@ window.addEventListener('resize', () => {
 // Best-effort: query GitHub for the latest OTA tip once at boot (and when System
 // is opened). If a newer version exists, show the sidebar glance badge + System
 // banner and highlight the Update button. Failures are silent.
-async function checkUpdate(){
+let otaChannelCache={channel:'stable',branch:'bost'};
+async function loadOtaChannel(){
   try{
-    const r=await fetch('/api/update/check');
+    const r=await fetch('/api/update/channel',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)return;
     const d=await r.json();
+    if(!d||!d.channel)return;
+    otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
+    const sel=document.getElementById('ota-channel-select');
+    if(sel)sel.value=otaChannelCache.channel;
+  }catch{/* silent */}
+}
+async function saveOtaChannel(){
+  const sel=document.getElementById('ota-channel-select');
+  if(!sel)return;
+  const channel=sel.value||'stable';
+  try{
+    const r=await fetch('/api/update/channel',{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({channel}),
+    });
+    if(!r.ok){
+      await dashAlert(t('notice'),t('ota_channel_save_fail'));
+      await loadOtaChannel();
+      return;
+    }
+    const d=await r.json();
+    otaChannelCache={channel:d.channel||channel,branch:d.branch||(channel==='beta'?'beta':'bost')};
+    const hint=document.getElementById('ota-channel-hint');
+    if(hint)hint.textContent=t('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch});
+    await checkUpdate();
+  }catch{
+    await dashAlert(t('notice'),t('ota_channel_save_fail'));
+    await loadOtaChannel();
+  }
+}
+async function checkUpdate(){
+  try{
+    const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(d&&d.channel){
+      otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
+      const sel=document.getElementById('ota-channel-select');
+      if(sel)sel.value=otaChannelCache.channel;
+    }
     const badge=document.getElementById('update-badge');
     const banner=document.getElementById('sys-update-banner');
     const bannerText=document.getElementById('sys-update-banner-text');
@@ -11543,6 +11620,7 @@ async function boot(){
   loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Radios) page
   loadDualCarrier();    // Dual-Carrier ON/OFF toggle state
   wifiProbeAvailable(); // toggles the WiFi nav item
+  loadOtaChannel();
   checkUpdate();
   maybeShowSetupWizard();
 }

@@ -13,7 +13,7 @@ pub const GIT_HASH: &str = git_version::git_version!(
 pub const PRODUCT_NAME: &str = "Bost FlowStation";
 
 /// Our release line (independent of upstream crate package version).
-pub const BOST_VERSION: &str = "0.1.47";
+pub const BOST_VERSION: &str = "0.1.48";
 
 /// Upstream project this fork is based on.
 pub const UPSTREAM_NAME: &str = "FlowStation";
@@ -38,9 +38,29 @@ pub const PRODUCT_REPO_LABEL: &str = "github.com/Aitorrio/bost-flowstation";
 /// Git clone URL used by OTA (`git remote set-url origin …`).
 pub const PRODUCT_REPO_GIT: &str = "https://github.com/Aitorrio/bost-flowstation.git";
 
-/// Branch OTA fetches / fast-forwards from.
-pub const PRODUCT_OTA_BRANCH: &str = "bost";
+/// Stable OTA channel → git branch `bost` (day-to-day production).
+pub const PRODUCT_OTA_BRANCH_STABLE: &str = "bost";
+/// Beta OTA channel → git branch `beta` (previews / experiments).
+pub const PRODUCT_OTA_BRANCH_BETA: &str = "beta";
 
+/// Default OTA branch (stable). Prefer [`ota_branch_for_channel`].
+pub const PRODUCT_OTA_BRANCH: &str = PRODUCT_OTA_BRANCH_STABLE;
+
+/// Normalize a dashboard channel id to `"stable"` or `"beta"`.
+pub fn normalize_ota_channel(channel: &str) -> &'static str {
+    match channel.trim().to_ascii_lowercase().as_str() {
+        "beta" => "beta",
+        _ => "stable",
+    }
+}
+
+/// Git branch for an OTA channel (`stable` → `bost`, `beta` → `beta`).
+pub fn ota_branch_for_channel(channel: &str) -> &'static str {
+    match normalize_ota_channel(channel) {
+        "beta" => PRODUCT_OTA_BRANCH_BETA,
+        _ => PRODUCT_OTA_BRANCH_STABLE,
+    }
+}
 pub mod address;
 pub mod bitbuffer;
 pub mod debug;

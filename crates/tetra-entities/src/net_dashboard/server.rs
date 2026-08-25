@@ -994,16 +994,15 @@ fn binary_built_from(binary_git_hash: &str, repo_head: &str) -> Option<bool> {
     Some(repo_head.starts_with(h))
 }
 
-/// Run git pull + cargo build --release in a background thread.
+/// Run git sync + cargo build --release in a background thread.
 /// Steps:
 ///   1. Resolve source dir (config override -> walk-up -> well-known paths -> CWD)
 ///   2. Validate it is a git repository
-///   3. git fetch + compare commits
-///   4. If commits differ: backup config.toml -> config.toml.bak, then git merge --ff-only
-///   5. Rebuild only if the merge landed OR the running binary's embedded git hash != repo HEAD
-///      (so a previously-failed build is not mistaken for "already up to date")
-///   6. cargo build --release (cargo resolved explicitly; output streamed live)
-///   7. systemctl restart <service>  (after short delay)
+///   3. Read OTA channel from config → branch (`stable`/`bost`, `beta`/`beta`)
+///   4. git fetch + `checkout -B` + `reset --hard origin/<branch>` (preserves `target/`)
+///   5. Skip rebuild/install/restart when the running binary already matches HEAD
+///   6. cargo build --release (incremental; never `cargo clean`)
+///   7. install binary + systemctl restart
 fn run_update(update: SharedUpdateState, config_path: String, source_dir_override: Option<String>) {
     macro_rules! log {
         ($update:expr, $($arg:tt)*) => {{
@@ -1092,10 +1091,17 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         log!(update, "✓ safe.directory registered, continuing.");
     }
 
-    // Step 3: point origin at the Bost repo and fetch the OTA branch.
+    // Step 3: channel → branch, point origin at the Bost repo, fetch.
+    let channel = crate::net_dashboard::ota_channel::read_ota_channel(&config_path);
+    let ota_branch = tetra_core::ota_branch_for_channel(&channel);
     let ota_url = tetra_core::PRODUCT_REPO_GIT;
-    let ota_branch = tetra_core::PRODUCT_OTA_BRANCH;
     let remote_ref = format!("origin/{}", ota_branch);
+    log!(
+        update,
+        "OTA channel={} → branch {}",
+        channel,
+        ota_branch
+    );
     log!(
         update,
         "--- Ensuring OTA remote {} (branch {}) ---",
@@ -1151,35 +1157,15 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
-    // Prefer working on the OTA branch so ff-only merges apply cleanly.
     let local_branch = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", "--abbrev-ref", "HEAD"], &src_dir)
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-    if local_branch != ota_branch {
-        log!(update, "Local branch is '{}' — switching to '{}'", local_branch, ota_branch);
-        if run_cmd_output(&update, "git", &["-C", src_str, "checkout", ota_branch], &src_dir).is_none() {
-            log!(update, "Creating local '{}' from {}", ota_branch, remote_ref);
-            if run_cmd_output(
-                &update,
-                "git",
-                &["-C", src_str, "checkout", "-B", ota_branch, &remote_ref],
-                &src_dir,
-            )
-            .is_none()
-            {
-                return;
-            }
-        }
-    }
-
-    // Step 4: compare local HEAD with remote origin/<ota_branch>
     let local_commit = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", "HEAD"], &src_dir)
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     if local_commit.is_empty() {
         return;
     }
-
     let remote_commit = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", &remote_ref], &src_dir)
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
@@ -1187,66 +1173,96 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
+    log!(update, "Local  branch: {}", if local_branch.is_empty() { "?" } else { &local_branch });
     log!(update, "Local  commit: {}", &local_commit[..local_commit.len().min(12)]);
     log!(update, "Remote commit: {}", &remote_commit[..remote_commit.len().min(12)]);
 
-    // Step 5: sync the working tree to origin/<ota_branch> when the commits differ.
-    let mut merged = false;
-    if local_commit != remote_commit {
-        // Show what changed.
+    let tree_moved = local_commit != remote_commit || local_branch != ota_branch;
+    if tree_moved {
         let range = format!("HEAD..{}", remote_ref);
         let _ = run_cmd_output(&update, "git", &["-C", src_str, "log", "--oneline", &range], &src_dir);
 
-        // Backup config before touching anything.
         let backup_path = format!("{}.bak", config_path);
         match atomic_copy(&config_path, &backup_path) {
             Ok(_) => log!(update, "Config backed up → {}", backup_path),
             Err(e) => log!(update, "WARNING: config backup failed: {} (continuing)", e),
         }
-
-        // Fast-forward merge (only changed files are touched on disk).
-        log!(update, "--- git merge (fast-forward only) ---");
-        if run_cmd_output(&update, "git", &["-C", src_str, "merge", "--ff-only", &remote_ref], &src_dir).is_none() {
-            return;
-        }
-        merged = true;
     }
 
-    // Step 6: decide whether a rebuild is actually required. We compare the git hash BAKED INTO the
-    // running binary (tetra_core::STACK_VERSION) against the repository HEAD — not merely git HEAD
-    // vs origin. This is what makes a previously-FAILED build recoverable: after a merge lands but
-    // the build fails, git already points at origin, yet the running binary is still the old one, so
-    // "git up to date" must NOT be reported as "updated" (FH-BUG-035 / FH-BUG-037).
-    let repo_head = if merged { remote_commit.as_str() } else { local_commit.as_str() };
-    let binary_current = binary_built_from(tetra_core::GIT_HASH, repo_head);
-    if !merged && binary_current != Some(false) {
-        match binary_current {
-            Some(true) => log!(
-                update,
-                "Already up to date — running {} matches the repository.",
-                tetra_core::STACK_VERSION
-            ),
-            _ => log!(
-                update,
-                "Repository is up to date; running {} (build hash not verifiable).",
-                tetra_core::STACK_VERSION
-            ),
-        }
-        update.lock().unwrap().finish(true);
+    // Step 4: hard-align to origin/<branch>. Unlike ff-only merge, this recovers after a remote
+    // force-push (Pi clone can be "ahead" of a rewritten branch). `target/` is never deleted.
+    log!(
+        update,
+        "--- Aligning sources to {} (reset --hard; keeps target/ for incremental builds) ---",
+        remote_ref
+    );
+    if run_cmd_output(
+        &update,
+        "git",
+        &["-C", src_str, "checkout", "-B", ota_branch, &remote_ref],
+        &src_dir,
+    )
+    .is_none()
+    {
         return;
     }
-    if !merged {
-        log!(
-            update,
-            "Repository is current but the running binary ({}) predates it — rebuilding.",
-            tetra_core::STACK_VERSION
-        );
+    if run_cmd_output(
+        &update,
+        "git",
+        &["-C", src_str, "reset", "--hard", &remote_ref],
+        &src_dir,
+    )
+    .is_none()
+    {
+        return;
     }
 
-    // Step 7: build. cargo lives in ~/.cargo/bin, which the systemd service PATH usually omits, so
+    // Step 5: rebuild only when the running binary's embedded git hash != repo HEAD.
+    let repo_head = remote_commit.as_str();
+    let binary_current = binary_built_from(tetra_core::GIT_HASH, repo_head);
+    match binary_current {
+        Some(true) => {
+            log!(
+                update,
+                "Already up to date — running {} matches {}@{}.",
+                tetra_core::STACK_VERSION,
+                ota_branch,
+                &repo_head[..repo_head.len().min(12)]
+            );
+            update.lock().unwrap().finish(true);
+            return;
+        }
+        Some(false) => {
+            log!(
+                update,
+                "Running binary ({}) does not match {} — rebuilding (incremental).",
+                tetra_core::STACK_VERSION,
+                ota_branch
+            );
+        }
+        None => {
+            if !tree_moved {
+                log!(
+                    update,
+                    "Repository is up to date; running {} (build hash not verifiable).",
+                    tetra_core::STACK_VERSION
+                );
+                update.lock().unwrap().finish(true);
+                return;
+            }
+            log!(
+                update,
+                "Sources moved on {} but build hash is not verifiable — rebuilding to be safe.",
+                ota_branch
+            );
+        }
+    }
+
+    // Step 6: build. cargo lives in ~/.cargo/bin, which the systemd service PATH usually omits, so
     // resolve it explicitly (FH-BUG-037). Run as the source-tree owner with -j 1 to avoid
     // root-owned target/ stalls and OOM on Pi (compiling tetra-entities html.rs is heavy).
     // Output is streamed live so a long compile shows progress instead of looking hung (FH-BUG-035).
+    // Never run `cargo clean` — incremental `target/` is intentional.
     log!(update, "--- cargo build --release ---");
     let cargo = find_cargo(&src_dir);
     if cargo == std::path::Path::new("cargo") {
@@ -1266,7 +1282,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
-    // Step 8: install the new binary where systemd actually runs it.
+    // Step 7: install the new binary where systemd actually runs it.
     log!(update, "--- Installing release binary ---");
     if !install_built_binary(&src_dir, &update) {
         return;
@@ -1275,7 +1291,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // Flush filesystem buffers so a hard power-loss mid-restart cannot leave a half-written binary.
     let _ = std::process::Command::new("sync").status();
 
-    // Step 9: done — schedule restart. Give the browser a few seconds to observe done_ok
+    // Step 8: done — schedule restart. Give the browser a few seconds to observe done_ok
     // before the HTTP server dies (Pi OTA builds leave memory tight; restart can be slow).
     log!(update, "--- Build successful. Restarting service in 5s… ---");
     log!(
@@ -2600,6 +2616,32 @@ fn handle_connection(
             }
         }
         serve_callsigns(buf.into_inner(), &radioid, &req_line);
+    } else if req_line.contains("GET /api/update/channel") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let body = crate::net_dashboard::ota_channel::channel_json(&config_path);
+        http_json_response(s, 200, &body);
+    } else if req_line.contains("POST /api/update/channel") {
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<serde_json::Value>(&body_str) {
+            Ok(v) => {
+                let channel = v
+                    .get("channel")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let channel = tetra_core::normalize_ota_channel(channel);
+                match crate::net_dashboard::ota_channel::write_ota_channel(&config_path, channel) {
+                    Ok(()) => {
+                        tracing::info!("Dashboard: OTA channel set to {}", channel);
+                        let body = crate::net_dashboard::ota_channel::channel_json(&config_path);
+                        http_json_response(inner, 200, &body);
+                    }
+                    Err(e) => http_response(inner, 500, &format!("failed to save ota_channel: {e}")),
+                }
+            }
+            Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
     } else if req_line.contains("GET /api/update/check") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -2609,7 +2651,7 @@ fn handle_connection(
                 break;
             }
         }
-        serve_update_check(buf.into_inner());
+        serve_update_check(buf.into_inner(), &config_path);
     } else if req_line.contains("GET /api/update/status") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -3964,11 +4006,13 @@ fn serve_callsigns(stream: TcpStream, radioid: &crate::net_dashboard::radioid::R
     http_json_response(stream, 200, &serde_json::Value::Object(map).to_string());
 }
 
-/// GET /api/update/check — compare the running build against the tip of the OTA branch
-/// on github.com/Aitorrio/bost-flowstation (fallback: latest GitHub Release). Best-effort;
-/// on any failure returns check_failed=true so the dashboard hides the badge.
-fn serve_update_check(mut stream: TcpStream) {
-    let result = crate::net_dashboard::update_check::check_for_update(tetra_core::STACK_VERSION);
+/// GET /api/update/check — compare the running build against the tip of the active OTA
+/// channel branch on github.com/Aitorrio/bost-flowstation (fallback: latest GitHub Release).
+/// Best-effort; on any failure returns check_failed=true so the dashboard hides the badge.
+fn serve_update_check(mut stream: TcpStream, config_path: &str) {
+    let channel = crate::net_dashboard::ota_channel::read_ota_channel(config_path);
+    let result =
+        crate::net_dashboard::update_check::check_for_update(tetra_core::STACK_VERSION, &channel);
     let body = result.to_json();
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -5360,7 +5404,7 @@ fn unmask_config_secrets(body: &str, current: &str) -> String {
 /// cut — this is a base station) between truncate and write leaves a half-written config.toml that
 /// no longer parses, which aborts startup under systemd `Restart=` and crash-loops the cell. rename
 /// within one filesystem is atomic, so the config is either the old one or the new one, never half.
-fn atomic_write(path: &str, content: &str) -> std::io::Result<()> {
+pub(crate) fn atomic_write(path: &str, content: &str) -> std::io::Result<()> {
     let target = std::path::Path::new(path);
     let dir = match target.parent() {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),

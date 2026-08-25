@@ -19,7 +19,7 @@ sudo ./contrib/install/install-bost.sh
 ### What the script does
 
 1. Installs build tools + SoapySDR tools/libs (and Lime modules if available in apt).
-2. Clones or updates `/opt/bost-flowstation` (branch `bost`), unless `BOST_SRC` points at an existing tree.
+2. Clones or updates `/opt/bost-flowstation` (branch `bost` by default; set `BOST_BRANCH=beta` for the preview channel), unless `BOST_SRC` points at an existing tree.
 3. Builds `bluestation-bs` with Cargo and installs it to `/usr/local/bin/bluestation-bs`.
 4. Writes `/etc/flowstation/config.toml` if missing, with:
    - `phy_io.backend = "None"` (web always starts)

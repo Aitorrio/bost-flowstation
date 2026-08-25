@@ -1,8 +1,8 @@
 //! GitHub update-check for the dashboard.
 //!
 //! Compares the locally built git hash (`tetra_core::GIT_HASH` / `STACK_VERSION`) against
-//! the tip of the OTA branch on GitHub (`tetra_core::PRODUCT_OTA_BRANCH`). This is purely
-//! informational — the actual update is performed by the git-based OTA path (`run_update`).
+//! the tip of the active OTA branch on GitHub. This is purely informational — the actual
+//! update is performed by the git-based OTA path (`run_update`).
 //! We only surface an "update available" badge so the operator knows to click it.
 //!
 //! If the repo also publishes GitHub Releases, a SemVer tag newer than the local Bost
@@ -54,16 +54,22 @@ pub struct UpdateCheck {
     pub release_url: Option<String>,
     /// True when the check itself failed (network/parse). The badge should stay hidden.
     pub check_failed: bool,
+    /// Active OTA channel (`stable` / `beta`).
+    pub channel: String,
+    /// Git branch for that channel (`bost` / `beta`).
+    pub branch: String,
 }
 
 impl UpdateCheck {
-    fn unknown(current: &str) -> Self {
+    fn unknown(current: &str, channel: &str, branch: &str) -> Self {
         UpdateCheck {
             current: current.to_string(),
             latest: None,
             update_available: false,
             release_url: None,
             check_failed: true,
+            channel: channel.to_string(),
+            branch: branch.to_string(),
         }
     }
 
@@ -80,12 +86,14 @@ impl UpdateCheck {
             .map(|s| format!("\"{}\"", json_escape(s)))
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "{{\"current\":\"{}\",\"latest\":{},\"update_available\":{},\"release_url\":{},\"check_failed\":{}}}",
+            "{{\"current\":\"{}\",\"latest\":{},\"update_available\":{},\"release_url\":{},\"check_failed\":{},\"channel\":\"{}\",\"branch\":\"{}\"}}",
             json_escape(&self.current),
             latest,
             self.update_available,
             url,
-            self.check_failed
+            self.check_failed,
+            json_escape(&self.channel),
+            json_escape(&self.branch)
         )
     }
 }
@@ -111,28 +119,26 @@ fn local_git_hash(current_version: &str) -> Option<String> {
     Some(hash.to_string())
 }
 
-/// Query GitHub for the OTA branch tip (and optionally latest release) and compare against
+/// Query GitHub for the given OTA branch tip (and optionally latest release) and compare against
 /// `current_version` (typically `tetra_core::STACK_VERSION`). Blocking; call from a worker thread.
-pub fn check_for_update(current_version: &str) -> UpdateCheck {
+pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
+    let channel = tetra_core::normalize_ota_channel(channel).to_string();
+    let branch = tetra_core::ota_branch_for_channel(&channel).to_string();
+
     let client = match reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent(USER_AGENT)
         .build()
     {
         Ok(c) => c,
-        Err(_) => return UpdateCheck::unknown(current_version),
+        Err(_) => return UpdateCheck::unknown(current_version, &channel, &branch),
     };
 
-    let branch = tetra_core::PRODUCT_OTA_BRANCH;
     let commits_url = format!(
         "https://api.github.com/repos/Aitorrio/bost-flowstation/commits/{}",
         branch
     );
-    let branch_page = format!(
-        "{}/tree/{}",
-        tetra_core::PRODUCT_REPO_URL,
-        branch
-    );
+    let branch_page = format!("{}/tree/{}", tetra_core::PRODUCT_REPO_URL, branch);
 
     // Primary path: tip of the OTA branch (matches what `run_update` pulls).
     if let Ok(resp) = client
@@ -154,6 +160,8 @@ pub fn check_for_update(current_version: &str) -> UpdateCheck {
                     update_available,
                     release_url: Some(branch_page),
                     check_failed: false,
+                    channel,
+                    branch,
                 };
             }
         }
@@ -168,19 +176,19 @@ pub fn check_for_update(current_version: &str) -> UpdateCheck {
         .and_then(|r| r.error_for_status())
     {
         Ok(r) => r,
-        Err(_) => return UpdateCheck::unknown(current_version),
+        Err(_) => return UpdateCheck::unknown(current_version, &channel, &branch),
     };
 
     let json: serde_json::Value = match resp.json() {
         Ok(j) => j,
-        Err(_) => return UpdateCheck::unknown(current_version),
+        Err(_) => return UpdateCheck::unknown(current_version, &channel, &branch),
     };
 
     let tag = json.get("tag_name").and_then(|v| v.as_str());
     let html_url = json.get("html_url").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let Some(tag) = tag else {
-        return UpdateCheck::unknown(current_version);
+        return UpdateCheck::unknown(current_version, &channel, &branch);
     };
 
     let update_available = match (SemVer::parse(current_version), SemVer::parse(tag)) {
@@ -194,6 +202,8 @@ pub fn check_for_update(current_version: &str) -> UpdateCheck {
         update_available,
         release_url: html_url,
         check_failed: false,
+        channel,
+        branch,
     }
 }
 
@@ -245,10 +255,13 @@ mod tests {
             update_available: true,
             release_url: Some("https://github.com/Aitorrio/bost-flowstation/tree/bost".to_string()),
             check_failed: false,
+            channel: "stable".into(),
+            branch: "bost".into(),
         };
         let j = u.to_json();
         assert!(j.contains("\"update_available\":true"));
         assert!(j.contains("Aitorrio/bost-flowstation"));
+        assert!(j.contains("\"channel\":\"stable\""));
     }
 
     #[test]
