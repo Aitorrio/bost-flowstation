@@ -1153,7 +1153,18 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     }
 
     log!(update, "--- Checking remote for updates ---");
-    if run_cmd_output(&update, "git", &["-C", src_str, "fetch", "origin", ota_branch], &src_dir).is_none() {
+    // Explicit refspec so `origin/<branch>` always exists. Plain `git fetch origin <branch>`
+    // often only updates FETCH_HEAD (seen on Pi clones that never tracked `beta` before),
+    // which then makes `rev-parse origin/beta` fail with exit 128.
+    let fetch_refspec = format!("+refs/heads/{0}:refs/remotes/origin/{0}", ota_branch);
+    if run_cmd_output(
+        &update,
+        "git",
+        &["-C", src_str, "fetch", "origin", &fetch_refspec],
+        &src_dir,
+    )
+    .is_none()
+    {
         return;
     }
 
