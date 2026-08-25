@@ -281,17 +281,6 @@ body{
 .sys-update-banner-text{
   flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text);line-height:1.35;
 }
-.ota-channel-row{
-  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  margin:0 0 12px;padding:10px 14px;
-  background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-}
-.ota-channel-row label{font-size:12px;font-weight:600;color:var(--text2);}
-.ota-channel-row select{
-  font:inherit;font-size:13px;padding:6px 10px;border-radius:6px;
-  border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;
-}
-.ota-channel-hint{font-size:11px;color:var(--text3);flex:1;min-width:140px;}
 
 /* ── Update-available badge (sidebar glance notice → System) ── */
 .update-badge{
@@ -1278,9 +1267,40 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .update-current-line{
   margin:0 0 10px;padding:10px 12px;border-radius:6px;
   background:var(--bg);border:1px solid var(--border);
-  font-family:var(--mono);font-size:11px;line-height:1.45;color:var(--text2);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:1.45em;
+  font-size:13px;line-height:1.45;color:var(--text2);
+  white-space:normal;min-height:1.45em;
 }
+.update-current-line.is-raw{
+  font-family:var(--mono);font-size:11px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.ota-step{display:none;}
+.ota-step.is-active{display:block;}
+.ota-channel-field{margin:0 0 14px;}
+.ota-channel-field label{display:block;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px;}
+.ota-channel-field select{
+  width:100%;font:inherit;font-size:13px;padding:8px 10px;border-radius:6px;
+  border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;
+}
+.ota-channel-hint{display:block;margin-top:8px;font-size:12px;color:var(--text3);line-height:1.4;}
+.ota-review-versions{
+  margin:0 0 12px;padding:12px;border-radius:8px;
+  background:var(--bg);border:1px solid var(--border);
+  font-size:13px;line-height:1.45;color:var(--text);
+}
+.ota-review-versions strong{font-family:var(--mono);}
+.ota-changelog-title{font-size:12px;font-weight:700;color:var(--text2);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.06em;}
+.ota-changelog-list{
+  list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;
+  border:1px solid var(--border);border-radius:8px;background:var(--bg);
+}
+.ota-changelog-list li{
+  padding:8px 10px;border-bottom:1px solid var(--border);
+  font-size:12px;line-height:1.4;color:var(--text);
+}
+.ota-changelog-list li:last-child{border-bottom:none;}
+.ota-changelog-list .sha{font-family:var(--mono);font-size:10px;color:var(--text3);margin-right:8px;}
+.ota-changelog-empty{font-size:12px;color:var(--text3);font-style:italic;margin:0 0 8px;}
 .update-log-toolbar{display:flex;justify-content:flex-end;margin:0 0 6px;}
 .update-log-toggle{
   background:none;border:none;color:var(--accent2);font-size:12px;font-weight:600;
@@ -4625,14 +4645,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="sys-update-banner-text" id="sys-update-banner-text"></div>
         <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
       </div>
-      <div class="ota-channel-row" id="ota-channel-row">
-        <label for="ota-channel-select" data-i18n="ota_channel_title">OTA channel</label>
-        <select id="ota-channel-select" onchange="saveOtaChannel()">
-          <option value="stable" data-i18n="ota_channel_stable">Stable (bost)</option>
-          <option value="beta" data-i18n="ota_channel_beta">Beta</option>
-        </select>
-        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = day-to-day. Beta = previews. Update uses the selected channel.</span>
-      </div>
       <div id="svc-standby-banner" class="svc-standby-banner" role="status">
         <div class="svc-standby-banner-title" data-i18n="svc_standby_title">Service on standby</div>
         <div class="svc-standby-banner-body" data-i18n="svc_standby_body">The radio stack is stopped. The dashboard stays available — press Start to bring the station back.</div>
@@ -5018,28 +5030,57 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
-<!-- ── Update Modal ── -->
+<!-- ── Update Modal (choose → review → progress) ── -->
 <div class="modal-overlay" id="update-modal">
   <div class="modal">
     <div class="modal-title" id="update-modal-title" data-i18n="update_title">⬆ OTA Update</div>
-    <div class="update-status running" id="update-status-msg"></div>
-    <div class="update-progress-wrap">
-      <div class="update-progress-track" aria-hidden="true">
-        <div class="update-progress-bar" id="update-progress-bar"></div>
+
+    <div class="ota-step is-active" id="ota-step-choose">
+      <div class="ota-channel-field">
+        <label for="ota-channel-select" data-i18n="ota_channel_title">OTA channel</label>
+        <select id="ota-channel-select" onchange="saveOtaChannel()">
+          <option value="stable" data-i18n="ota_channel_stable">Stable (bost)</option>
+          <option value="beta" data-i18n="ota_channel_beta">Beta</option>
+        </select>
+        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = day-to-day. Beta = previews. Update uses the selected channel.</span>
       </div>
-      <div class="update-progress-meta">
-        <div class="update-phase" id="update-phase"></div>
-        <div class="update-progress-pct" id="update-progress-pct">0%</div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeUpdateModal()" data-i18n="cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="ota-check-btn" onclick="checkOtaInModal()"><span data-i18n="ota_check">Check for updates</span></button>
       </div>
     </div>
-    <div class="update-current-line" id="update-current-line" title=""></div>
-    <div class="update-elapsed" id="update-elapsed" aria-live="polite"></div>
-    <div class="update-log-toolbar">
-      <button type="button" class="update-log-toggle" id="update-log-toggle" onclick="toggleUpdateLog()" data-i18n="update_show_log">Show details</button>
+
+    <div class="ota-step" id="ota-step-review">
+      <div class="ota-review-versions" id="ota-review-versions"></div>
+      <div class="ota-changelog-title" data-i18n="ota_whats_new">What's new</div>
+      <p class="ota-changelog-empty" id="ota-changelog-empty" style="display:none" data-i18n="ota_changelog_unavailable">Could not load the change list. You can still update.</p>
+      <ul class="ota-changelog-list" id="ota-changelog-list"></ul>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeUpdateModal()" data-i18n="cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="ota-confirm-btn" onclick="confirmOtaUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
+      </div>
     </div>
-    <div class="update-terminal collapsed" id="update-terminal"></div>
-    <div class="modal-actions">
-      <button class="btn" id="update-close-btn" onclick="closeUpdateModal()" data-i18n="update_close" disabled>Close</button>
+
+    <div class="ota-step" id="ota-step-progress">
+      <div class="update-status running" id="update-status-msg"></div>
+      <div class="update-progress-wrap">
+        <div class="update-progress-track" aria-hidden="true">
+          <div class="update-progress-bar" id="update-progress-bar"></div>
+        </div>
+        <div class="update-progress-meta">
+          <div class="update-phase" id="update-phase"></div>
+          <div class="update-progress-pct" id="update-progress-pct">0%</div>
+        </div>
+      </div>
+      <div class="update-current-line" id="update-current-line" title=""></div>
+      <div class="update-elapsed" id="update-elapsed" aria-live="polite"></div>
+      <div class="update-log-toolbar">
+        <button type="button" class="update-log-toggle" id="update-log-toggle" onclick="toggleUpdateLog()" data-i18n="update_show_log">Show details</button>
+      </div>
+      <div class="update-terminal collapsed" id="update-terminal"></div>
+      <div class="modal-actions">
+        <button class="btn" id="update-close-btn" onclick="closeUpdateModal()" data-i18n="update_close" disabled>Close</button>
+      </div>
     </div>
   </div>
 </div>
@@ -5384,9 +5425,17 @@ const LANGS={
     ota_channel_title:'OTA channel',
     ota_channel_stable:'Stable (bost)',
     ota_channel_beta:'Beta',
-    ota_channel_help:'Stable = day-to-day. Beta = previews. Update uses the selected channel.',
-    ota_channel_saved:'✓ Channel saved — next Update uses {channel} ({branch}).',
+    ota_channel_help:'Stable = day-to-day. Beta = previews. Checking and updating use this channel.',
+    ota_channel_saved:'✓ Channel saved — checks use {channel} ({branch}).',
     ota_channel_save_fail:'✗ Could not save OTA channel',
+    ota_check:'Check for updates',
+    ota_checking:'Checking for updates…',
+    ota_whats_new:"What's new",
+    ota_changelog_unavailable:'Could not load the change list. You can still update.',
+    ota_review_to:'Update to {target}',
+    ota_review_from:'From {current}',
+    ota_up_to_date:'✓ Already up to date on {channel} ({latest}).',
+    ota_check_failed:'Could not check for updates. Try again later.',
     update_running:'Updating… do not close this window.',
     update_done_ok:'✓ Update complete. Restarting…',
     update_done_current:'✓ Already up to date — no rebuild needed.',
@@ -5805,9 +5854,17 @@ const LANGS={
     ota_channel_title:'Canal OTA',
     ota_channel_stable:'Estable (bost)',
     ota_channel_beta:'Beta',
-    ota_channel_help:'Estable = día a día. Beta = novedades. Actualizar usa el canal seleccionado.',
-    ota_channel_saved:'✓ Canal guardado — el próximo Actualizar usa {channel} ({branch}).',
+    ota_channel_help:'Estable = día a día. Beta = novedades. Comprobar y actualizar usan este canal.',
+    ota_channel_saved:'✓ Canal guardado — las comprobaciones usan {channel} ({branch}).',
     ota_channel_save_fail:'✗ No se pudo guardar el canal OTA',
+    ota_check:'Comprobar actualizaciones',
+    ota_checking:'Comprobando actualizaciones…',
+    ota_whats_new:'Novedades',
+    ota_changelog_unavailable:'No se pudo cargar la lista de cambios. Aun así puedes actualizar.',
+    ota_review_to:'Actualizar a {target}',
+    ota_review_from:'Desde {current}',
+    ota_up_to_date:'✓ Ya estás al día en {channel} ({latest}).',
+    ota_check_failed:'No se pudieron comprobar actualizaciones. Inténtalo más tarde.',
     update_running:'Actualizando… no cierres esta ventana.',
     update_done_ok:'✓ Actualización completa. Reiniciando…',
     update_done_current:'✓ Ya estás al día — no hace falta recompilar.',
@@ -9700,14 +9757,23 @@ async function pollServiceBackOnline(){
   }
 }
 
-// ── OTA Update ────────────────────────────────────────────────────────────
+// ── OTA Update (choose → review → progress) ───────────────────────────────
 let updatePollTimer=null;
 let updateLogExpanded=false;
+let otaPendingCheck=null;
+
+function showOtaStep(step){
+  ['choose','review','progress'].forEach(name=>{
+    const el=document.getElementById('ota-step-'+name);
+    if(el)el.classList.toggle('is-active',name===step);
+  });
+}
 function closeUpdateModal(){
-  document.getElementById('update-modal').classList.remove('open');
+  const modal=document.getElementById('update-modal');
+  if(modal)modal.classList.remove('open');
   if(updatePollTimer){clearInterval(updatePollTimer);updatePollTimer=null;}
   if(updateElapsedTimer){clearInterval(updateElapsedTimer);updateElapsedTimer=null;}
-  // Successful OTA restarts the service — wait for it instead of leaving a zombie SPA.
+  otaPendingCheck=null;
   if(updateSucceeded){
     updateSucceeded=false;
     beginOtaRestartWait();
@@ -9721,7 +9787,7 @@ function toggleUpdateLog(){
   if(btn)btn.textContent=updateLogExpanded?t('update_hide_log'):t('update_show_log');
   if(updateLogExpanded&&term)term.scrollTop=term.scrollHeight;
 }
-function setUpdateProgress(pct,phaseKey,currentLine,failed,active){
+function setUpdateProgress(pct,phaseKey,friendlyLine,failed,active){
   const bar=document.getElementById('update-progress-bar');
   const pctEl=document.getElementById('update-progress-pct');
   const phaseEl=document.getElementById('update-phase');
@@ -9733,9 +9799,11 @@ function setUpdateProgress(pct,phaseKey,currentLine,failed,active){
     bar.classList.toggle('is-active',!!active&&!failed&&p<100);
   }
   if(pctEl)pctEl.textContent=p+'%';
-  if(phaseEl)phaseEl.textContent=t(phaseKey||'update_phase_prepare');
+  const phaseTxt=t(phaseKey||'update_phase_prepare');
+  if(phaseEl)phaseEl.textContent=phaseTxt;
   if(lineEl){
-    const line=(currentLine||'').trim()||t('update_waiting');
+    lineEl.classList.remove('is-raw');
+    const line=(friendlyLine||'').trim()||phaseTxt;
     lineEl.textContent=line;
     lineEl.title=line;
   }
@@ -9752,7 +9820,7 @@ function estimateUpdateProgress(log,status){
   const text=log||'';
   const lines=text.split('\n').map(s=>s.trim()).filter(Boolean);
   const last=lines.length?lines[lines.length-1]:'';
-  if(status==='done_ok')return{pct:100,phase:'update_phase_done',line:last,failed:false};
+  if(status==='done_ok')return{pct:100,phase:'update_phase_done',line:t('update_phase_done'),failed:false};
   if(status==='done_err')return{pct:Math.max(8,estimateUpdateProgress(text,'running').pct),phase:'update_phase_error',line:last,failed:true};
   let pct=6,phase='update_phase_prepare';
   if(/Verifying git|Ensuring OTA remote|Source dir:/i.test(text)){pct=12;phase='update_phase_prepare';}
@@ -9761,7 +9829,6 @@ function estimateUpdateProgress(log,status){
   if(/cargo build|Using cargo:|Host memory:|Running cargo as/i.test(text)){pct=42;phase='update_phase_build';}
   const compiles=(text.match(/^\s*Compiling /gm)||[]).length;
   if(compiles>0){pct=Math.min(78,48+compiles*2);phase='update_phase_build';}
-  // Soft creep while a single crate (often tetra-entities) compiles for a long time.
   if(phase==='update_phase_build'&&updateStartedAt){
     const mins=Math.max(0,(Date.now()-updateStartedAt)/60000);
     pct=Math.min(88,pct+Math.floor(mins*1.5));
@@ -9769,7 +9836,7 @@ function estimateUpdateProgress(log,status){
   if(/still working/i.test(last)){phase='update_phase_build';pct=Math.max(pct,55);}
   if(/Finished|Installing release|install the|Installed /i.test(text)){pct=90;phase='update_phase_install';}
   if(/Build successful|Restarting service/i.test(text)){pct=96;phase='update_phase_restart';}
-  return{pct,phase,line:last,failed:false};
+  return{pct,phase,line:t(phase),failed:false};
 }
 function resetUpdateModalUi(){
   updateLogExpanded=false;
@@ -9795,37 +9862,119 @@ function enterOtaLostContact(){
   document.getElementById('update-modal')?.classList.remove('open');
   beginOtaRestartWait();
 }
-/** True when the OTA log shows a real service restart was scheduled (not merely "already up to date"). */
 function otaLogSchedulesRestart(log){
   return /Restarting service|Build successful/i.test(log||'');
 }
+function otaTargetLabel(d){
+  if(!d)return '';
+  if(d.remote_version){
+    const v=String(d.remote_version).startsWith('v')?d.remote_version:('v'+d.remote_version);
+    return d.latest?(v+' ('+d.latest+')'):v;
+  }
+  return d.latest||'';
+}
+function paintOtaReview(d){
+  const versions=document.getElementById('ota-review-versions');
+  const list=document.getElementById('ota-changelog-list');
+  const empty=document.getElementById('ota-changelog-empty');
+  const target=otaTargetLabel(d);
+  if(versions){
+    versions.innerHTML=
+      '<div><strong>'+t('ota_review_to',{target:target||'—'})+'</strong></div>'+
+      '<div style="margin-top:6px;color:var(--text3)">'+t('ota_review_from',{current:d.current||'—'})+'</div>';
+  }
+  if(list)list.innerHTML='';
+  const entries=(d.changelog||[]);
+  const hasEntries=entries.length>0;
+  if(empty)empty.style.display=hasEntries?'none':'block';
+  if(list&&hasEntries){
+    entries.forEach(e=>{
+      const li=document.createElement('li');
+      const sha=document.createElement('span');
+      sha.className='sha';
+      sha.textContent=e.sha||'';
+      li.appendChild(sha);
+      li.appendChild(document.createTextNode(e.title||''));
+      list.appendChild(li);
+    });
+  }
+}
+/** Open OTA modal on the channel step. */
 async function startUpdate(){
-  const sel=document.getElementById('ota-channel-select');
-  const channel=(sel&&sel.value)||'stable';
-  const branch=channel==='beta'?'beta':'bost';
-  const ok=await openSvcConfirm({
-    title:t('update'),
-    body:t('update_confirm',{channel:channel,branch:branch}),
-    confirmLabel:t('update'),
-    danger:false,
-  });
-  if(!ok)return;
-
-  // Open the OTA modal immediately so a second confirm (standby) or a fast
-  // "already up to date" never looks like "nothing happened".
+  const modal=document.getElementById('update-modal');
+  if(!modal){
+    await dashAlert(t('notice'),t('action_failed')+': update UI missing');
+    return;
+  }
   updateSucceeded=false;
   updateFailStreak=0;
-  updateStartedAt=Date.now();
+  otaPendingCheck=null;
+  finishUpdatePoll();
+  resetUpdateModalUi();
+  document.getElementById('update-modal-title').textContent=t('update_title');
+  await loadOtaChannel();
+  const hint=document.getElementById('ota-channel-hint');
+  if(hint)hint.textContent=t('ota_channel_help');
+  showOtaStep('choose');
+  modal.classList.add('open');
+}
+async function checkOtaInModal(){
+  const btn=document.getElementById('ota-check-btn');
+  if(btn)btn.disabled=true;
+  const hint=document.getElementById('ota-channel-hint');
+  if(hint)hint.textContent=t('ota_checking');
+  try{
+    const sel=document.getElementById('ota-channel-select');
+    const channel=(sel&&sel.value)||'stable';
+    const saveR=await fetch('/api/update/channel',{
+      method:'POST',
+      credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({channel}),
+    });
+    if(!saveR.ok)throw new Error('channel save failed');
+    const saved=await saveR.json();
+    otaChannelCache={channel:saved.channel||channel,branch:saved.branch||(channel==='beta'?'beta':'bost')};
+
+    const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)throw new Error('check http '+r.status);
+    const d=await r.json();
+    if(d&&d.channel){
+      otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
+      if(sel)sel.value=otaChannelCache.channel;
+    }
+    applyUpdateCheckUi(d);
+    if(d.check_failed){
+      if(hint)hint.textContent=t('ota_check_failed');
+      return;
+    }
+    if(!d.update_available){
+      if(hint)hint.textContent=t('ota_up_to_date',{
+        channel:d.channel||otaChannelCache.channel,
+        latest:d.latest||(d.branch||'—'),
+      });
+      return;
+    }
+    otaPendingCheck=d;
+    paintOtaReview(d);
+    showOtaStep('review');
+  }catch{
+    if(hint)hint.textContent=t('ota_check_failed');
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+async function confirmOtaUpdate(){
   const modal=document.getElementById('update-modal');
   const termEl=document.getElementById('update-terminal');
   const msgEl=document.getElementById('update-status-msg');
   const closeBtn=document.getElementById('update-close-btn');
-  if(!modal||!msgEl||!closeBtn){
-    await dashAlert(t('notice'),t('action_failed')+': update UI missing');
-    return;
-  }
-  modal.classList.add('open');
-  document.getElementById('update-modal-title').textContent=t('update_title');
+  if(!modal||!msgEl||!closeBtn)return;
+
+  showOtaStep('progress');
+  updateSucceeded=false;
+  updateFailStreak=0;
+  updateStartedAt=Date.now();
   resetUpdateModalUi();
   msgEl.className='update-status running';msgEl.textContent=t('update_running');
   closeBtn.disabled=true;
@@ -9837,7 +9986,7 @@ async function startUpdate(){
   try{
     if(!await ensureServiceOrOfferStart(t('update'))){
       finishUpdatePoll();
-      modal.classList.remove('open');
+      showOtaStep('choose');
       closeBtn.disabled=false;
       return;
     }
@@ -9846,6 +9995,7 @@ async function startUpdate(){
     msgEl.className='update-status err';msgEl.textContent='✗ '+(e&&e.message?e.message:e);
     setUpdateProgress(100,'update_phase_error','',true,false);
     closeBtn.disabled=false;
+    if(!updateLogExpanded)toggleUpdateLog();
     return;
   }
 
@@ -9853,11 +10003,15 @@ async function startUpdate(){
     const r=await fetch('/api/update',{method:'POST',credentials:'same-origin'});
     if(!r.ok&&r.status!==409){
       msgEl.className='update-status err';msgEl.textContent='✗ '+await r.text();
-      setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();return;
+      setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();
+      if(!updateLogExpanded)toggleUpdateLog();
+      return;
     }
   }catch(e){
     msgEl.className='update-status err';msgEl.textContent='✗ '+e.message;
-    setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();return;
+    setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();
+    if(!updateLogExpanded)toggleUpdateLog();
+    return;
   }
   let lastLen=0;
   let sawBuild=false;
@@ -9882,18 +10036,23 @@ async function startUpdate(){
           }
         }
         const est=estimateUpdateProgress(j.log,j.status);
-        setUpdateProgress(est.pct,est.phase,est.line,est.failed,j.status==='running');
+        // Friendly phase under the bar; on error show the last raw log line.
+        const friendly=est.failed?est.line:t(est.phase);
+        setUpdateProgress(est.pct,est.phase,friendly,est.failed,j.status==='running');
+        if(est.failed){
+          const lineEl=document.getElementById('update-current-line');
+          if(lineEl)lineEl.classList.add('is-raw');
+        }
       }
       if(j.status==='done_ok'){
         finishUpdatePoll();
         const willRestart=otaLogSchedulesRestart(j.log||'');
         msgEl.className='update-status ok';
         msgEl.textContent=willRestart?t('update_done_ok'):t('update_done_current');
-        setUpdateProgress(100,'update_phase_done',(j.log||'').trim().split('\n').filter(Boolean).pop()||'',false,false);
+        setUpdateProgress(100,'update_phase_done',willRestart?t('update_done_ok'):t('update_done_current'),false,false);
         closeBtn.disabled=false;
         if(willRestart){
           updateSucceeded=true;
-          // Enter wait overlay quickly — the service restarts ~5s after done_ok.
           setTimeout(()=>{
             if(updateSucceeded){
               modal.classList.remove('open');
@@ -9903,7 +10062,7 @@ async function startUpdate(){
           },900);
         }else{
           updateSucceeded=false;
-          if(!updateLogExpanded)toggleUpdateLog();
+          // Keep details collapsed when already up to date.
         }
       }else if(j.status==='done_err'){
         finishUpdatePoll();
@@ -9911,13 +10070,13 @@ async function startUpdate(){
         msgEl.className='update-status err';msgEl.textContent=t('update_done_err');
         const est=estimateUpdateProgress(j.log||'','done_err');
         setUpdateProgress(est.pct,est.phase,est.line,true,false);
+        const lineEl=document.getElementById('update-current-line');
+        if(lineEl)lineEl.classList.add('is-raw');
         closeBtn.disabled=false;
         if(!updateLogExpanded)toggleUpdateLog();
       }
     }catch{
       updateFailStreak++;
-      // After several failed polls the HTTP server is likely restarting (or OOM'd).
-      // Prefer the wait overlay over a forever-stuck "58%" modal.
       if(updateFailStreak>=5)enterOtaLostContact();
     }
   },1000);
@@ -11531,6 +11690,26 @@ window.addEventListener('resize', () => {
 // is opened). If a newer version exists, show the sidebar glance badge + System
 // banner and highlight the Update button. Failures are silent.
 let otaChannelCache={channel:'stable',branch:'bost'};
+function applyUpdateCheckUi(d){
+  const badge=document.getElementById('update-badge');
+  const banner=document.getElementById('sys-update-banner');
+  const bannerText=document.getElementById('sys-update-banner-text');
+  const btn=document.getElementById('update-btn');
+  const btnLabel=btn?btn.querySelector('[data-i18n="update"]'):null;
+  if(d&&d.update_available&&d.latest){
+    const msg='⬆ '+t('update_available')+' '+(otaTargetLabel(d)||d.latest);
+    if(badge){badge.style.display='block';badge.textContent=msg;}
+    if(banner)banner.style.display='flex';
+    if(bannerText)bannerText.textContent=msg;
+    if(btn)btn.classList.add('btn-primary');
+    if(btnLabel)btnLabel.textContent=t('update')+' → '+(d.remote_version?('v'+String(d.remote_version).replace(/^v/,'')):d.latest);
+  }else{
+    if(badge)badge.style.display='none';
+    if(banner)banner.style.display='none';
+    if(btn)btn.classList.remove('btn-primary');
+    if(btnLabel)btnLabel.textContent=t('update');
+  }
+}
 async function loadOtaChannel(){
   try{
     const r=await fetch('/api/update/channel',{credentials:'same-origin',cache:'no-store'});
@@ -11561,7 +11740,13 @@ async function saveOtaChannel(){
     const d=await r.json();
     otaChannelCache={channel:d.channel||channel,branch:d.branch||(channel==='beta'?'beta':'bost')};
     const hint=document.getElementById('ota-channel-hint');
-    if(hint)hint.textContent=t('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch});
+    const modalOpen=document.getElementById('update-modal')?.classList.contains('open');
+    if(hint&&!modalOpen){
+      hint.textContent=t('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch});
+    }else if(hint&&modalOpen){
+      hint.textContent=t('ota_channel_help');
+    }
+    // Refresh badge for the newly selected channel (silent).
     await checkUpdate();
   }catch{
     await dashAlert(t('notice'),t('ota_channel_save_fail'));
@@ -11578,24 +11763,7 @@ async function checkUpdate(){
       const sel=document.getElementById('ota-channel-select');
       if(sel)sel.value=otaChannelCache.channel;
     }
-    const badge=document.getElementById('update-badge');
-    const banner=document.getElementById('sys-update-banner');
-    const bannerText=document.getElementById('sys-update-banner-text');
-    const btn=document.getElementById('update-btn');
-    const btnLabel=btn?btn.querySelector('[data-i18n="update"]'):null;
-    if(d&&d.update_available&&d.latest){
-      const msg='⬆ '+t('update_available')+' '+d.latest;
-      if(badge){badge.style.display='block';badge.textContent=msg;}
-      if(banner)banner.style.display='flex';
-      if(bannerText)bannerText.textContent=msg;
-      if(btn)btn.classList.add('btn-primary');
-      if(btnLabel)btnLabel.textContent=t('update')+' → '+d.latest;
-    }else{
-      if(badge)badge.style.display='none';
-      if(banner)banner.style.display='none';
-      if(btn)btn.classList.remove('btn-primary');
-      if(btnLabel)btnLabel.textContent=t('update');
-    }
+    applyUpdateCheckUi(d);
   }catch{/* silent */}
 }
 
