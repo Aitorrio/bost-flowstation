@@ -4955,6 +4955,22 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
+<!-- ── Dashboard prompt (replaces browser prompt) ── -->
+<div class="modal-overlay" id="dash-prompt-modal" role="dialog" aria-modal="true" aria-labelledby="dash-prompt-title">
+  <div class="modal">
+    <div class="modal-title" id="dash-prompt-title"></div>
+    <div id="dash-prompt-body" style="font-size:14px;color:var(--text2);line-height:1.5;white-space:pre-line;margin:4px 0 12px"></div>
+    <div class="form-row" style="margin:0">
+      <input type="number" id="dash-prompt-input" class="form-input" min="1" inputmode="numeric"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();closeDashPrompt(true);}">
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="dash-prompt-cancel" onclick="closeDashPrompt(false)" data-i18n="cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="dash-prompt-ok" onclick="closeDashPrompt(true)" data-i18n="confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- Host powering off — connection will drop -->
 <div class="modal-overlay" id="svc-powering-off-modal" role="dialog" aria-modal="true">
   <div class="modal">
@@ -5660,6 +5676,11 @@ const LANGS={
     rf_no_gains:'no disponible',rf_just_now:'ahora',
 
     terminals:'Radios',registered:'registrados',
+    dual_carrier:'Dual Carrier',dc_on_sub:'Activo · carrier secundario #{c}',dc_off_sub:'Apagado · un solo carrier',
+    dc_enter_carrier:'Número de carrier secundario (p. ej. carrier principal ±1):',dc_bad_carrier:'Introduce un número de carrier válido.',
+    dc_confirm_on:'¿Activar Dual Carrier? Esto REINICIA la estación base y corta brevemente todas las llamadas activas.',
+    dc_confirm_off:'¿Desactivar Dual Carrier? Esto REINICIA la estación base y corta brevemente todas las llamadas activas.',
+    dc_applying:'Aplicando…',dc_restarting:'Reiniciando para aplicar… reconectando en breve.',dc_failed:'No se pudo cambiar Dual Carrier',
     active_calls:'Llamadas Activas',circuits:'circuitos en uso',
     registered_terminals:'Radios Registrados',
     no_terminals:'No hay radios registrados',no_calls:'No hay llamadas activas',
@@ -6043,6 +6064,8 @@ document.addEventListener('keydown',e=>{
       if(cancel&&cancel.style.display==='none')closeSvcConfirm(true);
       else closeSvcConfirm(false);
     }
+    const pm=document.getElementById('dash-prompt-modal');
+    if(pm&&pm.classList.contains('open'))closeDashPrompt(false);
   }
 });
 
@@ -8917,6 +8940,43 @@ function dashConfirm(title,body,opts){
 function dashAlert(title,body){
   return openSvcConfirm({title:title||t('notice'),body:body||'',confirmLabel:t('ok'),alertOnly:true});
 }
+let _dashPromptResolve=null;
+/** Floating prompt with number input — replaces browser prompt(). Resolves to string or null. */
+function dashPrompt(opts){
+  opts=opts||{};
+  const modal=document.getElementById('dash-prompt-modal');
+  const title=document.getElementById('dash-prompt-title');
+  const body=document.getElementById('dash-prompt-body');
+  const input=document.getElementById('dash-prompt-input');
+  const ok=document.getElementById('dash-prompt-ok');
+  if(title)title.textContent=opts.title||'';
+  if(body)body.textContent=opts.body||'';
+  if(ok)ok.textContent=opts.confirmLabel||t('confirm');
+  if(input){
+    input.value=(opts.value!=null&&opts.value!=='')?String(opts.value):'';
+    input.min=opts.min!=null?opts.min:1;
+    if(opts.placeholder)input.placeholder=opts.placeholder;
+  }
+  return new Promise(resolve=>{
+    _dashPromptResolve=resolve;
+    if(modal)modal.classList.add('open');
+    setTimeout(()=>{
+      if(!input)return;
+      input.focus();
+      try{input.select();}catch{}
+    },30);
+  });
+}
+function closeDashPrompt(ok){
+  const modal=document.getElementById('dash-prompt-modal');
+  const input=document.getElementById('dash-prompt-input');
+  if(modal)modal.classList.remove('open');
+  const r=_dashPromptResolve;
+  _dashPromptResolve=null;
+  if(!r)return;
+  if(!ok){r(null);return;}
+  r(input?input.value:'');
+}
 async function shutdownService(){
   const ok=await openSvcConfirm({
     title:t('svc_suspend'),
@@ -9747,9 +9807,15 @@ async function onDualCarrierToggle(el){
   let secondary=dcState.secondary_carrier;
   if(want&&!secondary){
     const def=dcState.main_carrier?(dcState.main_carrier+1):'';
-    const v=prompt(t('dc_enter_carrier'),def);
+    const v=await dashPrompt({
+      title:t('dual_carrier'),
+      body:t('dc_enter_carrier'),
+      value:def,
+      min:1,
+      confirmLabel:t('confirm'),
+    });
     if(v===null){el.checked=false;return;}
-    secondary=parseInt(v,10);
+    secondary=parseInt(String(v).trim(),10);
     if(!Number.isInteger(secondary)||secondary<=0){el.checked=false;await dashAlert(t('notice'),t('dc_bad_carrier'));return;}
   }
   const ok=await dashConfirm(t('dc_applying'),want?t('dc_confirm_on'):t('dc_confirm_off'),{confirmLabel:t('confirm')});
