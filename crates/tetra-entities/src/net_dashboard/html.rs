@@ -8720,7 +8720,13 @@ function setTgRecipMsg(txt,ok){const el=document.getElementById('tg-recipients-m
 
 function wsSend(msg){if(ws&&ws.readyState===WebSocket.OPEN){ws.send(JSON.stringify(msg));return true;}return false;}
 async function restartService(){
-  if(!confirm(t('confirm_restart')))return;
+  const ok=await openSvcConfirm({
+    title:t('restart'),
+    body:t('confirm_restart'),
+    confirmLabel:t('restart'),
+    danger:false,
+  });
+  if(!ok)return;
   try{
     const r=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
     if(!r.ok){alert(await r.text());return;}
@@ -9439,7 +9445,13 @@ function resetUpdateModalUi(){
   setUpdateProgress(0,'update_phase_prepare','',false);
 }
 async function startUpdate(){
-  if(!confirm(t('update_confirm')))return;
+  const ok=await openSvcConfirm({
+    title:t('update'),
+    body:t('update_confirm'),
+    confirmLabel:t('update'),
+    danger:false,
+  });
+  if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('update')))return;
   updateSucceeded=false;
   document.getElementById('update-modal').classList.add('open');
