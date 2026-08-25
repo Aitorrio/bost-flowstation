@@ -5364,6 +5364,7 @@ const LANGS={
     update_confirm:'Pull latest from the bost branch and rebuild?\nThe service will restart automatically.',
     update_running:'Updating… do not close this window.',
     update_done_ok:'✓ Update complete. Restarting…',
+    update_done_current:'✓ Already up to date — no rebuild needed.',
     update_done_err:'✗ Update failed. Open details if you need the log.',
     update_close:'Close',
     update_show_log:'Show details',update_hide_log:'Hide details',
@@ -5778,6 +5779,7 @@ const LANGS={
     update_confirm:'¿Obtener la última versión de bost y recompilar?\nEl servicio se reiniciará automáticamente.',
     update_running:'Actualizando… no cierres esta ventana.',
     update_done_ok:'✓ Actualización completa. Reiniciando…',
+    update_done_current:'✓ Ya estás al día — no hace falta recompilar.',
     update_done_err:'✗ Actualización fallida. Abre los detalles si necesitas el log.',
     update_close:'Cerrar',
     update_show_log:'Ver todo',update_hide_log:'Ocultar todo',
@@ -9756,13 +9758,15 @@ function finishUpdatePoll(){
 }
 function enterOtaLostContact(){
   finishUpdatePoll();
-  updateSucceeded=true;
   const msgEl=document.getElementById('update-status-msg');
   if(msgEl){msgEl.className='update-status running';msgEl.textContent=t('update_lost_link');}
   setUpdateProgress(96,'update_phase_restart',t('update_lost_link'),false,true);
   document.getElementById('update-modal')?.classList.remove('open');
-  updateSucceeded=false;
   beginOtaRestartWait();
+}
+/** True when the OTA log shows a real service restart was scheduled (not merely "already up to date"). */
+function otaLogSchedulesRestart(log){
+  return /Restarting service|Build successful/i.test(log||'');
 }
 async function startUpdate(){
   const ok=await openSvcConfirm({
@@ -9772,23 +9776,47 @@ async function startUpdate(){
     danger:false,
   });
   if(!ok)return;
-  if(!await ensureServiceOrOfferStart(t('update')))return;
+
+  // Open the OTA modal immediately so a second confirm (standby) or a fast
+  // "already up to date" never looks like "nothing happened".
   updateSucceeded=false;
   updateFailStreak=0;
   updateStartedAt=Date.now();
-  document.getElementById('update-modal').classList.add('open');
-  document.getElementById('update-modal-title').textContent=t('update_title');
+  const modal=document.getElementById('update-modal');
   const termEl=document.getElementById('update-terminal');
   const msgEl=document.getElementById('update-status-msg');
   const closeBtn=document.getElementById('update-close-btn');
+  if(!modal||!msgEl||!closeBtn){
+    await dashAlert(t('notice'),t('action_failed')+': update UI missing');
+    return;
+  }
+  modal.classList.add('open');
+  document.getElementById('update-modal-title').textContent=t('update_title');
   resetUpdateModalUi();
-  msgEl.className='update-status running';msgEl.textContent=t('update_running');closeBtn.disabled=true;
+  msgEl.className='update-status running';msgEl.textContent=t('update_running');
+  closeBtn.disabled=true;
   setUpdateProgress(3,'update_phase_prepare',t('update_waiting'),false,true);
   formatUpdateElapsed();
   if(updateElapsedTimer)clearInterval(updateElapsedTimer);
   updateElapsedTimer=setInterval(formatUpdateElapsed,1000);
+
   try{
-    const r=await fetch('/api/update',{method:'POST'});
+    if(!await ensureServiceOrOfferStart(t('update'))){
+      finishUpdatePoll();
+      modal.classList.remove('open');
+      closeBtn.disabled=false;
+      return;
+    }
+  }catch(e){
+    finishUpdatePoll();
+    msgEl.className='update-status err';msgEl.textContent='✗ '+(e&&e.message?e.message:e);
+    setUpdateProgress(100,'update_phase_error','',true,false);
+    closeBtn.disabled=false;
+    return;
+  }
+
+  try{
+    const r=await fetch('/api/update',{method:'POST',credentials:'same-origin'});
     if(!r.ok&&r.status!==409){
       msgEl.className='update-status err';msgEl.textContent='✗ '+await r.text();
       setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();return;
@@ -9801,15 +9829,17 @@ async function startUpdate(){
   let sawBuild=false;
   updatePollTimer=setInterval(async()=>{
     try{
-      const r=await fetch('/api/update/status',{cache:'no-store'});
+      const r=await fetch('/api/update/status',{cache:'no-store',credentials:'same-origin'});
       if(!r.ok){updateFailStreak++;if(updateFailStreak>=5)enterOtaLostContact();return;}
       updateFailStreak=0;
       const j=await r.json();
       if(j.log!=null){
         if(j.log.length>lastLen){
-          termEl.textContent+=j.log.slice(lastLen);
+          if(termEl){
+            termEl.textContent+=j.log.slice(lastLen);
+            if(updateLogExpanded)termEl.scrollTop=termEl.scrollHeight;
+          }
           lastLen=j.log.length;
-          if(updateLogExpanded)termEl.scrollTop=termEl.scrollHeight;
         }
         if(/cargo build|Compiling /i.test(j.log)){
           if(!sawBuild){
@@ -9822,18 +9852,25 @@ async function startUpdate(){
       }
       if(j.status==='done_ok'){
         finishUpdatePoll();
-        updateSucceeded=true;
-        msgEl.className='update-status ok';msgEl.textContent=t('update_done_ok');
+        const willRestart=otaLogSchedulesRestart(j.log||'');
+        msgEl.className='update-status ok';
+        msgEl.textContent=willRestart?t('update_done_ok'):t('update_done_current');
         setUpdateProgress(100,'update_phase_done',(j.log||'').trim().split('\n').filter(Boolean).pop()||'',false,false);
         closeBtn.disabled=false;
-        // Enter wait overlay quickly — the service restarts ~5s after done_ok.
-        setTimeout(()=>{
-          if(updateSucceeded){
-            document.getElementById('update-modal')?.classList.remove('open');
-            updateSucceeded=false;
-            beginOtaRestartWait();
-          }
-        },900);
+        if(willRestart){
+          updateSucceeded=true;
+          // Enter wait overlay quickly — the service restarts ~5s after done_ok.
+          setTimeout(()=>{
+            if(updateSucceeded){
+              modal.classList.remove('open');
+              updateSucceeded=false;
+              beginOtaRestartWait();
+            }
+          },900);
+        }else{
+          updateSucceeded=false;
+          if(!updateLogExpanded)toggleUpdateLog();
+        }
       }else if(j.status==='done_err'){
         finishUpdatePoll();
         updateSucceeded=false;
