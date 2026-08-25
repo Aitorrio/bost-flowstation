@@ -20,7 +20,7 @@ pub const FAVICON_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBo
 </svg>"##;
 
 pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
-<html lang="es" data-uisize="m">
+<html lang="es" data-uisize="m" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
@@ -29,10 +29,27 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="shortcut icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/favicon.png">
+<script>
+/* Boot theme/size before first paint. Default matches JS (light). Huge SPA script
+   runs later; without this, :root dark tokens flash after a light login page. */
+(function(){
+  try{
+    var el=document.documentElement;
+    var t=localStorage.getItem('fs_theme')||'light';
+    var u=localStorage.getItem('fs_uisize')||'m';
+    el.setAttribute('data-theme',t==='dark'?'':t);
+    el.setAttribute('data-uisize',u);
+    el.classList.add('fs-booting');
+    setTimeout(function(){el.classList.remove('fs-booting');},10000);
+  }catch(e){}
+})();
+</script>
 <style>
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;}
+/* Hold first paint until icons/theme/lang chrome are applied (see markDashboardReady). */
+html.fs-booting body{visibility:hidden;}
 
 /* ── Themes ── */
 :root{
@@ -2727,7 +2744,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="conn-led" id="connLed"></div>
       <div class="conn-info">
         <div class="conn-info-label">BS</div>
-        <div class="conn-info-val" id="connText" style="color:var(--danger)">OFFLINE</div>
+        <div class="conn-info-val" id="connText" style="color:var(--text3)">—</div>
       </div>
     </div>
     <!-- Brew connection -->
@@ -2735,7 +2752,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="brew-led" id="brewLed"></div>
       <div class="brew-info">
         <div class="brew-info-label">BREW</div>
-        <div class="brew-info-val" id="brewText">OFFLINE</div>
+        <div class="brew-info-val" id="brewText" style="color:var(--text3)">—</div>
       </div>
       <div id="brewVerBadge" class="brew-ver-badge" style="display:none"></div>
     </div>
@@ -2954,9 +2971,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="stat-sub" data-i18n="circuits">circuits in use</div>
           <div class="stat-icon" data-icon="calls"></div>
         </div>
-        <div class="stat-card is-danger" id="stat-brew-card">
+        <div class="stat-card" id="stat-brew-card">
           <div class="stat-label">BREW</div>
-          <div class="stat-value is-text" id="stat-brew-val">OFFLINE</div>
+          <div class="stat-value is-text" id="stat-brew-val">—</div>
           <div class="stat-sub" id="stat-brew-sub">—</div>
           <div class="stat-icon" data-icon="network"></div>
         </div>
@@ -4615,14 +4632,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
         </div>
         <div class="stat-grid sys-hero-stats">
-          <div class="stat-card is-danger" id="sysBtsCard">
+          <div class="stat-card" id="sysBtsCard">
             <div class="stat-label" data-i18n="sys_bts">BTS Connection</div>
-            <div class="stat-value is-text" id="sysBtsStatus">OFFLINE</div>
+            <div class="stat-value is-text" id="sysBtsStatus">—</div>
             <div class="stat-sub" id="sysBtsIp">—</div>
           </div>
-          <div class="stat-card is-danger" id="sysBrewCard">
+          <div class="stat-card" id="sysBrewCard">
             <div class="stat-label">BREW</div>
-            <div class="stat-value is-text" id="sysBrewStatus">OFFLINE</div>
+            <div class="stat-value is-text" id="sysBrewStatus">—</div>
             <div class="stat-sub" id="sysBrewBadge">—</div>
           </div>
           <div class="stat-card is-idle">
@@ -10359,6 +10376,12 @@ if(document.cookie.split(';').some(c=>c.trim().startsWith('fs_auth='))){
   const lb=document.getElementById('logout-btn');
   if(lb) lb.style.display='flex';
 }
+function markDashboardReady(){
+  const el=document.documentElement;
+  el.classList.remove('fs-booting');
+  el.classList.add('fs-ready');
+}
+markDashboardReady();
 
 // ── RF live monitor rendering ──────────────────────────────────────────────
 // We receive tx_visual + tx_quality messages: visual carries a 512-bin spectrum
