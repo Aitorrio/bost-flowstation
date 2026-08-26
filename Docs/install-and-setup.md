@@ -34,8 +34,9 @@ sudo ./contrib/install/install-bost.sh
 | Variable | Meaning |
 |---|---|
 | `BOST_SRC` | Existing source tree (skip clone) |
-| `BOST_BRANCH` | Git branch (default `bost`) |
+| `BOST_BRANCH` | Git branch (default `bost`; use `beta` for previews) |
 | `BOST_REPO` | Git URL |
+| `BOST_FORCE_CLEAN=1` | Delete `/opt/bost-flowstation` and re-clone (keeps `/etc/flowstation`) |
 | `BOST_SKIP_BUILD=1` | Reuse an already-built `target/release/bluestation-bs` |
 | `BOST_SERVICE_USER` | User for rustup/build (default `bts`) |
 

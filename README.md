@@ -33,14 +33,14 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | Visual **Config** (Cell × Brew profiles) | Switch networks without hand-editing TOML |
 | Access control & U-STATUS remote control in GUI | Whitelist + walkie commands (`ip` / `temp` / `info` / `restart`…) without SSH |
 | **System** control panel | Restart, suspend, full power-off, **OTA**, and **panel account** from the dashboard |
-| Sidebar update badge | Glance notice when a newer `bost` commit is available |
+| Sidebar update badge | Glance notice when a newer commit is available on the **active OTA channel** |
 | Spanish-first UI (multi-language) | Ready for operators who prefer ES |
 
 ---
 
 ## Installation
 
-On **Raspberry Pi OS / Debian arm64**:
+On **Raspberry Pi OS / Debian arm64** (always installs from branch **`bost`** / channel Estable unless you override `BOST_BRANCH`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
@@ -170,7 +170,7 @@ sudo cp /etc/flowstation/config.toml /etc/flowstation/config.toml.fallback
 
 **Re-running the installer**
 
-If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented and non-destructive**. It keeps an existing `/etc/flowstation/config.toml`, creates `.fallback` only when missing (never overwrites your reserve), and refreshes the service/helper pieces without wiping your station identity.
+If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented**. It keeps an existing `/etc/flowstation/config.toml` (and may refresh `ota_channel` to match the install branch), creates `.fallback` only when missing (never overwrites your reserve), aligns `/opt/bost-flowstation` to `origin/bost` with `reset --hard` (keeps `target/`), and refreshes the service/helper pieces without wiping your station identity. For a full source re-clone keeping config: `sudo env BOST_FORCE_CLEAN=1 bash` with the same curl one-liner.
 
 ---
 
@@ -208,7 +208,7 @@ Restart, suspend, full power-off and OTA live in the **System** hero (top-right 
 
 When a newer commit is on GitHub for the **active channel**, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).
 
-The OTA dialog shows a progress bar and the current build line (expand **Ver todo** for the full log):
+The OTA dialog is a three-step flow (channel → what's new → progress). Expand **Ver todo** only if you need the full build log:
 
 <p align="center">
   <img src="Docs/screenshots/06-ota-updating.png" alt="OTA update in progress with progress bar" width="520"/>

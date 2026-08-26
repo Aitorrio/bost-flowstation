@@ -5,6 +5,7 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 ## v0.1.57
 
 - Instalador alineado con OTA: fetch con refspec + reintentos, `reset --hard`, y `ota_channel` según `BOST_BRANCH`.
+- README / docs de instalación actualizados (comando curl sigue siendo siempre desde rama `bost`).
 
 ## v0.1.56
 
