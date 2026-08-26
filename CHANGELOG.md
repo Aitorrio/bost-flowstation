@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.1.56
+
+- OTA: reintentos de `git fetch` ante cortes TLS/red (p. ej. GnuTLS en Pi).
+
 ## v0.1.55
 
 - Paso Progreso OTA: estado superior corto, tip distinto bajo la barra y tiempo transcurrido en negrita.

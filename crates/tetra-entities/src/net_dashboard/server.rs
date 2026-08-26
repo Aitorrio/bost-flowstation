@@ -1160,15 +1160,41 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // Explicit refspec so `origin/<branch>` always exists. Plain `git fetch origin <branch>`
     // often only updates FETCH_HEAD (seen on Pi clones that never tracked `beta` before),
     // which then makes `rev-parse origin/beta` fail with exit 128.
+    // Retry a few times: Pi ↔ GitHub over HTTPS occasionally fails with GnuTLS handshake errors.
     let fetch_refspec = format!("+refs/heads/{0}:refs/remotes/origin/{0}", ota_branch);
-    if run_cmd_output(
-        &update,
-        "git",
-        &["-C", src_str, "fetch", "origin", &fetch_refspec],
-        &src_dir,
-    )
-    .is_none()
-    {
+    let fetch_ok = {
+        const FETCH_ATTEMPTS: u32 = 3;
+        let mut ok = false;
+        for attempt in 1..=FETCH_ATTEMPTS {
+            if attempt > 1 {
+                let wait_s = 5 * (attempt - 1);
+                log!(
+                    update,
+                    "Fetch failed (network/TLS) — retrying in {wait_s}s (attempt {attempt}/{FETCH_ATTEMPTS})…"
+                );
+                std::thread::sleep(std::time::Duration::from_secs(wait_s as u64));
+            }
+            if run_cmd_output(
+                &update,
+                "git",
+                &["-C", src_str, "fetch", "origin", &fetch_refspec],
+                &src_dir,
+            )
+            .is_some()
+            {
+                ok = true;
+                break;
+            }
+        }
+        if !ok {
+            log!(
+                update,
+                "ERROR: git fetch failed after {FETCH_ATTEMPTS} attempts (check network / GitHub TLS). Try Actualizar again."
+            );
+        }
+        ok
+    };
+    if !fetch_ok {
         return;
     }
 
