@@ -5498,9 +5498,13 @@ const LANGS={
     update_phase_done:'Done',
     update_phase_error:'Update failed',
     update_waiting:'Waiting for first status…',
-    update_elapsed:'Elapsed {m}m {s}s — compiling on a Pi can take 10–20 minutes; do not power-cycle.',
+    update_elapsed:'Elapsed {m}m {s}s',
+    update_elapsed_hint:'Compiling on a Pi can take 10–20 minutes; do not power-cycle.',
     update_lost_link:'Lost contact with the station (normal while it restarts after OTA). Waiting for it to come back…',
     update_build_hint:'Long step: compiling dashboard sources. Progress may sit still for several minutes.',
+    update_tip_sync:'Fetching and aligning sources with the selected channel…',
+    update_tip_install:'Copying the new binary into place…',
+    update_tip_restart:'The service will restart shortly — keep this window open.',
     restart_wait_title:'Restarting…',
     restart_wait_body:'Waiting for the station to come back online. The page will reload automatically. If login is enabled you will need to sign in again.',
     restart_wait_ota_title:'Applying update…',
@@ -5934,9 +5938,13 @@ const LANGS={
     update_phase_done:'Listo',
     update_phase_error:'Actualización fallida',
     update_waiting:'Esperando el primer estado…',
-    update_elapsed:'Transcurrido {m}m {s}s — en una Pi compilar puede llevar 10–20 min; no cortes la alimentación.',
+    update_elapsed:'Transcurrido {m}m {s}s',
+    update_elapsed_hint:'En una Pi compilar puede llevar 10–20 min; no cortes la alimentación.',
     update_lost_link:'Se perdió el contacto con la estación (normal al reiniciar tras OTA). Esperando a que vuelva…',
     update_build_hint:'Paso largo: compilando el dashboard. El progreso puede quedarse quieto varios minutos.',
+    update_tip_sync:'Descargando y alineando el código del canal seleccionado…',
+    update_tip_install:'Copiando el nuevo binario en su sitio…',
+    update_tip_restart:'El servicio se reiniciará en breve — deja esta ventana abierta.',
     restart_wait_title:'Reiniciando…',
     restart_wait_body:'Esperando a que la estación vuelva. La página se recargará sola. Si hay login, tendrás que iniciar sesión de nuevo.',
     restart_wait_ota_title:'Aplicando actualización…',
@@ -9849,6 +9857,29 @@ function toggleUpdateLog(){
   if(btn)btn.textContent=updateLogExpanded?t('update_hide_log'):t('update_show_log');
   if(updateLogExpanded&&term)term.scrollTop=term.scrollHeight;
 }
+function tipForOtaPhase(phaseKey,failed,overrideLine){
+  if(failed)return (overrideLine||'').trim()||t('update_phase_error');
+  if(overrideLine&&(phaseKey==='update_phase_done'||phaseKey==='update_phase_error'))return overrideLine;
+  switch(phaseKey){
+    case 'update_phase_prepare':
+    case 'update_phase_download':
+      return t('update_waiting');
+    case 'update_phase_sync':
+      return t('update_tip_sync');
+    case 'update_phase_build':
+      return t('update_build_hint');
+    case 'update_phase_install':
+      return t('update_tip_install');
+    case 'update_phase_restart':
+      return t('update_tip_restart');
+    case 'update_phase_done':
+      return overrideLine||t('update_phase_done');
+    case 'update_phase_error':
+      return overrideLine||t('update_phase_error');
+    default:
+      return t('update_waiting');
+  }
+}
 function setUpdateProgress(pct,phaseKey,friendlyLine,failed,active){
   const bar=document.getElementById('update-progress-bar');
   const pctEl=document.getElementById('update-progress-pct');
@@ -9861,13 +9892,14 @@ function setUpdateProgress(pct,phaseKey,friendlyLine,failed,active){
     bar.classList.toggle('is-active',!!active&&!failed&&p<100);
   }
   if(pctEl)pctEl.textContent=p+'%';
-  const phaseTxt=t(phaseKey||'update_phase_prepare');
+  const key=phaseKey||'update_phase_prepare';
+  const phaseTxt=t(key);
   if(phaseEl)phaseEl.textContent=phaseTxt;
   if(lineEl){
-    lineEl.classList.remove('is-raw');
-    const line=(friendlyLine||'').trim()||phaseTxt;
-    lineEl.textContent=line;
-    lineEl.title=line;
+    lineEl.classList.toggle('is-raw',!!failed);
+    const tip=tipForOtaPhase(key,!!failed,friendlyLine);
+    lineEl.textContent=tip;
+    lineEl.title=tip;
   }
 }
 function formatUpdateElapsed(){
@@ -9876,7 +9908,8 @@ function formatUpdateElapsed(){
   if(!el)return;
   const sec=Math.max(0,Math.floor((Date.now()-updateStartedAt)/1000));
   const m=Math.floor(sec/60),s=sec%60;
-  el.textContent=t('update_elapsed',{m:m,s:String(s).padStart(2,'0')});
+  const time=t('update_elapsed',{m:m,s:String(s).padStart(2,'0')});
+  el.innerHTML='<strong>'+escapeHtml(time)+'</strong><br>'+escapeHtml(t('update_elapsed_hint'));
 }
 function estimateUpdateProgress(log,status){
   const text=log||'';
@@ -10176,7 +10209,6 @@ async function confirmOtaUpdate(){
     return;
   }
   let lastLen=0;
-  let sawBuild=false;
   updatePollTimer=setInterval(async()=>{
     try{
       const r=await fetch('/api/update/status',{cache:'no-store',credentials:'same-origin'});
@@ -10191,20 +10223,13 @@ async function confirmOtaUpdate(){
           }
           lastLen=j.log.length;
         }
-        if(/cargo build|Compiling /i.test(j.log)){
-          if(!sawBuild){
-            sawBuild=true;
-            msgEl.textContent=t('update_running')+' — '+t('update_build_hint');
-          }
+        if(j.status==='running'){
+          msgEl.className='update-status running';
+          msgEl.textContent=t('update_running');
         }
         const est=estimateUpdateProgress(j.log,j.status);
-        // Friendly phase under the bar; on error show the last raw log line.
-        const friendly=est.failed?est.line:t(est.phase);
-        setUpdateProgress(est.pct,est.phase,friendly,est.failed,j.status==='running');
-        if(est.failed){
-          const lineEl=document.getElementById('update-current-line');
-          if(lineEl)lineEl.classList.add('is-raw');
-        }
+        // Bold = short phase; gray box = tip (or raw log line on error).
+        setUpdateProgress(est.pct,est.phase,est.failed?est.line:'',est.failed,j.status==='running');
       }
       if(j.status==='done_ok'){
         finishUpdatePoll();
@@ -10232,8 +10257,6 @@ async function confirmOtaUpdate(){
         msgEl.className='update-status err';msgEl.textContent=t('update_done_err');
         const est=estimateUpdateProgress(j.log||'','done_err');
         setUpdateProgress(est.pct,est.phase,est.line,true,false);
-        const lineEl=document.getElementById('update-current-line');
-        if(lineEl)lineEl.classList.add('is-raw');
         closeBtn.disabled=false;
         if(!updateLogExpanded)toggleUpdateLog();
       }
