@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.1.57
+
+- Instalador alineado con OTA: fetch con refspec + reintentos, `reset --hard`, y `ota_channel` según `BOST_BRANCH`.
+
 ## v0.1.56
 
 - OTA: reintentos de `git fetch` ante cortes TLS/red (p. ej. GnuTLS en Pi).

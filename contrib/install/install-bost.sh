@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install bost-flowstation on Raspberry Pi OS / Debian arm64.
-# Idempotent when the source tree can fast-forward to origin/<branch>.
+# Idempotent: aligns the source tree to origin/<branch> (reset --hard; keeps target/).
 # Starts with phy_io.backend=None so the web UI comes up without an SDR;
 # complete Setup in the dashboard afterward.
 #
@@ -29,9 +29,30 @@ HELPER_DST="/usr/local/sbin/bost-setup-helper.sh"
 SUDOERS_DST="/etc/sudoers.d/bost-setup"
 SERVICE_USER="${BOST_SERVICE_USER:-bts}"
 
+# Dashboard channel id for [dashboard].ota_channel
+OTA_CHANNEL="stable"
+[[ "$BRANCH" == "beta" ]] && OTA_CHANNEL="beta"
+
 log() { echo "==> $*"; }
 warn() { echo "WARNING: $*" >&2; }
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+# Fetch with explicit refspec (creates origin/<branch>) and a few TLS/network retries.
+git_fetch_branch() {
+  local dir="$1" branch="$2"
+  local refspec="+refs/heads/${branch}:refs/remotes/origin/${branch}"
+  local attempt
+  for attempt in 1 2 3; do
+    if [[ "$attempt" -gt 1 ]]; then
+      warn "git fetch failed — retrying in $((5 * (attempt - 1)))s (attempt ${attempt}/3)…"
+      sleep $((5 * (attempt - 1)))
+    fi
+    if git -C "$dir" fetch origin "$refspec"; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 if [[ "$(id -u)" -ne 0 ]]; then
   die "run as root (sudo ./contrib/install/install-bost.sh)"
@@ -79,8 +100,8 @@ install_rust() {
   sudo -u "$user" bash -lc 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
 }
 
-# Source tree. Never build a diverged/stale checkout: only ff-only updates, or
-# an explicit clean re-clone. Config under /etc/flowstation is never deleted here.
+# Source tree. Align to origin/<branch> the same way dashboard OTA does (reset --hard;
+# preserves target/ for incremental builds). Config under /etc/flowstation is never deleted here.
 if [[ -n "${BOST_SRC:-}" ]]; then
   SRC_ROOT="$BOST_SRC"
 fi
@@ -99,20 +120,10 @@ if [[ -d "$SRC_ROOT/.git" ]]; then
     log "Setting origin to $REPO_URL"
     git -C "$SRC_ROOT" remote set-url origin "$REPO_URL"
   fi
-  git -C "$SRC_ROOT" fetch origin "$BRANCH"
-  git -C "$SRC_ROOT" checkout "$BRANCH"
-  if ! git -C "$SRC_ROOT" merge --ff-only "origin/$BRANCH"; then
-    die "Cannot fast-forward $SRC_ROOT to origin/$BRANCH (histories diverged).
-Refusing to build stale/local sources.
-
-Clean source reinstall (keeps ${CFG_DIR}):
-  sudo systemctl stop ${UNIT_NAME}
-  sudo rm -rf ${SRC_ROOT}
-  curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
-
-Or in one shot:
-  curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo env BOST_FORCE_CLEAN=1 bash"
-  fi
+  git_fetch_branch "$SRC_ROOT" "$BRANCH" \
+    || die "git fetch origin/$BRANCH failed after retries (network/TLS). Re-run the installer."
+  git -C "$SRC_ROOT" checkout -B "$BRANCH" "origin/$BRANCH"
+  git -C "$SRC_ROOT" reset --hard "origin/$BRANCH"
   log "Source at $(git -C "$SRC_ROOT" rev-parse --short HEAD) ($(git -C "$SRC_ROOT" rev-parse --abbrev-ref HEAD))"
 elif [[ -e "$SRC_ROOT" ]]; then
   die "$SRC_ROOT exists but is not a git checkout.
@@ -120,7 +131,8 @@ Move it aside or remove it, then re-run (or use BOST_FORCE_CLEAN=1)."
 else
   log "Cloning $REPO_URL ($BRANCH) → $SRC_ROOT"
   mkdir -p "$(dirname "$SRC_ROOT")"
-  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$SRC_ROOT"
+  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$SRC_ROOT" \
+    || die "git clone failed (network/TLS). Re-run the installer."
 fi
 
 chown -R "$SERVICE_USER:$SERVICE_USER" "$SRC_ROOT" || true
@@ -146,9 +158,7 @@ log "Installed $BIN_PATH"
 # Initial config (only if missing)
 mkdir -p "$CFG_DIR"
 if [[ ! -f "$CFG_PATH" ]]; then
-  log "Writing initial $CFG_PATH (backend=None, dashboard admin/1234)"
-  OTA_CHANNEL="stable"
-  [[ "$BRANCH" == "beta" ]] && OTA_CHANNEL="beta"
+  log "Writing initial $CFG_PATH (backend=None, dashboard admin/1234, ota_channel=${OTA_CHANNEL})"
   if [[ -f "$SRC_ROOT/example_config/config.toml" ]]; then
     cp "$SRC_ROOT/example_config/config.toml" "$CFG_PATH"
     python3 - "$CFG_PATH" "$OTA_CHANNEL" <<'PY'
@@ -221,6 +231,25 @@ EOF
   cp "$CFG_PATH" "${CFG_PATH}.fallback"
 else
   log "Keeping existing $CFG_PATH"
+  # Ensure ota_channel exists / matches install branch when reinstalling with BOST_BRANCH=.
+  python3 - "$CFG_PATH" "$OTA_CHANNEL" <<'PY'
+import sys, re
+path, channel = sys.argv[1], sys.argv[2]
+text = open(path, encoding="utf-8").read()
+if re.search(r'(?m)^\s*ota_channel\s*=', text):
+    text = re.sub(r'(?m)^\s*ota_channel\s*=.*$', f'ota_channel = "{channel}"', text, count=1)
+elif re.search(r'(?m)^\[dashboard\]\s*$', text):
+    text = re.sub(
+        r'(?m)^(\[dashboard\]\s*)$',
+        rf'\1\nota_channel = "{channel}"',
+        text,
+        count=1,
+    )
+else:
+    text = text.rstrip() + f'\n\n[dashboard]\nota_channel = "{channel}"\n'
+open(path, "w", encoding="utf-8").write(text)
+print(f"ota_channel = {channel}")
+PY
 fi
 
 # Always ensure a sibling .fallback exists (recovery if primary is hand-edited broken).
@@ -303,5 +332,5 @@ echo " Login:      admin / 1234"
 echo " Config:     ${CFG_PATH}"
 echo " Setup:      open the Setup tab / first-run wizard"
 echo " RF starts disabled (backend=None) until you finish Setup."
-echo " Repo:       https://github.com/Aitorrio/bost-flowstation (branch bost)"
+echo " Repo:       https://github.com/Aitorrio/bost-flowstation (branch ${BRANCH}, OTA ${OTA_CHANNEL})"
 echo "────────────────────────────────────────────────────────"
