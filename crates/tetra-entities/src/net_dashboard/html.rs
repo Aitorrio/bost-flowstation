@@ -1244,6 +1244,7 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .form-input:focus{border-color:var(--accent2);}
 
 /* ── Update modal (user-facing progress + optional log) ── */
+#update-modal .modal{width:min(560px,96vw);}
 .update-progress-wrap{margin:14px 0 10px;}
 .update-progress-track{
   height:10px;border-radius:999px;background:var(--bg4);border:1px solid var(--border);
@@ -1274,6 +1275,19 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   font-family:var(--mono);font-size:11px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.ota-steps{
+  display:flex;gap:6px;margin:0 0 16px;padding:0;list-style:none;
+}
+.ota-steps li{
+  flex:1;text-align:center;font-size:11px;font-weight:600;letter-spacing:0.02em;
+  padding:7px 6px;border-radius:8px;border:1px solid var(--border);
+  color:var(--text3);background:var(--bg);
+}
+.ota-steps li.is-active{
+  color:var(--text);border-color:rgba(0,212,168,0.45);
+  background:linear-gradient(135deg,rgba(0,212,168,0.14),rgba(77,166,255,0.10));
+}
+.ota-steps li.is-done{color:var(--accent);border-color:rgba(0,212,168,0.28);}
 .ota-step{display:none;}
 .ota-step.is-active{display:block;}
 .ota-channel-field{margin:0 0 14px;}
@@ -1284,14 +1298,26 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 }
 .ota-channel-hint{display:block;margin-top:8px;font-size:12px;color:var(--text3);line-height:1.4;}
 .ota-review-versions{
-  margin:0 0 12px;padding:12px;border-radius:8px;
-  background:var(--bg);border:1px solid var(--border);
+  margin:0 0 12px;padding:12px 14px;border-radius:8px;
+  background:linear-gradient(135deg,rgba(0,212,168,0.10),rgba(77,166,255,0.08));
+  border:1px solid rgba(0,212,168,0.28);
   font-size:13px;line-height:1.45;color:var(--text);
 }
 .ota-review-versions strong{font-family:var(--mono);}
+.ota-review-arrow{color:var(--accent2);margin:0 6px;font-weight:700;}
 .ota-changelog-title{font-size:12px;font-weight:700;color:var(--text2);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.06em;}
+.ota-notes{
+  margin:0 0 12px;padding:12px 14px;border-radius:8px;
+  background:var(--bg);border:1px solid var(--border);
+  max-height:40vh;overflow:auto;font-size:13px;line-height:1.5;color:var(--text);
+}
+.ota-notes h3{margin:12px 0 6px;font-size:13px;font-family:var(--mono);color:var(--accent);}
+.ota-notes h3:first-child{margin-top:0;}
+.ota-notes ul{margin:0 0 8px;padding-left:1.2em;}
+.ota-notes li{margin:0 0 4px;}
+.ota-notes p{margin:0 0 8px;}
 .ota-changelog-list{
-  list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;
+  list-style:none;margin:0;padding:0;max-height:180px;overflow:auto;
   border:1px solid var(--border);border-radius:8px;background:var(--bg);
 }
 .ota-changelog-list li{
@@ -1301,24 +1327,29 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .ota-changelog-list li:last-child{border-bottom:none;}
 .ota-changelog-list .sha{font-family:var(--mono);font-size:10px;color:var(--text3);margin-right:8px;}
 .ota-changelog-empty{font-size:12px;color:var(--text3);font-style:italic;margin:0 0 8px;}
+.ota-tech-toggle{
+  background:none;border:none;color:var(--accent2);font-size:12px;font-weight:600;
+  cursor:pointer;padding:4px 0 8px;text-decoration:underline;text-underline-offset:3px;
+}
+.ota-tech-wrap{display:none;margin-bottom:8px;}
+.ota-tech-wrap.is-open{display:block;}
 .update-log-toolbar{display:flex;justify-content:flex-end;margin:0 0 6px;}
 .update-log-toggle{
   background:none;border:none;color:var(--accent2);font-size:12px;font-weight:600;
   cursor:pointer;padding:4px 0;text-decoration:underline;text-underline-offset:3px;
 }
 .update-log-toggle:hover{color:var(--accent);}
-.update-terminal{
-  background:var(--bg);border:1px solid var(--border);border-radius:6px;
-  padding:10px 12px;font-family:var(--mono);font-size:11px;line-height:1.6;
-  color:var(--text2);height:240px;overflow-y:auto;white-space:pre-wrap;
-  word-break:break-all;margin:0 0 12px;
-}
-.update-terminal.collapsed{display:none;}
-.update-status{font-size:13px;font-weight:700;min-height:18px;}
-.update-status.running{color:var(--warn);}
+.update-status{margin:0 0 8px;font-size:13px;font-weight:600;line-height:1.4;}
+.update-status.running{color:var(--text);}
 .update-status.ok{color:var(--accent);}
 .update-status.err{color:var(--danger);}
-#update-modal .modal{width:min(520px,100%);}
+.update-terminal{
+  margin:0 0 8px;padding:10px 12px;border-radius:8px;
+  background:#0b0f14;border:1px solid var(--border);
+  font-family:var(--mono);font-size:11px;line-height:1.4;color:#c8d0d8;
+  max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+}
+.update-terminal.collapsed{display:none;}
 
 /* Full-screen wait after service restart (OTA / Apply / Restart) */
 #restart-wait-overlay{
@@ -4643,7 +4674,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="page" id="page-system">
       <div class="sys-update-banner" id="sys-update-banner" style="display:none" role="status">
         <div class="sys-update-banner-text" id="sys-update-banner-text"></div>
-        <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="startUpdate({fromBanner:true})"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
       </div>
       <div id="svc-standby-banner" class="svc-standby-banner" role="status">
         <div class="svc-standby-banner-title" data-i18n="svc_standby_title">Service on standby</div>
@@ -5034,6 +5065,11 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 <div class="modal-overlay" id="update-modal">
   <div class="modal">
     <div class="modal-title" id="update-modal-title" data-i18n="update_title">⬆ OTA Update</div>
+    <ol class="ota-steps" id="ota-steps" aria-label="OTA steps">
+      <li id="ota-step-ind-1" class="is-active" data-i18n="ota_step_channel">1 · Channel</li>
+      <li id="ota-step-ind-2" data-i18n="ota_step_notes">2 · What's new</li>
+      <li id="ota-step-ind-3" data-i18n="ota_step_progress">3 · Progress</li>
+    </ol>
 
     <div class="ota-step is-active" id="ota-step-choose">
       <div class="ota-channel-field">
@@ -5042,7 +5078,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <option value="stable" data-i18n="ota_channel_stable">Stable (bost)</option>
           <option value="beta" data-i18n="ota_channel_beta">Beta</option>
         </select>
-        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = day-to-day. Beta = previews. Update uses the selected channel.</span>
+        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = day-to-day. Beta = previews. Checking and updating use this channel.</span>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" onclick="closeUpdateModal()" data-i18n="cancel">Cancel</button>
@@ -5052,9 +5088,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
     <div class="ota-step" id="ota-step-review">
       <div class="ota-review-versions" id="ota-review-versions"></div>
-      <div class="ota-changelog-title" data-i18n="ota_whats_new">What's new</div>
+      <div class="ota-changelog-title" id="ota-notes-title" data-i18n="ota_whats_new">What's new</div>
+      <div class="ota-notes" id="ota-notes" style="display:none"></div>
       <p class="ota-changelog-empty" id="ota-changelog-empty" style="display:none" data-i18n="ota_changelog_unavailable">Could not load the change list. You can still update.</p>
-      <ul class="ota-changelog-list" id="ota-changelog-list"></ul>
+      <button type="button" class="ota-tech-toggle" id="ota-tech-toggle" style="display:none" onclick="toggleOtaTechCommits()" data-i18n="ota_tech_commits">Technical detail (commits)</button>
+      <div class="ota-tech-wrap" id="ota-tech-wrap">
+        <ul class="ota-changelog-list" id="ota-changelog-list"></ul>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn" onclick="closeUpdateModal()" data-i18n="cancel">Cancel</button>
         <button type="button" class="btn btn-primary" id="ota-confirm-btn" onclick="confirmOtaUpdate()"><span class="btn-icon" data-icon="update"></span><span data-i18n="update">Update</span></button>
@@ -5436,6 +5476,13 @@ const LANGS={
     ota_review_from:'From {current}',
     ota_up_to_date:'✓ Already up to date on {channel} ({latest}).',
     ota_check_failed:'Could not check for updates. Try again later.',
+    ota_step_channel:'1 · Channel',
+    ota_step_notes:"2 · What's new",
+    ota_step_progress:'3 · Progress',
+    ota_tech_commits:'Technical detail (commits)',
+    ota_notes_from_changelog:'From CHANGELOG',
+    ota_notes_from_release:'From GitHub Release',
+    ota_notes_from_commits:'From recent commits',
     update_running:'Updating… do not close this window.',
     update_done_ok:'✓ Update complete. Restarting…',
     update_done_current:'✓ Already up to date — no rebuild needed.',
@@ -5865,6 +5912,13 @@ const LANGS={
     ota_review_from:'Desde {current}',
     ota_up_to_date:'✓ Ya estás al día en {channel} ({latest}).',
     ota_check_failed:'No se pudieron comprobar actualizaciones. Inténtalo más tarde.',
+    ota_step_channel:'1 · Canal',
+    ota_step_notes:'2 · Novedades',
+    ota_step_progress:'3 · Progreso',
+    ota_tech_commits:'Detalle técnico (commits)',
+    ota_notes_from_changelog:'Desde CHANGELOG',
+    ota_notes_from_release:'Desde GitHub Release',
+    ota_notes_from_commits:'Desde commits recientes',
     update_running:'Actualizando… no cierres esta ventana.',
     update_done_ok:'✓ Actualización completa. Reiniciando…',
     update_done_current:'✓ Ya estás al día — no hace falta recompilar.',
@@ -9767,6 +9821,14 @@ function showOtaStep(step){
     const el=document.getElementById('ota-step-'+name);
     if(el)el.classList.toggle('is-active',name===step);
   });
+  const map={choose:1,review:2,progress:3};
+  const n=map[step]||1;
+  for(let i=1;i<=3;i++){
+    const ind=document.getElementById('ota-step-ind-'+i);
+    if(!ind)continue;
+    ind.classList.toggle('is-active',i===n);
+    ind.classList.toggle('is-done',i<n);
+  }
 }
 function closeUpdateModal(){
   const modal=document.getElementById('update-modal');
@@ -9873,21 +9935,87 @@ function otaTargetLabel(d){
   }
   return d.latest||'';
 }
+function escapeHtml(s){
+  return String(s||'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+/** Render plain CHANGELOG-ish text (## headings, - bullets) to safe HTML. */
+function formatOtaNotesHtml(text){
+  const lines=String(text||'').replace(/\r\n/g,'\n').split('\n');
+  let html='',inList=false;
+  const closeList=()=>{if(inList){html+='</ul>';inList=false;}};
+  lines.forEach(raw=>{
+    const line=raw.trimEnd();
+    const trimmed=line.trim();
+    if(!trimmed){closeList();return;}
+    if(/^##\s+/.test(trimmed)){
+      closeList();
+      html+='<h3>'+escapeHtml(trimmed.replace(/^##\s+/,''))+'</h3>';
+      return;
+    }
+    if(/^[-*]\s+/.test(trimmed)){
+      if(!inList){html+='<ul>';inList=true;}
+      html+='<li>'+escapeHtml(trimmed.replace(/^[-*]\s+/,''))+'</li>';
+      return;
+    }
+    closeList();
+    html+='<p>'+escapeHtml(trimmed)+'</p>';
+  });
+  closeList();
+  return html||('<p>'+escapeHtml(text)+'</p>');
+}
+function toggleOtaTechCommits(){
+  const wrap=document.getElementById('ota-tech-wrap');
+  if(!wrap)return;
+  wrap.classList.toggle('is-open');
+}
 function paintOtaReview(d){
   const versions=document.getElementById('ota-review-versions');
+  const notesEl=document.getElementById('ota-notes');
   const list=document.getElementById('ota-changelog-list');
   const empty=document.getElementById('ota-changelog-empty');
+  const techToggle=document.getElementById('ota-tech-toggle');
+  const techWrap=document.getElementById('ota-tech-wrap');
+  const notesTitle=document.getElementById('ota-notes-title');
   const target=otaTargetLabel(d);
+  const cur=d.current||'—';
   if(versions){
     versions.innerHTML=
-      '<div><strong>'+t('ota_review_to',{target:target||'—'})+'</strong></div>'+
-      '<div style="margin-top:6px;color:var(--text3)">'+t('ota_review_from',{current:d.current||'—'})+'</div>';
+      '<div><strong>'+escapeHtml(cur)+'</strong><span class="ota-review-arrow">→</span><strong>'+escapeHtml(target||'—')+'</strong></div>'+
+      '<div style="margin-top:6px;color:var(--text3)">'+escapeHtml(t('ota_review_to',{target:target||'—'}))+'</div>';
+  }
+  const notes=(d.release_notes||'').trim();
+  const entries=d.changelog||[];
+  const src=d.notes_source||'none';
+  if(notesTitle){
+    let title=t('ota_whats_new');
+    if(src==='changelog')title+=' · '+t('ota_notes_from_changelog');
+    else if(src==='release')title+=' · '+t('ota_notes_from_release');
+    else if(src==='commits')title+=' · '+t('ota_notes_from_commits');
+    notesTitle.textContent=title;
+  }
+  if(notesEl){
+    if(notes){
+      notesEl.style.display='block';
+      notesEl.innerHTML=formatOtaNotesHtml(notes);
+    }else{
+      notesEl.style.display='none';
+      notesEl.innerHTML='';
+    }
   }
   if(list)list.innerHTML='';
-  const entries=(d.changelog||[]);
-  const hasEntries=entries.length>0;
-  if(empty)empty.style.display=hasEntries?'none':'block';
-  if(list&&hasEntries){
+  const showCommitsAsPrimary=!notes&&entries.length>0;
+  const showCommitsSecondary=!!notes&&src!=='commits'&&entries.length>0;
+  if(empty)empty.style.display=(!notes&&!entries.length)?'block':'none';
+  if(techWrap)techWrap.classList.remove('is-open');
+  if(techToggle){
+    techToggle.style.display=showCommitsSecondary?'inline-block':'none';
+  }
+  if(list&&(showCommitsAsPrimary||showCommitsSecondary)){
+    if(showCommitsAsPrimary&&techWrap)techWrap.classList.add('is-open');
     entries.forEach(e=>{
       const li=document.createElement('li');
       const sha=document.createElement('span');
@@ -9899,8 +10027,9 @@ function paintOtaReview(d){
     });
   }
 }
-/** Open OTA modal on the channel step. */
-async function startUpdate(){
+/** Open OTA modal on the channel step, or jump to review from the banner. */
+async function startUpdate(opts){
+  opts=opts||{};
   const modal=document.getElementById('update-modal');
   if(!modal){
     await dashAlert(t('notice'),t('action_failed')+': update UI missing');
@@ -9915,8 +10044,41 @@ async function startUpdate(){
   await loadOtaChannel();
   const hint=document.getElementById('ota-channel-hint');
   if(hint)hint.textContent=t('ota_channel_help');
-  showOtaStep('choose');
   modal.classList.add('open');
+
+  if(opts.fromBanner){
+    showOtaStep('review');
+    const versions=document.getElementById('ota-review-versions');
+    if(versions)versions.textContent=t('ota_checking');
+    try{
+      const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
+      if(r.ok){
+        const d=await r.json();
+        applyUpdateCheckUi(d);
+        if(d&&d.update_available){
+          otaPendingCheck=d;
+          paintOtaReview(d);
+          showOtaStep('review');
+          return;
+        }
+        if(hint)hint.textContent=t('ota_up_to_date',{
+          channel:(d&&d.channel)||otaChannelCache.channel,
+          latest:(d&&d.latest)||'—',
+        });
+        showOtaStep('choose');
+        return;
+      }
+    }catch{/* fall through to cache */}
+    if(otaLastCheck&&otaLastCheck.update_available){
+      otaPendingCheck=otaLastCheck;
+      paintOtaReview(otaLastCheck);
+      showOtaStep('review');
+      return;
+    }
+    showOtaStep('choose');
+    return;
+  }
+  showOtaStep('choose');
 }
 async function checkOtaInModal(){
   const btn=document.getElementById('ota-check-btn');
@@ -11690,7 +11852,9 @@ window.addEventListener('resize', () => {
 // is opened). If a newer version exists, show the sidebar glance badge + System
 // banner and highlight the Update button. Failures are silent.
 let otaChannelCache={channel:'stable',branch:'bost'};
+let otaLastCheck=null;
 function applyUpdateCheckUi(d){
+  if(d)otaLastCheck=d;
   const badge=document.getElementById('update-badge');
   const banner=document.getElementById('sys-update-banner');
   const bannerText=document.getElementById('sys-update-banner-text');

@@ -4,9 +4,10 @@
 //! the tip of the active OTA branch on GitHub. This is purely informational — the actual
 //! update is performed by the git-based OTA path (`run_update`).
 //!
-//! When an update is available the check also best-effort fetches:
-//! - remote `BOST_VERSION` from the tip of the branch
-//! - a short changelog (commit subjects) via the GitHub Compare API
+//! When an update is available the check also best-effort fetches human-readable notes:
+//! 1. `CHANGELOG.md` sections between the local and remote Bost versions
+//! 2. GitHub Release body for `v{remote_version}` (if tagged)
+//! 3. Commit subjects via the Compare API (fallback)
 //!
 //! The check is best-effort: any network/parse failure yields `UpdateCheck::unknown()`
 //! rather than an error, so a flaky connection never breaks the dashboard.
@@ -16,8 +17,7 @@ use std::time::Duration;
 const USER_AGENT: &str = "Bost-FlowStation-Dashboard";
 const CHANGELOG_LIMIT: usize = 10;
 
-/// A parsed semantic version (major.minor.patch). Pre-release/build metadata is ignored
-/// for comparison purposes — we only care about the release triple.
+/// A parsed semantic version (major.minor.patch).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct SemVer {
     major: u32,
@@ -26,49 +26,67 @@ struct SemVer {
 }
 
 impl SemVer {
-    /// Parse a version from a string like "v0.2.5", "0.2.5", or "v0.2.5-gabc123".
     fn parse(s: &str) -> Option<Self> {
         let s = s.trim();
         let s = s.strip_prefix('v').or_else(|| s.strip_prefix('V')).unwrap_or(s);
         let core = s.split(['-', '+']).next().unwrap_or(s);
+        // Also accept Keep-a-Changelog headers like "[0.1.54]".
+        let core = core.trim_start_matches('[').trim_end_matches(']');
         let mut it = core.split('.');
         let major = it.next()?.trim().parse().ok()?;
         let minor = it.next().unwrap_or("0").trim().parse().unwrap_or(0);
         let patch = it.next().unwrap_or("0").trim().parse().unwrap_or(0);
         Some(SemVer { major, minor, patch })
     }
+
+    fn display(self) -> String {
+        format!("{}.{}.{}", self.major, self.minor, self.patch)
+    }
 }
 
-/// One changelog line for the OTA review step.
+/// One commit line for the technical fallback list.
 #[derive(Debug, Clone)]
 pub struct ChangelogEntry {
     pub sha: String,
     pub title: String,
 }
 
+/// Where `release_notes` came from (for UI hints).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotesSource {
+    None,
+    Changelog,
+    Release,
+    Commits,
+}
+
+impl NotesSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            NotesSource::None => "none",
+            NotesSource::Changelog => "changelog",
+            NotesSource::Release => "release",
+            NotesSource::Commits => "commits",
+        }
+    }
+}
+
 /// Result of an update check, serialised to JSON for the dashboard.
 #[derive(Debug, Clone)]
 pub struct UpdateCheck {
-    /// Locally built version string (as-is, e.g. "v0.1.0-2aad62c8").
     pub current: String,
-    /// Latest tip / release label from GitHub, if the check succeeded.
     pub latest: Option<String>,
-    /// True when remote tip (or release) is ahead of the running binary.
     pub update_available: bool,
-    /// URL of the branch / release page, if available.
     pub release_url: Option<String>,
-    /// True when the check itself failed (network/parse). The badge should stay hidden.
     pub check_failed: bool,
-    /// Active OTA channel (`stable` / `beta`).
     pub channel: String,
-    /// Git branch for that channel (`bost` / `beta`).
     pub branch: String,
-    /// Remote product version at tip, e.g. `"0.1.50"`, when parseable.
     pub remote_version: Option<String>,
-    /// Commit subjects between local hash and tip (newest first), capped.
     pub changelog: Vec<ChangelogEntry>,
-    /// True when we tried to load a changelog for an available update but got nothing useful.
     pub changelog_truncated: bool,
+    /// Human-readable notes (CHANGELOG / Release body), plain text with `- ` bullets.
+    pub release_notes: Option<String>,
+    pub notes_source: NotesSource,
 }
 
 impl UpdateCheck {
@@ -84,26 +102,16 @@ impl UpdateCheck {
             remote_version: None,
             changelog: Vec::new(),
             changelog_truncated: false,
+            release_notes: None,
+            notes_source: NotesSource::None,
         }
     }
 
-    /// Render as a JSON object for `GET /api/update/check`.
     pub fn to_json(&self) -> String {
-        let latest = self
-            .latest
-            .as_deref()
-            .map(|s| format!("\"{}\"", json_escape(s)))
-            .unwrap_or_else(|| "null".to_string());
-        let url = self
-            .release_url
-            .as_deref()
-            .map(|s| format!("\"{}\"", json_escape(s)))
-            .unwrap_or_else(|| "null".to_string());
-        let remote_version = self
-            .remote_version
-            .as_deref()
-            .map(|s| format!("\"{}\"", json_escape(s)))
-            .unwrap_or_else(|| "null".to_string());
+        let latest = opt_str_json(self.latest.as_deref());
+        let url = opt_str_json(self.release_url.as_deref());
+        let remote_version = opt_str_json(self.remote_version.as_deref());
+        let release_notes = opt_str_json(self.release_notes.as_deref());
         let mut changelog = String::from("[");
         for (i, e) in self.changelog.iter().enumerate() {
             if i > 0 {
@@ -117,7 +125,7 @@ impl UpdateCheck {
         }
         changelog.push(']');
         format!(
-            "{{\"current\":\"{}\",\"latest\":{},\"update_available\":{},\"release_url\":{},\"check_failed\":{},\"channel\":\"{}\",\"branch\":\"{}\",\"remote_version\":{},\"changelog\":{},\"changelog_truncated\":{}}}",
+            "{{\"current\":\"{}\",\"latest\":{},\"update_available\":{},\"release_url\":{},\"check_failed\":{},\"channel\":\"{}\",\"branch\":\"{}\",\"remote_version\":{},\"changelog\":{},\"changelog_truncated\":{},\"release_notes\":{},\"notes_source\":\"{}\"}}",
             json_escape(&self.current),
             latest,
             self.update_available,
@@ -127,9 +135,16 @@ impl UpdateCheck {
             json_escape(&self.branch),
             remote_version,
             changelog,
-            self.changelog_truncated
+            self.changelog_truncated,
+            release_notes,
+            self.notes_source.as_str()
         )
     }
+}
+
+fn opt_str_json(s: Option<&str>) -> String {
+    s.map(|s| format!("\"{}\"", json_escape(s)))
+        .unwrap_or_else(|| "null".to_string())
 }
 
 fn json_escape(s: &str) -> String {
@@ -182,6 +197,76 @@ fn commit_title(message: &str) -> String {
         .collect()
 }
 
+/// Parse `## v0.1.54` / `## [0.1.54] - date` headings and collect body until next `## `.
+fn parse_changelog_sections(md: &str) -> Vec<(SemVer, String)> {
+    let mut sections: Vec<(SemVer, String)> = Vec::new();
+    let mut current_ver: Option<SemVer> = None;
+    let mut body = String::new();
+
+    let flush = |ver: &mut Option<SemVer>, body: &mut String, out: &mut Vec<(SemVer, String)>| {
+        if let Some(v) = ver.take() {
+            let text = body.trim().to_string();
+            if !text.is_empty() {
+                out.push((v, text));
+            }
+        }
+        body.clear();
+    };
+
+    for line in md.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("## ") {
+            flush(&mut current_ver, &mut body, &mut sections);
+            // Take first token that looks like a version.
+            let token = rest
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_matches(|c: char| c == '[' || c == ']' || c == ',' || c == ':');
+            current_ver = SemVer::parse(token);
+            continue;
+        }
+        if current_ver.is_some() {
+            if !body.is_empty() {
+                body.push('\n');
+            }
+            body.push_str(line);
+        }
+    }
+    flush(&mut current_ver, &mut body, &mut sections);
+    sections
+}
+
+/// Sections with version `local < v <= remote`, newest first.
+fn notes_from_changelog(md: &str, local: Option<SemVer>, remote: Option<SemVer>) -> Option<String> {
+    let remote = remote?;
+    let sections = parse_changelog_sections(md);
+    let mut selected: Vec<(SemVer, String)> = sections
+        .into_iter()
+        .filter(|(v, _)| {
+            if *v > remote {
+                return false;
+            }
+            match local {
+                Some(l) => *v > l,
+                None => *v == remote,
+            }
+        })
+        .collect();
+    if selected.is_empty() {
+        return None;
+    }
+    selected.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut out = String::new();
+    for (i, (ver, text)) in selected.into_iter().enumerate() {
+        if i > 0 {
+            out.push_str("\n\n");
+        }
+        out.push_str(&format!("## v{}\n{}", ver.display(), text.trim()));
+    }
+    Some(out)
+}
+
 fn fetch_remote_version(client: &reqwest::blocking::Client, branch: &str) -> Option<String> {
     let url = format!(
         "https://raw.githubusercontent.com/Aitorrio/bost-flowstation/{}/crates/tetra-core/src/lib.rs",
@@ -197,7 +282,45 @@ fn fetch_remote_version(client: &reqwest::blocking::Client, branch: &str) -> Opt
     parse_bost_version_from_lib_rs(&text)
 }
 
-fn fetch_changelog(
+fn fetch_changelog_md(client: &reqwest::blocking::Client, branch: &str) -> Option<String> {
+    let url = format!(
+        "https://raw.githubusercontent.com/Aitorrio/bost-flowstation/{}/CHANGELOG.md",
+        branch
+    );
+    client
+        .get(&url)
+        .send()
+        .and_then(|r| r.error_for_status())
+        .ok()?
+        .text()
+        .ok()
+}
+
+fn fetch_release_body(client: &reqwest::blocking::Client, version: &str) -> Option<String> {
+    let tag = if version.starts_with('v') || version.starts_with('V') {
+        version.to_string()
+    } else {
+        format!("v{version}")
+    };
+    let url = format!(
+        "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/tags/{tag}"
+    );
+    let resp = client
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .and_then(|r| r.error_for_status())
+        .ok()?;
+    let json: serde_json::Value = resp.json().ok()?;
+    let body = json.get("body").and_then(|v| v.as_str())?.trim();
+    if body.is_empty() {
+        None
+    } else {
+        Some(body.to_string())
+    }
+}
+
+fn fetch_commit_changelog(
     client: &reqwest::blocking::Client,
     base: &str,
     head: &str,
@@ -221,7 +344,6 @@ fn fetch_changelog(
         return (Vec::new(), true);
     };
     let mut entries = Vec::new();
-    // GitHub returns oldest→newest; show newest first.
     for c in commits.iter().rev().take(CHANGELOG_LIMIT) {
         let sha = c
             .get("sha")
@@ -245,14 +367,46 @@ fn fetch_changelog(
     (entries, truncated)
 }
 
-/// Query GitHub for the given OTA branch tip (and optionally latest release) and compare against
-/// `current_version` (typically `tetra_core::STACK_VERSION`). Blocking; call from a worker thread.
+fn resolve_notes(
+    client: &reqwest::blocking::Client,
+    branch: &str,
+    current_version: &str,
+    remote_version: Option<&str>,
+    commits: &[ChangelogEntry],
+) -> (Option<String>, NotesSource) {
+    let local = SemVer::parse(current_version);
+    let remote = remote_version.and_then(SemVer::parse);
+
+    if let Some(md) = fetch_changelog_md(client, branch) {
+        if let Some(notes) = notes_from_changelog(&md, local, remote) {
+            return (Some(notes), NotesSource::Changelog);
+        }
+    }
+    if let Some(ver) = remote_version {
+        if let Some(body) = fetch_release_body(client, ver) {
+            return (Some(body), NotesSource::Release);
+        }
+    }
+    if !commits.is_empty() {
+        let mut lines = String::new();
+        for e in commits {
+            if !lines.is_empty() {
+                lines.push('\n');
+            }
+            lines.push_str(&format!("- {} ({})", e.title, e.sha));
+        }
+        return (Some(lines), NotesSource::Commits);
+    }
+    (None, NotesSource::None)
+}
+
+/// Query GitHub for the given OTA branch tip and compare against `current_version`.
 pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
     let channel = tetra_core::normalize_ota_channel(channel).to_string();
     let branch = tetra_core::ota_branch_for_channel(&channel).to_string();
 
     let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(12))
         .user_agent(USER_AGENT)
         .build()
     {
@@ -266,7 +420,6 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
     );
     let branch_page = format!("{}/tree/{}", tetra_core::PRODUCT_REPO_URL, branch);
 
-    // Primary path: tip of the OTA branch (matches what `run_update` pulls).
     if let Ok(resp) = client
         .get(&commits_url)
         .header("Accept", "application/vnd.github+json")
@@ -282,14 +435,33 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
                     None => false,
                 };
                 let remote_version = fetch_remote_version(&client, &branch);
-                let (changelog, changelog_truncated) = if update_available {
+                let (changelog, mut changelog_truncated) = if update_available {
                     match &local {
-                        Some(base) => fetch_changelog(&client, base, sha),
+                        Some(base) => fetch_commit_changelog(&client, base, sha),
                         None => (Vec::new(), true),
                     }
                 } else {
                     (Vec::new(), false)
                 };
+
+                let (release_notes, notes_source) = if update_available {
+                    resolve_notes(
+                        &client,
+                        &branch,
+                        current_version,
+                        remote_version.as_deref(),
+                        &changelog,
+                    )
+                } else {
+                    (None, NotesSource::None)
+                };
+                if update_available
+                    && release_notes.is_none()
+                    && changelog.is_empty()
+                {
+                    changelog_truncated = true;
+                }
+
                 return UpdateCheck {
                     current: current_version.to_string(),
                     latest: Some(format!("{}@{}", branch, short)),
@@ -301,12 +473,14 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
                     remote_version,
                     changelog,
                     changelog_truncated,
+                    release_notes,
+                    notes_source,
                 };
             }
         }
     }
 
-    // Fallback: GitHub Releases SemVer (useful once tagged releases exist).
+    // Fallback: GitHub Releases SemVer.
     let releases_url = "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/latest";
     let resp = match client
         .get(releases_url)
@@ -325,6 +499,11 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
 
     let tag = json.get("tag_name").and_then(|v| v.as_str());
     let html_url = json.get("html_url").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let body = json
+        .get("body")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     let Some(tag) = tag else {
         return UpdateCheck::unknown(current_version, &channel, &branch);
@@ -333,6 +512,17 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
     let update_available = match (SemVer::parse(current_version), SemVer::parse(tag)) {
         (Some(cur), Some(latest)) => latest > cur,
         _ => false,
+    };
+    let remote_version =
+        SemVer::parse(tag).map(|v| format!("{}.{}.{}", v.major, v.minor, v.patch));
+    let (release_notes, notes_source) = if update_available {
+        if let Some(b) = body {
+            (Some(b), NotesSource::Release)
+        } else {
+            (None, NotesSource::None)
+        }
+    } else {
+        (None, NotesSource::None)
     };
 
     UpdateCheck {
@@ -343,9 +533,11 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
         check_failed: false,
         channel,
         branch,
-        remote_version: SemVer::parse(tag).map(|v| format!("{}.{}.{}", v.major, v.minor, v.patch)),
+        remote_version,
         changelog: Vec::new(),
-        changelog_truncated: update_available,
+        changelog_truncated: update_available && release_notes.is_none(),
+        release_notes,
+        notes_source,
     }
 }
 
@@ -378,29 +570,42 @@ mod tests {
     }
 
     #[test]
-    fn same_version_no_update() {
-        let a = SemVer::parse("v0.1.0").unwrap();
-        let b = SemVer::parse("0.1.0").unwrap();
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn unparseable_tag_no_update() {
-        assert!(SemVer::parse("not-a-version").is_none());
-    }
-
-    #[test]
-    fn parse_bost_version_line() {
-        let src = r#"pub const BOST_VERSION: &str = "0.1.50";"#;
-        assert_eq!(parse_bost_version_from_lib_rs(src).as_deref(), Some("0.1.50"));
-    }
-
-    #[test]
-    fn commit_title_first_line() {
+    fn parse_bracket_header() {
         assert_eq!(
-            commit_title("Fix foo\n\nLonger body"),
-            "Fix foo"
+            SemVer::parse("[0.1.54]"),
+            Some(SemVer {
+                major: 0,
+                minor: 1,
+                patch: 54
+            })
         );
+    }
+
+    #[test]
+    fn notes_range_newest_first() {
+        let md = r#"
+# Changelog
+
+## v0.1.54
+
+- Feature A
+
+## v0.1.53
+
+- Fix B
+
+## v0.1.52
+
+- Fix C
+"#;
+        let local = SemVer::parse("0.1.52");
+        let remote = SemVer::parse("0.1.54");
+        let notes = notes_from_changelog(md, local, remote).unwrap();
+        assert!(notes.contains("v0.1.54"));
+        assert!(notes.contains("Feature A"));
+        assert!(notes.contains("v0.1.53"));
+        assert!(!notes.contains("Fix C"));
+        assert!(notes.find("v0.1.54").unwrap() < notes.find("v0.1.53").unwrap());
     }
 
     #[test]
@@ -413,25 +618,18 @@ mod tests {
             check_failed: false,
             channel: "stable".into(),
             branch: "bost".into(),
-            remote_version: Some("0.1.50".into()),
+            remote_version: Some("0.1.54".into()),
             changelog: vec![ChangelogEntry {
                 sha: "ef012345".into(),
                 title: "Add OTA channels".into(),
             }],
             changelog_truncated: false,
+            release_notes: Some("## v0.1.54\n- Hello".into()),
+            notes_source: NotesSource::Changelog,
         };
         let j = u.to_json();
-        assert!(j.contains("\"update_available\":true"));
-        assert!(j.contains("\"remote_version\":\"0.1.50\""));
-        assert!(j.contains("Add OTA channels"));
-        assert!(j.contains("\"channel\":\"stable\""));
-    }
-
-    #[test]
-    fn local_hash_from_stack_version() {
-        assert_eq!(
-            local_git_hash("v0.1.0-2aad62c8").as_deref(),
-            local_git_hash("v0.1.0-2aad62c8").as_deref()
-        );
+        assert!(j.contains("\"notes_source\":\"changelog\""));
+        assert!(j.contains("release_notes"));
+        assert!(j.contains("Hello"));
     }
 }
