@@ -1296,7 +1296,8 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   width:100%;font:inherit;font-size:13px;padding:8px 10px;border-radius:6px;
   border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;
 }
-.ota-channel-hint{display:block;margin-top:8px;font-size:12px;color:var(--text3);line-height:1.4;}
+.ota-channel-hint{display:block;margin-top:8px;font-size:12px;color:var(--text3);line-height:1.4;font-weight:400;}
+.ota-channel-hint.is-up-to-date{color:var(--ok);font-weight:700;}
 .ota-review-versions{
   margin:0 0 12px;padding:12px 14px;border-radius:8px;
   background:linear-gradient(135deg,rgba(0,212,168,0.10),rgba(77,166,255,0.08));
@@ -9968,6 +9969,12 @@ function otaTargetLabel(d){
   }
   return d.latest||'';
 }
+function setOtaChannelHint(text,upToDate){
+  const hint=document.getElementById('ota-channel-hint');
+  if(!hint)return;
+  hint.textContent=text||'';
+  hint.classList.toggle('is-up-to-date',!!upToDate);
+}
 function escapeHtml(s){
   return String(s||'')
     .replace(/&/g,'&amp;')
@@ -10075,8 +10082,7 @@ async function startUpdate(opts){
   resetUpdateModalUi();
   document.getElementById('update-modal-title').textContent=t('update_title');
   await loadOtaChannel();
-  const hint=document.getElementById('ota-channel-hint');
-  if(hint)hint.textContent=t('ota_channel_help');
+  setOtaChannelHint(t('ota_channel_help'),false);
   modal.classList.add('open');
 
   if(opts.fromBanner){
@@ -10094,10 +10100,10 @@ async function startUpdate(opts){
           showOtaStep('review');
           return;
         }
-        if(hint)hint.textContent=t('ota_up_to_date',{
+        setOtaChannelHint(t('ota_up_to_date',{
           channel:(d&&d.channel)||otaChannelCache.channel,
           latest:(d&&d.latest)||'—',
-        });
+        }),true);
         showOtaStep('choose');
         return;
       }
@@ -10116,8 +10122,7 @@ async function startUpdate(opts){
 async function checkOtaInModal(){
   const btn=document.getElementById('ota-check-btn');
   if(btn)btn.disabled=true;
-  const hint=document.getElementById('ota-channel-hint');
-  if(hint)hint.textContent=t('ota_checking');
+  setOtaChannelHint(t('ota_checking'),false);
   try{
     const sel=document.getElementById('ota-channel-select');
     const channel=(sel&&sel.value)||'stable';
@@ -10140,21 +10145,21 @@ async function checkOtaInModal(){
     }
     applyUpdateCheckUi(d);
     if(d.check_failed){
-      if(hint)hint.textContent=t('ota_check_failed');
+      setOtaChannelHint(t('ota_check_failed'),false);
       return;
     }
     if(!d.update_available){
-      if(hint)hint.textContent=t('ota_up_to_date',{
+      setOtaChannelHint(t('ota_up_to_date',{
         channel:d.channel||otaChannelCache.channel,
         latest:d.latest||(d.branch||'—'),
-      });
+      }),true);
       return;
     }
     otaPendingCheck=d;
     paintOtaReview(d);
     showOtaStep('review');
   }catch{
-    if(hint)hint.textContent=t('ota_check_failed');
+    setOtaChannelHint(t('ota_check_failed'),false);
   }finally{
     if(btn)btn.disabled=false;
   }
@@ -11926,12 +11931,11 @@ async function saveOtaChannel(){
     }
     const d=await r.json();
     otaChannelCache={channel:d.channel||channel,branch:d.branch||(channel==='beta'?'beta':'bost')};
-    const hint=document.getElementById('ota-channel-hint');
     const modalOpen=document.getElementById('update-modal')?.classList.contains('open');
-    if(hint&&!modalOpen){
-      hint.textContent=t('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch});
-    }else if(hint&&modalOpen){
-      hint.textContent=t('ota_channel_help');
+    if(!modalOpen){
+      setOtaChannelHint(t('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch}),false);
+    }else{
+      setOtaChannelHint(t('ota_channel_help'),false);
     }
     // Refresh badge for the newly selected channel (silent).
     await checkUpdate();
