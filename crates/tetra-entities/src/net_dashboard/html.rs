@@ -1486,6 +1486,17 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .profile-item.active-profile{border-color:rgba(0,212,168,0.35);background:rgba(0,212,168,0.04);}
 .profile-name{flex:1;font-family:var(--mono);font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
+/* ── Topbar mobile hamburger (hidden on desktop; shown ≤700px below) ── */
+#sidebar-toggle-btn{
+  display:none;
+  width:40px;height:40px;align-items:center;justify-content:center;
+  background:transparent;border:1px solid var(--border);border-radius:8px;
+  color:var(--text2);cursor:pointer;font-size:16px;flex-shrink:0;
+}
+#mobile-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:150;
+}
+
 /* ── Responsive: mobile top nav ── */
 @media(max-width:700px){
   #sidebar{
@@ -1582,18 +1593,7 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 
 @media(min-width:701px){
   #mobile-overlay{display:none!important;}
-  #sidebar-toggle-btn-mobile{display:none!important;}
-}
-#mobile-overlay{
-  display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:150;
-}
-
-/* ── Topbar mobile toggle ── */
-#sidebar-toggle-btn{
-  display:none;
-  width:40px;height:40px;align-items:center;justify-content:center;
-  background:transparent;border:1px solid var(--border);border-radius:8px;
-  color:var(--text2);cursor:pointer;font-size:16px;flex-shrink:0;
+  #sidebar-toggle-btn{display:none!important;}
 }
 
 /* ── TS Visualizer ───────────────────────────────────────────────── */
