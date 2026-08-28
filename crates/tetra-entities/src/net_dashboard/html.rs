@@ -23,7 +23,7 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <html lang="es" data-uisize="m" data-theme="light">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>TETRA {{PRODUCT_NAME}}</title>
 <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -47,7 +47,7 @@ pub const DASHBOARD_HTML: &str = r#"<!DOCTYPE html>
 <style>
 /* ── Reset ── */
 *{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;overflow:hidden;}
+html,body{height:100%;height:100dvh;overflow:hidden;}
 /* Hold first paint until icons/theme/lang chrome are applied (see markDashboardReady). */
 html.fs-booting body{visibility:hidden;}
 
@@ -169,7 +169,7 @@ body.touch-mode textarea{min-height:44px;font-size:15px;}
 body{
   background:var(--bg);color:var(--text);
   font-family:var(--sans);font-size:14px;
-  display:flex;height:100vh;overflow:hidden;
+  display:flex;height:100vh;height:100dvh;overflow:hidden;
 }
 
 /* ── Sidebar ── */
@@ -427,7 +427,8 @@ body{
   background:var(--bg2);
   border-bottom:1px solid var(--border);
   display:flex;align-items:center;
-  padding:0 20px;gap:12px;
+  padding:env(safe-area-inset-top) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left));
+  gap:12px;
   flex-shrink:0;
   position:relative;z-index:50;   /* keep dropdown popovers above #content */
 }
@@ -692,6 +693,50 @@ body{
 }
 .lang-btn:hover{color:var(--text);background:var(--bg3);}
 .lang-btn.active{color:var(--accent);background:rgba(0,212,168,0.08);border-color:rgba(0,212,168,0.2);}
+
+/* Mobile prefs pop (theme + language) — hidden on desktop; mirrors .power-pop */
+.prefs-wrap{display:none;position:relative;}
+.prefs-btn{
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  background:transparent;border:1px solid var(--border);border-radius:6px;
+  color:var(--text3);cursor:pointer;transition:all 0.15s;
+}
+.prefs-btn svg{width:16px;height:16px;display:block;}
+.prefs-btn:hover{color:var(--text);border-color:var(--border2);background:var(--bg3);}
+.prefs-btn[aria-expanded="true"]{
+  color:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 45%,var(--border));
+  background:color-mix(in srgb,var(--accent) 8%,transparent);
+}
+.prefs-pop{
+  position:absolute;top:calc(100% + 9px);right:0;
+  width:248px;padding:6px;z-index:300;
+  background:color-mix(in srgb,var(--bg2) 88%,transparent);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+  backdrop-filter:saturate(180%) blur(20px);
+  border:1px solid var(--border);border-radius:14px;
+  box-shadow:
+    0 18px 48px -16px rgba(20,30,50,0.34),
+    0 4px 12px rgba(20,30,50,0.10),
+    var(--hair);
+  opacity:0;transform:translateY(-6px) scale(0.98);transform-origin:top right;
+  pointer-events:none;
+  transition:opacity 0.16s ease,transform 0.16s cubic-bezier(.2,.8,.2,1);
+}
+.prefs-pop.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto;}
+.prefs-pop-title{
+  font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.12em;
+  text-transform:uppercase;color:var(--text3);padding:8px 10px 6px;
+}
+.prefs-pop .theme-picker{width:100%;margin:0 4px 8px;}
+.prefs-pop .theme-btn{flex:1;padding:8px 6px;font-size:11px;}
+.prefs-pop .lang-picker{display:flex;flex-wrap:wrap;gap:4px;margin:0 4px 6px;padding:0 2px 4px;}
+.prefs-pop .lang-btn{min-width:36px;padding:8px 6px;font-size:11px;}
+@media (max-width:700px){
+  .prefs-wrap{display:flex;}
+  .topbar-inline-prefs{display:none!important;}
+  .prefs-pop{width:min(248px,calc(100vw - 24px));}
+}
 
 /* ── Readability eye button + Apple-style level popover ───────────────────── */
 .eye-wrap{position:relative;display:flex;}
@@ -1450,14 +1495,34 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
     z-index:200;
     box-shadow:4px 0 20px rgba(0,0,0,0.4);
     width:220px!important;min-width:220px!important;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
   }
   #sidebar.mobile-open{transform:translateX(0);}
   #mobile-overlay{display:block;}
   #main{width:100%;}
-  #topbar{padding:0 12px;}
-  #content{padding:12px;}
+  #topbar{
+    flex-wrap:wrap;
+    height:auto;
+    min-height:48px;
+    padding:max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
+    gap:8px 10px;
+    align-items:center;
+  }
+  .topbar-chips{
+    order:10;
+    flex:1 1 100%;
+    width:100%;
+    padding:0 0 8px;
+    gap:6px;
+    overflow-x:auto;-webkit-overflow-scrolling:touch;
+  }
+  #content{
+    padding:12px;
+    padding-bottom:max(12px, env(safe-area-inset-bottom));
+  }
   .stat-grid{grid-template-columns:1fr 1fr;}
-  #sidebar-toggle-btn{display:flex;}
+  #sidebar-toggle-btn{display:flex;width:44px;height:44px;}
 }
 
 /* ── Phone portrait (~380px) — single column, larger touch targets ── */
@@ -1465,17 +1530,16 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   /* Sidebar covers more of the viewport so the menu items are tappable */
   #sidebar{width:80vw!important;min-width:240px!important;max-width:280px;}
 
-  /* Tighter topbar so the title + lang/theme don't overflow */
-  #topbar{height:48px;padding:0 8px;gap:6px;}
+  /* Tighter topbar so the title + controls don't overflow */
+  #topbar{padding:max(4px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));gap:6px 8px;}
   .topbar-title{font-size:13px;}
   .topbar-sub{display:none;}
   .topbar-sep{display:none;}
   .topbar-right{gap:4px;}
-  .theme-btn{padding:3px 6px;font-size:9px;}
-  .lang-btn{padding:2px 4px;font-size:9px;}
-  .logout-btn{width:30px;height:30px;font-size:13px;}
+  .prefs-btn,.eye-btn{width:36px;height:36px;}
+  .logout-btn{width:36px;height:36px;font-size:14px;}
 
-  #content{padding:8px;}
+  #content{padding:8px;padding-bottom:max(8px, env(safe-area-inset-bottom));}
 
   /* Cards in a single column so each one is readable */
   .stat-grid{grid-template-columns:1fr;gap:10px;}
@@ -1527,8 +1591,8 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 /* ── Topbar mobile toggle ── */
 #sidebar-toggle-btn{
   display:none;
-  width:32px;height:32px;align-items:center;justify-content:center;
-  background:transparent;border:1px solid var(--border);border-radius:6px;
+  width:40px;height:40px;align-items:center;justify-content:center;
+  background:transparent;border:1px solid var(--border);border-radius:8px;
   color:var(--text2);cursor:pointer;font-size:16px;flex-shrink:0;
 }
 
@@ -1774,8 +1838,10 @@ body{
 .topbar-title{font-size:16px;font-weight:800;letter-spacing:-0.015em;}
 
 /* ── Content rhythm ── */
-#content{padding:24px;}
-@media(max-width:700px){#content{padding:14px;}}
+#content{padding:24px;padding-bottom:max(24px, env(safe-area-inset-bottom));}
+@media(max-width:700px){
+  #content{padding:14px;padding-bottom:max(14px, env(safe-area-inset-bottom));}
+}
 
 /* ── Stat cards: subtle vertical sheen, brand top-line fade, deeper lift ── */
 .stat-grid{gap:16px;margin-bottom:22px;}
@@ -2255,8 +2321,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .nav-item.active .nav-icon{filter:drop-shadow(0 0 6px color-mix(in srgb,var(--accent) 55%,transparent));}
 
 /* ── Header status chips (BS / Brew / Emergency) — calm .pill in the topbar ── */
-.topbar-chips{display:flex;align-items:center;gap:8px;}
-@media(max-width:760px){.topbar-chips{display:none;}}
+.topbar-chips{display:flex;align-items:center;gap:8px;min-width:0;}
+/* ≤700px: second row under title/actions (see mobile topbar rules). Do not hide. */
 
 /* ════ TETRA BTS Details card ════ */
 .bts-grid{
@@ -2900,18 +2966,46 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </button>
         </div>
       </div>
-      <div class="theme-picker">
+      <div class="theme-picker topbar-inline-prefs">
         <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)">Dark</button>
         <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)">Light</button>
         <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)">Blue</button>
       </div>
-      <div class="lang-picker">
-        <button class="lang-btn" onclick="setLang('en',this)">EN</button>
-        <button class="lang-btn" onclick="setLang('ro',this)">RO</button>
-        <button class="lang-btn" onclick="setLang('de',this)">DE</button>
-        <button class="lang-btn active" onclick="setLang('es',this)">ES</button>
-        <button class="lang-btn" onclick="setLang('hu',this)">HU</button>
-        <button class="lang-btn" onclick="setLang('zh',this)">CN</button>
+      <div class="lang-picker topbar-inline-prefs">
+        <button class="lang-btn" data-lang="en" onclick="setLang('en',this)">EN</button>
+        <button class="lang-btn" data-lang="ro" onclick="setLang('ro',this)">RO</button>
+        <button class="lang-btn" data-lang="de" onclick="setLang('de',this)">DE</button>
+        <button class="lang-btn active" data-lang="es" onclick="setLang('es',this)">ES</button>
+        <button class="lang-btn" data-lang="hu" onclick="setLang('hu',this)">HU</button>
+        <button class="lang-btn" data-lang="zh" onclick="setLang('zh',this)">CN</button>
+      </div>
+      <!-- Phone: theme + language collapsed into one popover (desktop keeps inline pickers). -->
+      <div class="prefs-wrap">
+        <button class="prefs-btn" id="prefs-btn" onclick="togglePrefsPop(event)"
+                title="Theme &amp; language" aria-haspopup="true" aria-expanded="false" aria-label="Theme and language">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+          </svg>
+        </button>
+        <div class="prefs-pop" id="prefs-pop" role="menu" aria-label="Theme and language">
+          <div class="prefs-pop-title" data-i18n="prefs_theme">THEME</div>
+          <div class="theme-picker">
+            <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)">Dark</button>
+            <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)">Light</button>
+            <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)">Blue</button>
+          </div>
+          <div class="prefs-pop-title" data-i18n="prefs_lang">LANGUAGE</div>
+          <div class="lang-picker">
+            <button class="lang-btn" data-lang="en" onclick="setLang('en',this)">EN</button>
+            <button class="lang-btn" data-lang="ro" onclick="setLang('ro',this)">RO</button>
+            <button class="lang-btn" data-lang="de" onclick="setLang('de',this)">DE</button>
+            <button class="lang-btn active" data-lang="es" onclick="setLang('es',this)">ES</button>
+            <button class="lang-btn" data-lang="hu" onclick="setLang('hu',this)">HU</button>
+            <button class="lang-btn" data-lang="zh" onclick="setLang('zh',this)">CN</button>
+          </div>
+        </div>
       </div>
       <!-- Session logout (person + arrow). Only when auth is on. -->
       <button class="logout-btn" id="logout-btn" onclick="doLogout()" title="Log out" aria-label="Log out" style="display:none"><span class="ico18" data-icon="logout"></span></button>
@@ -5362,6 +5456,7 @@ const LANGS={
     bts_la:'Location Area',bts_cc:'Colour Code',bts_carrier:'Main Carrier',bts_band:'Band',
     bts_access:'Registration Access',bts_wl_entries:'whitelisted ISSI',bts_wl_open:'Open — all ISSI may register',
     readability:'Readability',size_small:'Small',size_small_d:'Compact · normal contrast',size_medium:'Medium',size_medium_d:'Default · comfortable',size_high:'High',size_high_d:'Larger · stronger contrast',size_ultra:'Ultra',size_ultra_d:'Largest · maximum contrast',sdr:'SDR',power:'Power',
+    prefs_theme:'THEME',prefs_lang:'LANGUAGE',prefs_menu_hint:'Theme & language',
     no_terminals:'No radios registered',no_calls:'No active calls',
     live_log:'Live Log',autoscroll:'Auto-scroll',filter_all:'All',
     clear:'Clear',export:'Export',restart:'Restart',shutdown:'Shutdown',delete:'Delete',save:'Save',
@@ -5888,6 +5983,7 @@ const LANGS={
     confirm_start:'¿Iniciar Bost FlowStation?\nEl servicio se reiniciará y la página se recargará.',
     confirm_logout:'¿Cerrar sesión?',
     logout:'Cerrar sesión',
+    prefs_theme:'TEMA',prefs_lang:'IDIOMA',prefs_menu_hint:'Tema e idioma',
     top_power_menu:'CONTROL',
     top_power_menu_hint:'Reiniciar, suspender o apagar',
     svc_suspend:'Suspender',
@@ -6150,22 +6246,24 @@ function applyLang(){
   try{applyServiceStateUi();}catch{}
   try{if(typeof updateHwRfUi==='function')updateHwRfUi();}catch{}
   try{syncPowerMenuUi();}catch{}
+  try{syncPrefsMenuUi();}catch{}
 }
 function setLang(l,btn){
   currentLang=l;localStorage.setItem('fs_lang',l);
-  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.remove('active'));
-  if(btn)btn.classList.add('active');
-  else document.querySelectorAll('.lang-btn').forEach(b=>{if(b.textContent.toLowerCase()===l)b.classList.add('active');});
+  document.querySelectorAll('.lang-btn').forEach(b=>{
+    const code=b.dataset.lang||'';
+    b.classList.toggle('active',code===l);
+  });
   applyLang();
+  try{syncPrefsMenuUi();}catch{}
 }
 
 let currentTheme=localStorage.getItem('fs_theme')||'light';
 function setTheme(theme,btn){
   currentTheme=theme;localStorage.setItem('fs_theme',theme);
   document.documentElement.setAttribute('data-theme',theme==='dark'?'':theme);
-  document.querySelectorAll('.theme-btn').forEach(d=>d.classList.remove('active'));
-  if(btn)btn.classList.add('active');
-  else document.querySelectorAll('.theme-btn').forEach(d=>{if(d.dataset.t===theme)d.classList.add('active');});
+  document.querySelectorAll('.theme-btn').forEach(d=>d.classList.toggle('active',d.dataset.t===theme));
+  try{syncPrefsMenuUi();}catch{}
 }
 
 // ── Readability (text size + contrast) ───────────────────────────────────────
@@ -6184,6 +6282,7 @@ function setUiSize(s){
 function toggleReadPop(e){
   if(e)e.stopPropagation();
   closePowerPop();
+  closePrefsPop();
   const pop=document.getElementById('read-pop'),btn=document.getElementById('read-btn');
   const open=pop.classList.toggle('open');
   if(btn)btn.setAttribute('aria-expanded',open?'true':'false');
@@ -6196,6 +6295,7 @@ function closeReadPop(){
 function togglePowerPop(e){
   if(e)e.stopPropagation();
   closeReadPop();
+  closePrefsPop();
   const pop=document.getElementById('power-pop'),btn=document.getElementById('power-menu-btn');
   if(!pop)return;
   const open=pop.classList.toggle('open');
@@ -6206,6 +6306,31 @@ function closePowerPop(){
   const pop=document.getElementById('power-pop'),btn=document.getElementById('power-menu-btn');
   if(pop)pop.classList.remove('open');
   if(btn)btn.setAttribute('aria-expanded','false');
+}
+function togglePrefsPop(e){
+  if(e)e.stopPropagation();
+  closeReadPop();
+  closePowerPop();
+  const pop=document.getElementById('prefs-pop'),btn=document.getElementById('prefs-btn');
+  if(!pop)return;
+  const open=pop.classList.toggle('open');
+  if(btn)btn.setAttribute('aria-expanded',open?'true':'false');
+  if(open)syncPrefsMenuUi();
+}
+function closePrefsPop(){
+  const pop=document.getElementById('prefs-pop'),btn=document.getElementById('prefs-btn');
+  if(pop)pop.classList.remove('open');
+  if(btn)btn.setAttribute('aria-expanded','false');
+}
+function syncPrefsMenuUi(){
+  const btn=document.getElementById('prefs-btn');
+  if(btn){
+    const hint=t('prefs_menu_hint');
+    btn.title=hint;
+    btn.setAttribute('aria-label',hint);
+  }
+  const pop=document.getElementById('prefs-pop');
+  if(pop)pop.setAttribute('aria-label',t('prefs_menu_hint'));
 }
 function syncPowerMenuUi(){
   const lab=document.getElementById('power-opt-suspend-label');
@@ -6237,11 +6362,14 @@ document.addEventListener('click',e=>{
   if(pop&&pop.classList.contains('open')&&!e.target.closest('.eye-wrap'))closeReadPop();
   const pp=document.getElementById('power-pop');
   if(pp&&pp.classList.contains('open')&&!e.target.closest('.power-wrap'))closePowerPop();
+  const pr=document.getElementById('prefs-pop');
+  if(pr&&pr.classList.contains('open')&&!e.target.closest('.prefs-wrap'))closePrefsPop();
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     closeReadPop();
     closePowerPop();
+    closePrefsPop();
     const cm=document.getElementById('svc-confirm-modal');
     if(cm&&cm.classList.contains('open')){
       const cancel=document.getElementById('svc-confirm-cancel');
@@ -12258,7 +12386,7 @@ pub const LOGIN_HTML: &str = r##"<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#eceff4">
 <title>{{PRODUCT_NAME}}</title>
 <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32">
@@ -12280,7 +12408,7 @@ body{
   font-family:var(--sans);background:var(--bg);color:var(--text);
   display:flex;align-items:center;justify-content:center;
   min-height:100vh;min-height:100dvh;
-  padding:20px;
+  padding:max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   /* Premium light backdrop: faint dot-grid texture + soft brand glows */
   background:
     radial-gradient(circle at 1px 1px, rgba(30,45,70,0.05) 1px, transparent 0) 0 0/22px 22px,
@@ -12388,7 +12516,7 @@ input:focus{border-color:var(--accent2);background:var(--bg4);}
 .footer a:hover{color:var(--accent2);}
 
 @media(max-width:500px){
-  body{padding:14px;}
+  body{padding:max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));}
   .login-card{padding:28px 22px;border-radius:12px;}
   .logo-mark{width:56px;height:56px;}
   .logo-mark svg{width:30px;height:30px;}
