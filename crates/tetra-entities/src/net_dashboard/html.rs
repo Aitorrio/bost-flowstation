@@ -3302,7 +3302,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="home-quick-head">
           <div class="hero-main">
             <div class="hero-title" data-i18n="home_quick_title">Quick profiles</div>
-            <div class="hero-sub" data-i18n="home_quick_sub">Pick Cell × Brew and apply. Full editing is in Config.</div>
           </div>
         </div>
         <div class="home-quick-profiles">
@@ -5620,7 +5619,7 @@ const LANGS={
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Home',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
-    home_quick_title:'Quick profiles',home_quick_sub:'Pick Cell × Brew and apply. Full editing is in Config.',home_more_settings:'More settings',
+    home_quick_title:'Quick profiles',home_more_settings:'More settings',
     setup_sec:'First-run / SDR',setup_title:'Setup',setup_open_wizard:'Open wizard',setup_sdr_title:'SDR devices',
     setup_scan:'Scan',setup_install_sx:'Install SXceiver',setup_install_lime:'Install Lime',
     setup_enable_rf:'Enable RF & Restart',setup_autostart:'Ensure autostart',setup_mark_done:'Mark setup done',
@@ -5857,7 +5856,7 @@ const LANGS={
     bts_ip:'IP BTS',offline:'DECONECTAT',online:'CONECTAT',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Acasă',calls:'Apeluri',lastheard:'Ultima Activitate',log:'Log',rf:'RF',health:'Sănătate',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
-    home_quick_title:'Profiluri rapide',home_quick_sub:'Alege Cell × Brew și aplică. Editarea completă e în Config.',home_more_settings:'Mai multe setări',
+    home_quick_title:'Profiluri rapide',home_more_settings:'Mai multe setări',
     sdslog:'Jurnal SDS',th_dir:'Dir',th_from:'De la',th_to:'Către',th_message:'Mesaj',no_sds:'Niciun mesaj SDS încă',sds_refresh:'Reîmprospătează',
     rf_freq:'Frecvență centru',rf_rate:'Rată eșantion',rf_rms:'RMS',rf_peak:'Vârf',rf_age:'Captură',
     rf_waiting:'în așteptare…',rf_live:'live',rf_stale:'expirat',
@@ -5978,7 +5977,7 @@ const LANGS={
     bts_ip:'BTS-IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Start',calls:'Anrufe',lastheard:'Zuletzt Gehört',log:'Log',rf:'RF',health:'Gesundheit',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
-    home_quick_title:'Schnelle Profile',home_quick_sub:'Cell × Brew wählen und anwenden. Vollbearbeitung in Config.',home_more_settings:'Weitere Einstellungen',
+    home_quick_title:'Schnelle Profile',home_more_settings:'Weitere Einstellungen',
     sdslog:'SDS-Log',th_dir:'Ri.',th_from:'Von',th_to:'An',th_message:'Nachricht',no_sds:'Noch keine SDS-Nachrichten',sds_refresh:'Aktualisieren',
     rf_freq:'Mittenfrequenz',rf_rate:'Abtastrate',rf_rms:'RMS',rf_peak:'Spitze',rf_age:'Aufnahme',
     rf_waiting:'wartet…',rf_live:'live',rf_stale:'veraltet',
@@ -6077,7 +6076,7 @@ const LANGS={
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
     stations:'Inicio',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
-    home_quick_title:'Perfiles rápidos',home_quick_sub:'Elige Cell × Brew y aplícalos. La edición completa está en Config.',home_more_settings:'Más ajustes',
+    home_quick_title:'Perfiles rápidos',home_more_settings:'Más ajustes',
     setup_sec:'Primer arranque / SDR',setup_title:'Setup',setup_open_wizard:'Abrir asistente',setup_sdr_title:'Dispositivos SDR',
     setup_scan:'Escanear',setup_install_sx:'Instalar SXceiver',setup_install_lime:'Instalar Lime',
     setup_enable_rf:'Activar RF y reiniciar',setup_autostart:'Asegurar autostart',setup_mark_done:'Marcar setup hecho',
@@ -6275,7 +6274,7 @@ const LANGS={
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Kezdőlap',calls:'Hívások',lastheard:'Utoljára Hallott',log:'Napló',rf:'RF',health:'Állapot',echolink:'EchoLink',echolink_title:'EchoLink',config:'Konfig',
-    home_quick_title:'Gyors profilok',home_quick_sub:'Válassz Cell × Brew-t és alkalmazd. Teljes szerkesztés a Konfigban.',home_more_settings:'További beállítások',
+    home_quick_title:'Gyors profilok',home_more_settings:'További beállítások',
     sdslog:'SDS Napló',th_dir:'Irány',th_from:'Feladó',th_to:'Címzett',th_message:'Üzenet',no_sds:'Még nincs SDS üzenet',sds_refresh:'Frissítés',
     rf_freq:'Központi frekvencia',rf_rate:'Mintavételezési ráta',rf_rms:'RMS',rf_peak:'Csúcs',rf_age:'Pillanatkép',
     rf_waiting:'várakozás…',rf_live:'élő',rf_stale:'elavult',
@@ -6355,7 +6354,7 @@ const LANGS={
     bts_ip:'BTS IP',offline:'离线',online:'在线',
     brew_online:'在线',brew_offline:'离线',
     stations:'主页',calls:'通话',lastheard:'最近通话',log:'日志',rf:'RF',health:'健康',echolink:'EchoLink',echolink_title:'EchoLink',config:'配置',
-    home_quick_title:'快速配置',home_quick_sub:'选择 Cell × Brew 并应用。完整编辑在「配置」。',home_more_settings:'更多设置',
+    home_quick_title:'快速配置',home_more_settings:'更多设置',
     sdslog:'SDS日志',th_dir:'方向',th_from:'发件',th_to:'收件',th_message:'消息',no_sds:'暂无SDS消息',sds_refresh:'刷新',
     rf_freq:'中心频率',rf_rate:'采样率',rf_rms:'RMS',rf_peak:'峰值',rf_age:'快照',
     rf_waiting:'等待中…',rf_live:'实时',rf_stale:'已过期',
@@ -8939,10 +8938,15 @@ async function refreshProfileSelects(active){
   const brewSels=[document.getElementById('vc-brew-profile'),document.getElementById('home-brew-profile')];
   if(!cellSels.some(Boolean)||!brewSels.some(Boolean))return;
   try{
+    const fetchJson=async(url)=>{
+      const r=await fetch(url,{credentials:'same-origin'});
+      if(!r.ok)throw new Error((await r.text())||('HTTP '+r.status));
+      return r.json();
+    };
     const [cells,brews,act]=await Promise.all([
-      fetch('/api/profiles/cell').then(r=>r.json()),
-      fetch('/api/profiles/brew').then(r=>r.json()),
-      active?Promise.resolve(active):fetch('/api/profiles/active').then(r=>r.json()),
+      fetchJson('/api/profiles/cell'),
+      fetchJson('/api/profiles/brew'),
+      active?Promise.resolve(active):fetchJson('/api/profiles/active'),
     ]);
     let cellPick=null;
     if(active&&active.cell)cellPick=active.cell;
@@ -8952,9 +8956,13 @@ async function refreshProfileSelects(active){
     else if(act&&Object.prototype.hasOwnProperty.call(act,'brew'))brewPick=act.brew||'';
     cellSels.forEach(sel=>fillCellProfileSelect(sel,cells,cellPick));
     brewSels.forEach(sel=>fillBrewProfileSelect(sel,brews,brewPick));
+    // Clear stale errors from a previous failed refresh (e.g. mid-restart).
+    vcMsg('home-profiles-msg','',true);
   }catch(e){
-    vcMsg('vc-profiles-msg',String(e),false);
-    vcMsg('home-profiles-msg',String(e),false);
+    // Background load only — do not paint TypeError on Home when the service
+    // is briefly unreachable (OTA / restart). Config still surfaces API errors
+    // when the user is actively editing profiles.
+    console.warn('refreshProfileSelects',e);
   }
 }
 function goHomeMoreSettings(){
