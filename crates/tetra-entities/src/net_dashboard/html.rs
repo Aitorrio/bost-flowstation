@@ -2716,7 +2716,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 #rf-status-banner.show{display:block;}
 #rf-status-banner.is-offline{background:rgba(120,140,160,0.12);border-color:rgba(120,140,160,0.35);color:var(--muted);}
 
-/* ── Phase 2 mobile: System / OTA / Setup (desktop layout unchanged ≥701px) ── */
+/* ── Phase 2 mobile: System + Setup (OTA modal kept as before — do not restyle) ── */
 @media(max-width:700px){
   /* System hero: actions as 2×2 tappable tiles; stats denser */
   .sys-hero{padding:14px 14px 16px;gap:14px;}
@@ -2738,40 +2738,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     margin-top:4px;
   }
   .hero-metric{text-align:left;}
-
-  /* OTA modal: step list vertical; sticky full-width actions */
-  .modal-overlay{
-    padding:max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
-            max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
-    align-items:flex-end;
-  }
-  #update-modal .modal{
-    width:100%!important;max-width:100%;
-    max-height:min(92dvh,92vh);
-    display:flex;flex-direction:column;
-    padding:16px!important;margin:0;
-    border-radius:14px 14px 10px 10px;
-  }
-  .ota-steps{flex-direction:column;gap:6px;margin-bottom:12px;}
-  .ota-steps li{
-    flex:none;text-align:left;padding:10px 12px;font-size:12px;
-  }
-  #update-modal .ota-step.is-active{
-    flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
-  }
-  #update-modal .modal-actions,
-  #svc-confirm-modal .modal-actions{
-    flex-direction:column-reverse;gap:8px;
-    flex-shrink:0;position:sticky;bottom:0;
-    background:var(--bg2);padding-top:12px;margin-top:12px;
-  }
-  #update-modal .modal-actions .btn,
-  #svc-confirm-modal .modal-actions .btn{
-    width:100%;justify-content:center;min-height:44px;
-  }
-  .ota-notes{max-height:min(32vh,240px);}
-  .ota-channel-field select{min-height:44px;font-size:16px;}
-  .ota-review-versions{font-size:12px;}
 
   /* Setup wizard: near full-screen card, full-width nav */
   #setup-wizard{
@@ -2801,8 +2767,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   /* Safer single-column CTAs on narrow phones (Power off / Restart less easy to mis-tap) */
   .sys-hero-actions{grid-template-columns:1fr;}
   .sys-hero .sys-hero-stats{grid-template-columns:1fr;}
-  .ota-notes{max-height:min(26vh,200px);}
-  .update-terminal{height:160px!important;}
 }
 </style>
 </head>
@@ -10033,17 +9997,26 @@ async function pollServiceBackOnline(){
     if(body)body.textContent=t('restart_wait_timeout');
     return;
   }
+  const finishJoin=(url)=>{
+    if(restartWaitTimer){clearInterval(restartWaitTimer);restartWaitTimer=null;}
+    // replace (not reload) avoids bfcache restoring the dead pre-restart SPA on mobile.
+    location.replace(url);
+  };
   try{
-    // Public favicon — no auth; cache-bust so we do not hit a stale browser cache.
-    const r=await fetch('/favicon.png?ts='+Date.now(),{cache:'no-store',credentials:'omit'});
+    // Auth-gated probe: after systemd restart the in-memory session store is empty.
+    // 401 = process is up and login is required; 200 = up (open dashboard or session still valid).
+    // Do NOT use /favicon — it stays public and can flip "ready" while the SPA is still dead.
+    const r=await fetch('/api/service/status?ts='+Date.now(),{cache:'no-store',credentials:'same-origin'});
+    if(r.status===401){
+      restartWaitOkStreak++;
+      if(restartWaitOkStreak>=2)finishJoin('/login');
+      return;
+    }
     if(!r.ok){restartWaitOkStreak=0;return;}
     restartWaitOkStreak++;
-    // Two successes in a row avoids a half-open accept during systemd restart.
-    if(restartWaitOkStreak>=2){
-      if(restartWaitTimer){clearInterval(restartWaitTimer);restartWaitTimer=null;}
-      location.reload();
-    }
+    if(restartWaitOkStreak>=2)finishJoin('/?rejoined='+Date.now());
   }catch{
+    // Process not accepting yet — keep waiting (do not treat favicon as success).
     restartWaitOkStreak=0;
   }
 }
@@ -10185,6 +10158,12 @@ function enterOtaLostContact(){
   setUpdateProgress(96,'update_phase_restart',t('update_lost_link'),false,true);
   document.getElementById('update-modal')?.classList.remove('open');
   beginOtaRestartWait();
+}
+/** True when poll failures likely mean the service is restarting (not a compile blip). */
+function otaShouldTreatAsLostContact(log){
+  if(otaLogSchedulesRestart(log))return true;
+  // Heavy compile can stall /api/update/status briefly — require a long streak otherwise.
+  return updateFailStreak>=18;
 }
 function otaLogSchedulesRestart(log){
   return /Restarting service|Build successful/i.test(log||'');
@@ -10445,7 +10424,12 @@ async function confirmOtaUpdate(){
   updatePollTimer=setInterval(async()=>{
     try{
       const r=await fetch('/api/update/status',{cache:'no-store',credentials:'same-origin'});
-      if(!r.ok){updateFailStreak++;if(updateFailStreak>=5)enterOtaLostContact();return;}
+      if(!r.ok){
+        updateFailStreak++;
+        const logSoFar=(termEl&&termEl.textContent)||'';
+        if(otaShouldTreatAsLostContact(logSoFar))enterOtaLostContact();
+        return;
+      }
       updateFailStreak=0;
       const j=await r.json();
       if(j.log!=null){
@@ -10495,7 +10479,8 @@ async function confirmOtaUpdate(){
       }
     }catch{
       updateFailStreak++;
-      if(updateFailStreak>=5)enterOtaLostContact();
+      const logSoFar=(termEl&&termEl.textContent)||'';
+      if(otaShouldTreatAsLostContact(logSoFar))enterOtaLostContact();
     }
   },1000);
 }
