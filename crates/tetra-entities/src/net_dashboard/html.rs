@@ -259,13 +259,14 @@ body{
   100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 0%,transparent);}
 }
 
-/* Collapsed rail (56px): keep the tinted glyphs, drop labels/value/dot gracefully. */
+/* Collapsed rail (56px): drop status chrome (already in topbar chips);
+   keep logo glyph + nav icons + collapse toggle. */
 #sidebar.collapsed .sidebar-logo{padding-left:0;padding-right:0;align-items:center;}
-#sidebar.collapsed .hw-status{background:transparent;border-color:transparent;box-shadow:none;padding:2px 0;gap:6px;}
-#sidebar.collapsed .hw-row{justify-content:center;padding:4px 0;gap:0;}
-#sidebar.collapsed .hw-meta,
-#sidebar.collapsed .hw-live{opacity:0;width:0;pointer-events:none;}
-#sidebar.collapsed .hw-row + .hw-row{box-shadow:none;}
+#sidebar.collapsed .hw-status,
+#sidebar.collapsed .conn-status-row,
+#sidebar.collapsed .brew-status-row{
+  display:none!important;
+}
 
 /* Hide the whole block + its border when neither row is active (Chromium :has()). */
 .hw-status:not(:has(.hw-row[style*="flex"])){display:none;}
@@ -1537,25 +1538,6 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   #sidebar-toggle-btn{display:flex;width:44px;height:44px;}
   /* Desktop icon-rail collapse does not apply to the phone drawer. */
   .sidebar-toggle{display:none!important;}
-  #sidebar.collapsed{
-    width:80vw!important;min-width:240px!important;max-width:280px!important;
-  }
-  #sidebar.collapsed .logo-text,
-  #sidebar.collapsed .hw-meta,
-  #sidebar.collapsed .hw-live,
-  #sidebar.collapsed .nav-section-label,
-  #sidebar.collapsed .nav-label,
-  #sidebar.collapsed .nav-badge,
-  #sidebar.collapsed .sidebar-copyright,
-  #sidebar.collapsed .brew-info,
-  #sidebar.collapsed .conn-info{
-    opacity:1!important;width:auto!important;pointer-events:auto!important;
-  }
-  #sidebar.collapsed .sidebar-logo{padding-left:16px;padding-right:16px;align-items:stretch;}
-  #sidebar.collapsed .hw-status{
-    background:var(--bg2);border-color:var(--border);box-shadow:var(--hair);
-  }
-  #sidebar.collapsed .hw-row{justify-content:flex-start;padding:inherit;gap:inherit;}
 }
 
 /* ── Phone portrait (~380px) — single column, larger touch targets ── */
