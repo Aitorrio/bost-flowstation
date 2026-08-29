@@ -956,8 +956,8 @@ input[type="radio"]{accent-color:var(--accent);}
 #content::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
 
 /* Page sections */
-.page{display:none;}
-.page.active{display:block;}
+.page{display:none;opacity:1;}
+.page.active{display:block;opacity:1;}
 
 /* ── Stat cards ── */
 .stat-grid{
@@ -1872,8 +1872,10 @@ tbody td{transition:background .12s ease;}
     box-shadow:0 12px 30px -12px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.30);
     border-color:var(--border2);
   }
-  /* Page enter: fade + rise. Fires only when a page becomes active (nav switch). */
-  .page.active{animation:fsPageIn .34s cubic-bezier(.2,.7,.3,1) both;}
+  /* Page enter: only after fs-ready. Running opacity animation while
+     html.fs-booting { visibility:hidden } can leave .page stuck at opacity:0
+     on WebKit/Chromium (blank main pane; sidebar still visible). */
+  html.fs-ready .page.active{animation:fsPageIn .34s cubic-bezier(.2,.7,.3,1) both;}
   @keyframes fsPageIn{from{opacity:0;transform:translateY(7px);}to{opacity:1;transform:none;}}
   /* Nav items: smoother hover/active transition. */
   .nav-item{transition:background .18s ease, color .18s ease, box-shadow .18s ease;}
@@ -8933,37 +8935,43 @@ function fillBrewProfileSelect(sel,brews,pick){
   else if(keep&&[...sel.options].some(o=>o.value===keep))sel.value=keep;
   else sel.value='';
 }
+let profileSelectsInflight=null;
 async function refreshProfileSelects(active){
   const cellSels=[document.getElementById('vc-cell-profile'),document.getElementById('home-cell-profile')];
   const brewSels=[document.getElementById('vc-brew-profile'),document.getElementById('home-brew-profile')];
   if(!cellSels.some(Boolean)||!brewSels.some(Boolean))return;
-  try{
-    const fetchJson=async(url)=>{
-      const r=await fetch(url,{credentials:'same-origin'});
-      if(!r.ok)throw new Error((await r.text())||('HTTP '+r.status));
-      return r.json();
-    };
-    const [cells,brews,act]=await Promise.all([
-      fetchJson('/api/profiles/cell'),
-      fetchJson('/api/profiles/brew'),
-      active?Promise.resolve(active):fetchJson('/api/profiles/active'),
-    ]);
-    let cellPick=null;
-    if(active&&active.cell)cellPick=active.cell;
-    else if(act?.cell)cellPick=act.cell;
-    let brewPick=undefined;
-    if(active&&Object.prototype.hasOwnProperty.call(active,'brew'))brewPick=active.brew||'';
-    else if(act&&Object.prototype.hasOwnProperty.call(act,'brew'))brewPick=act.brew||'';
-    cellSels.forEach(sel=>fillCellProfileSelect(sel,cells,cellPick));
-    brewSels.forEach(sel=>fillBrewProfileSelect(sel,brews,brewPick));
-    // Clear stale errors from a previous failed refresh (e.g. mid-restart).
-    vcMsg('home-profiles-msg','',true);
-  }catch(e){
-    // Background load only — do not paint TypeError on Home when the service
-    // is briefly unreachable (OTA / restart). Config still surfaces API errors
-    // when the user is actively editing profiles.
-    console.warn('refreshProfileSelects',e);
-  }
+  if(profileSelectsInflight)return profileSelectsInflight;
+  profileSelectsInflight=(async()=>{
+    const ac=typeof AbortController!=='undefined'?new AbortController():null;
+    const timer=ac?setTimeout(()=>ac.abort(),8000):null;
+    try{
+      const fetchJson=async(url)=>{
+        const r=await fetch(url,{credentials:'same-origin',signal:ac?ac.signal:undefined,cache:'no-store'});
+        if(!r.ok)throw new Error((await r.text())||('HTTP '+r.status));
+        return r.json();
+      };
+      const [cells,brews,act]=await Promise.all([
+        fetchJson('/api/profiles/cell'),
+        fetchJson('/api/profiles/brew'),
+        active?Promise.resolve(active):fetchJson('/api/profiles/active'),
+      ]);
+      let cellPick=null;
+      if(active&&active.cell)cellPick=active.cell;
+      else if(act?.cell)cellPick=act.cell;
+      let brewPick=undefined;
+      if(active&&Object.prototype.hasOwnProperty.call(active,'brew'))brewPick=active.brew||'';
+      else if(act&&Object.prototype.hasOwnProperty.call(act,'brew'))brewPick=act.brew||'';
+      cellSels.forEach(sel=>fillCellProfileSelect(sel,cells,cellPick));
+      brewSels.forEach(sel=>fillBrewProfileSelect(sel,brews,brewPick));
+      vcMsg('home-profiles-msg','',true);
+    }catch(e){
+      // Background load only — avoid painting TypeError on Home mid-restart.
+      console.warn('refreshProfileSelects',e);
+    }finally{
+      if(timer)clearTimeout(timer);
+    }
+  })();
+  try{await profileSelectsInflight;}finally{profileSelectsInflight=null;}
 }
 function goHomeMoreSettings(){
   showPage('config',document.getElementById('nav-config'));
@@ -11333,6 +11341,9 @@ function markDashboardReady(){
   const el=document.documentElement;
   el.classList.remove('fs-booting');
   el.classList.add('fs-ready');
+  // Ensure Home (or any active page) is visible if a boot-time opacity
+  // animation was skipped or interrupted while the body was hidden.
+  document.querySelectorAll('.page.active').forEach(p=>{p.style.opacity='';});
 }
 markDashboardReady();
 
