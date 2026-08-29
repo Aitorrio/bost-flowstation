@@ -1535,6 +1535,27 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   }
   .stat-grid{grid-template-columns:1fr 1fr;}
   #sidebar-toggle-btn{display:flex;width:44px;height:44px;}
+  /* Desktop icon-rail collapse does not apply to the phone drawer. */
+  .sidebar-toggle{display:none!important;}
+  #sidebar.collapsed{
+    width:80vw!important;min-width:240px!important;max-width:280px!important;
+  }
+  #sidebar.collapsed .logo-text,
+  #sidebar.collapsed .hw-meta,
+  #sidebar.collapsed .hw-live,
+  #sidebar.collapsed .nav-section-label,
+  #sidebar.collapsed .nav-label,
+  #sidebar.collapsed .nav-badge,
+  #sidebar.collapsed .sidebar-copyright,
+  #sidebar.collapsed .brew-info,
+  #sidebar.collapsed .conn-info{
+    opacity:1!important;width:auto!important;pointer-events:auto!important;
+  }
+  #sidebar.collapsed .sidebar-logo{padding-left:16px;padding-right:16px;align-items:stretch;}
+  #sidebar.collapsed .hw-status{
+    background:var(--bg2);border-color:var(--border);box-shadow:var(--hair);
+  }
+  #sidebar.collapsed .hw-row{justify-content:flex-start;padding:inherit;gap:inherit;}
 }
 
 /* ── Phone portrait (~380px) — single column, larger touch targets ── */
@@ -6403,12 +6424,19 @@ function toggleTouchMode(){
 // ── Sidebar ───────────────────────────────────────────────────────────────
 let sidebarCollapsed=localStorage.getItem('sb_collapsed')==='1';
 function toggleSidebar(){
+  /* Phone uses the drawer + overlay; icon-rail collapse is desktop-only. */
+  if(window.innerWidth<=700){
+    closeMobileSidebar();
+    return;
+  }
   sidebarCollapsed=!sidebarCollapsed;
   localStorage.setItem('sb_collapsed',sidebarCollapsed?'1':'0');
   document.getElementById('sidebar').classList.toggle('collapsed',sidebarCollapsed);
 }
 function openMobileSidebar(){
-  document.getElementById('sidebar').classList.add('mobile-open');
+  const sb=document.getElementById('sidebar');
+  sb.classList.remove('collapsed');
+  sb.classList.add('mobile-open');
   document.getElementById('mobile-overlay').style.display='block';
 }
 function closeMobileSidebar(){
@@ -10981,7 +11009,8 @@ setInterval(()=>{
   const el=document.getElementById('cr-ua');
   if(el)el.textContent=os+' · '+br;
 })();
-if(sidebarCollapsed)document.getElementById('sidebar').classList.add('collapsed');
+if(sidebarCollapsed&&window.innerWidth>700)document.getElementById('sidebar').classList.add('collapsed');
+else document.getElementById('sidebar').classList.remove('collapsed');
 paintIcons();
 setLang(currentLang);
 setTheme(currentTheme);
