@@ -1510,7 +1510,8 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
     padding-bottom:env(safe-area-inset-bottom);
   }
   #sidebar.mobile-open{transform:translateX(0);}
-  #mobile-overlay{display:block;}
+  /* Overlay visibility is toggled by openMobileSidebar/closeMobileSidebar (inline style).
+     Do NOT set display:block here — that left a permanent veil after login on phones. */
   #main{width:100%;}
   #topbar{
     flex-wrap:wrap;
