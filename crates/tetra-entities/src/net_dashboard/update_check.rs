@@ -406,7 +406,7 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
     let branch = tetra_core::ota_branch_for_channel(&channel).to_string();
 
     let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(12))
+        .timeout(Duration::from_secs(6))
         .user_agent(USER_AGENT)
         .build()
     {

@@ -5078,7 +5078,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-head">
           <div class="card-title" data-i18n="sys_rf">RF Hardware (SoapySDR)</div>
           <div class="card-actions">
-            <button class="btn btn-sm" onclick="loadSystemInfo()"><span class="btn-icon" data-icon="search"></span><span data-i18n="sys_probe">Probe</span></button>
+            <button class="btn btn-sm" onclick="probeSystemSdr()"><span class="btn-icon" data-icon="search"></span><span data-i18n="sys_probe">Probe</span></button>
           </div>
         </div>
         <div class="card-body">
@@ -5825,7 +5825,7 @@ const LANGS={
     sys_profiles:'Config Profiles',sys_activate:'Activate & Restart',
     sys_active_badge:'ACTIVE',sys_no_profiles:'No .toml profiles found in config directory.',
     sys_activate_confirm:'Switch to profile "{name}" and restart?\nCurrent config will be backed up.',
-    sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, suspend the radio stack (dashboard stays up), power off the whole Pi, or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
+    sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, suspend the radio stack (dashboard stays up), power off the whole Pi, or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_soapy_idle:'Press Probe to scan SoapySDR devices.',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
     sys_sec_account:'Account',sys_account_title:'Panel access',sys_account_help:'Change the dashboard login here. One station account — not part of Cell/Brew profiles.',sys_account_user:'Username',sys_account_change:'Change credentials',sys_account_current_pass:'Current password',sys_account_new_user:'New username (optional)',sys_account_new_pass:'New password (optional)',sys_account_new_pass_req:'New password',sys_account_confirm:'Confirm new password',sys_account_save:'Save',sys_account_enable_title:'Enable login',sys_account_enable_help:'Dashboard access is currently open. Set a username and password to require sign-in.',sys_account_enable_btn:'Enable login',sys_account_open:'OPEN',sys_account_protected:'PROTECTED',sys_account_ok:'Saved — sign in again',sys_account_err:'Could not save',sys_account_need_cur:'Current password required',sys_account_need_change:'Set a new username and/or password',sys_account_mismatch:'Passwords do not match',
     sys_bts:'BTS Connection',
     cr_original:'© 2026 Razvan Zeces — YO6RZV',
@@ -6268,7 +6268,7 @@ const LANGS={
     sys_profiles:'Perfiles de Config',sys_activate:'Activar y Reiniciar',
     sys_active_badge:'ACTIVO',sys_no_profiles:'No se encontraron perfiles .toml en el directorio.',
     sys_activate_confirm:'¿Cambiar al perfil "{name}" y reiniciar?\nLa config actual será respaldada.',
-    sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, suspende el stack de radio (el dashboard sigue), apaga toda la Pi, o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
+    sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, suspende el stack de radio (el dashboard sigue), apaga toda la Pi, o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_soapy_idle:'Pulsa Sondear para escanear dispositivos SoapySDR.',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
     sys_sec_account:'Cuenta',sys_account_title:'Acceso al panel',sys_account_help:'Cambia el login del panel aquí. Una sola cuenta de estación — no forma parte de los perfiles Cell/Brew.',sys_account_user:'Usuario',sys_account_change:'Cambiar credenciales',sys_account_current_pass:'Contraseña actual',sys_account_new_user:'Nuevo usuario (opcional)',sys_account_new_pass:'Nueva contraseña (opcional)',sys_account_new_pass_req:'Nueva contraseña',sys_account_confirm:'Confirmar nueva contraseña',sys_account_save:'Guardar',sys_account_enable_title:'Activar acceso',sys_account_enable_help:'El dashboard está abierto. Define usuario y contraseña para exigir inicio de sesión.',sys_account_enable_btn:'Activar acceso',sys_account_open:'ABIERTO',sys_account_protected:'PROTEGIDO',sys_account_ok:'Guardado — vuelve a iniciar sesión',sys_account_err:'No se pudo guardar',sys_account_need_cur:'Contraseña actual obligatoria',sys_account_need_change:'Indica un nuevo usuario y/o contraseña',sys_account_mismatch:'Las contraseñas no coinciden',
     sys_bts:'Conexión BTS',
   },
@@ -7367,6 +7367,8 @@ function tsApplyWave(ts,active){
 }
 
 function updateTsBlocks(){
+  const page=document.getElementById('page-stations');
+  if(!page||!page.classList.contains('active'))return;
   const now=Date.now();
   for(let i=0;i<4;i++){
     const ts=i+1;
@@ -7495,7 +7497,7 @@ function tsVoice(ts){
   }
   updateTsBlocks();
 }
-setInterval(updateTsBlocks, 150); // refresh to catch voice decay + duration tick
+setInterval(updateTsBlocks, 150); // refresh to catch voice decay + duration tick — skipped off Home
 
 // Carrier-aware RF visualizer. The original strip above assumes a single carrier;
 // this overlay keeps the same look but keys everything by carrier+timeslot so a
@@ -7616,6 +7618,8 @@ function tsLinesCarrier(st){
   return {top,bottom:[slotText,talkerText].filter(Boolean).join(' | ')};
 }
 function updateTsBlocksCarrier(){
+  const page=document.getElementById('page-stations');
+  if(!page||!page.classList.contains('active'))return;
   const now=Date.now();
   const carriers=tsCarrierNumbers().length?tsCarrierNumbers():(state.mainCarrierNum!=null?[state.mainCarrierNum]:[]);
   for(const carrierNum of carriers){
@@ -7731,6 +7735,8 @@ function tsCarrierBlockHtml(carrierNum,ts){
 }
 
 function updateTsBlocksCarrier(){
+  const page=document.getElementById('page-stations');
+  if(!page||!page.classList.contains('active'))return;
   const now=Date.now();
   const carriers=tsCarrierNumbers().length?tsCarrierNumbers():(state.mainCarrierNum!=null?[state.mainCarrierNum]:[]);
   for(const carrierNum of carriers){
@@ -10998,9 +11004,11 @@ async function enableDashboardAuth(){
   }catch(e){setAuthMsg(msg,t('sys_account_err'),'err');}
 }
 
-async function loadSystemInfo(){
+async function loadSystemInfo(opts){
+  opts=opts||{};
   try{
-    const r=await fetch('/api/system');if(!r.ok)return;
+    const url=opts.probe?'/api/system?probe=1':'/api/system';
+    const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;
     sysData=await r.json();
     document.getElementById('sysHostname').textContent=sysData.hostname||'—';
     document.getElementById('sysVersion').textContent=sysData.stack_version||'—';
@@ -11064,14 +11072,22 @@ async function loadSystemInfo(){
       if(tempCard) tempCard.style.display='none';
     }
 
-    // RF / SoapySDR
+    // RF / SoapySDR — only populated after Probe (or when probe=1).
     const soapyEl=document.getElementById('sysSoapy');
-    if(soapyEl) soapyEl.textContent=sysData.soapy_info||'—';
+    if(soapyEl){
+      if(opts.probe||(sysData.soapy_info&&sysData.soapy_info.length)){
+        soapyEl.textContent=sysData.soapy_info||'—';
+      }else if(!soapyEl.dataset.hasProbe){
+        soapyEl.textContent=t('sys_soapy_idle')||'Press Probe to scan SoapySDR devices.';
+      }
+      if(opts.probe)soapyEl.dataset.hasProbe='1';
+    }
 
     updateSystemUptime();
     updateSysHero();
   }catch(e){console.error('loadSystemInfo',e);}
 }
+function probeSystemSdr(){return loadSystemInfo({probe:true});}
 function updateSystemUptime(){
   if(!sysData||!sysData.uptime_secs)return;
   const u=sysData.uptime_secs;
@@ -12405,18 +12421,23 @@ async function saveOtaChannel(){
     await loadOtaChannel();
   }
 }
+let checkUpdateInflight=null;
 async function checkUpdate(){
-  try{
-    const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
-    if(!r.ok)return;
-    const d=await r.json();
-    if(d&&d.channel){
-      otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
-      const sel=document.getElementById('ota-channel-select');
-      if(sel)sel.value=otaChannelCache.channel;
-    }
-    applyUpdateCheckUi(d);
-  }catch{/* silent */}
+  if(checkUpdateInflight)return checkUpdateInflight;
+  checkUpdateInflight=(async()=>{
+    try{
+      const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
+      if(!r.ok)return;
+      const d=await r.json();
+      if(d&&d.channel){
+        otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
+        const sel=document.getElementById('ota-channel-select');
+        if(sel)sel.value=otaChannelCache.channel;
+      }
+      applyUpdateCheckUi(d);
+    }catch{/* silent */}
+  })();
+  try{await checkUpdateInflight;}finally{checkUpdateInflight=null;}
 }
 
 // ── Boot gating (FH-FEAT-033) ───────────────────────────────────────────────
@@ -12428,21 +12449,22 @@ async function boot(){
   const hasAuthMarker = document.cookie.split(';').some(c=>c.trim().startsWith('fs_auth='));
   let anonymous = false;
   if(!hasAuthMarker){
-    try{ const r = await fetch('/api/system', {credentials:'same-origin'}); anonymous = (r.status===401); }
+    // Cheap auth probe — never hit /api/system here (SoapySDR / CPU sample).
+    try{ const r = await fetch('/api/service/status', {credentials:'same-origin',cache:'no-store'}); anonymous = (r.status===401); }
     catch{ anonymous = false; }
   }
   if(anonymous){ enterPublicMode(); return; }
   connect();
   startServiceStatusPolling();
-  // Populate the topbar SDR badge (and prime system data) immediately on load,
-  // instead of waiting for the user to open the System tab.
+  // Light host snapshot for SDR badge / RF banner (no SoapySDRUtil spawn).
   loadSystemInfo();
   loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Home) page
   loadDualCarrier();    // Dual-Carrier ON/OFF toggle state
   refreshProfileSelects(); // Home quick Cell × Brew selectors
   wifiProbeAvailable(); // toggles the WiFi nav item
   loadOtaChannel();
-  checkUpdate();
+  // Defer GitHub OTA check — multi-request, used to stall a dashboard thread on every reload.
+  setTimeout(()=>{ checkUpdate(); }, 12000);
   maybeShowSetupWizard();
 }
 

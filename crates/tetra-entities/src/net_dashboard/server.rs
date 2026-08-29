@@ -2546,9 +2546,10 @@ fn handle_connection(
             Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }).to_string(),
         };
         http_json_response(stream, 200, &body);
-    } else if req_line.contains("GET /api/system ") {
-        // NOTE: trailing space is load-bearing — without it `contains` would also swallow
-        // `GET /api/system/brightness`. The frontend's `fetch('/api/system')` still matches.
+    } else if req_line.contains("GET /api/system ") || req_line.contains("GET /api/system?") {
+        // Trailing space / `?` avoid swallowing `/api/system/brightness`.
+        // `?probe=1` runs SoapySDRUtil (slow); default path stays cheap for boot/polling.
+        let probe = req_line.contains("probe=1") || req_line.contains("probe=true");
         let mut buf = BufReader::new(stream);
         loop {
             let mut line = String::new();
@@ -2557,7 +2558,7 @@ fn handle_connection(
                 break;
             }
         }
-        serve_system_info(buf.into_inner(), &config_path);
+        serve_system_info(buf.into_inner(), &config_path, probe);
     } else if req_line.contains("POST /api/configs/activate") {
         let mut buf = BufReader::new(stream);
         let mut content_length = 0usize;
@@ -4052,9 +4053,35 @@ fn serve_callsigns(stream: TcpStream, radioid: &crate::net_dashboard::radioid::R
 /// Best-effort; on any failure returns check_failed=true so the dashboard hides the badge.
 fn serve_update_check(mut stream: TcpStream, config_path: &str) {
     let channel = crate::net_dashboard::ota_channel::read_ota_channel(config_path);
-    let result =
-        crate::net_dashboard::update_check::check_for_update(tetra_core::STACK_VERSION, &channel);
-    let body = result.to_json();
+    // Cache tips briefly — boot + System + OTA modal used to stampede GitHub and
+    // park several dashboard-conn threads for tens of seconds on a Pi.
+    const CACHE_SECS: u64 = 90;
+    static CACHE: std::sync::Mutex<Option<(std::time::Instant, String, String)>> =
+        std::sync::Mutex::new(None);
+    let body = {
+        let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, ch, json)) = guard.as_ref() {
+            if ch == &channel && at.elapsed() < std::time::Duration::from_secs(CACHE_SECS) {
+                json.clone()
+            } else {
+                let result = crate::net_dashboard::update_check::check_for_update(
+                    tetra_core::STACK_VERSION,
+                    &channel,
+                );
+                let json = result.to_json();
+                *guard = Some((std::time::Instant::now(), channel.clone(), json.clone()));
+                json
+            }
+        } else {
+            let result = crate::net_dashboard::update_check::check_for_update(
+                tetra_core::STACK_VERSION,
+                &channel,
+            );
+            let json = result.to_json();
+            *guard = Some((std::time::Instant::now(), channel.clone(), json.clone()));
+            json
+        }
+    };
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
@@ -4954,7 +4981,7 @@ fn serve_telegram_test(stream: TcpStream, shared_config: &Option<tetra_config::b
     http_json_response(stream, 200, &body);
 }
 
-fn serve_system_info(mut stream: TcpStream, config_path: &str) {
+fn serve_system_info(mut stream: TcpStream, config_path: &str, probe_sdr: bool) {
     let hostname = std::process::Command::new("hostname")
         .output()
         .ok()
@@ -5054,83 +5081,63 @@ fn serve_system_info(mut stream: TcpStream, config_path: &str) {
             .filter(|&t| t > 0.0 && t < 150.0) // sanity check
     });
 
-    // RF / SoapySDR info — first check the binary exists at all, then run --find
-    // (which is much cheaper than --probe and works even with no device attached;
-    // --probe can hang for seconds on some drivers like HackRF/Pluto, and exits
-    // with non-zero status when no device is found, which would have been
-    // misreported as "not available").
-    //
-    // Try a couple of well-known install paths in addition to PATH because when
-    // the stack runs under systemd it gets a minimal PATH that doesn't always
-    // include /usr/local/bin where SoapySDR sometimes lands.
-    let soapy_info = (|| -> String {
-        let candidates = ["SoapySDRUtil", "/usr/bin/SoapySDRUtil", "/usr/local/bin/SoapySDRUtil"];
-        for bin in &candidates {
-            // First: does the binary respond to --info at all? That's the canonical
-            // "is it installed?" check (`--info` is in every SoapySDR release and
-            // returns the module summary regardless of attached hardware). We used
-            // `--version` previously but on some SoapySDR builds it isn't a
-            // recognised option, so the binary printed its help text with exit 0
-            // and we misread that as "installed" → subsequently `--find` failed
-            // and the user saw a confusing "SoapySDRUtil --find failed" with the
-            // full help dump pasted in front of it. Thanks @shawnchain for the
-            // PR comment.
-            let probe = std::process::Command::new(bin).arg("--info").output();
-            if let Ok(out) = probe {
-                if out.status.success() {
-                    // Now run --find to enumerate devices. Empty result means
-                    // "no SDR connected" which is a valid, useful state to show.
-                    let find = std::process::Command::new(bin)
-                        .arg("--find")
-                        .output()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
-                    // Keep only the first few lines of --info (banner + API/ABI
-                    // version + module path). Beyond that it dumps a long module
-                    // listing that isn't useful in the dashboard card.
-                    let info = String::from_utf8_lossy(&out.stdout);
-                    let info_summary: String = info
-                        .lines()
-                        .filter(|l| {
-                            let ll = l.to_lowercase();
-                            ll.contains("lib version")
-                                || ll.contains("api version")
-                                || ll.contains("abi version")
-                                || ll.contains("install root")
-                        })
-                        .take(4)
-                        .collect::<Vec<&str>>()
-                        .join("\n");
-                    return match find {
-                        Some(text) if text.lines().any(|l| l.to_lowercase().contains("found device")) => {
-                            // Keep only the useful per-device lines (driver/serial/label) to
-                            // avoid dumping pages of advertising.
-                            let lines: Vec<&str> = text
-                                .lines()
-                                .filter(|l| {
-                                    let ll = l.to_lowercase();
-                                    ll.contains("found device")
-                                        || ll.contains("driver")
-                                        || ll.contains("serial")
-                                        || ll.contains("label")
-                                        || ll.contains("name")
-                                        || ll.contains("manufacturer")
-                                })
-                                .take(20)
-                                .collect();
-                            format!("{}\n{}", info_summary, lines.join("\n"))
-                        }
-                        Some(_) => format!("{}\nNo SDR device detected.", info_summary),
-                        None => format!("{}\nSoapySDRUtil --find failed.", info_summary),
-                    };
+    // RF / SoapySDR — ONLY when explicitly probed. Spawning SoapySDRUtil --info/--find
+    // on every boot /api/system (and System auto-refresh) stalls the Pi for seconds and
+    // piles up dashboard-conn threads behind GitHub OTA checks.
+    let soapy_info = if probe_sdr {
+        (|| -> String {
+            let candidates = ["SoapySDRUtil", "/usr/bin/SoapySDRUtil", "/usr/local/bin/SoapySDRUtil"];
+            for bin in &candidates {
+                let probe = std::process::Command::new(bin).arg("--info").output();
+                if let Ok(out) = probe {
+                    if out.status.success() {
+                        let find = std::process::Command::new(bin)
+                            .arg("--find")
+                            .output()
+                            .ok()
+                            .filter(|o| o.status.success())
+                            .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+                        let info = String::from_utf8_lossy(&out.stdout);
+                        let info_summary: String = info
+                            .lines()
+                            .filter(|l| {
+                                let ll = l.to_lowercase();
+                                ll.contains("lib version")
+                                    || ll.contains("api version")
+                                    || ll.contains("abi version")
+                                    || ll.contains("install root")
+                            })
+                            .take(4)
+                            .collect::<Vec<&str>>()
+                            .join("\n");
+                        return match find {
+                            Some(text) if text.lines().any(|l| l.to_lowercase().contains("found device")) => {
+                                let lines: Vec<&str> = text
+                                    .lines()
+                                    .filter(|l| {
+                                        let ll = l.to_lowercase();
+                                        ll.contains("found device")
+                                            || ll.contains("driver")
+                                            || ll.contains("serial")
+                                            || ll.contains("label")
+                                            || ll.contains("name")
+                                            || ll.contains("manufacturer")
+                                    })
+                                    .take(20)
+                                    .collect();
+                                format!("{}\n{}", info_summary, lines.join("\n"))
+                            }
+                            Some(_) => format!("{}\nNo SDR device detected.", info_summary),
+                            None => format!("{}\nSoapySDRUtil --find failed.", info_summary),
+                        };
+                    }
                 }
             }
-        }
-        // Falling through the loop without returning means no candidate path
-        // successfully ran `--info` — the binary is genuinely missing.
-        "SoapySDRUtil not installed (apt install soapysdr-tools).".to_string()
-    })();
+            "SoapySDRUtil not installed (apt install soapysdr-tools).".to_string()
+        })()
+    } else {
+        String::new()
+    };
 
     // Auto-detected SDR name — set by `phy::components::soapy_settings::get_settings()`
     // at stack startup. None if no SoapySDR-backed phy is in use (file backend etc).
