@@ -1538,6 +1538,55 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   #sidebar-toggle-btn{display:flex;width:44px;height:44px;}
   /* Desktop icon-rail collapse does not apply to the phone drawer. */
   .sidebar-toggle{display:none!important;}
+
+  /* Monitor tables → stacked cards (data-label set by applyTableStackLabels) */
+  .col-mobile-hide{display:none!important;}
+  table.table-stack{border:none;width:100%;}
+  table.table-stack thead{display:none;}
+  table.table-stack tbody tr{
+    display:block;
+    margin:0 0 10px;
+    padding:10px 12px;
+    background:var(--bg2);
+    border:1px solid var(--border);
+    border-radius:10px;
+    box-shadow:var(--hair);
+  }
+  table.table-stack tbody tr:last-child{margin-bottom:0;}
+  table.table-stack tbody td{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:10px;
+    padding:7px 0!important;
+    border:none!important;
+    text-align:right;
+    font-size:13px;
+    word-break:break-word;
+  }
+  table.table-stack tbody td+td{border-top:1px solid var(--border)!important;padding-top:8px!important;}
+  table.table-stack tbody td::before{
+    content:attr(data-label);
+    font-family:var(--mono);
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:var(--text3);
+    text-align:left;
+    flex:0 0 38%;
+    max-width:42%;
+    line-height:1.35;
+    padding-top:2px;
+  }
+  table.table-stack tbody td.col-mobile-hide{display:none!important;}
+  table.table-stack tbody td[colspan]{
+    display:block;text-align:center;padding:16px 8px!important;
+  }
+  table.table-stack tbody td[colspan]::before{content:none;display:none;}
+  table.table-stack tbody td[colspan]+td{border-top:none!important;}
+  table.table-stack .btn{min-height:36px;}
+  table.table-stack .gauge{justify-content:flex-end;margin-left:auto;}
 }
 
 /* ── Phone portrait (~380px) — single column, larger touch targets ── */
@@ -1569,12 +1618,8 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   .info-row{flex-direction:column;align-items:flex-start;gap:4px;padding:10px 14px;}
   .info-key{min-width:0!important;font-size:10px;}
 
-  /* Tables: stacked-cards layout via data-label attributes on td (set in JS).
-     For tables without labels, fall back to compact rows + horizontal scroll. */
   table{font-size:12px;}
   th,td{padding:8px 6px!important;}
-  /* Hide less-important columns on phones to keep tables one-screen-wide */
-  .col-mobile-hide{display:none;}
 
   /* Log: shorter on phone (more room for other UI) and break long lines */
   .log-wrap{height:300px!important;font-size:10px!important;padding:8px 10px!important;}
@@ -3326,7 +3371,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <div class="table-wrap">
-            <table>
+            <table class="table-stack">
               <thead><tr>
                 <th data-i18n="th_issi_cs">ISSI / Callsign</th>
                 <th data-i18n="th_groups">Groups</th>
@@ -3479,13 +3524,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <div class="table-wrap">
-            <table>
+            <table class="table-stack">
               <thead><tr>
                 <th class="col-mobile-hide" data-i18n="th_id">ID</th>
                 <th data-i18n="th_type">Type</th>
                 <th data-i18n="th_caller">Caller</th>
                 <th data-i18n="th_dest">Destination</th>
-                <th data-i18n="th_speaker">Speaker</th>
+                <th class="col-mobile-hide" data-i18n="th_speaker">Speaker</th>
                 <th data-i18n="th_duration">Duration</th>
               </tr></thead>
               <tbody id="calls-tbody"></tbody>
@@ -3506,7 +3551,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <div class="table-wrap">
-            <table>
+            <table class="table-stack">
               <thead><tr>
                 <th data-i18n="th_time">Time</th>
                 <th data-i18n="th_issi">ISSI</th>
@@ -3562,7 +3607,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <div class="table-wrap">
-            <table>
+            <table class="table-stack">
               <thead><tr>
                 <th data-i18n="th_time">Time</th>
                 <th data-i18n="th_dir">Dir</th>
@@ -7648,6 +7693,23 @@ function tsSetSpeakerCarrier(callId,carrierNum,ts,speakerIssi){
   Object.keys(tsStateCarrier).forEach(key=>{if(tsStateCarrier[key]&&tsStateCarrier[key].call_id===callId)tsStateCarrier[key].speaker_issi=speakerIssi;});
 }
 
+function applyTableStackLabels(tb){
+  if(!tb)return;
+  const table=tb.closest('table');
+  if(!table||!table.classList.contains('table-stack'))return;
+  const labels=[...table.querySelectorAll('thead th')].map(th=>{
+    const key=th.getAttribute('data-i18n');
+    return (key?t(key):(th.textContent||'')).trim();
+  });
+  tb.querySelectorAll('tr').forEach(tr=>{
+    const cells=[...tr.children];
+    if(cells.length===1&&cells[0].hasAttribute('colspan'))return;
+    cells.forEach((td,i)=>{
+      if(labels[i])td.setAttribute('data-label',labels[i]);
+    });
+  });
+}
+
 function renderStations(){
   const ms=Object.values(state.ms);
   const msCount=ms.length,callCount=Object.keys(state.calls).length;
@@ -7707,6 +7769,7 @@ function renderStations(){
       <td><button class="btn btn-sm" onclick="openSds(${m.issi})">${t('sds')}</button> <button class="btn btn-sm" onclick="openDgna(${m.issi})" title="${t('dgna_title')}">${t('dgna')}</button> <button class="btn btn-sm btn-danger" onclick="kickMs(${m.issi})">${t('kick')}</button>${emg?` <button class="btn btn-sm btn-danger" onclick="clearEmergency(${m.issi})">${t('emg_clear')}</button>`:''}</td>
     </tr>`;
   }).join('');
+  applyTableStackLabels(tb);
 }
 
 function renderCalls(){
@@ -7728,8 +7791,9 @@ function renderCalls(){
     // Emergency call = ETSI call priority 15 (terminal emergency button). Flag it prominently.
     const emg=(c.priority||0)>=15;
     const emgBadge=emg?`<span class="pill pill-danger"><span class="pill-icon">${svgIcon('emergency')}</span>${t('call_emergency')}</span> `:'';
-    return`<tr${emg?' class="row-emergency"':''}><td class="col-mobile-hide"><code>${c.call_id}</code></td><td>${emgBadge}<span class="pill ${pillv}">${label}</span></td><td>${c.caller_issi?idCell(c.caller_issi):'<span class="muted">—</span>'}</td><td>${to}</td><td>${spk}</td><td><span class="num accent">${mm}:${ss}</span></td></tr>`;
+    return`<tr${emg?' class="row-emergency"':''}><td class="col-mobile-hide"><code>${c.call_id}</code></td><td>${emgBadge}<span class="pill ${pillv}">${label}</span></td><td>${c.caller_issi?idCell(c.caller_issi):'<span class="muted">—</span>'}</td><td>${to}</td><td class="col-mobile-hide">${spk}</td><td><span class="num accent">${mm}:${ss}</span></td></tr>`;
   }).join('');
+  applyTableStackLabels(tb);
 }
 
 function renderLastHeard(){
@@ -7745,6 +7809,7 @@ function renderLastHeard(){
       <td>${issiHtml}</td><td>${activityBadge(e.activity)}</td><td>${destStr}</td>
     </tr>`;
   }).join('');
+  applyTableStackLabels(tb);
 }
 function clearLastHeard(){state.lastHeard=[];renderLastHeard();}
 
@@ -7817,6 +7882,7 @@ function renderSdsLog(){
   if(!rows.length){tb.innerHTML=`<tr><td colspan="5" class="sds-empty" style="text-align:center;padding:24px">${t('no_sds')}</td></tr>`;return;}
   const start=sdsLogPageIndex*LOG_PAGE_SIZE;
   tb.innerHTML=rows.slice(start,start+LOG_PAGE_SIZE).map(sdsRow).join('');
+  applyTableStackLabels(tb);
 }
 async function loadSdsLog(){
   try{const r=await fetch('/api/sds-log');if(!r.ok)return;state.sdsLog=await r.json();sdsLogPageIndex=0;renderSdsLog();refreshCallsigns();}catch{}
