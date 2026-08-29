@@ -2123,6 +2123,38 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   margin:0;
   box-shadow:var(--hair);
 }
+
+/* Home quick profiles (Cell × Brew apply from the first page) */
+.home-quick{
+  flex-direction:column;align-items:stretch;gap:14px;
+  padding:16px 18px 18px;margin-bottom:18px;
+}
+.home-quick-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.home-quick-profiles{
+  display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;width:100%;
+}
+.home-quick-field label{
+  display:block;font-size:11px;font-weight:600;color:var(--text3);
+  margin-bottom:5px;letter-spacing:0.02em;
+}
+.home-quick-field .form-input{width:100%;min-height:40px;}
+.home-quick-actions{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;
+}
+.home-quick-actions .btn{min-height:40px;}
+.home-quick-msg{
+  font-size:12px;color:var(--muted);min-height:1.2em;margin:0;
+}
+.home-quick-msg.ok{color:var(--ok);}
+.home-quick-msg.err{color:var(--danger);}
+@media (max-width:700px){
+  .home-quick-profiles{grid-template-columns:1fr;}
+  .home-quick-actions{flex-direction:column;align-items:stretch;}
+  .home-quick-actions .btn{width:100%;justify-content:center;}
+}
+
 .dgna-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:16px;margin-bottom:16px;}
 .dgna-library-wrap{max-height:420px;}
 .dgna-library-wrap tbody tr{cursor:pointer;}
@@ -2961,7 +2993,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="nav-section-label" data-i18n-section="monitor">MONITOR</div>
     <div class="nav-item active" onclick="showPage('stations',this)" id="nav-stations">
       <span class="nav-icon" data-icon="radios"></span>
-      <span class="nav-label" data-i18n="stations">RADIOS</span>
+      <span class="nav-label" data-i18n="stations">Home</span>
       <span class="nav-badge" id="badge-ms">0</span>
     </div>
     <div class="nav-item" onclick="showPage('dgna',this)" id="nav-dgna">
@@ -3070,7 +3102,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   <!-- Topbar -->
   <div id="topbar">
     <button id="sidebar-toggle-btn" onclick="openMobileSidebar()" aria-label="Menu"><span class="ico18" data-icon="hamburger"></span></button>
-    <div class="topbar-title" id="topbar-title">Radios</div>
+    <div class="topbar-title" id="topbar-title">Inicio</div>
 
     <!-- Calm always-visible station-state chips (BS / Brew / Emergency-if-active). -->
     <div class="topbar-chips" aria-hidden="false">
@@ -3263,9 +3295,35 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
     </div>
 
-    <!-- ── RADIOS ── -->
+    <!-- ── HOME (stations) ── -->
     <div class="page active" id="page-stations">
-      <!-- Stat cards (hero removed — duplicated the same KPIs) -->
+      <!-- Quick profile switch — Apply & Restart without opening Config -->
+      <div class="hero home-quick">
+        <div class="home-quick-head">
+          <div class="hero-main">
+            <div class="hero-title" data-i18n="home_quick_title">Quick profiles</div>
+            <div class="hero-sub" data-i18n="home_quick_sub">Pick Cell × Brew and apply. Full editing is in Config.</div>
+          </div>
+        </div>
+        <div class="home-quick-profiles">
+          <div class="home-quick-field">
+            <label for="home-cell-profile" data-i18n="cfg_cell_profile">TMO Cell</label>
+            <select id="home-cell-profile" class="form-input"></select>
+          </div>
+          <div class="home-quick-field">
+            <label for="home-brew-profile" data-i18n="cfg_brew_profile">Core Net (Brew)</label>
+            <select id="home-brew-profile" class="form-input">
+              <option value="">Offline (no Brew)</option>
+            </select>
+          </div>
+        </div>
+        <div class="home-quick-actions">
+          <button type="button" class="btn btn-primary" onclick="applyHomeProfiles()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
+          <button type="button" class="btn" onclick="goHomeMoreSettings()"><span data-i18n="home_more_settings">More settings</span></button>
+        </div>
+        <p class="home-quick-msg" id="home-profiles-msg"></p>
+      </div>
+      <!-- Stat cards -->
       <div class="stat-grid">
         <div class="stat-card green">
           <div class="stat-label" data-i18n="terminals">Radios</div>
@@ -5561,7 +5619,8 @@ const LANGS={
   en:{
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Radios',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
+    stations:'Home',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
+    home_quick_title:'Quick profiles',home_quick_sub:'Pick Cell × Brew and apply. Full editing is in Config.',home_more_settings:'More settings',
     setup_sec:'First-run / SDR',setup_title:'Setup',setup_open_wizard:'Open wizard',setup_sdr_title:'SDR devices',
     setup_scan:'Scan',setup_install_sx:'Install SXceiver',setup_install_lime:'Install Lime',
     setup_enable_rf:'Enable RF & Restart',setup_autostart:'Ensure autostart',setup_mark_done:'Mark setup done',
@@ -5797,7 +5856,8 @@ const LANGS={
   ro:{
     bts_ip:'IP BTS',offline:'DECONECTAT',online:'CONECTAT',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Radiouri',calls:'Apeluri',lastheard:'Ultima Activitate',log:'Log',rf:'RF',health:'Sănătate',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
+    stations:'Acasă',calls:'Apeluri',lastheard:'Ultima Activitate',log:'Log',rf:'RF',health:'Sănătate',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
+    home_quick_title:'Profiluri rapide',home_quick_sub:'Alege Cell × Brew și aplică. Editarea completă e în Config.',home_more_settings:'Mai multe setări',
     sdslog:'Jurnal SDS',th_dir:'Dir',th_from:'De la',th_to:'Către',th_message:'Mesaj',no_sds:'Niciun mesaj SDS încă',sds_refresh:'Reîmprospătează',
     rf_freq:'Frecvență centru',rf_rate:'Rată eșantion',rf_rms:'RMS',rf_peak:'Vârf',rf_age:'Captură',
     rf_waiting:'în așteptare…',rf_live:'live',rf_stale:'expirat',
@@ -5917,7 +5977,8 @@ const LANGS={
   de:{
     bts_ip:'BTS-IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Radios',calls:'Anrufe',lastheard:'Zuletzt Gehört',log:'Log',rf:'RF',health:'Gesundheit',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
+    stations:'Start',calls:'Anrufe',lastheard:'Zuletzt Gehört',log:'Log',rf:'RF',health:'Gesundheit',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
+    home_quick_title:'Schnelle Profile',home_quick_sub:'Cell × Brew wählen und anwenden. Vollbearbeitung in Config.',home_more_settings:'Weitere Einstellungen',
     sdslog:'SDS-Log',th_dir:'Ri.',th_from:'Von',th_to:'An',th_message:'Nachricht',no_sds:'Noch keine SDS-Nachrichten',sds_refresh:'Aktualisieren',
     rf_freq:'Mittenfrequenz',rf_rate:'Abtastrate',rf_rms:'RMS',rf_peak:'Spitze',rf_age:'Aufnahme',
     rf_waiting:'wartet…',rf_live:'live',rf_stale:'veraltet',
@@ -6015,7 +6076,8 @@ const LANGS={
   es:{
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
-    stations:'Radios',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
+    stations:'Inicio',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
+    home_quick_title:'Perfiles rápidos',home_quick_sub:'Elige Cell × Brew y aplícalos. La edición completa está en Config.',home_more_settings:'Más ajustes',
     setup_sec:'Primer arranque / SDR',setup_title:'Setup',setup_open_wizard:'Abrir asistente',setup_sdr_title:'Dispositivos SDR',
     setup_scan:'Escanear',setup_install_sx:'Instalar SXceiver',setup_install_lime:'Instalar Lime',
     setup_enable_rf:'Activar RF y reiniciar',setup_autostart:'Asegurar autostart',setup_mark_done:'Marcar setup hecho',
@@ -6212,7 +6274,8 @@ const LANGS={
   hu:{
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Rádiók',calls:'Hívások',lastheard:'Utoljára Hallott',log:'Napló',rf:'RF',health:'Állapot',echolink:'EchoLink',echolink_title:'EchoLink',config:'Konfig',
+    stations:'Kezdőlap',calls:'Hívások',lastheard:'Utoljára Hallott',log:'Napló',rf:'RF',health:'Állapot',echolink:'EchoLink',echolink_title:'EchoLink',config:'Konfig',
+    home_quick_title:'Gyors profilok',home_quick_sub:'Válassz Cell × Brew-t és alkalmazd. Teljes szerkesztés a Konfigban.',home_more_settings:'További beállítások',
     sdslog:'SDS Napló',th_dir:'Irány',th_from:'Feladó',th_to:'Címzett',th_message:'Üzenet',no_sds:'Még nincs SDS üzenet',sds_refresh:'Frissítés',
     rf_freq:'Központi frekvencia',rf_rate:'Mintavételezési ráta',rf_rms:'RMS',rf_peak:'Csúcs',rf_age:'Pillanatkép',
     rf_waiting:'várakozás…',rf_live:'élő',rf_stale:'elavult',
@@ -6291,7 +6354,8 @@ const LANGS={
   zh:{
     bts_ip:'BTS IP',offline:'离线',online:'在线',
     brew_online:'在线',brew_offline:'离线',
-    stations:'终端',calls:'通话',lastheard:'最近通话',log:'日志',rf:'RF',health:'健康',echolink:'EchoLink',echolink_title:'EchoLink',config:'配置',
+    stations:'主页',calls:'通话',lastheard:'最近通话',log:'日志',rf:'RF',health:'健康',echolink:'EchoLink',echolink_title:'EchoLink',config:'配置',
+    home_quick_title:'快速配置',home_quick_sub:'选择 Cell × Brew 并应用。完整编辑在「配置」。',home_more_settings:'更多设置',
     sdslog:'SDS日志',th_dir:'方向',th_from:'发件',th_to:'收件',th_message:'消息',no_sds:'暂无SDS消息',sds_refresh:'刷新',
     rf_freq:'中心频率',rf_rate:'采样率',rf_rms:'RMS',rf_peak:'峰值',rf_age:'快照',
     rf_waiting:'等待中…',rf_live:'实时',rf_stale:'已过期',
@@ -6389,6 +6453,12 @@ function applyLang(){
     const el=document.querySelector(`#nav-${p} .nav-label`);
     if(el)el.textContent=t(p);
   });
+  const activePage=document.querySelector('.page.active');
+  if(activePage&&activePage.id&&activePage.id.startsWith('page-')){
+    const pn=activePage.id.slice(5);
+    const tt=document.getElementById('topbar-title');
+    if(tt)tt.textContent=t(pn)||pn;
+  }
   renderStations();renderCalls();renderLastHeard();renderEmergencyBanner();
   try{updateWhitelistBanner();renderWhitelist();}catch{}
   try{applyServiceStateUi();}catch{}
@@ -6579,7 +6649,7 @@ function showPage(name,el){
   if(el)el.classList.add('active');
   else{const nav=document.getElementById('nav-'+name);if(nav)nav.classList.add('active');}
   document.getElementById('topbar-title').textContent=t(name)||name;
-  if(name==='stations'){loadBtsInfoLegacy();loadDualCarrier();}
+  if(name==='stations'){loadBtsInfoLegacy();loadDualCarrier();refreshProfileSelects();}
   if(name==='dgna'){syncDgnaAttachmentModePicker();renderDgnaPage();}
   if(name==='sdslog'){loadSdsLog();}
   if(name==='health'){loadHealthIntegrations();}
@@ -8846,30 +8916,72 @@ function setSheetOpen(id,open){
   if(!el)return;
   if(open)el.classList.add('open');else el.classList.remove('open');
 }
+function fillCellProfileSelect(sel,cells,pick){
+  if(!sel)return;
+  const keep=sel.value;
+  sel.innerHTML='';
+  (cells||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');sel.appendChild(o);});
+  if(pick)sel.value=pick;
+  else if(keep&&[...sel.options].some(o=>o.value===keep))sel.value=keep;
+}
+function fillBrewProfileSelect(sel,brews,pick){
+  if(!sel)return;
+  const keep=sel.value;
+  sel.innerHTML='';
+  const off=document.createElement('option');off.value='';off.textContent=t('cfg_brew_offline')||'Offline (no Brew)';sel.appendChild(off);
+  (brews||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');sel.appendChild(o);});
+  if(pick!==undefined&&pick!==null)sel.value=pick||'';
+  else if(keep&&[...sel.options].some(o=>o.value===keep))sel.value=keep;
+  else sel.value='';
+}
 async function refreshProfileSelects(active){
-  const cellSel=document.getElementById('vc-cell-profile');
-  const brewSel=document.getElementById('vc-brew-profile');
-  if(!cellSel||!brewSel)return;
+  const cellSels=[document.getElementById('vc-cell-profile'),document.getElementById('home-cell-profile')];
+  const brewSels=[document.getElementById('vc-brew-profile'),document.getElementById('home-brew-profile')];
+  if(!cellSels.some(Boolean)||!brewSels.some(Boolean))return;
   try{
     const [cells,brews,act]=await Promise.all([
       fetch('/api/profiles/cell').then(r=>r.json()),
       fetch('/api/profiles/brew').then(r=>r.json()),
       active?Promise.resolve(active):fetch('/api/profiles/active').then(r=>r.json()),
     ]);
-    const keepCell=cellSel.value;
-    const keepBrew=brewSel.value;
-    cellSel.innerHTML='';
-    (cells||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');cellSel.appendChild(o);});
-    if(active&&active.cell)cellSel.value=active.cell;
-    else if(keepCell&&[...cellSel.options].some(o=>o.value===keepCell))cellSel.value=keepCell;
-    else if(act?.cell)cellSel.value=act.cell;
-    brewSel.innerHTML='';
-    const off=document.createElement('option');off.value='';off.textContent=t('cfg_brew_offline')||'Offline (no Brew)';brewSel.appendChild(off);
-    (brews||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');brewSel.appendChild(o);});
-    if(active&&Object.prototype.hasOwnProperty.call(active,'brew'))brewSel.value=active.brew||'';
-    else if(keepBrew&&[...brewSel.options].some(o=>o.value===keepBrew))brewSel.value=keepBrew;
-    else brewSel.value=act?.brew||'';
-  }catch(e){vcMsg('vc-profiles-msg',String(e),false);}
+    let cellPick=null;
+    if(active&&active.cell)cellPick=active.cell;
+    else if(act?.cell)cellPick=act.cell;
+    let brewPick=undefined;
+    if(active&&Object.prototype.hasOwnProperty.call(active,'brew'))brewPick=active.brew||'';
+    else if(act&&Object.prototype.hasOwnProperty.call(act,'brew'))brewPick=act.brew||'';
+    cellSels.forEach(sel=>fillCellProfileSelect(sel,cells,cellPick));
+    brewSels.forEach(sel=>fillBrewProfileSelect(sel,brews,brewPick));
+  }catch(e){
+    vcMsg('vc-profiles-msg',String(e),false);
+    vcMsg('home-profiles-msg',String(e),false);
+  }
+}
+function goHomeMoreSettings(){
+  showPage('config',document.getElementById('nav-config'));
+}
+async function applyHomeProfiles(){
+  const cell=document.getElementById('home-cell-profile')?.value;
+  const brew=document.getElementById('home-brew-profile')?.value||null;
+  if(!cell){vcMsg('home-profiles-msg',t('cfg_need_select'),false);return;}
+  const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
+  if(!ok)return;
+  if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
+  try{
+    const r=await fetch('/api/profiles/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cell:cell,brew:brew})});
+    const txt=await r.text();
+    if(!r.ok){vcMsg('home-profiles-msg',txt,false);return;}
+    vcMsg('home-profiles-msg',t('cfg_applied'),true);
+    const vcCell=document.getElementById('vc-cell-profile');
+    const vcBrew=document.getElementById('vc-brew-profile');
+    if(vcCell)vcCell.value=cell;
+    if(vcBrew)vcBrew.value=brew||'';
+    try{
+      const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
+      if(!rr.ok)wsSend({type:'restart'});
+    }catch{wsSend({type:'restart'});}
+    beginServiceRestartWait();
+  }catch(e){vcMsg('home-profiles-msg',String(e),false);}
 }
 async function loadVisualConfig(){
   try{
@@ -12306,8 +12418,9 @@ async function boot(){
   // Populate the topbar SDR badge (and prime system data) immediately on load,
   // instead of waiting for the user to open the System tab.
   loadSystemInfo();
-  loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Radios) page
+  loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Home) page
   loadDualCarrier();    // Dual-Carrier ON/OFF toggle state
+  refreshProfileSelects(); // Home quick Cell × Brew selectors
   wifiProbeAvailable(); // toggles the WiFi nav item
   loadOtaChannel();
   checkUpdate();
