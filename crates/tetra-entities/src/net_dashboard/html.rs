@@ -2715,6 +2715,95 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 }
 #rf-status-banner.show{display:block;}
 #rf-status-banner.is-offline{background:rgba(120,140,160,0.12);border-color:rgba(120,140,160,0.35);color:var(--muted);}
+
+/* ── Phase 2 mobile: System / OTA / Setup (desktop layout unchanged ≥701px) ── */
+@media(max-width:700px){
+  /* System hero: actions as 2×2 tappable tiles; stats denser */
+  .sys-hero{padding:14px 14px 16px;gap:14px;}
+  .sys-hero-head{gap:12px;}
+  .sys-hero-actions{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;
+    width:100%;margin-left:0;
+  }
+  .sys-hero-actions .btn{
+    width:100%;justify-content:center;min-height:44px;
+    white-space:normal;text-align:center;padding:10px 8px;
+  }
+  .sys-hero .sys-hero-stats{grid-template-columns:1fr 1fr;gap:10px;}
+
+  /* Generic page heroes: metrics wrap under title */
+  .hero:not(.sys-hero){flex-wrap:wrap;align-items:flex-start;}
+  .hero-metrics{
+    width:100%;justify-content:flex-start;gap:14px 20px;flex-wrap:wrap;
+    margin-top:4px;
+  }
+  .hero-metric{text-align:left;}
+
+  /* OTA modal: step list vertical; sticky full-width actions */
+  .modal-overlay{
+    padding:max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+            max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    align-items:flex-end;
+  }
+  #update-modal .modal{
+    width:100%!important;max-width:100%;
+    max-height:min(92dvh,92vh);
+    display:flex;flex-direction:column;
+    padding:16px!important;margin:0;
+    border-radius:14px 14px 10px 10px;
+  }
+  .ota-steps{flex-direction:column;gap:6px;margin-bottom:12px;}
+  .ota-steps li{
+    flex:none;text-align:left;padding:10px 12px;font-size:12px;
+  }
+  #update-modal .ota-step.is-active{
+    flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;
+  }
+  #update-modal .modal-actions,
+  #svc-confirm-modal .modal-actions{
+    flex-direction:column-reverse;gap:8px;
+    flex-shrink:0;position:sticky;bottom:0;
+    background:var(--bg2);padding-top:12px;margin-top:12px;
+  }
+  #update-modal .modal-actions .btn,
+  #svc-confirm-modal .modal-actions .btn{
+    width:100%;justify-content:center;min-height:44px;
+  }
+  .ota-notes{max-height:min(32vh,240px);}
+  .ota-channel-field select{min-height:44px;font-size:16px;}
+  .ota-review-versions{font-size:12px;}
+
+  /* Setup wizard: near full-screen card, full-width nav */
+  #setup-wizard{
+    padding:max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+            max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    align-items:stretch;justify-content:flex-start;
+  }
+  .setup-wiz-card{
+    width:100%;max-width:none;
+    max-height:none;height:100%;
+    border-radius:12px;padding:20px 16px 16px;
+    display:flex;flex-direction:column;
+  }
+  .setup-wiz-step.active{flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;}
+  .setup-wiz-nav{
+    flex-direction:column-reverse;gap:8px;justify-content:stretch;
+    flex-shrink:0;margin-top:16px;
+  }
+  .setup-wiz-nav .btn{width:100%;justify-content:center;min-height:44px;}
+  .setup-device{min-height:48px;font-size:14px;}
+  #setup-wizard .form-input,
+  #setup-wizard select,
+  #setup-wizard input{font-size:16px;min-height:44px;}
+}
+
+@media(max-width:500px){
+  /* Safer single-column CTAs on narrow phones (Power off / Restart less easy to mis-tap) */
+  .sys-hero-actions{grid-template-columns:1fr;}
+  .sys-hero .sys-hero-stats{grid-template-columns:1fr;}
+  .ota-notes{max-height:min(26vh,200px);}
+  .update-terminal{height:160px!important;}
+}
 </style>
 </head>
 <body>
