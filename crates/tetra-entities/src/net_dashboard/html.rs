@@ -3201,25 +3201,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
     <!-- ── RADIOS ── -->
     <div class="page active" id="page-stations">
-      <!-- Hero summary -->
-      <div class="hero">
-        <span class="hero-dot is-idle" id="stations-hero-dot"></span>
-        <div class="hero-main">
-          <div class="hero-title" id="stations-hero-title" data-i18n="terminals">Radios</div>
-          <div class="hero-sub" id="stations-hero-sub" data-i18n="registered">registered</div>
-        </div>
-        <div class="hero-metrics">
-          <div class="hero-metric">
-            <div class="hero-metric-label" data-i18n="active_calls">Active Calls</div>
-            <div class="hero-metric-value" id="stations-hero-calls">0</div>
-          </div>
-          <div class="hero-metric">
-            <div class="hero-metric-label">BREW</div>
-            <div class="hero-metric-value" id="stations-hero-brew">—</div>
-          </div>
-        </div>
-      </div>
-      <!-- Stat cards -->
+      <!-- Stat cards (hero removed — duplicated the same KPIs) -->
       <div class="stat-grid">
         <div class="stat-card green">
           <div class="stat-label" data-i18n="terminals">Radios</div>
@@ -6996,8 +6978,6 @@ function setBrewStatus(online,version){
   if(bv){bv.textContent=serviceStandby?t('svc_standby_short'):(online?t('brew_online'):t('brew_offline'));}
   if(bcard){bcard.classList.remove('is-info','is-danger','is-warn');bcard.classList.add(online?'is-info':(serviceStandby?'is-warn':'is-danger'));}
   if(bs)bs.textContent=online?`Brew v${version||0}`:(serviceStandby?t('svc_standby_title'):'—');
-  const hb=document.getElementById('stations-hero-brew');
-  if(hb)hb.textContent=online?`v${version||0}`:(serviceStandby?t('svc_standby_short'):t('brew_offline'));
   // System panel
   const bsOnline=serviceStandby?false:document.getElementById('connLed').classList.contains('on');
   updateSysBtsPanel(bsOnline,online,version||0);
@@ -7718,15 +7698,6 @@ function renderStations(){
   document.getElementById('badge-ms').textContent=msCount;
   const bc=document.getElementById('badge-calls');
   if(bc){bc.textContent=callCount;bc.style.display=callCount?'flex':'none';}
-  // Hero summary
-  const hd=document.getElementById('stations-hero-dot');
-  const ht=document.getElementById('stations-hero-title');
-  const hs=document.getElementById('stations-hero-sub');
-  const hc=document.getElementById('stations-hero-calls');
-  if(hd){hd.className='hero-dot '+(msCount?'is-ok':'is-idle');}
-  if(ht)ht.textContent=msCount+' '+t('terminals');
-  if(hs)hs.textContent=msCount?t('registered'):t('no_terminals');
-  if(hc)hc.textContent=callCount;
   const tb=document.getElementById('ms-tbody');
   if(!ms.length){tb.innerHTML=`<tr><td colspan="7"><div class="empty-state"><span class="empty-ico">${svgIcon('radios')}</span><div class="empty-msg">${t('no_terminals')}</div></div></td></tr>`;return;}
   tb.innerHTML=ms.sort((a,b)=>a.issi-b.issi).map(m=>{
