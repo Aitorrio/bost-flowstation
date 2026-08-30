@@ -869,6 +869,7 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-setup .card-body,
 #page-geoalarm .card-body,
 #page-dapnet .card-body,
+#page-asterisk .card-body,
 #page-wifi .card-body{padding:16px 18px;}
 /* Setup info rows already pad themselves — avoid double inset once card-body has air. */
 #page-setup .card-body .info-row{padding-left:0;padding-right:0;}
@@ -898,6 +899,16 @@ input[type="radio"]{accent-color:var(--accent);}
 }
 #page-geoalarm .geo-filter-grid{
   display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;
+}
+/* Asterisk + Snom: match Config/Geoalarm inset (status rows + forms). */
+#page-asterisk .card-body .info-row{padding-left:0;padding-right:0;}
+#page-asterisk .stat-grid{margin-bottom:16px;}
+#page-asterisk .info-grid{margin-bottom:4px;}
+#page-asterisk .sw-row{padding-left:0;padding-right:0;}
+#page-asterisk .h-form.wide{gap:18px;}
+#page-asterisk .help-text{margin-top:6px;}
+#page-asterisk .card-body .config-msg:not(:empty){
+  border-top:none;padding:8px 0 0;min-height:0;
 }
 .cfg-adv-body #config-editor{
   min-height:320px;width:100%;box-sizing:border-box;
