@@ -2159,10 +2159,19 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .home-quick-msg.ok{color:var(--ok);}
 .home-quick-msg.err{color:var(--danger);}
 @media (max-width:700px){
-  .home-quick-row{flex-direction:column;align-items:stretch;}
-  .home-quick-profiles{grid-template-columns:1fr;max-width:none;width:100%;}
-  .home-quick-actions{flex-direction:column;align-items:stretch;margin-left:0;width:100%;}
-  .home-quick-actions .btn{width:100%;justify-content:center;}
+  /* Title → selects → msg → Apply at the very bottom */
+  .home-quick{display:flex;flex-direction:column;gap:10px;}
+  .home-quick-head{order:1;}
+  .home-quick-row{display:contents;}
+  .home-quick-profiles{
+    order:2;grid-template-columns:1fr;max-width:none;width:100%;
+  }
+  .home-quick-msg{order:3;}
+  .home-quick-actions{
+    order:4;flex-direction:column;align-items:stretch;margin-left:0;width:100%;
+    margin-top:4px;padding-top:10px;border-top:1px solid var(--sep);
+  }
+  .home-quick-actions .btn{width:100%;justify-content:center;min-height:44px;}
 }
 
 .dgna-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(320px,.9fr);gap:16px;margin-bottom:16px;}
@@ -2389,16 +2398,31 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
 /* ── Phase 5 mobile: Config fields, profile rows, sheets (PC unchanged) ── */
 @media (max-width:700px){
-  /* Profiles card: Apply & Restart full-width; selects + Add/Edit/Delete usable */
-  #page-config .card-head{
-    flex-wrap:wrap;align-items:flex-start;gap:10px;
+  /* Primary Save / Apply & Restart: footer of the card (not under the title) */
+  .card:has(> .card-head > .card-actions .btn-primary){
+    display:flex;flex-direction:column;
   }
-  #page-config .card-actions{
-    width:100%;display:flex;flex-direction:column;gap:8px;margin-left:0;
+  .card:has(> .card-head > .card-actions .btn-primary) > .card-head{
+    display:contents;
   }
-  #page-config .card-actions .btn{
+  .card:has(> .card-head > .card-actions .btn-primary) > .card-head > .card-title{
+    order:1;width:100%;box-sizing:border-box;
+    padding:14px 16px 12px;border-bottom:1px solid var(--border);
+  }
+  .card:has(> .card-head > .card-actions .btn-primary) > .card-body{
+    order:2;flex:1 1 auto;
+  }
+  .card:has(> .card-head > .card-actions .btn-primary) > .card-head > .card-actions{
+    order:3;width:100%;margin:0;box-sizing:border-box;
+    display:flex;flex-direction:column;gap:8px;
+    padding:12px 14px max(12px, env(safe-area-inset-bottom));
+    border-top:1px solid var(--sep);background:var(--bg2);
+  }
+  .card:has(> .card-head > .card-actions .btn-primary) > .card-head > .card-actions .btn{
     width:100%;justify-content:center;min-height:44px;
   }
+
+  /* Config profiles: selects + Add/Edit/Delete usable */
   .cfg-profile-row{
     flex-direction:column;align-items:stretch;gap:8px;
   }
