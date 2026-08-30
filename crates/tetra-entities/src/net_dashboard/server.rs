@@ -4132,6 +4132,9 @@ fn serve_update_check(mut stream: TcpStream, config_path: &str, refresh: bool, w
     // Cache key includes notes so a light boot result does not starve the modal of changelog.
     type CacheEntry = (std::time::Instant, String, bool, String); // at, channel, with_notes, json
     static CACHE: std::sync::Mutex<Option<CacheEntry>> = std::sync::Mutex::new(None);
+    // Coalesce concurrent identical GitHub checks (System open + boot + Update).
+    type Slot = std::sync::Arc<(std::sync::Mutex<Option<String>>, std::sync::Condvar)>;
+    static INFLIGHT: std::sync::Mutex<Option<(String, bool, Slot)>> = std::sync::Mutex::new(None);
 
     let cached = {
         let guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -4157,32 +4160,91 @@ fn serve_update_check(mut stream: TcpStream, config_path: &str, refresh: bool, w
     let body = if let Some(json) = cached {
         json
     } else {
-        // Do NOT hold the mutex across GitHub I/O — concurrent checks would queue for tens of seconds.
-        let result = crate::net_dashboard::update_check::check_for_update(
-            tetra_core::STACK_VERSION,
-            &channel,
-            with_notes,
-        );
-        let json = result.to_json();
-        if !result.check_failed {
-            if let Ok(mut guard) = CACHE.lock() {
-                *guard = Some((
-                    std::time::Instant::now(),
-                    channel.clone(),
-                    with_notes,
-                    json.clone(),
+        let (is_leader, slot): (bool, Slot) = {
+            let mut gate = INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((ch, notes, existing)) = gate.as_ref() {
+                if ch == &channel && *notes == with_notes {
+                    (false, existing.clone())
+                } else {
+                    // Different key already running — do not steal; run our own (rare).
+                    let fresh: Slot = std::sync::Arc::new((
+                        std::sync::Mutex::new(None),
+                        std::sync::Condvar::new(),
+                    ));
+                    (true, fresh)
+                }
+            } else {
+                let fresh: Slot = std::sync::Arc::new((
+                    std::sync::Mutex::new(None),
+                    std::sync::Condvar::new(),
                 ));
+                *gate = Some((channel.clone(), with_notes, fresh.clone()));
+                (true, fresh)
             }
-        } else if let Ok(mut guard) = CACHE.lock() {
-            // Drop a prior success cache for this channel so a transient failure is not sticky.
-            if guard
-                .as_ref()
-                .map(|(_, ch, _, _)| ch == &channel)
-                .unwrap_or(false)
+        };
+
+        let json = if is_leader {
+            let result = crate::net_dashboard::update_check::check_for_update(
+                tetra_core::STACK_VERSION,
+                &channel,
+                with_notes,
+            );
+            let json = result.to_json();
+            if !result.check_failed {
+                if let Ok(mut guard) = CACHE.lock() {
+                    *guard = Some((
+                        std::time::Instant::now(),
+                        channel.clone(),
+                        with_notes,
+                        json.clone(),
+                    ));
+                }
+            } else if let Ok(mut guard) = CACHE.lock() {
+                if guard
+                    .as_ref()
+                    .map(|(_, ch, _, _)| ch == &channel)
+                    .unwrap_or(false)
+                {
+                    *guard = None;
+                }
+            }
             {
-                *guard = None;
+                let (lock, cv) = &*slot;
+                let mut st = lock.lock().unwrap_or_else(|e| e.into_inner());
+                *st = Some(json.clone());
+                cv.notify_all();
             }
-        }
+            if let Ok(mut gate) = INFLIGHT.lock() {
+                if let Some((ch, notes, _)) = gate.as_ref() {
+                    if ch == &channel && *notes == with_notes {
+                        *gate = None;
+                    }
+                }
+            }
+            json
+        } else {
+            let (lock, cv) = &*slot;
+            let mut st = lock.lock().unwrap_or_else(|e| e.into_inner());
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+            while st.is_none() {
+                let now = std::time::Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                let (guard, _) = cv
+                    .wait_timeout(st, deadline.saturating_duration_since(now))
+                    .unwrap_or_else(|e| e.into_inner());
+                st = guard;
+            }
+            st.clone().unwrap_or_else(|| {
+                crate::net_dashboard::update_check::check_for_update(
+                    tetra_core::STACK_VERSION,
+                    &channel,
+                    with_notes,
+                )
+                .to_json()
+            })
+        };
         json
     };
     let header = format!(

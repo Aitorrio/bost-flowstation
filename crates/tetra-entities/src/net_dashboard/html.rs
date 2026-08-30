@@ -7156,7 +7156,11 @@ function showPage(name,el){
   if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
-  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();loadOtaChannel();checkUpdate();startServiceStatusPolling();loadDashboardAuth();}
+  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();loadOtaChannel();startServiceStatusPolling();loadDashboardAuth();
+    // Avoid a fresh GitHub stampede on every System visit — badge uses cache ≤90s.
+    if(!otaLastCheck||otaLastCheck.check_failed)checkUpdate();
+    else applyUpdateCheckUi(otaLastCheck);
+  }
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
   if(name==='wifi')wifiRefresh();
   if(window.innerWidth<=700)closeMobileSidebar();
@@ -11036,12 +11040,18 @@ async function startUpdate(opts){
   finishUpdatePoll();
   resetUpdateModalUi();
   document.getElementById('update-modal-title').textContent=t('update_title');
-  await loadOtaChannel();
+  // Open immediately — never await GitHub/network before first paint (Pi OTA check
+  // can take tens of seconds and used to freeze the Update button).
+  const sel=document.getElementById('ota-channel-select');
+  if(sel&&otaChannelCache.channel)sel.value=otaChannelCache.channel;
   setOtaChannelHint(t('ota_channel_help'),false);
   modal.classList.add('open');
+  showOtaStep(opts.fromBanner?'review':'choose');
+  loadOtaChannel().then(()=>{
+    if(sel&&otaChannelCache.channel)sel.value=otaChannelCache.channel;
+  });
 
   if(opts.fromBanner){
-    showOtaStep('review');
     const versions=document.getElementById('ota-review-versions');
     if(versions)versions.textContent=t('ota_checking');
     try{
@@ -11070,9 +11080,7 @@ async function startUpdate(opts){
       return;
     }
     showOtaStep('choose');
-    return;
   }
-  showOtaStep('choose');
 }
 async function checkOtaInModal(){
   const btn=document.getElementById('ota-check-btn');

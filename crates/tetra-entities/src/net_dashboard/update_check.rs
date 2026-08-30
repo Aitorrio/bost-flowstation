@@ -409,9 +409,8 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
     let branch = tetra_core::ota_branch_for_channel(&channel).to_string();
 
     let client = match reqwest::blocking::Client::builder()
-        // Pi ↔ GitHub TLS is often slow; keep below dashboard thread patience.
-        .timeout(Duration::from_secs(15))
-        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(12))
+        .connect_timeout(Duration::from_secs(6))
         .user_agent(USER_AGENT)
         .build()
     {
@@ -424,6 +423,12 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
         branch
     );
     let branch_page = format!("{}/tree/{}", tetra_core::PRODUCT_REPO_URL, branch);
+
+    // Overlap tip SHA + remote BOST_VERSION fetches (halves light-check latency on Pi).
+    let ver_client = client.clone();
+    let ver_branch = branch.clone();
+    let ver_handle =
+        std::thread::spawn(move || fetch_remote_version(&ver_client, &ver_branch));
 
     if let Ok(resp) = client
         .get(&commits_url)
@@ -439,7 +444,7 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
                     Some(local) => !sha.starts_with(local.as_str()) && !local.starts_with(short),
                     None => false,
                 };
-                let remote_version = fetch_remote_version(&client, &branch);
+                let remote_version = ver_handle.join().ok().flatten();
                 let (changelog, changelog_truncated, release_notes, notes_source) =
                     if with_notes && update_available {
                         let (changelog, mut changelog_truncated) = match &local {
@@ -478,6 +483,7 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
             }
         }
     }
+    let _ = ver_handle.join();
 
     // Fallback: GitHub Releases SemVer.
     let releases_url = "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/latest";
