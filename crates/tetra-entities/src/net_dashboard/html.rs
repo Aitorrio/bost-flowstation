@@ -2919,6 +2919,60 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   .sys-hero-actions{grid-template-columns:1fr;}
   .sys-hero .sys-hero-stats{grid-template-columns:1fr;}
 }
+
+/* ── Phase 4 mobile: RF + Health (PC unchanged) ── */
+@media(max-width:700px){
+  /* RF — stack charts, denser KPI strip, wrap panel titles */
+  .rf-metrics{grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px;}
+  .rf-metric{padding:10px 12px;}
+  .rf-metric-value{font-size:13px;}
+  .rf-grid{grid-template-columns:1fr;gap:10px;}
+  .rf-panel{padding:12px;gap:8px;}
+  .rf-panel-title{
+    flex-wrap:wrap;align-items:flex-start;gap:4px 10px;
+    font-size:11px;line-height:1.35;
+  }
+  .rf-panel-title .rf-hint{flex:1 1 100%;}
+  .rf-canvas{height:220px;}
+  .rf-canvas.small{height:220px;}
+  .rf-canvas.tall{height:260px;}
+  .rf-quality-card{padding:12px;gap:12px;margin-top:10px;}
+  .rf-quality-grid{grid-template-columns:1fr 1fr;gap:8px;}
+  .rf-qmetric{padding:10px;}
+  .rf-hw-grid{grid-template-columns:1fr;gap:10px;}
+  .rf-hw-temp{padding:12px;}
+  .rf-hw-temp-value{font-size:24px;}
+  .rf-hw-gain-block{padding:12px;}
+
+  /* Health — 1-col cards (minmax(330px) overflowed phones); hero wraps */
+  .h-wrap{max-width:none;}
+  .h-hero{
+    flex-wrap:wrap;align-items:flex-start;gap:12px 14px;
+    padding:14px;border-radius:14px;
+  }
+  .h-ring{width:44px;height:44px;}
+  .h-ring svg{width:22px;height:22px;}
+  .h-hero-txt{flex:1 1 auto;}
+  .h-hero-title{font-size:18px;}
+  .h-hero-sub{font-size:13px;}
+  .h-hero-meta{
+    flex:1 1 100%;width:100%;text-align:left;
+    padding-top:8px;margin-top:2px;border-top:1px solid var(--border);
+  }
+  .h-sec{margin:16px 2px 10px;}
+  .h-grid{grid-template-columns:1fr;gap:10px;}
+  .h-card{padding:13px 14px;border-radius:14px;gap:11px;}
+  .h-metricstrip{grid-template-columns:1fr;gap:10px;}
+  .h-note{margin-top:14px;font-size:12px;line-height:1.45;}
+}
+@media(max-width:500px){
+  .rf-quality-grid{grid-template-columns:1fr;}
+  .rf-canvas{height:190px;}
+  .rf-canvas.small{height:190px;}
+  .rf-canvas.tall{height:220px;}
+  .rf-metrics{gap:6px;}
+  .h-hero-title{font-size:17px;}
+}
 </style>
 </head>
 <body>
@@ -6663,6 +6717,16 @@ function showPage(name,el){
   if(name==='stations'){loadBtsInfoLegacy();loadDualCarrier();refreshProfileSelects();}
   if(name==='dgna'){syncDgnaAttachmentModePicker();renderDgnaPage();}
   if(name==='sdslog'){loadSdsLog();}
+  if(name==='rf'){
+    requestAnimationFrame(()=>{
+      try{
+        rfResizeCanvas('rf-spectrum');
+        rfResizeCanvas('rf-constellation');
+        rfResizeCanvas('rf-waterfall');
+        if(typeof drawRfWaterfall==='function')drawRfWaterfall();
+      }catch{}
+    });
+  }
   if(name==='health'){loadHealthIntegrations();}
   if(name==='asterisk'){loadAsteriskStatus();loadSnomNotify();}
   if(name==='dapnet'){loadDapnet();loadDapnetLog();}
