@@ -874,7 +874,7 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-setup .card-body .info-row{padding-left:0;padding-right:0;}
 #page-setup .setup-device-list{margin:0 0 12px;}
 #page-setup .setup-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
-#page-setup .card-body .config-msg{
+#page-setup .card-body .config-msg:not(:empty){
   border-top:none;padding:6px 0 0;min-height:0;
 }
 #page-setup .card-body .help-text{margin-top:10px;}
@@ -884,7 +884,7 @@ input[type="radio"]{accent-color:var(--accent);}
 /* GeoAlarm: same breathing room; events table stays full-bleed. */
 #page-geoalarm .card-body .info-row{padding-left:0;padding-right:0;}
 #page-geoalarm .card-body:has(> .table-wrap){padding:0;}
-#page-geoalarm .card-body .config-msg{border-top:none;padding:8px 0 0;min-height:0;}
+#page-geoalarm .card-body .config-msg:not(:empty){border-top:none;padding:8px 0 0;min-height:0;}
 #page-geoalarm .stat-grid{margin-bottom:16px;}
 #page-geoalarm .info-grid{margin-bottom:16px;}
 #page-geoalarm .geo-section{margin-top:16px;}
@@ -903,7 +903,7 @@ input[type="radio"]{accent-color:var(--accent);}
   min-height:320px;width:100%;box-sizing:border-box;
   margin:0 0 4px;border-radius:8px;
 }
-.cfg-adv-body .config-msg{border-top:none;padding-left:0;padding-right:0;}
+.cfg-adv-body .config-msg:not(:empty){border-top:none;padding-left:0;padding-right:0;}
 
 /* Profile sheets borrow forms out of #page-config — restore Live card padding
    and give Advanced <details> / footer actions the same breathing room. */
@@ -942,8 +942,8 @@ input[type="radio"]{accent-color:var(--accent);}
   display:flex;gap:8px;flex-wrap:wrap;
   margin-top:16px;padding-top:2px;
 }
-#cfg-cell-sheet .sheet-body .config-msg,
-#cfg-brew-sheet .sheet-body .config-msg{
+#cfg-cell-sheet .sheet-body .config-msg:not(:empty),
+#cfg-brew-sheet .sheet-body .config-msg:not(:empty){
   border-top:none;padding:8px 0 0;
 }
 
@@ -1247,7 +1247,15 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--text);
   padding:16px;tab-size:2;
 }
-.config-msg{padding:8px 16px;font-family:var(--mono);font-size:12px;border-top:1px solid var(--border);min-height:34px;}
+/* Feedback line under forms — hide when idle (empty) so it doesn't leave a
+   dead separator + white gap before Save/Apply or the next card. */
+.config-msg{
+  padding:0;font-family:var(--mono);font-size:12px;
+  border-top:none;min-height:0;
+}
+.config-msg:not(:empty){
+  padding:8px 16px;border-top:1px solid var(--border);min-height:34px;
+}
 
 /* ── Empty state (legacy children; the .empty-state container itself is the
    v3 flex component defined in the design-system block below) ── */
