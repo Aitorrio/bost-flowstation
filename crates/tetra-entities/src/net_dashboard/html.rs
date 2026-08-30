@@ -2128,32 +2128,40 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
 /* Home quick profiles (Cell × Brew apply from the first page) */
 .home-quick{
-  flex-direction:column;align-items:stretch;gap:14px;
-  padding:16px 18px 18px;margin-bottom:18px;
+  flex-direction:column;align-items:stretch;gap:10px;
+  padding:14px 16px 12px;margin-bottom:18px;
 }
 .home-quick-head{
   display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;
 }
+/* PC: selects + actions on one row (actions right) → shorter hero */
+.home-quick-row{
+  display:flex;align-items:flex-end;gap:12px 14px;flex-wrap:nowrap;width:100%;
+}
 .home-quick-profiles{
-  display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;width:100%;
+  display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1fr);
+  gap:8px 12px;flex:1 1 auto;min-width:0;max-width:420px;
 }
 .home-quick-field label{
   display:block;font-size:11px;font-weight:600;color:var(--text3);
-  margin-bottom:5px;letter-spacing:0.02em;
+  margin-bottom:4px;letter-spacing:0.02em;
 }
-.home-quick-field .form-input{width:100%;min-height:40px;}
+.home-quick-field .form-input{width:100%;min-height:38px;}
 .home-quick-actions{
-  display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  flex:0 0 auto;width:auto;margin-left:auto;
 }
-.home-quick-actions .btn{min-height:40px;}
+.home-quick-actions .btn{min-height:38px;white-space:nowrap;}
 .home-quick-msg{
-  font-size:12px;color:var(--muted);min-height:1.2em;margin:0;
+  font-size:12px;color:var(--muted);min-height:0;margin:0;
 }
+.home-quick-msg:empty{display:none;}
 .home-quick-msg.ok{color:var(--ok);}
 .home-quick-msg.err{color:var(--danger);}
 @media (max-width:700px){
-  .home-quick-profiles{grid-template-columns:1fr;}
-  .home-quick-actions{flex-direction:column;align-items:stretch;}
+  .home-quick-row{flex-direction:column;align-items:stretch;}
+  .home-quick-profiles{grid-template-columns:1fr;max-width:none;width:100%;}
+  .home-quick-actions{flex-direction:column;align-items:stretch;margin-left:0;width:100%;}
   .home-quick-actions .btn{width:100%;justify-content:center;}
 }
 
@@ -3306,21 +3314,23 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <div class="hero-title" data-i18n="home_quick_title">Quick profiles</div>
           </div>
         </div>
-        <div class="home-quick-profiles">
-          <div class="home-quick-field">
-            <label for="home-cell-profile" data-i18n="cfg_cell_profile">TMO Cell</label>
-            <select id="home-cell-profile" class="form-input"></select>
+        <div class="home-quick-row">
+          <div class="home-quick-profiles">
+            <div class="home-quick-field">
+              <label for="home-cell-profile" data-i18n="cfg_cell_profile">TMO Cell</label>
+              <select id="home-cell-profile" class="form-input"></select>
+            </div>
+            <div class="home-quick-field">
+              <label for="home-brew-profile" data-i18n="cfg_brew_profile">Core Net (Brew)</label>
+              <select id="home-brew-profile" class="form-input">
+                <option value="">Offline (no Brew)</option>
+              </select>
+            </div>
           </div>
-          <div class="home-quick-field">
-            <label for="home-brew-profile" data-i18n="cfg_brew_profile">Core Net (Brew)</label>
-            <select id="home-brew-profile" class="form-input">
-              <option value="">Offline (no Brew)</option>
-            </select>
+          <div class="home-quick-actions">
+            <button type="button" class="btn btn-primary" onclick="applyHomeProfiles()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
+            <button type="button" class="btn" onclick="goHomeMoreSettings()"><span data-i18n="home_more_settings">More settings</span></button>
           </div>
-        </div>
-        <div class="home-quick-actions">
-          <button type="button" class="btn btn-primary" onclick="applyHomeProfiles()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
-          <button type="button" class="btn" onclick="goHomeMoreSettings()"><span data-i18n="home_more_settings">More settings</span></button>
         </div>
         <p class="home-quick-msg" id="home-profiles-msg"></p>
       </div>
