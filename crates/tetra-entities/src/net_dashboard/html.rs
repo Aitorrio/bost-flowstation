@@ -2140,7 +2140,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 }
 .home-quick-profiles{
   display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1fr);
-  gap:8px 12px;flex:1 1 auto;min-width:0;max-width:420px;
+  gap:8px 12px;flex:1 1 auto;min-width:0;
 }
 .home-quick-field label{
   display:block;font-size:11px;font-weight:600;color:var(--text3);
@@ -2149,7 +2149,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .home-quick-field .form-input{width:100%;min-height:38px;}
 .home-quick-actions{
   display:flex;flex-wrap:wrap;align-items:center;gap:8px;
-  flex:0 0 auto;width:auto;margin-left:auto;
+  flex:0 0 auto;width:auto;
 }
 .home-quick-actions .btn{min-height:38px;white-space:nowrap;}
 .home-quick-msg{
