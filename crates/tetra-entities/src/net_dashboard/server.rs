@@ -1160,6 +1160,34 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // Explicit refspec so `origin/<branch>` always exists. Plain `git fetch origin <branch>`
     // often only updates FETCH_HEAD (seen on Pi clones that never tracked `beta` before),
     // which then makes `rev-parse origin/beta` fail with exit 128.
+    //
+    // Purge empty loose objects left by a killed/OOM mid-fetch. Those make the next
+    // fetch fail with "object file … is empty" / "invalid index-pack" — the UI used to
+    // mislabel that as network/TLS.
+    if let Ok(objects) = std::fs::read_dir(src_dir.join(".git/objects")) {
+        let mut purged = 0u32;
+        for entry in objects.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.len() != 2 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+                continue;
+            }
+            if let Ok(inner) = std::fs::read_dir(entry.path()) {
+                for obj in inner.flatten() {
+                    if obj.metadata().map(|m| m.len() == 0).unwrap_or(false) {
+                        let _ = std::fs::remove_file(obj.path());
+                        purged += 1;
+                    }
+                }
+            }
+        }
+        if purged > 0 {
+            log!(
+                update,
+                "Removed {purged} empty .git object(s) from a previous interrupted fetch."
+            );
+        }
+    }
     // Retry a few times: Pi ↔ GitHub over HTTPS occasionally fails with GnuTLS handshake errors.
     let fetch_refspec = format!("+refs/heads/{0}:refs/remotes/origin/{0}", ota_branch);
     let fetch_ok = {
@@ -1170,7 +1198,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
                 let wait_s = 5 * (attempt - 1);
                 log!(
                     update,
-                    "Fetch failed (network/TLS) — retrying in {wait_s}s (attempt {attempt}/{FETCH_ATTEMPTS})…"
+                    "Fetch failed — retrying in {wait_s}s (attempt {attempt}/{FETCH_ATTEMPTS})…"
                 );
                 std::thread::sleep(std::time::Duration::from_secs(wait_s as u64));
             }
@@ -1189,7 +1217,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         if !ok {
             log!(
                 update,
-                "ERROR: git fetch failed after {FETCH_ATTEMPTS} attempts (check network / GitHub TLS). Try Actualizar again."
+                "ERROR: git fetch failed after {FETCH_ATTEMPTS} attempts. If the log shows 'object file … is empty' or 'invalid index-pack', the local .git is corrupt — run on the Pi: find /opt/bost-flowstation/.git/objects -type f -empty -delete  then Actualizar again. Otherwise check network / GitHub TLS."
             );
         }
         ok
