@@ -728,6 +728,41 @@ fn cargo_build_command(
     build
 }
 
+/// Remove zero-byte loose objects left by a killed/OOM mid-fetch. Those make the next
+/// `git fetch` fail with "object file … is empty" / "invalid index-pack", which the UI
+/// used to mislabel as network/TLS.
+fn purge_empty_git_objects(src_dir: &std::path::Path) -> u32 {
+    let objects = match std::fs::read_dir(src_dir.join(".git/objects")) {
+        Ok(d) => d,
+        Err(_) => return 0,
+    };
+    let mut purged = 0u32;
+    for entry in objects.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.len() != 2 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        if let Ok(inner) = std::fs::read_dir(entry.path()) {
+            for obj in inner.flatten() {
+                if obj.metadata().map(|m| m.len() == 0).unwrap_or(false) {
+                    let _ = std::fs::remove_file(obj.path());
+                    purged += 1;
+                }
+            }
+        }
+    }
+    purged
+}
+
+fn update_log_looks_like_corrupt_git(log: &str) -> bool {
+    let l = log.to_ascii_lowercase();
+    (l.contains("object file") && l.contains("is empty"))
+        || l.contains("invalid index-pack")
+        || l.contains("corrupt") && l.contains(".git")
+        || l.contains("zlib:")
+}
+
 /// Spawn `cmd`, stream stdout+stderr line-by-line into `update.log`, and return
 /// collected stdout on success (or None after marking the update failed).
 fn stream_cmd(
@@ -1160,39 +1195,20 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // Explicit refspec so `origin/<branch>` always exists. Plain `git fetch origin <branch>`
     // often only updates FETCH_HEAD (seen on Pi clones that never tracked `beta` before),
     // which then makes `rev-parse origin/beta` fail with exit 128.
-    //
-    // Purge empty loose objects left by a killed/OOM mid-fetch. Those make the next
-    // fetch fail with "object file … is empty" / "invalid index-pack" — the UI used to
-    // mislabel that as network/TLS.
-    if let Ok(objects) = std::fs::read_dir(src_dir.join(".git/objects")) {
-        let mut purged = 0u32;
-        for entry in objects.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if name.len() != 2 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
-                continue;
-            }
-            if let Ok(inner) = std::fs::read_dir(entry.path()) {
-                for obj in inner.flatten() {
-                    if obj.metadata().map(|m| m.len() == 0).unwrap_or(false) {
-                        let _ = std::fs::remove_file(obj.path());
-                        purged += 1;
-                    }
-                }
-            }
-        }
-        if purged > 0 {
-            log!(
-                update,
-                "Removed {purged} empty .git object(s) from a previous interrupted fetch."
-            );
-        }
+    let purged0 = purge_empty_git_objects(&src_dir);
+    if purged0 > 0 {
+        log!(
+            update,
+            "Removed {purged0} empty .git object(s) from a previous interrupted fetch."
+        );
     }
     // Retry a few times: Pi ↔ GitHub over HTTPS occasionally fails with GnuTLS handshake errors.
+    // On "empty object" / index-pack corruption, purge again mid-loop before the next attempt.
     let fetch_refspec = format!("+refs/heads/{0}:refs/remotes/origin/{0}", ota_branch);
     let fetch_ok = {
         const FETCH_ATTEMPTS: u32 = 3;
         let mut ok = false;
+        let mut saw_corrupt = false;
         for attempt in 1..=FETCH_ATTEMPTS {
             if attempt > 1 {
                 let wait_s = 5 * (attempt - 1);
@@ -1201,6 +1217,14 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
                     "Fetch failed — retrying in {wait_s}s (attempt {attempt}/{FETCH_ATTEMPTS})…"
                 );
                 std::thread::sleep(std::time::Duration::from_secs(wait_s as u64));
+                let log_snap = update.lock().unwrap().log.clone();
+                if update_log_looks_like_corrupt_git(&log_snap) {
+                    saw_corrupt = true;
+                    let n = purge_empty_git_objects(&src_dir);
+                    if n > 0 {
+                        log!(update, "Purged {n} empty .git object(s) before retry.");
+                    }
+                }
             }
             if run_cmd_output(
                 &update,
@@ -1213,12 +1237,23 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
                 ok = true;
                 break;
             }
+            let log_snap = update.lock().unwrap().log.clone();
+            if update_log_looks_like_corrupt_git(&log_snap) {
+                saw_corrupt = true;
+            }
         }
         if !ok {
-            log!(
-                update,
-                "ERROR: git fetch failed after {FETCH_ATTEMPTS} attempts. If the log shows 'object file … is empty' or 'invalid index-pack', the local .git is corrupt — run on the Pi: find /opt/bost-flowstation/.git/objects -type f -empty -delete  then Actualizar again. Otherwise check network / GitHub TLS."
-            );
+            if saw_corrupt {
+                log!(
+                    update,
+                    "ERROR: git fetch failed — local .git looks corrupt (empty objects / bad pack), not a generic network error. Empty objects were purged automatically; tap Actualizar again. If it keeps failing, on the Pi run: find /opt/bost-flowstation/.git/objects -type f -empty -delete && git -C /opt/bost-flowstation fetch origin"
+                );
+            } else {
+                log!(
+                    update,
+                    "ERROR: git fetch failed after {FETCH_ATTEMPTS} attempts (network, DNS, or GitHub TLS on the Pi). Check connectivity to github.com, then retry. If the log shows 'object file … is empty', the local .git is corrupt — see the corrupt-.git message above."
+                );
+            }
         }
         ok
     };
@@ -1233,12 +1268,19 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     if local_commit.is_empty() {
+        log!(update, "ERROR: cannot read local HEAD after fetch.");
         return;
     }
     let remote_commit = run_cmd_output(&update, "git", &["-C", src_str, "rev-parse", &remote_ref], &src_dir)
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     if remote_commit.is_empty() {
+        log!(
+            update,
+            "ERROR: {} missing after fetch (ref not updated). Retry OTA, or on the Pi: git -C /opt/bost-flowstation ls-remote origin {}",
+            remote_ref,
+            ota_branch
+        );
         return;
     }
 

@@ -409,8 +409,9 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
     let branch = tetra_core::ota_branch_for_channel(&channel).to_string();
 
     let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .connect_timeout(Duration::from_secs(5))
+        // Pi ↔ GitHub TLS is often slow; keep below dashboard thread patience.
+        .timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(8))
         .user_agent(USER_AGENT)
         .build()
     {
