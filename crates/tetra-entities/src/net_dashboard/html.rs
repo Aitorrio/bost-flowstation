@@ -2601,6 +2601,169 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   .cfg-profile-actions{grid-template-columns:1fr;}
 }
 
+/* ── Phase 6 mobile: DGNA + Geoalarm + Wi‑Fi + integrations (PC unchanged) ── */
+@media (max-width:700px){
+  /* Integration heroes: title then metrics on next row */
+  #page-dgna > .hero,
+  #page-geoalarm > .hero{
+    flex-wrap:wrap;align-items:flex-start;gap:12px 16px;
+  }
+  #page-dgna > .hero .hero-metrics,
+  #page-geoalarm > .hero .hero-metrics{
+    width:100%;justify-content:flex-start;flex-wrap:wrap;gap:16px 22px;
+  }
+
+  /* DGNA: single column from 700; Actions above Group Library */
+  .dgna-grid{
+    display:flex;flex-direction:column;gap:16px;
+  }
+  .dgna-grid > .card:nth-child(1){order:2;}
+  .dgna-grid > .card:nth-child(2){order:1;}
+  .dgna-action-grid{
+    grid-template-columns:1fr 1fr;gap:8px;padding:12px 14px;margin-top:8px;
+  }
+  .dgna-action-grid > .btn{
+    width:100%;min-height:44px;height:auto;padding:10px 12px;
+    font-size:13px;line-height:1.25;white-space:normal;justify-content:center;
+  }
+  .dgna-danger-row .btn{width:100%;min-width:0;min-height:44px;}
+  #page-dgna .card-head{flex-wrap:wrap;align-items:flex-start;gap:8px;}
+  #page-dgna .card-actions{
+    width:100%;margin-left:0;display:flex;flex-wrap:wrap;gap:6px;
+  }
+  #page-dgna .card-actions .btn{
+    flex:1 1 calc(50% - 6px);min-height:40px;justify-content:center;
+  }
+  #page-dgna .dgna-action-stack .field{padding:0 14px 10px;}
+  #page-dgna .dgna-action-stack .form-label{display:block;margin-bottom:6px;}
+  #page-dgna .dgna-picker-input,
+  #page-dgna #dgna-page-search{
+    width:100%;min-height:44px;font-size:16px;box-sizing:border-box;
+  }
+  #page-dgna .card-body > .field{padding:12px 14px;flex-direction:column;align-items:stretch;gap:6px;}
+  .dgna-picker-menu{
+    max-height:min(50vh,280px);overflow-y:auto;-webkit-overflow-scrolling:touch;
+  }
+  .dgna-library-wrap{max-height:min(45vh,320px);}
+
+  /* Geoalarm: route grids 1 col; form fields usable */
+  #page-geoalarm .geo-route-grid,
+  #page-geoalarm .geo-filter-grid{
+    grid-template-columns:1fr;gap:16px;
+  }
+  #page-geoalarm .group-list .field:has(.form-input){
+    flex-direction:column;align-items:stretch;gap:6px;
+    min-height:0;padding:12px 14px;
+  }
+  #page-geoalarm .group-list .field:has(.form-input) .field-label{
+    flex:none;width:100%;
+  }
+  #page-geoalarm .group-list .field:has(.form-input) .field-control{
+    width:100%;margin-left:0;max-width:none;
+  }
+  #page-geoalarm .group-list .form-input{
+    width:100%;min-width:0;max-width:none;min-height:44px;font-size:16px;
+    box-sizing:border-box;
+  }
+  #page-geoalarm .group-list .field .field-control:has(.sw){
+    width:auto;margin-left:auto;min-height:0;
+  }
+  #page-geoalarm .group-list label.field:has(.sw){
+    flex-direction:row;align-items:center;gap:10px;
+  }
+  #page-geoalarm .group-list .field .field-control:has(.h-fopt){
+    width:100%;margin-left:0;justify-content:flex-start;
+  }
+
+  /* Wi‑Fi: action bars at card foot; rows stack Connect/Forget */
+  #page-wifi .card:has(> .card-head > .card-actions .btn){
+    display:flex;flex-direction:column;
+  }
+  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head{
+    display:contents;
+  }
+  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head > .card-title{
+    order:1;width:100%;box-sizing:border-box;
+    padding:14px 16px 12px;border-bottom:1px solid var(--border);
+  }
+  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-body{
+    order:2;flex:1 1 auto;
+  }
+  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head > .card-actions{
+    order:3;width:100%;margin:0;box-sizing:border-box;
+    display:flex;flex-direction:column;gap:8px;
+    padding:12px 14px max(12px, env(safe-area-inset-bottom));
+    border-top:1px solid var(--sep);background:var(--bg2);
+  }
+  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head > .card-actions .btn{
+    width:100%;justify-content:center;min-height:44px;
+  }
+  .wifi-status-grid{grid-template-columns:1fr 1fr;gap:12px;}
+  .wifi-row{
+    flex-wrap:wrap;align-items:flex-start;gap:10px;padding:12px;
+  }
+  .wifi-row-actions{
+    width:100%;display:grid;grid-template-columns:1fr 1fr;gap:6px;flex-shrink:0;
+  }
+  .wifi-row-actions .btn{
+    width:100%;min-height:40px;justify-content:center;
+  }
+  #wifi-modal .wifi-modal-row input[type="text"],
+  #wifi-modal .wifi-modal-row input[type="password"],
+  #wifi-modal .sheet-body input[type="text"],
+  #wifi-modal .sheet-body input[type="password"]{
+    width:100%;min-height:44px;font-size:16px;box-sizing:border-box;
+  }
+  #wifi-modal .wifi-modal-foot,
+  #wifi-modal .sheet-body .wifi-modal-foot{
+    flex-direction:column;align-items:stretch;gap:8px;
+  }
+  #wifi-modal .wifi-modal-foot .btn,
+  #wifi-modal .sheet-body .wifi-modal-foot .btn{
+    width:100%;min-height:44px;justify-content:center;
+  }
+
+  /* Telegram / DAPNET: stacked fields like Config */
+  #page-telegram .group-list .field:has(.form-input),
+  #page-dapnet .group-list .field:has(.form-input),
+  #page-asterisk .group-list .field:has(.form-input){
+    flex-direction:column;align-items:stretch;gap:6px;
+    min-height:0;padding:12px 14px;
+  }
+  #page-telegram .group-list .field:has(.form-input) .field-label,
+  #page-dapnet .group-list .field:has(.form-input) .field-label,
+  #page-asterisk .group-list .field:has(.form-input) .field-label{
+    flex:none;width:100%;
+  }
+  #page-telegram .group-list .field:has(.form-input) .field-control,
+  #page-dapnet .group-list .field:has(.form-input) .field-control,
+  #page-asterisk .group-list .field:has(.form-input) .field-control{
+    width:100%;margin-left:0;max-width:none;
+  }
+  #page-telegram .group-list .form-input,
+  #page-dapnet .group-list .form-input,
+  #page-asterisk .group-list .form-input{
+    width:100%;min-width:0;max-width:none;min-height:44px;font-size:16px;
+    box-sizing:border-box;
+  }
+  #page-telegram .group-list label.field:has(.sw),
+  #page-dapnet .group-list label.field:has(.sw),
+  #page-asterisk .group-list label.field:has(.sw){
+    flex-direction:row;align-items:center;
+  }
+  #page-telegram .group-list .field .field-control:has(.sw),
+  #page-dapnet .group-list .field .field-control:has(.sw),
+  #page-asterisk .group-list .field .field-control:has(.sw){
+    width:auto;margin-left:auto;min-height:0;
+  }
+}
+@media (max-width:500px){
+  .dgna-action-grid{grid-template-columns:1fr;}
+  #page-dgna .card-actions .btn{flex:1 1 100%;}
+  .wifi-status-grid{grid-template-columns:1fr;}
+  .wifi-row-actions{grid-template-columns:1fr;}
+}
+
 /* ── Ghost SVG stat-icon: the .stat-icon slot now hosts a faint inline SVG
    (was an emoji glyph). Auto-themes via currentColor, sits at low opacity. ── */
 .stat-icon svg{display:block;width:30px;height:30px;color:var(--text);}
