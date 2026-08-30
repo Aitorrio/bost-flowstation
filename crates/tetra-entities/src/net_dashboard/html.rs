@@ -1256,6 +1256,9 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .config-msg:not(:empty){
   padding:8px 16px;border-top:1px solid var(--border);min-height:34px;
 }
+.cfg-empty{
+  color:var(--text3);font-size:12px;font-weight:400;line-height:1.35;
+}
 
 /* ── Empty state (legacy children; the .empty-state container itself is the
    v3 flex component defined in the design-system block below) ── */
@@ -2497,6 +2500,62 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   #cfg-cell-sheet .group-list .field .field-control:has(.sw),
   #cfg-brew-sheet .group-list .field .field-control:has(.sw){
     width:auto;margin-left:auto;min-height:0;
+  }
+
+  /* Remote + WX: Settings-style horizontal rows (override Phase 5 column stack) */
+  #page-config .card:has(#remote-enabled) .group-list .field,
+  #page-config .card:has(#wx-enabled) .group-list .field{
+    flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px 14px;
+    min-height:44px;padding:12px 14px;
+  }
+  #page-config .card:has(#remote-enabled) .group-list .field > span:not(.field-control):not(.sw),
+  #page-config .card:has(#remote-enabled) .group-list .field .field-label,
+  #page-config .card:has(#wx-enabled) .group-list .field > span:not(.field-control):not(.sw),
+  #page-config .card:has(#wx-enabled) .group-list .field .field-label{
+    flex:1 1 auto;width:auto;min-width:0;
+  }
+  #page-config .card:has(#remote-enabled) .group-list .field .field-control,
+  #page-config .card:has(#wx-enabled) .group-list .field .field-control{
+    width:auto;margin-left:auto;min-height:0;flex:0 1 auto;max-width:52%;
+  }
+  #page-config .card:has(#remote-enabled) .group-list .field .form-input,
+  #page-config .card:has(#wx-enabled) .group-list .field .form-input{
+    width:auto;max-width:100%;min-width:5.5em;min-height:40px;font-size:16px;
+    text-align:right;
+  }
+  #page-config .card:has(#wx-enabled) .group-list .field-hint{
+    flex-basis:100%;margin-top:2px;width:100%;
+  }
+  #page-config .card:has(#wx-enabled) .group-list .field .field-control:has(.sw){
+    max-width:none;flex-wrap:wrap;justify-content:flex-end;
+  }
+  /* Remote toolbars: stack on phone */
+  #page-config .remote-add-row,
+  #page-config .remote-cmds-head{
+    flex-direction:column;align-items:stretch;gap:8px;
+  }
+  #page-config .remote-add-row .form-input,
+  #page-config .remote-add-row .btn,
+  #page-config .remote-cmds-head .btn{
+    width:100%;min-width:0;min-height:44px;font-size:16px;justify-content:center;
+    box-sizing:border-box;
+  }
+  #page-config #remote-issi-chips{
+    min-height:0;margin-bottom:14px;
+  }
+  #page-config .cfg-empty{
+    display:block;color:var(--text3);font-size:12px;font-weight:400;
+    padding:2px 0 4px;margin:0;border:0;min-height:0;line-height:1.35;
+  }
+  #page-config #remote-cmd-rows{
+    gap:10px;margin-bottom:4px;
+  }
+  #page-config #remote-cmd-rows > div{
+    flex-direction:column;align-items:stretch;
+  }
+  #page-config #remote-cmd-rows .form-input,
+  #page-config #remote-cmd-rows .btn{
+    width:100%;min-width:0;min-height:44px;font-size:16px;box-sizing:border-box;
   }
 
   /* Sheets ≈ fullscreen on phone (Config profiles + Wi‑Fi modals) */
@@ -4837,15 +4896,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </div>
           </div>
           <div style="font-size:12px;font-weight:600;margin-bottom:8px" data-i18n="remote_issis_title">ISSIs autorizados</div>
-          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <div class="remote-add-row" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
             <input type="number" id="remote-issi-input" class="form-input" min="1" max="16777215"
                    placeholder="e.g. 2144485" style="flex:1;min-width:160px"
                    onkeydown="if(event.key==='Enter'){addRemoteIssi();}">
             <button class="btn" onclick="addRemoteIssi()"><span class="btn-icon" data-icon="add"></span><span data-i18n="remote_issi_add">Añadir ISSI</span></button>
           </div>
-          <div id="remote-issi-chips" style="display:flex;gap:8px;flex-wrap:wrap;min-height:32px;margin-bottom:18px"></div>
+          <div id="remote-issi-chips" class="remote-chips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px"></div>
 
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <div class="remote-cmds-head" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
             <div style="font-size:12px;font-weight:600" data-i18n="remote_cmds_title">Comandos (código → acción)</div>
             <button class="btn" onclick="addRemoteCommand()"><span class="btn-icon" data-icon="add"></span><span data-i18n="remote_cmd_add">Añadir comando</span></button>
           </div>
@@ -5892,6 +5951,7 @@ const LANGS={
     whitelist_enforced:'ENFORCED',whitelist_open:'OPEN',whitelist_invalid:'Enter a valid ISSI (1–16777215).',
     remote_title:'Remote control (U-STATUS)',remote_help:'Authorized radios send a U-STATUS to ISSI 9999. Each status code maps to an action (IP, temperature, info, restart…). Changes apply instantly and persist in config.toml; they are not part of Cell/Brew profiles.',
     remote_enabled:'Enable remote control',remote_control_issi:'Control ISSI',remote_issis_title:'Authorized ISSIs',remote_issi_add:'Add ISSI',
+    remote_issis_empty:'None yet',remote_cmds_empty:'No commands yet',
     remote_cmds_title:'Commands (code → action)',remote_cmd_add:'Add command',remote_status_code:'Status code',remote_action:'Action',remote_cmd_del:'Remove',
     remote_empty_issi:'Add at least one authorized ISSI when enabled.',remote_invalid_code:'Enter a status code (0–65535).',
     wx_title:'WX / METAR Service',wx_help:'Built-in weather service. Radios send an SDS like "METAR LROP" to the service ISSI to get a decoded report. Optionally auto-send a fixed station\'s METAR to an ISSI or talkgroup at a set interval. Data from aviationweather.gov.',
@@ -6369,6 +6429,7 @@ const LANGS={
     whitelist_enforced:'ACTIVA',whitelist_open:'ABIERTA',whitelist_invalid:'Introduce un ISSI válido (1–16777215).',
     remote_title:'Control remoto (U-STATUS)',remote_help:'Radios autorizados envían un U-STATUS al ISSI 9999. Cada código se mapea a una acción (IP, temperatura, info, reinicio…). Los cambios aplican al instante y se guardan en config.toml; no forman parte de los perfiles Cell/Brew.',
     remote_enabled:'Activar control remoto',remote_control_issi:'ISSI de control',remote_issis_title:'ISSIs autorizados',remote_issi_add:'Añadir ISSI',
+    remote_issis_empty:'Ninguno aún',remote_cmds_empty:'Sin comandos aún',
     remote_cmds_title:'Comandos (código → acción)',remote_cmd_add:'Añadir comando',remote_status_code:'Código de estado',remote_action:'Acción',remote_cmd_del:'Quitar',
     remote_empty_issi:'Añade al menos un ISSI autorizado si está activado.',remote_invalid_code:'Introduce un código de estado (0–65535).',
     wx_title:'Servicio WX / METAR',wx_help:'Servicio meteorológico integrado. Las radios envían un SDS como "METAR LROP" al ISSI del servicio y reciben un informe decodificado. Opcionalmente envía automáticamente el METAR de una estación fija a un ISSI o grupo a intervalos. Datos de aviationweather.gov.',
@@ -9538,7 +9599,7 @@ function renderRemoteIssis(){
   const box=document.getElementById('remote-issi-chips');
   if(!box)return;
   if(!remoteIssis.length){
-    box.innerHTML='<span style="color:var(--muted);font-size:13px">—</span>';
+    box.innerHTML='<span class="cfg-empty">'+t('remote_issis_empty')+'</span>';
     return;
   }
   box.innerHTML=remoteIssis.map(issi=>
@@ -9562,7 +9623,7 @@ function renderRemoteCmds(){
   const box=document.getElementById('remote-cmd-rows');
   if(!box)return;
   if(!remoteCmds.length){
-    box.innerHTML='<span style="color:var(--muted);font-size:13px">—</span>';
+    box.innerHTML='<span class="cfg-empty">'+t('remote_cmds_empty')+'</span>';
     return;
   }
   box.innerHTML=remoteCmds.map((c,i)=>{
