@@ -2666,28 +2666,59 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   }
   .dgna-grid > .card:nth-child(1){order:2;}
   .dgna-grid > .card:nth-child(2){order:1;}
-  .dgna-action-grid{
-    grid-template-columns:1fr 1fr;gap:8px;padding:12px 14px;margin-top:8px;
+
+  /* Hero KPIs: equal columns instead of left-clumped pills */
+  #page-dgna > .hero .hero-metrics{
+    display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;
   }
-  .dgna-action-grid > .btn{
-    width:100%;min-height:44px;height:auto;padding:10px 12px;
-    font-size:13px;line-height:1.25;white-space:normal;justify-content:center;
-  }
-  .dgna-danger-row .btn{width:100%;min-width:0;min-height:44px;}
-  #page-dgna .card-head{flex-wrap:wrap;align-items:flex-start;gap:8px;}
+  #page-dgna > .hero .hero-metric{text-align:left;min-width:0;}
+
+  /* Badge stays on title row; only button toolbars go full-width */
+  #page-dgna .card-head{flex-wrap:wrap;align-items:center;gap:8px;}
   #page-dgna .card-actions{
-    width:100%;margin-left:0;display:flex;flex-wrap:wrap;gap:6px;
+    width:auto;margin-left:auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+  }
+  #page-dgna .card-actions:has(.btn){
+    width:100%;margin-left:0;
   }
   #page-dgna .card-actions .btn{
     flex:1 1 calc(50% - 6px);min-height:40px;justify-content:center;
   }
-  #page-dgna .dgna-action-stack .field{padding:0 14px 10px;}
-  #page-dgna .dgna-action-stack .form-label{display:block;margin-bottom:6px;}
+
+  /* Stack Group label above picker (was side-by-side → label floated high) */
+  #page-dgna .dgna-action-stack .field{
+    display:flex;flex-direction:column;align-items:stretch;gap:6px;
+    min-height:0;padding:12px 14px 10px;
+  }
+  #page-dgna .dgna-action-stack .form-label{
+    display:block;margin:0;width:100%;
+  }
+  #page-dgna .dgna-action-stack .info-grid{margin:0!important;}
+  #page-dgna .dgna-action-stack .info-row{padding:10px 14px;}
+  #page-dgna .dgna-action-stack .info-val{
+    font-family:var(--sans);font-size:13px;font-weight:500;word-break:break-word;
+  }
+
+  .dgna-action-grid{
+    grid-template-columns:1fr 1fr;gap:8px;
+    padding:4px 14px 14px;margin-top:4px;
+  }
+  .dgna-action-grid > .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;min-height:44px;height:auto;padding:10px 12px;
+    font-size:13px;line-height:1.25;white-space:normal;text-align:center;
+  }
+  .dgna-action-grid > .btn .btn-icon{
+    margin:0;width:16px;height:16px;flex-shrink:0;
+  }
+  .dgna-danger-row .btn{width:100%;min-width:0;min-height:44px;}
   #page-dgna .dgna-picker-input,
   #page-dgna #dgna-page-search{
     width:100%;min-height:44px;font-size:16px;box-sizing:border-box;
   }
-  #page-dgna .card-body > .field{padding:12px 14px;flex-direction:column;align-items:stretch;gap:6px;}
+  #page-dgna .card-body > .field{
+    padding:12px 14px;flex-direction:column;align-items:stretch;gap:6px;min-height:0;
+  }
   .dgna-picker-menu{
     max-height:min(50vh,280px);overflow-y:auto;-webkit-overflow-scrolling:touch;
   }
