@@ -2413,6 +2413,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .cfg-live-details > summary::-webkit-details-marker,
 .cfg-adv-details > summary::-webkit-details-marker{display:none;}
 .cfg-live-body,.cfg-adv-body{padding:14px 18px;}
+.cfg-adv-actions{
+  display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;
+}
 .cfg-adv-warn{
   color:var(--danger);font-size:13px;font-weight:700;margin:0 0 12px;
 }
@@ -2458,12 +2461,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   .cfg-profile-actions .btn{
     width:100%;justify-content:center;min-height:40px;padding:8px 6px;
   }
-  #page-config .cfg-live-body > div[style*="display:flex"],
-  #page-config .cfg-adv-body > div[style*="display:flex"]{
+  #page-config .cfg-live-body > div[style*="display:flex"]{
     flex-direction:column;align-items:stretch;
   }
-  #page-config .cfg-live-body .btn,
-  #page-config .cfg-adv-body .btn{
+  #page-config .cfg-live-body .btn{
     width:100%;justify-content:center;min-height:44px;
   }
   .cfg-live-details > summary,
@@ -2472,7 +2473,22 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   }
   .cfg-live-body,.cfg-adv-body{padding:12px 14px;}
   #page-config .card-body{padding:12px 14px;}
-  .cfg-adv-body #config-editor{min-height:240px;font-size:13px;}
+  /* Advanced TOML: tall editor + sticky Save/Apply (keyboard-friendly) */
+  .cfg-adv-body #config-editor{
+    min-height:min(52vh,420px);max-height:min(70vh,560px);
+    font-size:16px;line-height:1.45;padding:12px;border-radius:8px;
+    border:1px solid var(--border);box-sizing:border-box;resize:vertical;
+    -webkit-text-size-adjust:100%;
+  }
+  .cfg-adv-actions{
+    flex-direction:column;align-items:stretch;gap:8px;
+    position:sticky;bottom:0;z-index:2;
+    margin:12px -14px 0;padding:12px 14px max(10px, env(safe-area-inset-bottom));
+    background:var(--bg2);border-top:1px solid var(--sep);
+  }
+  .cfg-adv-actions .btn{
+    width:100%;justify-content:center;min-height:44px;
+  }
 
   /* Settings .field rows → label above control (Config + profile sheets) */
   #page-config .group-list .field,
@@ -5158,7 +5174,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="cfg-adv-body">
           <div class="cfg-adv-warn" data-i18n="cfg_advanced_warn">Advanced users only</div>
           <textarea id="config-editor" spellcheck="false" placeholder="Loading..."></textarea>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          <div class="cfg-adv-actions">
             <button type="button" class="btn btn-primary" onclick="saveConfig()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
             <button type="button" class="btn btn-warn" onclick="applyRawConfigAndRestart()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
           </div>
