@@ -1270,6 +1270,10 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .cfg-empty{
   color:var(--text3);font-size:12px;font-weight:400;line-height:1.35;
 }
+.remote-cmd-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.remote-cmd-code{width:120px;}
+.remote-cmd-action{width:140px;}
+.remote-cmd-del-icon{display:none;}
 
 /* ── Empty state (legacy children; the .empty-state container itself is the
    v3 flex component defined in the design-system block below) ── */
@@ -2575,14 +2579,30 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     padding:2px 0 4px;margin:0;border:0;min-height:0;line-height:1.35;
   }
   #page-config #remote-cmd-rows{
-    gap:10px;margin-bottom:4px;
+    gap:8px;margin-bottom:4px;
   }
-  #page-config #remote-cmd-rows > div{
-    flex-direction:column;align-items:stretch;
+  /* Code + action + red × on one row (PC keeps text "Remove") */
+  #page-config .remote-cmd-row{
+    flex-direction:row;flex-wrap:nowrap;align-items:center;gap:8px;
   }
-  #page-config #remote-cmd-rows .form-input,
-  #page-config #remote-cmd-rows .btn{
-    width:100%;min-width:0;min-height:44px;font-size:16px;box-sizing:border-box;
+  #page-config .remote-cmd-code{
+    flex:0 0 auto;width:5.75em;min-width:5.75em;max-width:38%;
+    min-height:40px;font-size:16px;box-sizing:border-box;
+  }
+  #page-config .remote-cmd-action{
+    flex:1 1 auto;width:auto;min-width:0;min-height:40px;font-size:16px;
+    box-sizing:border-box;
+  }
+  #page-config .remote-cmd-del{
+    flex:0 0 auto;width:40px;min-width:40px;height:40px;min-height:40px;
+    padding:0;justify-content:center;align-items:center;
+    border-color:color-mix(in srgb,var(--danger) 55%,var(--border));
+    color:var(--danger);
+    background:color-mix(in srgb,var(--danger) 12%,transparent);
+  }
+  #page-config .remote-cmd-del-text{display:none;}
+  #page-config .remote-cmd-del-icon{
+    display:inline;font-size:22px;line-height:1;font-weight:700;
   }
 
   /* Sheets ≈ fullscreen on phone (Config profiles + Wi‑Fi modals) */
@@ -9818,13 +9838,15 @@ function renderRemoteCmds(){
   }
   box.innerHTML=remoteCmds.map((c,i)=>{
     const opts=REMOTE_ACTIONS.map(a=>'<option value="'+a+'"'+(c.action===a?' selected':'')+'>'+a+'</option>').join('');
-    return '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
-      '<input type="number" class="form-input" min="0" max="65535" value="'+(c.status_code||'')+'" '+
-      'style="width:120px" onchange="remoteCmds['+i+'].status_code=parseInt(this.value)||0" '+
+    return '<div class="remote-cmd-row">'+
+      '<input type="number" class="form-input remote-cmd-code" min="0" max="65535" value="'+(c.status_code||'')+'" '+
+      'onchange="remoteCmds['+i+'].status_code=parseInt(this.value)||0" '+
       'placeholder="'+t('remote_status_code')+'">'+
-      '<select class="form-input" style="width:140px" onchange="remoteCmds['+i+'].action=this.value">'+opts+'</select>'+
-      '<button class="btn" onclick="removeRemoteCommand('+i+')">'+t('remote_cmd_del')+'</button>'+
-      '</div>';
+      '<select class="form-input remote-cmd-action" onchange="remoteCmds['+i+'].action=this.value">'+opts+'</select>'+
+      '<button type="button" class="btn remote-cmd-del" onclick="removeRemoteCommand('+i+')" title="'+t('remote_cmd_del')+'" aria-label="'+t('remote_cmd_del')+'">'+
+      '<span class="remote-cmd-del-text">'+t('remote_cmd_del')+'</span>'+
+      '<span class="remote-cmd-del-icon" aria-hidden="true">×</span>'+
+      '</button></div>';
   }).join('');
 }
 function addRemoteCommand(){
