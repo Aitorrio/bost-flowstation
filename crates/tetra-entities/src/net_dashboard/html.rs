@@ -2386,9 +2386,128 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   color:var(--danger);font-size:13px;font-weight:700;margin:0 0 12px;
 }
 .cfg-sheet-name-row .form-label{display:block;margin-bottom:6px;}
+
+/* ── Phase 5 mobile: Config fields, profile rows, sheets (PC unchanged) ── */
 @media (max-width:700px){
-  .cfg-profile-label{flex-basis:100%;}
-  .cfg-profile-actions{width:100%;}
+  /* Profiles card: Apply & Restart full-width; selects + Add/Edit/Delete usable */
+  #page-config .card-head{
+    flex-wrap:wrap;align-items:flex-start;gap:10px;
+  }
+  #page-config .card-actions{
+    width:100%;display:flex;flex-direction:column;gap:8px;margin-left:0;
+  }
+  #page-config .card-actions .btn{
+    width:100%;justify-content:center;min-height:44px;
+  }
+  .cfg-profile-row{
+    flex-direction:column;align-items:stretch;gap:8px;
+  }
+  .cfg-profile-label{flex:none;width:100%;flex-basis:auto;}
+  .cfg-profile-row .form-input{
+    width:100%;min-width:0;min-height:44px;font-size:16px;
+  }
+  .cfg-profile-actions{
+    width:100%;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;
+  }
+  .cfg-profile-actions .btn{
+    width:100%;justify-content:center;min-height:40px;padding:8px 6px;
+  }
+  #page-config .cfg-live-body > div[style*="display:flex"],
+  #page-config .cfg-adv-body > div[style*="display:flex"]{
+    flex-direction:column;align-items:stretch;
+  }
+  #page-config .cfg-live-body .btn,
+  #page-config .cfg-adv-body .btn{
+    width:100%;justify-content:center;min-height:44px;
+  }
+  .cfg-live-details > summary,
+  .cfg-adv-details > summary{
+    padding:14px 14px;gap:8px;
+  }
+  .cfg-live-body,.cfg-adv-body{padding:12px 14px;}
+  #page-config .card-body{padding:12px 14px;}
+  .cfg-adv-body #config-editor{min-height:240px;font-size:13px;}
+
+  /* Settings .field rows → label above control (Config + profile sheets) */
+  #page-config .group-list .field,
+  #cfg-cell-sheet .group-list .field,
+  #cfg-brew-sheet .group-list .field{
+    flex-direction:column;align-items:stretch;gap:6px;
+    min-height:0;padding:12px 14px;
+  }
+  #page-config .group-list .field > span:not(.field-control):not(.sw),
+  #page-config .group-list .field .field-label,
+  #cfg-cell-sheet .group-list .field > span:not(.field-control):not(.sw),
+  #cfg-cell-sheet .group-list .field .field-label,
+  #cfg-brew-sheet .group-list .field > span:not(.field-control):not(.sw),
+  #cfg-brew-sheet .group-list .field .field-label{
+    flex:none;width:100%;
+  }
+  #page-config .group-list .field .form-input,
+  #page-config .group-list .field select.form-input,
+  #page-config .group-list .field .field-control,
+  #cfg-cell-sheet .group-list .field .form-input,
+  #cfg-cell-sheet .group-list .field select.form-input,
+  #cfg-cell-sheet .group-list .field .field-control,
+  #cfg-brew-sheet .group-list .field .form-input,
+  #cfg-brew-sheet .group-list .field select.form-input,
+  #cfg-brew-sheet .group-list .field .field-control{
+    width:100%;margin-left:0;max-width:none;text-align:left;
+    min-height:44px;font-size:16px;box-sizing:border-box;
+  }
+  /* Checkbox rows stay horizontal */
+  #page-config .group-list .field:has(> input[type="checkbox"]),
+  #cfg-cell-sheet .group-list .field:has(> input[type="checkbox"]),
+  #cfg-brew-sheet .group-list .field:has(> input[type="checkbox"]){
+    flex-direction:row;align-items:center;gap:10px;
+  }
+  #page-config .group-list .field .field-control:has(.sw),
+  #cfg-cell-sheet .group-list .field .field-control:has(.sw),
+  #cfg-brew-sheet .group-list .field .field-control:has(.sw){
+    width:auto;margin-left:auto;min-height:0;
+  }
+
+  /* Sheets ≈ fullscreen on phone (Config profiles + Wi‑Fi modals) */
+  .sheet-overlay{
+    padding:0;align-items:stretch;justify-content:flex-start;
+  }
+  .sheet,
+  .sheet.wide{
+    max-width:none;width:100%;height:100%;max-height:none;
+    border-radius:0;border-left:none;border-right:none;
+  }
+  .sheet-head{
+    position:sticky;top:0;z-index:2;
+    background:var(--bg2);
+    padding:max(12px, env(safe-area-inset-top)) 14px 12px;
+  }
+  .sheet-title{font-size:16px;}
+  .sheet-close{width:40px;height:40px;}
+  .sheet-body{
+    padding:14px 14px max(18px, env(safe-area-inset-bottom));
+  }
+  #cfg-cell-sheet .sheet-body,
+  #cfg-brew-sheet .sheet-body{padding:14px 14px max(18px, env(safe-area-inset-bottom));}
+  #cfg-cell-sheet .card-body,
+  #cfg-brew-sheet .card-body{padding:12px 14px;}
+  #cfg-cell-sheet .cfg-sheet-actions,
+  #cfg-brew-sheet .cfg-sheet-actions{
+    flex-direction:column;align-items:stretch;gap:8px;
+    position:sticky;bottom:0;z-index:2;
+    margin:12px -14px 0;padding:12px 14px max(10px, env(safe-area-inset-bottom));
+    background:var(--bg2);border-top:1px solid var(--sep);
+  }
+  #cfg-cell-sheet .cfg-sheet-actions .btn,
+  #cfg-brew-sheet .cfg-sheet-actions .btn{
+    width:100%;justify-content:center;min-height:44px;
+  }
+  #cfg-cell-sheet .cfg-sheet-name-row .form-input,
+  #cfg-brew-sheet .cfg-sheet-name-row .form-input{
+    width:100%;min-height:44px;font-size:16px;
+  }
+}
+@media (max-width:500px){
+  .cfg-profile-actions{grid-template-columns:1fr;}
 }
 
 /* ── Ghost SVG stat-icon: the .stat-icon slot now hosts a faint inline SVG
