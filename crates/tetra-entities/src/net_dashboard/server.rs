@@ -2713,6 +2713,8 @@ fn handle_connection(
             Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
         }
     } else if req_line.contains("GET /api/update/check") {
+        let refresh = req_line.contains("refresh=1") || req_line.contains("refresh=true");
+        let with_notes = req_line.contains("notes=1") || req_line.contains("notes=true");
         let mut buf = BufReader::new(stream);
         loop {
             let mut line = String::new();
@@ -2721,7 +2723,7 @@ fn handle_connection(
                 break;
             }
         }
-        serve_update_check(buf.into_inner(), &config_path);
+        serve_update_check(buf.into_inner(), &config_path, refresh, with_notes);
     } else if req_line.contains("GET /api/update/status") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -4079,36 +4081,67 @@ fn serve_callsigns(stream: TcpStream, radioid: &crate::net_dashboard::radioid::R
 /// GET /api/update/check — compare the running build against the tip of the active OTA
 /// channel branch on github.com/Aitorrio/bost-flowstation (fallback: latest GitHub Release).
 /// Best-effort; on any failure returns check_failed=true so the dashboard hides the badge.
-fn serve_update_check(mut stream: TcpStream, config_path: &str) {
+///
+/// Query: `?refresh=1` bypasses success cache; `?notes=1` also fetches changelog text
+/// (OTA modal). Boot/badge should omit notes to keep the Pi responsive.
+fn serve_update_check(mut stream: TcpStream, config_path: &str, refresh: bool, with_notes: bool) {
     let channel = crate::net_dashboard::ota_channel::read_ota_channel(config_path);
-    // Cache tips briefly — boot + System + OTA modal used to stampede GitHub and
-    // park several dashboard-conn threads for tens of seconds on a Pi.
-    const CACHE_SECS: u64 = 90;
-    static CACHE: std::sync::Mutex<Option<(std::time::Instant, String, String)>> =
-        std::sync::Mutex::new(None);
-    let body = {
-        let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((at, ch, json)) = guard.as_ref() {
-            if ch == &channel && at.elapsed() < std::time::Duration::from_secs(CACHE_SECS) {
-                json.clone()
+    const CACHE_OK_SECS: u64 = 90;
+    // Cache key includes notes so a light boot result does not starve the modal of changelog.
+    type CacheEntry = (std::time::Instant, String, bool, String); // at, channel, with_notes, json
+    static CACHE: std::sync::Mutex<Option<CacheEntry>> = std::sync::Mutex::new(None);
+
+    let cached = {
+        let guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if !refresh {
+            if let Some((at, ch, notes, json)) = guard.as_ref() {
+                if ch == &channel
+                    && *notes == with_notes
+                    && at.elapsed() < std::time::Duration::from_secs(CACHE_OK_SECS)
+                    && !json.contains("\"check_failed\":true")
+                {
+                    Some(json.clone())
+                } else {
+                    None
+                }
             } else {
-                let result = crate::net_dashboard::update_check::check_for_update(
-                    tetra_core::STACK_VERSION,
-                    &channel,
-                );
-                let json = result.to_json();
-                *guard = Some((std::time::Instant::now(), channel.clone(), json.clone()));
-                json
+                None
             }
         } else {
-            let result = crate::net_dashboard::update_check::check_for_update(
-                tetra_core::STACK_VERSION,
-                &channel,
-            );
-            let json = result.to_json();
-            *guard = Some((std::time::Instant::now(), channel.clone(), json.clone()));
-            json
+            None
         }
+    };
+
+    let body = if let Some(json) = cached {
+        json
+    } else {
+        // Do NOT hold the mutex across GitHub I/O — concurrent checks would queue for tens of seconds.
+        let result = crate::net_dashboard::update_check::check_for_update(
+            tetra_core::STACK_VERSION,
+            &channel,
+            with_notes,
+        );
+        let json = result.to_json();
+        if !result.check_failed {
+            if let Ok(mut guard) = CACHE.lock() {
+                *guard = Some((
+                    std::time::Instant::now(),
+                    channel.clone(),
+                    with_notes,
+                    json.clone(),
+                ));
+            }
+        } else if let Ok(mut guard) = CACHE.lock() {
+            // Drop a prior success cache for this channel so a transient failure is not sticky.
+            if guard
+                .as_ref()
+                .map(|(_, ch, _, _)| ch == &channel)
+                .unwrap_or(false)
+            {
+                *guard = None;
+            }
+        }
+        json
     };
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

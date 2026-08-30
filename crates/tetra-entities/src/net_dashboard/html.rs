@@ -10557,7 +10557,7 @@ async function startUpdate(opts){
     const versions=document.getElementById('ota-review-versions');
     if(versions)versions.textContent=t('ota_checking');
     try{
-      const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
+      const r=await fetch('/api/update/check?refresh=1&notes=1',{credentials:'same-origin',cache:'no-store'});
       if(r.ok){
         const d=await r.json();
         applyUpdateCheckUi(d);
@@ -10603,7 +10603,7 @@ async function checkOtaInModal(){
     const saved=await saveR.json();
     otaChannelCache={channel:saved.channel||channel,branch:saved.branch||(channel==='beta'?'beta':'bost')};
 
-    const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
+    const r=await fetch('/api/update/check?refresh=1&notes=1',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)throw new Error('check http '+r.status);
     const d=await r.json();
     if(d&&d.channel){
@@ -12432,11 +12432,16 @@ async function saveOtaChannel(){
   }
 }
 let checkUpdateInflight=null;
-async function checkUpdate(){
+async function checkUpdate(opts){
+  opts=opts||{};
   if(checkUpdateInflight)return checkUpdateInflight;
+  const q=[];
+  if(opts.refresh)q.push('refresh=1');
+  if(opts.notes)q.push('notes=1');
+  const url='/api/update/check'+(q.length?('?'+q.join('&')):'');
   checkUpdateInflight=(async()=>{
     try{
-      const r=await fetch('/api/update/check',{credentials:'same-origin',cache:'no-store'});
+      const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});
       if(!r.ok)return;
       const d=await r.json();
       if(d&&d.channel){

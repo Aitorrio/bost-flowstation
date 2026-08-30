@@ -401,12 +401,16 @@ fn resolve_notes(
 }
 
 /// Query GitHub for the given OTA branch tip and compare against `current_version`.
-pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
+///
+/// `with_notes=false` (boot/badge): tip SHA + remote version only (≤2 HTTPS calls).
+/// `with_notes=true` (OTA modal): also fetch changelog/compare when an update exists.
+pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) -> UpdateCheck {
     let channel = tetra_core::normalize_ota_channel(channel).to_string();
     let branch = tetra_core::ota_branch_for_channel(&channel).to_string();
 
     let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(6))
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
         .user_agent(USER_AGENT)
         .build()
     {
@@ -435,32 +439,26 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
                     None => false,
                 };
                 let remote_version = fetch_remote_version(&client, &branch);
-                let (changelog, mut changelog_truncated) = if update_available {
-                    match &local {
-                        Some(base) => fetch_commit_changelog(&client, base, sha),
-                        None => (Vec::new(), true),
-                    }
-                } else {
-                    (Vec::new(), false)
-                };
-
-                let (release_notes, notes_source) = if update_available {
-                    resolve_notes(
-                        &client,
-                        &branch,
-                        current_version,
-                        remote_version.as_deref(),
-                        &changelog,
-                    )
-                } else {
-                    (None, NotesSource::None)
-                };
-                if update_available
-                    && release_notes.is_none()
-                    && changelog.is_empty()
-                {
-                    changelog_truncated = true;
-                }
+                let (changelog, changelog_truncated, release_notes, notes_source) =
+                    if with_notes && update_available {
+                        let (changelog, mut changelog_truncated) = match &local {
+                            Some(base) => fetch_commit_changelog(&client, base, sha),
+                            None => (Vec::new(), true),
+                        };
+                        let (release_notes, notes_source) = resolve_notes(
+                            &client,
+                            &branch,
+                            current_version,
+                            remote_version.as_deref(),
+                            &changelog,
+                        );
+                        if release_notes.is_none() && changelog.is_empty() {
+                            changelog_truncated = true;
+                        }
+                        (changelog, changelog_truncated, release_notes, notes_source)
+                    } else {
+                        (Vec::new(), false, None, NotesSource::None)
+                    };
 
                 return UpdateCheck {
                     current: current_version.to_string(),
@@ -515,7 +513,7 @@ pub fn check_for_update(current_version: &str, channel: &str) -> UpdateCheck {
     };
     let remote_version =
         SemVer::parse(tag).map(|v| format!("{}.{}.{}", v.major, v.minor, v.patch));
-    let (release_notes, notes_source) = if update_available {
+    let (release_notes, notes_source) = if with_notes && update_available {
         if let Some(b) = body {
             (Some(b), NotesSource::Release)
         } else {
