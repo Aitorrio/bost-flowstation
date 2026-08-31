@@ -10811,11 +10811,15 @@ setInterval(refreshOpenDgna,1000);
 
 // ── Service restart wait (OTA / Apply / Restart) ───────────────────────────
 // Sessions are in-memory only: a restart always requires login again when auth is on.
-// This overlay avoids a stuck SPA by polling a public URL until the service is back,
-// then reloading (browser shows /login if needed).
+// This overlay avoids a stuck SPA by polling until the service is back, then navigating.
+//
+// Critical: do NOT treat early 200s from the *old* process as "back online". OTA schedules
+// restart ~5s after done_ok; two 200s in that window used to location.replace('/') into the
+// dying SPA → everything "offline" until a manual F5 hit /login on the new process.
 let restartWaitTimer=null;
 let restartWaitDeadline=0;
 let restartWaitOkStreak=0;
+let restartWaitSawDown=false;
 let updateSucceeded=false;
 let updateStartedAt=0;
 let updateFailStreak=0;
@@ -10828,9 +10832,10 @@ function beginServiceRestartWait(opts){
   const card=document.getElementById('restart-wait-card');
   const title=document.getElementById('restart-wait-title');
   const body=document.getElementById('restart-wait-body');
-  if(!overlay){location.reload();return;}
+  if(!overlay){location.replace('/login');return;}
   if(restartWaitTimer){clearInterval(restartWaitTimer);restartWaitTimer=null;}
   restartWaitOkStreak=0;
+  restartWaitSawDown=false;
   restartWaitDeadline=Date.now()+(opts.timeoutMs||5*60*1000);
   if(card)card.classList.remove('timed-out');
   if(title)title.textContent=opts.title||t('restart_wait_title');
@@ -10849,6 +10854,10 @@ function beginOtaRestartWait(){
     title:t('restart_wait_ota_title'),
     body:t('restart_wait_ota_body'),
   });
+}
+
+function hasAuthMarkerCookie(){
+  return document.cookie.split(';').some(c=>c.trim().startsWith('fs_auth='));
 }
 
 async function pollServiceBackOnline(){
@@ -10870,16 +10879,30 @@ async function pollServiceBackOnline(){
     // 401 = process is up and login is required; 200 = up (open dashboard or session still valid).
     // Do NOT use /favicon — it stays public and can flip "ready" while the SPA is still dead.
     const r=await fetch('/api/service/status?ts='+Date.now(),{cache:'no-store',credentials:'same-origin'});
+    if(!r.ok && r.status!==401){
+      restartWaitSawDown=true;
+      restartWaitOkStreak=0;
+      return;
+    }
+    // Still talking to the pre-restart process (session valid → 200). Wait until we have
+    // observed a disconnect first, otherwise we rejoin the dying SPA.
+    if(!restartWaitSawDown){
+      restartWaitOkStreak=0;
+      return;
+    }
     if(r.status===401){
       restartWaitOkStreak++;
       if(restartWaitOkStreak>=2)finishJoin('/login');
       return;
     }
-    if(!r.ok){restartWaitOkStreak=0;return;}
+    // 200 after a down period: process is back. Auth marker ⇒ sessions were wiped → login.
     restartWaitOkStreak++;
-    if(restartWaitOkStreak>=2)finishJoin('/?rejoined='+Date.now());
+    if(restartWaitOkStreak>=2){
+      finishJoin(hasAuthMarkerCookie()?'/login':('/?rejoined='+Date.now()));
+    }
   }catch{
-    // Process not accepting yet — keep waiting (do not treat favicon as success).
+    // Process not accepting yet — required "down" edge before counting successes.
+    restartWaitSawDown=true;
     restartWaitOkStreak=0;
   }
 }
