@@ -2281,6 +2281,25 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   font-size:13px;font-weight:500;color:var(--text2);
   font-variant-numeric:tabular-nums;text-align:right;min-width:0;
 }
+/* Timer fields: input + reset-to-default (empty = engine default) */
+.vc-timer-wrap{
+  display:flex;align-items:center;gap:6px;flex:1;min-width:0;
+  margin-left:auto;text-align:left;font-weight:400;
+}
+.vc-timer-wrap .form-input{flex:1;min-width:0;width:auto;}
+.vc-timer-reset{
+  flex:0 0 auto;width:32px;height:32px;padding:0;margin:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--bg3);border:1px solid var(--border2);border-radius:6px;
+  color:var(--text3);cursor:pointer;
+  transition:opacity 0.15s,color 0.15s,border-color 0.15s,background 0.15s;
+}
+.vc-timer-reset .btn-icon{margin:0;width:14px;height:14px;}
+.vc-timer-reset:hover{color:var(--accent2);border-color:var(--accent2);}
+.vc-timer-reset.is-idle{opacity:0.35;pointer-events:none;}
+.vc-timers-hint{
+  margin:10px 0 0;padding:0 2px;font-size:11px;line-height:1.4;color:var(--text3);
+}
 .field-hint{
   flex-basis:100%;font-size:11px;font-weight:400;color:var(--text3);
   margin-top:2px;
@@ -2520,6 +2539,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   #cfg-brew-sheet .group-list .field .field-control{
     width:100%;margin-left:0;max-width:none;text-align:left;
     min-height:44px;font-size:16px;box-sizing:border-box;
+  }
+  #page-config .group-list .field .vc-timer-wrap,
+  #cfg-cell-sheet .group-list .field .vc-timer-wrap{
+    width:100%;min-height:0;margin-left:0;
+  }
+  #page-config .group-list .field .vc-timer-wrap .form-input,
+  #cfg-cell-sheet .group-list .field .vc-timer-wrap .form-input{
+    width:auto;flex:1;min-height:44px;font-size:16px;
+  }
+  #page-config .group-list .field .vc-timer-reset,
+  #cfg-cell-sheet .group-list .field .vc-timer-reset{
+    width:44px;height:44px;flex-shrink:0;
   }
   /* Checkbox rows stay horizontal */
   #page-config .group-list .field:has(> input[type="checkbox"]),
@@ -5039,14 +5070,35 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_net_adv">Advanced network / timers</summary>
                     <div class="group-list">
                       <label class="field"><span>Timezone (IANA)</span><input type="text" id="vc-tz" class="form-input" placeholder="Europe/Madrid"></label>
-                      <label class="field"><span>Hangtime (s)</span><input type="number" id="vc-hangtime" class="form-input"></label>
-                      <label class="field"><span>Call timeout (s)</span><input type="number" id="vc-call-timeout" class="form-input"></label>
-                      <label class="field"><span>UL inactivity (s)</span><input type="number" id="vc-ul-inact" class="form-input"></label>
-                      <label class="field"><span>T351 / periodic reg (s)</span><input type="number" id="vc-t351" class="form-input"></label>
+                      <label class="field"><span>Hangtime (s)</span>
+                        <span class="field-control vc-timer-wrap">
+                          <input type="number" id="vc-hangtime" class="form-input" min="0" max="300" placeholder="default 5" title="Empty / reset = default 5 s. 0 = 0 s hangtime (not the default)." data-vc-default="5" oninput="syncVcTimerReset(this)">
+                          <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-hangtime')" title="Reset to default (5)" aria-label="Reset hangtime to default"><span class="btn-icon" data-icon="restart"></span></button>
+                        </span>
+                      </label>
+                      <label class="field"><span>Call timeout (s)</span>
+                        <span class="field-control vc-timer-wrap">
+                          <input type="number" id="vc-call-timeout" class="form-input" min="0" placeholder="default 120" title="Empty / reset = default 120 s. 0 = unlimited." data-vc-default="120" oninput="syncVcTimerReset(this)">
+                          <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-call-timeout')" title="Reset to default (120)" aria-label="Reset call timeout to default"><span class="btn-icon" data-icon="restart"></span></button>
+                        </span>
+                      </label>
+                      <label class="field"><span>UL inactivity (s)</span>
+                        <span class="field-control vc-timer-wrap">
+                          <input type="number" id="vc-ul-inact" class="form-input" min="1" max="30" placeholder="default 3" title="Empty / reset = default 3 s. Valid range 1–30." data-vc-default="3" oninput="syncVcTimerReset(this)">
+                          <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-ul-inact')" title="Reset to default (3)" aria-label="Reset UL inactivity to default"><span class="btn-icon" data-icon="restart"></span></button>
+                        </span>
+                      </label>
+                      <label class="field"><span>T351 / periodic reg (s)</span>
+                        <span class="field-control vc-timer-wrap">
+                          <input type="number" id="vc-t351" class="form-input" min="0" placeholder="default 3600" title="Empty / reset = default 3600 s. 0 = disabled." data-vc-default="3600" oninput="syncVcTimerReset(this)">
+                          <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-t351')" title="Reset to default (3600)" aria-label="Reset T351 to default"><span class="btn-icon" data-icon="restart"></span></button>
+                        </span>
+                      </label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-syswide"> <span>System-wide services</span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-voice"> <span>Voice service</span></label>
                       <label class="field"><span>Local SSI ranges</span><input type="text" id="vc-local-ssi" class="form-input" placeholder="0-90, 100-120"></label>
                     </div>
+                    <p class="vc-timers-hint" data-i18n="cfg_timers_hint">Timers: empty or reset = engine default (shown in the field). 0 is only special where noted (call timeout unlimited, T351 off) — it is not the default for hangtime/UL.</p>
                   </details>
                   <div class="config-msg" id="vc-net-msg"></div>
                 </div>
@@ -6274,6 +6326,7 @@ const LANGS={
     cfg_raw_apply_confirm:'Save raw config.toml and restart?',
     cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
+    cfg_timers_hint:'Timers: empty or reset = engine default (shown in the field). 0 is only special where noted (call timeout unlimited, T351 off) — it is not the default for hangtime/UL.',
     cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',cfg_advanced_warn:'Advanced users only',
     cfg_sec_advanced:'Advanced',
@@ -6725,6 +6778,7 @@ const LANGS={
     svc_need_running:'“{action}” necesita el servicio completo en marcha. Pulsa Iniciar en Sistema → Control primero.',
     svc_standby_will_start:'El servicio está en espera. “{action}” lo iniciará de nuevo. ¿Continuar?',
     saved:'✓ Guardado — reinicia para aplicar.',save_fail:'✗ Error al guardar',conn_error:'Error de conexión.',
+    cfg_timers_hint:'Temporizadores: vacío o reset = default del motor (se muestra en el campo). El 0 solo es especial donde se indica (call timeout ilimitado, T351 off); no es el default de hangtime/UL.',
     update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
     update_confirm:'¿Obtener lo último del canal {channel} (rama {branch}) y recompilar?\nEl servicio se reiniciará automáticamente si hace falta una build nueva.',
     ota_channel_title:'Canal OTA',
@@ -9141,6 +9195,30 @@ function vcMsg(id,msg,ok){const el=document.getElementById(id);if(!el)return;el.
 function vcNum(id){const el=document.getElementById(id);if(!el)return null;const n=parseMhzInput(el.value);if(n===null)return null;return Number.isFinite(n)?n:null;}
 function vcStr(id){const el=document.getElementById(id);return el?el.value.trim():'';}
 function vcSet(id,v){const el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!v;else el.value=(v===undefined||v===null)?'':String(v);}
+function syncVcTimerReset(el){
+  if(!el)return;
+  const wrap=el.closest('.vc-timer-wrap');
+  if(!wrap)return;
+  const btn=wrap.querySelector('.vc-timer-reset');
+  if(!btn)return;
+  const empty=!String(el.value||'').trim();
+  btn.classList.toggle('is-idle',empty);
+  btn.disabled=empty;
+}
+function syncAllVcTimerResets(){
+  ['vc-hangtime','vc-call-timeout','vc-ul-inact','vc-t351'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)syncVcTimerReset(el);
+  });
+}
+function resetVcTimer(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.value='';
+  syncVcTimerReset(el);
+  try{el.dispatchEvent(new Event('input',{bubbles:true}));}catch{}
+  el.focus();
+}
 /** Parse operator MHz input (comma or dot). Returns null if empty, NaN if invalid. */
 function parseMhzInput(raw){
   if(raw==null)return null;
@@ -9350,9 +9428,10 @@ function collectVisualConfig(){
   };
   const customDuplex=mhzFieldToHz('vc-custom-duplex'); if(customDuplex!==null)cell_info.custom_duplex_spacing=customDuplex;
   const tz=vcStr('vc-tz'); if(tz)cell_info.timezone=tz;
+  // Timers: empty = omit key (server prunes TOML → engine defaults). Explicit 0 kept where valid.
   const ht=vcNum('vc-hangtime'); if(ht!==null)cell_info.hangtime_secs=ht;
   const ct=vcNum('vc-call-timeout'); if(ct!==null)cell_info.call_timeout_secs=ct;
-  const ul=vcNum('vc-ul-inact'); if(ul!==null)cell_info.ul_inactivity_secs=ul;
+  const ul=vcNum('vc-ul-inact'); if(ul!==null&&ul>=1)cell_info.ul_inactivity_secs=ul;
   const t351=vcNum('vc-t351'); if(t351!==null)cell_info.periodic_registration_secs=t351;
   cell_info.local_ssi_ranges=parseLocalSsiRanges(vcStr('vc-local-ssi'));
   const brewEnabled=!!document.getElementById('vc-brew-enabled')?.checked;
@@ -9398,6 +9477,7 @@ function fillVisualConfig(d,opts){
   vcSet('vc-tz',cell.timezone||''); vcSet('vc-hangtime',cell.hangtime_secs);
   vcSet('vc-call-timeout',cell.call_timeout_secs); vcSet('vc-ul-inact',cell.ul_inactivity_secs);
   vcSet('vc-t351',cell.periodic_registration_secs);
+  syncAllVcTimerResets();
   vcSet('vc-syswide',!!cell.system_wide_services); vcSet('vc-voice',cell.voice_service!==false);
   vcSet('vc-local-ssi',formatLocalSsiRanges(cell.local_ssi_ranges));
   const net=d?.net_info||{}; vcSet('vc-mcc',net.mcc); vcSet('vc-mnc',net.mnc);

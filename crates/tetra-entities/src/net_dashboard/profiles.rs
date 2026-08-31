@@ -470,7 +470,15 @@ fn prune_soapysdr_visual_optional(table: &mut toml::Table, incoming_phy: &JsonVa
 }
 
 /// Optional `cell_info` keys the visual form owns (empty field = omit from JSON).
-const CELL_VISUAL_OPTIONAL: &[&str] = &["custom_duplex_spacing", "timezone"];
+/// Timers: absent → engine defaults (hangtime 5, call_timeout 120, ul 3, T351 3600).
+const CELL_VISUAL_OPTIONAL: &[&str] = &[
+    "custom_duplex_spacing",
+    "timezone",
+    "hangtime_secs",
+    "call_timeout_secs",
+    "ul_inactivity_secs",
+    "periodic_registration_secs",
+];
 
 fn prune_cell_info_visual_optional(table: &mut toml::Table, incoming_cell: &JsonValue) {
     let Some(incoming) = incoming_cell.as_object() else {
@@ -980,6 +988,88 @@ password = "secret"
         assert!(
             !txt.contains("tx_gain_pad"),
             "apply must drop omitted pad: {txt}"
+        );
+    }
+
+    #[test]
+    fn write_visual_clears_omitted_timers_keeps_explicit_zero() {
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        let mut toml = minimal_toml();
+        toml = toml.replace(
+            "voice_service = true\n",
+            "voice_service = true\nhangtime_secs = 2\ncall_timeout_secs = 90\nul_inactivity_secs = 3\nperiodic_registration_secs = 1800\n",
+        );
+        fs::write(&cfg, &toml).unwrap();
+        let visual = serde_json::json!({
+            "phy_io": {
+                "backend": "SoapySdr",
+                "soapysdr": {
+                    "tx_freq": 438_025_000.0,
+                    "rx_freq": 433_025_000.0,
+                    "ppm_err": 0
+                }
+            },
+            "net_info": { "mcc": 204, "mnc": 1337 },
+            "cell_info": {
+                "freq_band": 4,
+                "main_carrier": 1521,
+                "duplex_spacing": 4,
+                "freq_offset": 0,
+                "reverse_operation": false,
+                "colour_code": 1,
+                "location_area": 2,
+                "system_wide_services": true,
+                "voice_service": true,
+                "local_ssi_ranges": [[0, 90]],
+                // hangtime / ul / t351 omitted → prune to engine defaults
+                "call_timeout_secs": 0 // explicit 0 = unlimited
+            }
+        });
+        write_visual_config(cfg.to_str().unwrap(), &visual).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(
+            !txt.contains("hangtime_secs"),
+            "omitted hangtime must be pruned: {txt}"
+        );
+        assert!(
+            !txt.contains("ul_inactivity_secs"),
+            "omitted ul inactivity must be pruned: {txt}"
+        );
+        assert!(
+            !txt.contains("periodic_registration_secs"),
+            "omitted T351 must be pruned: {txt}"
+        );
+        assert!(
+            txt.contains("call_timeout_secs = 0"),
+            "explicit 0 call timeout must remain: {txt}"
+        );
+    }
+
+    #[test]
+    fn apply_profile_clears_omitted_timers() {
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        let mut toml = minimal_toml();
+        toml = toml.replace(
+            "voice_service = true\n",
+            "voice_service = true\nhangtime_secs = 2\nul_inactivity_secs = 8\n",
+        );
+        fs::write(&cfg, &toml).unwrap();
+        ensure_seeded(cfg.to_str().unwrap()).unwrap();
+        let mut cell = get_cell_profile(cfg.to_str().unwrap(), "Default").unwrap();
+        if let Some(ci) = cell.get_mut("cell_info").and_then(|v| v.as_object_mut()) {
+            ci.remove("hangtime_secs");
+            ci.remove("ul_inactivity_secs");
+            ci.remove("call_timeout_secs");
+            ci.remove("periodic_registration_secs");
+        }
+        put_cell_profile(cfg.to_str().unwrap(), "Default", &cell).unwrap();
+        apply_profiles(cfg.to_str().unwrap(), "Default", None).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(
+            !txt.contains("hangtime_secs") && !txt.contains("ul_inactivity_secs"),
+            "apply must drop omitted timers so engine defaults apply: {txt}"
         );
     }
 
