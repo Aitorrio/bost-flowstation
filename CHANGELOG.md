@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.2.3
+
+- OTA / arranque aplican solos el drop-in NetworkManager `bost-wifi.conf` (powersave off): **no hace falta SSH**.
+
 ## v0.2.2
 
 - **WiFi resiliencia:** Disconnect usa `connection down` (ya no inhibe autoconnect). Al conectar se fuerza autoconnect + powersave off en el perfil. Watchdog ligero re-sube un perfil guardado si el enlace cae con la radio WiFi encendida.

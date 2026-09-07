@@ -355,10 +355,26 @@ pub fn watchdog_tick() -> Option<String> {
 
 /// Background loop: every ~45 s run [`watchdog_tick`], with backoff after
 /// consecutive failures so we don't spam nmcli when the AP is gone.
+/// Also applies the host NetworkManager drop-in once at start (no SSH needed
+/// after OTA when the service runs as root).
 pub fn spawn_watchdog() {
     std::thread::Builder::new()
         .name("wifi-watchdog".into())
         .spawn(|| {
+            // Host drop-in: best-effort from well-known source tree / BOST_SRC.
+            let src = std::env::var("BOST_SRC")
+                .ok()
+                .map(std::path::PathBuf::from)
+                .filter(|p| p.is_dir())
+                .or_else(|| {
+                    let p = std::path::PathBuf::from("/opt/bost-flowstation");
+                    p.is_dir().then_some(p)
+                });
+            match install_host_wifi_dropin(src.as_deref()) {
+                Ok(msg) => tracing::info!("wifi host: {msg}"),
+                Err(e) => tracing::debug!("wifi host drop-in skipped: {e}"),
+            }
+
             // Let NetworkManager settle after service start.
             std::thread::sleep(Duration::from_secs(20));
             let mut fail_streak: u32 = 0;
@@ -385,6 +401,103 @@ pub fn spawn_watchdog() {
             }
         })
         .ok();
+}
+
+/// Embedded copy of `contrib/install/networkmanager/bost-wifi.conf` so OTA can
+/// install the drop-in even if the path layout differs slightly.
+const BOST_WIFI_NM_CONF: &str = r#"# Bost FlowStation — Wi-Fi resilience defaults for Raspberry Pi / NetworkManager.
+# Installed to /etc/NetworkManager/conf.d/bost-wifi.conf by OTA / install / watchdog.
+#
+# wifi.powersave=2  → disable power save (2). RPi wireless chips often drop
+#                      association when powersave is enabled.
+#
+# Verify after reload:
+#   iw dev wlan0 get power_save
+#   nmcli -f connection.autoconnect,802-11-wireless.powersave c show <ssid>
+
+[connection]
+wifi.powersave=2
+
+[device-wifi]
+wifi.scan-rand-mac-address=no
+"#;
+
+/// Install `/etc/NetworkManager/conf.d/bost-wifi.conf` (powersave off) when
+/// running with enough privileges. Prefer the file from `src_dir` when present;
+/// otherwise use the embedded template. Idempotent: skips rewrite if identical.
+///
+/// Called from OTA after a successful build and once at watchdog start so
+/// operators on WiFi-only Pis do **not** need SSH to harden NetworkManager.
+pub fn install_host_wifi_dropin(src_dir: Option<&std::path::Path>) -> Result<String, String> {
+    #[cfg(not(unix))]
+    {
+        let _ = src_dir;
+        return Err("host WiFi drop-in only applies on Unix".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dest = std::path::Path::new("/etc/NetworkManager/conf.d/bost-wifi.conf");
+        let conf_dir = dest.parent().ok_or_else(|| "invalid drop-in path".to_string())?;
+
+        // Prefer tree file (keeps repo/docs in sync); fall back to embedded.
+        let desired = src_dir
+            .map(|d| d.join("contrib/install/networkmanager/bost-wifi.conf"))
+            .and_then(|p| std::fs::read_to_string(&p).ok())
+            .unwrap_or_else(|| BOST_WIFI_NM_CONF.to_string());
+        let desired = if desired.trim().is_empty() {
+            BOST_WIFI_NM_CONF.to_string()
+        } else {
+            desired
+        };
+
+        if dest.is_file() {
+            if let Ok(existing) = std::fs::read_to_string(dest) {
+                if existing == desired {
+                    return Ok(format!("{} already up to date", dest.display()));
+                }
+            }
+        }
+
+        std::fs::create_dir_all(conf_dir).map_err(|e| {
+            format!(
+                "cannot create {}: {e} (need root; OTA/service normally runs as root)",
+                conf_dir.display()
+            )
+        })?;
+
+        let tmp = conf_dir.join("bost-wifi.conf.ota-new");
+        {
+            let mut f = std::fs::File::create(&tmp).map_err(|e| format!("write {}: {e}", tmp.display()))?;
+            f.write_all(desired.as_bytes())
+                .map_err(|e| format!("write {}: {e}", tmp.display()))?;
+            f.sync_all().ok();
+        }
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644));
+        std::fs::rename(&tmp, dest).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("install {}: {e}", dest.display())
+        })?;
+
+        // Prefer nmcli reload (no full NM restart); fall back to systemctl.
+        let reloaded = run_nmcli(&["general", "reload"]).is_ok()
+            || std::process::Command::new("systemctl")
+                .args(["reload", "NetworkManager"])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+
+        if reloaded {
+            Ok(format!("installed {} and reloaded NetworkManager", dest.display()))
+        } else {
+            Ok(format!(
+                "installed {} (reload NetworkManager manually if needed)",
+                dest.display()
+            ))
+        }
+    }
 }
 
 /// Current state: device present, radio state, connected SSID, IPv4.

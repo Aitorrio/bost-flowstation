@@ -1399,6 +1399,13 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
+    // Host WiFi drop-in (powersave off) — no SSH; service/OTA run as root on Pi installs.
+    log!(update, "--- Ensuring NetworkManager WiFi drop-in ---");
+    match crate::wifi::install_host_wifi_dropin(Some(src_dir.as_path())) {
+        Ok(msg) => log!(update, "{msg}"),
+        Err(e) => log!(update, "WARN: WiFi host drop-in not applied: {e}"),
+    }
+
     // Flush filesystem buffers so a hard power-loss mid-restart cannot leave a half-written binary.
     let _ = std::process::Command::new("sync").status();
 

@@ -45,7 +45,7 @@ iw dev wlan0 get power_save
 nmcli -f connection.autoconnect,802-11-wireless.powersave connection show <ssid>
 ```
 
-If you installed before this drop-in existed, copy it once:
+If you installed before this drop-in existed, **OTA to v0.2.3+** (or restart the service after updating the tree) installs it automatically when the unit runs as root. Manual fallback:
 
 ```bash
 sudo install -m 644 /opt/bost-flowstation/contrib/install/networkmanager/bost-wifi.conf \
