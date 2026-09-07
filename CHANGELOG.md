@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.2.1
+
+- Config U-STATUS: en PC los comandos vuelven a una sola fila (código | acción | Quitar); el layout móvil compacto no cambia.
+
 ## v0.2.0
 
 Lanzamiento estable con cambios de producto (no solo parches). Canal OTA **Estable** (`bost`).

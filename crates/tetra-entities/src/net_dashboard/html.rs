@@ -1270,10 +1270,16 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .cfg-empty{
   color:var(--text3);font-size:12px;font-weight:400;line-height:1.35;
 }
-.remote-cmd-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-.remote-cmd-code{width:120px;}
-.remote-cmd-action{width:140px;}
+.remote-cmd-row{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:8px;}
+.remote-cmd-del{flex:0 0 auto;}
 .remote-cmd-del-icon{display:none;}
+/* Beat global .form-input{width:100%} so PC stays code|action|Remove on one row. */
+#page-config .remote-cmd-row .form-input.remote-cmd-code{
+  width:7.5em;flex:0 0 7.5em;max-width:7.5em;box-sizing:border-box;
+}
+#page-config .remote-cmd-row .form-input.remote-cmd-action{
+  width:10em;flex:0 0 10em;max-width:12em;box-sizing:border-box;
+}
 
 /* ── Empty state (legacy children; the .empty-state container itself is the
    v3 flex component defined in the design-system block below) ── */
@@ -2616,12 +2622,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   #page-config .remote-cmd-row{
     flex-direction:row;flex-wrap:nowrap;align-items:center;gap:8px;
   }
-  #page-config .remote-cmd-code{
+  #page-config .remote-cmd-row .form-input.remote-cmd-code{
     flex:0 0 auto;width:5.75em;min-width:5.75em;max-width:38%;
     min-height:40px;font-size:16px;box-sizing:border-box;
   }
-  #page-config .remote-cmd-action{
-    flex:1 1 auto;width:auto;min-width:0;min-height:40px;font-size:16px;
+  #page-config .remote-cmd-row .form-input.remote-cmd-action{
+    flex:1 1 auto;width:auto;min-width:0;max-width:none;min-height:40px;font-size:16px;
     box-sizing:border-box;
   }
   #page-config .remote-cmd-del{
