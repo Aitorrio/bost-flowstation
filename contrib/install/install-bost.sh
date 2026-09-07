@@ -279,6 +279,24 @@ EOF
 chmod 440 "$SUDOERS_DST"
 visudo -cf "$SUDOERS_DST" >/dev/null || die "invalid sudoers drop-in"
 
+# NetworkManager Wi-Fi resilience (powersave off). Harmless if NM is absent.
+NM_WIFI_SRC="$SRC_ROOT/contrib/install/networkmanager/bost-wifi.conf"
+NM_WIFI_DST="/etc/NetworkManager/conf.d/bost-wifi.conf"
+if [[ -f "$NM_WIFI_SRC" ]]; then
+  if command -v nmcli >/dev/null 2>&1 || [[ -d /etc/NetworkManager ]]; then
+    install -d -m 755 /etc/NetworkManager/conf.d
+    install -m 644 "$NM_WIFI_SRC" "$NM_WIFI_DST"
+    log "Installed $NM_WIFI_DST (wifi.powersave=2)"
+    if systemctl is-active --quiet NetworkManager 2>/dev/null; then
+      systemctl reload NetworkManager 2>/dev/null \
+        || systemctl restart NetworkManager 2>/dev/null \
+        || warn "could not reload NetworkManager — reboot or: systemctl reload NetworkManager"
+    fi
+  else
+    warn "NetworkManager not detected — skipped Wi-Fi conf drop-in"
+  fi
+fi
+
 # systemd unit
 UNIT_DST="/etc/systemd/system/${UNIT_NAME}"
 SERVICE_HOME="$(getent passwd "$SERVICE_USER" | cut -d: -f6)"

@@ -1520,6 +1520,8 @@ impl DashboardServer {
         std::thread::Builder::new()
             .name("dashboard-server".into())
             .spawn(move || {
+                // WiFi resilience: light nmcli loop (does nothing without NetworkManager).
+                crate::wifi::spawn_watchdog();
                 // Retry the bind instead of giving up after a single failure (FH-BUG-043).
                 // On a cold boot the configured bind address may not be assigned yet — DHCP
                 // lease still pending, or a VPN/wg/tun interface that comes up after the

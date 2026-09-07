@@ -27,6 +27,9 @@
 //!     wpa_supplicant on the same interface fight; if the user has a custom
 //!     wpa_supplicant.conf, NetworkManager is configured to leave it alone
 //!     and our code respects that.
+//!   * Disconnect uses `connection down` (not `device disconnect`) so NM can
+//!     still autoconnect after a drop. A background watchdog re-ups a saved
+//!     profile if the link stays down while Wi-Fi radio remains enabled.
 
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -218,7 +221,9 @@ pub fn connect_saved(uuid: &str) -> Result<(), WifiError> {
     // --wait gives nmcli up to 12 s to actually associate before returning;
     // without it nmcli returns immediately after starting the connection and
     // the dashboard never knows whether it worked.
+    ensure_wifi_resilience(uuid);
     run_nmcli(&["--wait", "12", "connection", "up", "uuid", uuid])?;
+    ensure_wifi_resilience(uuid);
     Ok(())
 }
 
@@ -239,13 +244,25 @@ pub fn connect_new(ssid: &str, psk: &str, hidden: bool) -> Result<(), WifiError>
         args.push("yes");
     }
     run_nmcli(&args)?;
+    if let Some(uuid) = uuid_for_ssid(ssid) {
+        ensure_wifi_resilience(&uuid);
+    }
     Ok(())
 }
 
-/// Disconnect the active Wi-Fi connection. This *deactivates* the profile but
-/// keeps it saved — calling `connect_saved` later re-uses the stored PSK.
-pub fn disconnect(iface: &str) -> Result<(), WifiError> {
-    run_nmcli(&["device", "disconnect", iface])?;
+/// Deactivate the active Wi-Fi *profile* without inhibiting NetworkManager
+/// autoconnect on the device.
+///
+/// Prefer `nmcli connection down` over `nmcli device disconnect`: the latter
+/// marks the device unmanaged for autoconnect until reboot / manual reconnect
+/// — a common reason a Pi "needs a full reboot" after using the dashboard
+/// Disconnect button (or any path that called the old API).
+pub fn disconnect(_iface: &str) -> Result<(), WifiError> {
+    if let Some((uuid, _name)) = active_wifi_connection() {
+        run_nmcli(&["connection", "down", "uuid", &uuid])?;
+        return Ok(());
+    }
+    // Already disconnected — treat as success so the UI can refresh cleanly.
     Ok(())
 }
 
@@ -257,10 +274,117 @@ pub fn forget(uuid: &str) -> Result<(), WifiError> {
 
 /// Turn Wi-Fi radio on/off at the NetworkManager level. Useful when the
 /// host is on Ethernet and the operator wants to silence Wi-Fi for power
-/// reasons.
+/// reasons. Radio **off** is the intentional "stay down" control; Disconnect
+/// alone should not permanently disable autoconnect.
 pub fn set_radio(enabled: bool) -> Result<(), WifiError> {
     run_nmcli(&["radio", "wifi", if enabled { "on" } else { "off" }])?;
     Ok(())
+}
+
+/// Persist reconnect-friendly settings on a Wi-Fi profile (best-effort).
+///
+/// - `autoconnect yes` + unlimited retries so NM brings the link back after drops
+/// - `802-11-wireless.powersave 2` (disable) — RPi chips often drop when powersave is on
+pub fn ensure_wifi_resilience(uuid: &str) {
+    // Soft-fail each property: older nmcli builds may reject unknown keys.
+    let _ = run_nmcli(&[
+        "connection",
+        "modify",
+        "uuid",
+        uuid,
+        "connection.autoconnect",
+        "yes",
+    ]);
+    let _ = run_nmcli(&[
+        "connection",
+        "modify",
+        "uuid",
+        uuid,
+        "connection.autoconnect-retries",
+        "-1",
+    ]);
+    let _ = run_nmcli(&[
+        "connection",
+        "modify",
+        "uuid",
+        uuid,
+        "802-11-wireless.powersave",
+        "2",
+    ]);
+}
+
+/// One watchdog pass: if Wi-Fi radio is on, a device exists, we have saved
+/// profiles, and we are not connected — try `connection up` on the best
+/// candidate. Returns a short log line when an action was attempted.
+///
+/// Does **not** run when the operator turned Wi-Fi radio off.
+pub fn watchdog_tick() -> Option<String> {
+    if !available() {
+        return None;
+    }
+    let st = status().ok()?;
+    if !st.radio_enabled || !st.device_present {
+        return None;
+    }
+    if st.connected_ssid.is_some() && st.ip_address.is_some() {
+        return None;
+    }
+    // Connected but no IP yet — give DHCP a chance; don't hammer.
+    if st.connected_ssid.is_some() {
+        return None;
+    }
+
+    let profiles = list_saved().ok()?;
+    if profiles.is_empty() {
+        return None;
+    }
+    // Prefer a profile that was active recently (nmcli may still mark one);
+    // otherwise the first saved Wi-Fi profile.
+    let uuid = profiles
+        .iter()
+        .find(|p| p.active)
+        .or_else(|| profiles.first())
+        .map(|p| p.uuid.clone())?;
+
+    ensure_wifi_resilience(&uuid);
+    match run_nmcli(&["--wait", "10", "connection", "up", "uuid", &uuid]) {
+        Ok(_) => Some(format!("wifi watchdog: connection up uuid={uuid}")),
+        Err(e) => Some(format!("wifi watchdog: connection up failed uuid={uuid}: {e}")),
+    }
+}
+
+/// Background loop: every ~45 s run [`watchdog_tick`], with backoff after
+/// consecutive failures so we don't spam nmcli when the AP is gone.
+pub fn spawn_watchdog() {
+    std::thread::Builder::new()
+        .name("wifi-watchdog".into())
+        .spawn(|| {
+            // Let NetworkManager settle after service start.
+            std::thread::sleep(Duration::from_secs(20));
+            let mut fail_streak: u32 = 0;
+            loop {
+                let delay = match fail_streak {
+                    0 => Duration::from_secs(45),
+                    1..=3 => Duration::from_secs(60),
+                    _ => Duration::from_secs(120),
+                };
+                std::thread::sleep(delay);
+                match watchdog_tick() {
+                    None => {
+                        fail_streak = 0;
+                    }
+                    Some(msg) if msg.contains("failed") => {
+                        fail_streak = fail_streak.saturating_add(1);
+                        tracing::warn!("{msg}");
+                    }
+                    Some(msg) => {
+                        fail_streak = 0;
+                        tracing::info!("{msg}");
+                    }
+                }
+            }
+        })
+        .ok();
 }
 
 /// Current state: device present, radio state, connected SSID, IPv4.
@@ -336,6 +460,19 @@ pub fn status() -> Result<WifiStatus, WifiError> {
 // ─────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────
+
+fn uuid_for_ssid(ssid: &str) -> Option<String> {
+    list_saved().ok()?.into_iter().find(|p| p.name == ssid).map(|p| p.uuid)
+}
+
+/// Active Wi-Fi connection as (uuid, profile name), if any.
+fn active_wifi_connection() -> Option<(String, String)> {
+    let profiles = list_saved().ok()?;
+    profiles
+        .into_iter()
+        .find(|p| p.active)
+        .map(|p| (p.uuid, p.name))
+}
 
 /// Run nmcli with the given args, return stdout as a String, with timeout.
 ///

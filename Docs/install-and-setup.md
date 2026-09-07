@@ -27,7 +27,31 @@ sudo ./contrib/install/install-bost.sh
    - `service_name = "bluestation-bs"`
    - sibling `config.toml.fallback` and `setup.json` (`setup_complete=false`)
 5. Installs `bost-setup-helper.sh` + a sudoers drop-in (allowlisted actions only).
-6. Enables and starts `bluestation-bs.service`.
+6. Installs NetworkManager drop-in `bost-wifi.conf` (Wi-Fi powersave off) when NM is present.
+7. Enables and starts `bluestation-bs.service`.
+
+### Wi-Fi resilience (Raspberry Pi)
+
+Stations that reach the dashboard only over Wi-Fi can look “dead” when the association drops (GUI unreachable, radio still in LST) even though Bost is running. Install applies `/etc/NetworkManager/conf.d/bost-wifi.conf` (`wifi.powersave=2`). The dashboard also:
+
+- sets `autoconnect` + disables per-profile powersave when you Connect;
+- uses `connection down` for Disconnect (does not inhibit NM autoconnect);
+- runs a light watchdog that re-ups a saved profile if the link stays down while Wi-Fi radio is on.
+
+Check on the Pi:
+
+```bash
+iw dev wlan0 get power_save
+nmcli -f connection.autoconnect,802-11-wireless.powersave connection show <ssid>
+```
+
+If you installed before this drop-in existed, copy it once:
+
+```bash
+sudo install -m 644 /opt/bost-flowstation/contrib/install/networkmanager/bost-wifi.conf \
+  /etc/NetworkManager/conf.d/bost-wifi.conf
+sudo systemctl reload NetworkManager
+```
 
 ### Useful environment variables
 
