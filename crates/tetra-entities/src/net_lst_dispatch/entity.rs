@@ -21,6 +21,7 @@ use super::handle::{LstDispatchHandle, LstUiCommand};
 use super::media::LstCodec;
 
 const MAX_CMDS_PER_TICK: usize = 16;
+const MAX_UL_PCM_PER_TICK: usize = 24;
 const MAX_UL_BLOCKS_PER_TICK: usize = 4;
 
 struct ActiveGroup {
@@ -113,8 +114,10 @@ impl LstDispatchEntity {
                     }
                     self.handle.set_status(|s| s.ptt = false);
                 }
-                LstUiCommand::UlPcm { pcm } => self.on_ul_pcm(pcm),
             }
+        }
+        for pcm in self.handle.drain_ul_pcm(MAX_UL_PCM_PER_TICK) {
+            self.on_ul_pcm(pcm);
         }
     }
 

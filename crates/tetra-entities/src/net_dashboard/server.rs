@@ -629,17 +629,51 @@ fn log_host_memory(update: &SharedUpdateState) {
     }
 }
 
-/// Build `Command` for `cargo build --release -p bluestation-bs -j 1`, preferably as the
-/// source-tree owner when we are root.
+/// True when `libtetra-codec` is linkable on this host (ACELP for LST / optional SIP).
+/// Does **not** enable Asterisk SIP — only the Cargo feature that links the shared library.
+fn tetra_codec_lib_present() -> bool {
+    use std::path::Path;
+    if let Ok(p) = std::env::var("BOST_TETRA_CODEC_LIB") {
+        if !p.is_empty() && Path::new(&p).is_file() {
+            return true;
+        }
+    }
+    const CANDIDATES: &[&str] = &[
+        "/usr/local/lib/libtetra-codec.so",
+        "/usr/lib/libtetra-codec.so",
+        "/usr/lib/aarch64-linux-gnu/libtetra-codec.so",
+        "/usr/lib/arm-linux-gnueabihf/libtetra-codec.so",
+        "/opt/tetra/lib/libtetra-codec.so",
+        "/usr/local/lib/libtetra-codec.so.1",
+        "/usr/lib/libtetra-codec.so.1",
+    ];
+    if CANDIDATES.iter().any(|p| Path::new(p).is_file()) {
+        return true;
+    }
+    // Last resort: ldconfig cache (Pi OS / Debian).
+    if let Ok(out) = std::process::Command::new("ldconfig").args(["-p"]).output() {
+        let text = String::from_utf8_lossy(&out.stdout);
+        if text.contains("libtetra-codec.so") {
+            return true;
+        }
+    }
+    false
+}
+
+/// Build `Command` for `cargo build --release -p bluestation-bs`, preferably as the
+/// source-tree owner when we are root. When `with_tetra_codec`, adds `--features asterisk`
+/// (links libtetra-codec only; does not enable SIP).
 fn cargo_build_command(
     cargo: &std::path::Path,
     src_dir: &std::path::Path,
     update: &SharedUpdateState,
+    with_tetra_codec: bool,
 ) -> std::process::Command {
     use std::path::PathBuf;
 
     let jobs = std::env::var("BOST_OTA_JOBS").unwrap_or_else(|_| "1".into());
-    let cargo_args = [
+    // Feature name is historical: links libtetra-codec for ACELP (LST + optional Asterisk SIP).
+    let mut cargo_args: Vec<&str> = vec![
         "build",
         "--release",
         "-p",
@@ -647,6 +681,10 @@ fn cargo_build_command(
         "-j",
         jobs.as_str(),
     ];
+    if with_tetra_codec {
+        cargo_args.push("--features");
+        cargo_args.push("asterisk");
+    }
 
     let mut path_env = std::env::var("PATH").unwrap_or_default();
     let mut cargo_home: Option<PathBuf> = None;
@@ -702,11 +740,11 @@ fn cargo_build_command(
             c
         };
         cmd.arg(cargo);
-        cmd.args(cargo_args);
+        cmd.args(&cargo_args);
         cmd
     } else {
         let mut cmd = std::process::Command::new(cargo);
-        cmd.args(cargo_args);
+        cmd.args(&cargo_args);
         cmd
     };
 
@@ -1387,8 +1425,24 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     log!(update, "Using cargo: {}", cargo.display());
     log_host_memory(&update);
     let jobs = std::env::var("BOST_OTA_JOBS").unwrap_or_else(|_| "1".into());
-    let build = cargo_build_command(&cargo, &src_dir, &update);
-    let label = format!("$ cargo build --release -p bluestation-bs -j {jobs}");
+    let with_codec = tetra_codec_lib_present();
+    if with_codec {
+        log!(
+            update,
+            "libtetra-codec found — building with --features asterisk (ACELP for LST; does not enable SIP)"
+        );
+    } else {
+        log!(
+            update,
+            "WARN: libtetra-codec not found — LST voice encode/decode disabled (signalling only). Install the .so or set BOST_TETRA_CODEC_LIB=/path/to/libtetra-codec.so"
+        );
+    }
+    let build = cargo_build_command(&cargo, &src_dir, &update, with_codec);
+    let label = if with_codec {
+        format!("$ cargo build --release -p bluestation-bs --features asterisk -j {jobs}")
+    } else {
+        format!("$ cargo build --release -p bluestation-bs -j {jobs}")
+    };
     if stream_cmd(&update, label, build).is_none() {
         return;
     }

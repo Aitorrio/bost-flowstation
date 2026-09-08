@@ -1672,8 +1672,15 @@ impl UmacBs {
                     });
                 }
 
-                // Forward UL voice to Brew (User plane) if loaded
-                if self.config.config().brew.is_some() {
+                // Forward UL voice to Brew slot (real Brew or LST Dispatch occupying TetraEntity::Brew).
+                let brew_slot_active = self.config.config().brew.is_some()
+                    || self
+                        .config
+                        .config()
+                        .lst_dispatch
+                        .as_ref()
+                        .is_some_and(|c| c.enabled);
+                if brew_slot_active {
                     if self.scheduler_for(carrier_num).circuit_is_active(Direction::Ul, ts) {
                         let msg = SapMsg {
                             sap: Sap::TmdSap,
@@ -1687,7 +1694,7 @@ impl UmacBs {
                         };
                         queue.push_back(msg);
                     } else {
-                        tracing::trace!("rx_tmd_prim: no active UL circuit on ts={}, dropping UL voice to Brew", ts);
+                        tracing::trace!("rx_tmd_prim: no active UL circuit on ts={}, dropping UL voice to Brew/LST", ts);
                     }
                 }
 

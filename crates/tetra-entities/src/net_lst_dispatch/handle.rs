@@ -10,7 +10,8 @@ use uuid::Uuid;
 use super::session::{ClaimResult, SessionLock};
 
 const CMD_CAP: usize = 64;
-const UL_FRAME_CAP: usize = 8;
+/// Dedicated UL PCM queue — must not share capacity with Join/PTT signalling.
+const UL_PCM_CAP: usize = 48;
 const DL_PCM_CAP: usize = 32;
 const POS_CAP: usize = 256;
 
@@ -22,8 +23,6 @@ pub enum LstUiCommand {
     Ptt { down: bool },
     PrivateCall { dest_issi: u32, duplex: bool },
     Hangup,
-    /// Raw PCM16 LE mono @ 8 kHz chunk from browser (only while PTT).
-    UlPcm { pcm: Vec<i16> },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -53,6 +52,8 @@ struct LstSharedInner {
     status: LstRuntimeStatus,
     cmd_tx: Sender<LstUiCommand>,
     cmd_rx: Receiver<LstUiCommand>,
+    ul_pcm_tx: Sender<Vec<i16>>,
+    ul_pcm_rx: Receiver<Vec<i16>>,
     /// Downlink PCM chunks for the owning browser (PCM16 LE @ 8 kHz).
     dl_pcm: VecDeque<Vec<i16>>,
     positions: HashMap<u32, LstPosition>,
@@ -66,6 +67,7 @@ pub struct LstDispatchHandle {
 impl LstDispatchHandle {
     pub fn new(operator_issi: u32, codec_available: bool) -> Self {
         let (cmd_tx, cmd_rx) = bounded(CMD_CAP);
+        let (ul_pcm_tx, ul_pcm_rx) = bounded(UL_PCM_CAP);
         Self {
             inner: Arc::new(Mutex::new(LstSharedInner {
                 session: SessionLock::default(),
@@ -77,6 +79,8 @@ impl LstDispatchHandle {
                 },
                 cmd_tx,
                 cmd_rx,
+                ul_pcm_tx,
+                ul_pcm_rx,
                 dl_pcm: VecDeque::with_capacity(DL_PCM_CAP),
                 positions: HashMap::new(),
             })),
@@ -105,6 +109,7 @@ impl LstDispatchHandle {
             let _ = g.cmd_tx.try_send(LstUiCommand::Hangup);
             let _ = g.cmd_tx.try_send(LstUiCommand::LeaveGroup);
             g.dl_pcm.clear();
+            while g.ul_pcm_rx.try_recv().is_ok() {}
         }
         g.refresh_busy();
         ok
@@ -178,7 +183,25 @@ impl LstDispatchHandle {
         if pcm.is_empty() || pcm.len() > 8_000 {
             return Err("bad pcm size".into());
         }
-        self.push_cmd(token, LstUiCommand::UlPcm { pcm })
+        let g = self.inner.lock().unwrap();
+        if !g.session.is_owner(token) {
+            return Err("not session owner".into());
+        }
+        // Drop oldest on overflow so signalling stays free and TX stays recent.
+        let mut pending = Some(pcm);
+        for _ in 0..UL_PCM_CAP + 1 {
+            match g.ul_pcm_tx.try_send(pending.take().unwrap()) {
+                Ok(()) => return Ok(()),
+                Err(crossbeam_channel::TrySendError::Full(returned)) => {
+                    pending = Some(returned);
+                    let _ = g.ul_pcm_rx.try_recv();
+                }
+                Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                    return Err("ul pcm queue disconnected".into());
+                }
+            }
+        }
+        Err("ul pcm queue full".into())
     }
 
     /// Entity: drain UI commands (cap per tick).
@@ -187,6 +210,20 @@ impl LstDispatchHandle {
         let mut out = Vec::with_capacity(max.min(16));
         for _ in 0..max {
             match g.cmd_rx.try_recv() {
+                Ok(c) => out.push(c),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+        out
+    }
+
+    /// Entity: drain uplink PCM chunks (separate from signalling).
+    pub fn drain_ul_pcm(&self, max: usize) -> Vec<Vec<i16>> {
+        let g = self.inner.lock().unwrap();
+        let mut out = Vec::with_capacity(max.min(UL_PCM_CAP));
+        for _ in 0..max {
+            match g.ul_pcm_rx.try_recv() {
                 Ok(c) => out.push(c),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => break,
@@ -217,7 +254,7 @@ impl LstDispatchHandle {
         if !g.session.is_owner(token) {
             return Vec::new();
         }
-        let n = max.min(g.dl_pcm.len()).min(UL_FRAME_CAP);
+        let n = max.min(g.dl_pcm.len()).min(8);
         g.dl_pcm.drain(..n).collect()
     }
 }

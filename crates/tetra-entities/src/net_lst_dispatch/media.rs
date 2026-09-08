@@ -121,24 +121,52 @@ mod ffi {
         out
     }
 
+    fn get_packed_bit(data: &[u8], bit_idx: usize) -> u8 {
+        (data[bit_idx / 8] >> (7 - (bit_idx % 8))) & 1
+    }
+
+    fn set_packed_bit(data: &mut [u8], bit_idx: usize, bit: u8) {
+        if bit & 1 != 0 {
+            data[bit_idx / 8] |= 1 << (7 - (bit_idx % 8));
+        }
+    }
+
+    /// Accept packed (~35 B) or LMAC unpacked (274×1-bit bytes), same as Brew/Asterisk.
     fn split_tmd(tmd: &[u8]) -> Option<([u8; CODED_BYTES_PER_FRAME], [u8; CODED_BYTES_PER_FRAME])> {
-        if tmd.len() < TMD_PACKED_BYTES {
-            return None;
-        }
-        let mut bits = Vec::with_capacity(TMD_BITS_PER_BLOCK);
-        for i in 0..TMD_BITS_PER_BLOCK {
-            let byte = tmd[i / 8];
-            bits.push((byte >> (7 - (i % 8))) & 1);
-        }
+        let packed = if tmd.len() == TMD_PACKED_BYTES + 1 {
+            Some(&tmd[1..])
+        } else if tmd.len() == TMD_PACKED_BYTES {
+            Some(tmd)
+        } else {
+            None
+        };
+
         let mut a = [0u8; CODED_BYTES_PER_FRAME];
         let mut b = [0u8; CODED_BYTES_PER_FRAME];
-        for (fi, dest) in [&mut a, &mut b].into_iter().enumerate() {
-            let base = fi * CODED_BITS_PER_FRAME;
-            for i in 0..CODED_BITS_PER_FRAME {
-                if bits[base + i] != 0 {
-                    dest[i / 8] |= 1 << (7 - (i % 8));
-                }
+        if let Some(packed) = packed {
+            for bit_idx in 0..TMD_BITS_PER_BLOCK {
+                let bit = get_packed_bit(packed, bit_idx);
+                let dest = if bit_idx < CODED_BITS_PER_FRAME {
+                    &mut a
+                } else {
+                    &mut b
+                };
+                set_packed_bit(dest, bit_idx % CODED_BITS_PER_FRAME, bit);
             }
+            return Some((a, b));
+        }
+
+        // Unpacked LMAC: one bit per byte (274 bits).
+        if tmd.len() < TMD_BITS_PER_BLOCK {
+            return None;
+        }
+        for bit_idx in 0..TMD_BITS_PER_BLOCK {
+            let dest = if bit_idx < CODED_BITS_PER_FRAME {
+                &mut a
+            } else {
+                &mut b
+            };
+            set_packed_bit(dest, bit_idx % CODED_BITS_PER_FRAME, tmd[bit_idx] & 1);
         }
         Some((a, b))
     }

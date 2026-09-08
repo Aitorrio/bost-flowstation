@@ -7369,7 +7369,8 @@ async function wifiRefresh(){
 }
 
 /* ── LST Dispatch console ───────────────────────────────────────────── */
-let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
+let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
+let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null;
 async function lstPageEnter(){
   lstBindPtt();
   await lstRefreshStatus();
@@ -7394,6 +7395,8 @@ async function lstRefreshStatus(){
     if(op&&!op.dataset.touched)op.value=j.operator_issi||'';
     const codecHint=document.getElementById('lst-codec-hint');
     if(codecHint)codecHint.style.display=j.codec_available?'none':'';
+    lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
+    if(!j.ptt)lstPttDown=false;
     const iOwn=!!lstToken;
     const claimBtn=document.getElementById('lst-claim-btn');
     const relBtn=document.getElementById('lst-release-btn');
@@ -7434,6 +7437,8 @@ async function lstClaim(){
   lstToken=j.token;
   if(lstHbTimer)clearInterval(lstHbTimer);
   lstHbTimer=setInterval(()=>{if(lstToken)wsSend({type:'lst_heartbeat',token:lstToken});},8000);
+  if(lstStatusTimer)clearInterval(lstStatusTimer);
+  lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},2000);
   await lstStartAudio();
   await lstRefreshStatus();
 }
@@ -7443,6 +7448,7 @@ async function lstRelease(){
   }
   lstToken=null;
   if(lstHbTimer){clearInterval(lstHbTimer);lstHbTimer=null;}
+  if(lstStatusTimer){clearInterval(lstStatusTimer);lstStatusTimer=null;}
   lstStopAudio();
   await lstRefreshStatus();
 }
@@ -7475,36 +7481,70 @@ function lstBindPtt(){
   const btn=document.getElementById('lst-ptt-btn');
   if(!btn||btn.dataset.bound)return;
   btn.dataset.bound='1';
-  const down=e=>{e.preventDefault();if(!lstToken)return;btn.classList.add('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:true});};
-  const up=e=>{e.preventDefault();if(!lstToken)return;btn.classList.remove('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:false});};
+  const down=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=true;btn.classList.add('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:true});};
+  const up=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=false;btn.classList.remove('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:false});};
   btn.addEventListener('pointerdown',down);
   btn.addEventListener('pointerup',up);
   btn.addEventListener('pointercancel',up);
   btn.addEventListener('pointerleave',up);
 }
+function lstResampleTo8k(input,nativeRate){
+  const TARGET=8000;
+  if(!input||!input.length)return new Int16Array(0);
+  if(Math.abs(nativeRate-TARGET)<1){
+    const pcm=new Int16Array(input.length);
+    for(let i=0;i<input.length;i++){const s=Math.max(-1,Math.min(1,input[i]));pcm[i]=(s*32767)|0;}
+    return pcm;
+  }
+  const ratio=nativeRate/TARGET;
+  const outLen=Math.max(1,Math.floor(input.length/ratio));
+  const pcm=new Int16Array(outLen);
+  for(let i=0;i<outLen;i++){
+    const srcIdx=i*ratio;
+    const i0=Math.floor(srcIdx);
+    const frac=srcIdx-i0;
+    const s0=input[i0]||0;
+    const s1=input[Math.min(i0+1,input.length-1)]||0;
+    const s=Math.max(-1,Math.min(1,s0+(s1-s0)*frac));
+    pcm[i]=(s*32767)|0;
+  }
+  return pcm;
+}
 async function lstStartAudio(){
   try{
-    lstAudioCtx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:8000});
-    lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:8000,channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
+    // Do not force sampleRate:8000 — browsers often ignore it; we resample ourselves.
+    lstAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    lstNextPlay=0;
+    lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
     const src=lstAudioCtx.createMediaStreamSource(lstMicStream);
-    const proc=lstAudioCtx.createScriptProcessor(1024,1,1);
+    // ~64–128 ms @ 48 kHz → resampled ~10–21 ms @ 8 kHz chunks
+    const proc=lstAudioCtx.createScriptProcessor(2048,1,1);
+    lstUlProc=proc;
+    const nativeRate=lstAudioCtx.sampleRate||48000;
     proc.onaudioprocess=ev=>{
       if(!lstToken)return;
+      if(!(lstPttDown||lstDuplexLive))return;
       const input=ev.inputBuffer.getChannelData(0);
-      const pcm=new Int16Array(input.length);
-      for(let i=0;i<input.length;i++){const s=Math.max(-1,Math.min(1,input[i]));pcm[i]=(s*32767)|0;}
+      const pcm=lstResampleTo8k(input,nativeRate);
+      if(pcm.length<80)return;
       const bytes=new Uint8Array(pcm.buffer);
       let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
-      // Entity drops frames unless PTT (group/simplex) or duplex private is active.
       wsSend({type:'lst_ul_pcm',token:lstToken,pcm:btoa(bin)});
     };
-    src.connect(proc);proc.connect(lstAudioCtx.destination);
+    src.connect(proc);
+    // Keep the processor running without feeding speakers (avoids mic echo).
+    const mute=lstAudioCtx.createGain();
+    mute.gain.value=0;
+    proc.connect(mute);
+    mute.connect(lstAudioCtx.destination);
     if(lstDlTimer)clearInterval(lstDlTimer);
-    lstDlTimer=setInterval(lstPollDl,60);
+    lstDlTimer=setInterval(lstPollDl,50);
   }catch(e){console.warn('lst audio',e);}
 }
 function lstStopAudio(){
+  lstPttDown=false;lstDuplexLive=false;lstNextPlay=0;
   if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
+  if(lstUlProc){try{lstUlProc.disconnect();}catch(_){}lstUlProc=null;}
   if(lstMicStream){lstMicStream.getTracks().forEach(t=>t.stop());lstMicStream=null;}
   if(lstAudioCtx){try{lstAudioCtx.close();}catch(_){}lstAudioCtx=null;}
 }
@@ -7518,9 +7558,34 @@ async function lstPollDl(){
     const pcm=new Int16Array(buf);
     const f32=new Float32Array(pcm.length);
     for(let i=0;i<pcm.length;i++)f32[i]=pcm[i]/32768;
-    const ab=lstAudioCtx.createBuffer(1,f32.length,8000);
-    ab.copyToChannel(f32,0);
-    const src=lstAudioCtx.createBufferSource();src.buffer=ab;src.connect(lstAudioCtx.destination);src.start();
+    // Schedule on a simple playout clock; resample buffer to AudioContext rate.
+    const ctxRate=lstAudioCtx.sampleRate||8000;
+    let playBuf;
+    if(Math.abs(ctxRate-8000)<1){
+      playBuf=lstAudioCtx.createBuffer(1,f32.length,8000);
+      playBuf.copyToChannel(f32,0);
+    }else{
+      const ratio=ctxRate/8000;
+      const outLen=Math.max(1,Math.floor(f32.length*ratio));
+      const out=new Float32Array(outLen);
+      for(let i=0;i<outLen;i++){
+        const srcIdx=i/ratio;
+        const i0=Math.floor(srcIdx);
+        const frac=srcIdx-i0;
+        const s0=f32[i0]||0;
+        const s1=f32[Math.min(i0+1,f32.length-1)]||0;
+        out[i]=s0+(s1-s0)*frac;
+      }
+      playBuf=lstAudioCtx.createBuffer(1,outLen,ctxRate);
+      playBuf.copyToChannel(out,0);
+    }
+    const src=lstAudioCtx.createBufferSource();
+    src.buffer=playBuf;
+    src.connect(lstAudioCtx.destination);
+    const now=lstAudioCtx.currentTime;
+    if(lstNextPlay<now+0.02)lstNextPlay=now+0.02;
+    src.start(lstNextPlay);
+    lstNextPlay+=playBuf.duration;
   }catch(_){}
 }
 function lstRenderRoster(){
