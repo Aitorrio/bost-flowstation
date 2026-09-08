@@ -17,6 +17,7 @@ use super::sec_dashboard::{CfgDashboardDto, apply_dashboard_patch};
 use super::sec_emergency::{CfgEmergencyDto, apply_emergency_patch};
 use super::sec_geoalarm::{CfgGeoalarmDto, apply_geoalarm_patch};
 use super::sec_health::{CfgHealthDto, apply_health_patch};
+use super::sec_lst_dispatch::{CfgLstDispatchDto, apply_lst_dispatch_patch};
 use super::sec_recovery::{CfgRecoveryDto, apply_recovery_patch};
 use super::sec_security::{CfgSecurityDto, apply_security_patch};
 use super::sec_snom_notify::{CfgSnomNotifyDto, apply_snom_notify_patch};

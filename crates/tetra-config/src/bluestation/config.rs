@@ -9,6 +9,7 @@ use crate::bluestation::{
 
 use super::sec_brew::CfgBrew;
 use super::sec_dashboard::CfgDashboard;
+use super::sec_lst_dispatch::CfgLstDispatch;
 use super::sec_telegram::CfgTelegram;
 use super::sec_telemetry::CfgTelemetry;
 
