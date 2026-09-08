@@ -21,8 +21,9 @@ use super::handle::{LstDispatchHandle, LstUiCommand};
 use super::media::LstCodec;
 
 const MAX_CMDS_PER_TICK: usize = 16;
-const MAX_UL_PCM_PER_TICK: usize = 24;
-const MAX_UL_BLOCKS_PER_TICK: usize = 4;
+const MAX_UL_PCM_PER_TICK: usize = 32;
+const MAX_UL_BLOCKS_PER_TICK: usize = 6;
+const PENDING_UL_CAP: usize = 12;
 
 struct ActiveGroup {
     uuid: Uuid,
@@ -171,6 +172,50 @@ impl LstDispatchEntity {
     }
 
     fn set_ptt(&mut self, queue: &mut MessageQueue, down: bool) {
+        // Private takes priority over a selected (idle) talkgroup — otherwise PTT after SX/DX
+        // still hits NetworkCallStart on the GSSI and private media never leaves the console.
+        if self.private.is_some() {
+            if let Some(p) = self.private.as_mut() {
+                p.ptt = down;
+            }
+            let private_snap = self.private.as_ref().map(|p| (p.uuid, p.duplex));
+            if let Some((uuid, duplex)) = private_snap {
+                if down {
+                    if !duplex {
+                        self.push_cc(
+                            queue,
+                            CallControl::NetworkCircuitSimplexGranted {
+                                brew_uuid: uuid,
+                                grant: 0,
+                                permission: 0,
+                            },
+                        );
+                    }
+                    self.handle.set_status(|s| {
+                        s.ptt = true;
+                        s.last_error = None;
+                    });
+                } else {
+                    if !duplex {
+                        self.push_cc(
+                            queue,
+                            CallControl::NetworkCircuitSimplexIdle {
+                                brew_uuid: uuid,
+                                grant: 0,
+                                permission: 0,
+                            },
+                        );
+                    }
+                    if let Some(ref mut c) = self.codec {
+                        c.reset_ul();
+                    }
+                    self.pending_ul.clear();
+                    self.handle.set_status(|s| s.ptt = false);
+                }
+            }
+            return;
+        }
+
         // Group: PTT down starts NetworkCallStart; PTT up ends the call (no hangtime yet).
         if self.group.is_some() {
             if down {
@@ -234,42 +279,6 @@ impl LstDispatchEntity {
             return;
         }
 
-        if let Some(p) = self.private.as_mut() {
-            p.ptt = down;
-        }
-        let private_snap = self.private.as_ref().map(|p| (p.uuid, p.duplex));
-        if let Some((uuid, duplex)) = private_snap {
-            if down {
-                if !duplex {
-                    self.push_cc(
-                        queue,
-                        CallControl::NetworkCircuitSimplexGranted {
-                            brew_uuid: uuid,
-                            grant: 0,
-                            permission: 0,
-                        },
-                    );
-                }
-            } else {
-                if !duplex {
-                    self.push_cc(
-                        queue,
-                        CallControl::NetworkCircuitSimplexIdle {
-                            brew_uuid: uuid,
-                            grant: 0,
-                            permission: 0,
-                        },
-                    );
-                }
-                if let Some(ref mut c) = self.codec {
-                    c.reset_ul();
-                }
-                self.pending_ul.clear();
-            }
-            self.handle.set_status(|s| s.ptt = down);
-            return;
-        }
-
         self.handle
             .set_status(|s| s.last_error = Some("no active call for PTT — Join a GSSI first".into()));
     }
@@ -302,7 +311,13 @@ impl LstDispatchEntity {
         self.handle.set_status(|s| {
             s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
             s.call_peer = Some(dest);
-            s.last_error = None;
+            s.media_ready = false;
+            s.ptt = false;
+            s.last_error = Some(if duplex {
+                "private duplex ringing…".into()
+            } else {
+                "private simplex — press PTT after answer".into()
+            });
         });
         tracing::info!(
             "LST: private {} -> {} duplex={}",
@@ -338,21 +353,18 @@ impl LstDispatchEntity {
     }
 
     fn on_ul_pcm(&mut self, pcm: Vec<i16>) {
-        let allow = self
-            .group
-            .as_ref()
-            .map(|g| g.ptt)
-            .or_else(|| {
-                self.private.as_ref().map(|p| {
-                    // Duplex: stream while call is up (slot assigned). Simplex: only with PTT.
-                    if p.duplex {
-                        p.carrier_num.is_some() && p.ts.is_some()
-                    } else {
-                        p.ptt
-                    }
-                })
-            })
-            .unwrap_or(false);
+        // Prefer active private over selected talkgroup (see set_ptt).
+        let allow = if let Some(p) = self.private.as_ref() {
+            if p.duplex {
+                p.carrier_num.is_some() && p.ts.is_some()
+            } else {
+                p.ptt
+            }
+        } else if let Some(g) = self.group.as_ref() {
+            g.ptt
+        } else {
+            false
+        };
         if !allow {
             return;
         }
@@ -360,7 +372,7 @@ impl LstDispatchEntity {
             return;
         };
         for block in codec.encode_pcm(&pcm) {
-            while self.pending_ul.len() >= 8 {
+            while self.pending_ul.len() >= PENDING_UL_CAP {
                 self.pending_ul.pop_front();
             }
             self.pending_ul.push_back(block);
@@ -368,15 +380,7 @@ impl LstDispatchEntity {
     }
 
     fn flush_ul(&mut self, queue: &mut MessageQueue) {
-        let (carrier_num, ts) = if let Some(ref g) = self.group {
-            if !g.ptt {
-                return;
-            }
-            match (g.carrier_num, g.ts) {
-                (Some(car), Some(t)) => (car, t),
-                _ => return,
-            }
-        } else if let Some(ref p) = self.private {
+        let (carrier_num, ts) = if let Some(ref p) = self.private {
             if p.duplex {
                 match (p.carrier_num, p.ts) {
                     (Some(car), Some(t)) => (car, t),
@@ -389,6 +393,14 @@ impl LstDispatchEntity {
                 }
             } else {
                 return;
+            }
+        } else if let Some(ref g) = self.group {
+            if !g.ptt {
+                return;
+            }
+            match (g.carrier_num, g.ts) {
+                (Some(car), Some(t)) => (car, t),
+                _ => return,
             }
         } else {
             return;

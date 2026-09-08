@@ -7388,6 +7388,8 @@ async function wifiRefresh(){
 /* ── LST Dispatch console ───────────────────────────────────────────── */
 let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
 let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
+let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
+const LST_FRAME_SAMPLES=480; // 60 ms @ 8 kHz = one TETRA ACELP block
 function lstSetAudioHint(msg,show){
   const el=document.getElementById('lst-audio-hint');
   if(!el)return;
@@ -7450,6 +7452,11 @@ async function lstRefreshStatus(){
     }
     lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
     if(!j.ptt)lstPttDown=false;
+    // Faster status while a private call is up (media_ready / duplex flag).
+    if(lstStatusTimer&&lstToken&&(j.call_kind==='simplex'||j.call_kind==='duplex')){
+      clearInterval(lstStatusTimer);
+      lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},1000);
+    }
     const iOwn=!!lstToken;
     const claimBtn=document.getElementById('lst-claim-btn');
     const relBtn=document.getElementById('lst-release-btn');
@@ -7565,14 +7572,44 @@ function lstResampleTo8k(input,nativeRate){
   }
   return pcm;
 }
+function lstPcmToB64(pcm){
+  const bytes=new Uint8Array(pcm.buffer,pcm.byteOffset,pcm.byteLength);
+  const CHUNK=0x8000;
+  let bin='';
+  for(let i=0;i<bytes.length;i+=CHUNK){
+    bin+=String.fromCharCode.apply(null,bytes.subarray(i,Math.min(i+CHUNK,bytes.length)));
+  }
+  return btoa(bin);
+}
+function lstEnqueueUl(pcm8k){
+  if(!pcm8k||!pcm8k.length||!lstToken)return;
+  if(!lstUlAcc)lstUlAcc=new Int16Array(0);
+  const merged=new Int16Array(lstUlAcc.length+pcm8k.length);
+  merged.set(lstUlAcc,0);merged.set(pcm8k,lstUlAcc.length);
+  let off=0;
+  while(merged.length-off>=LST_FRAME_SAMPLES){
+    const frame=merged.subarray(off,off+LST_FRAME_SAMPLES);
+    wsSend({type:'lst_ul_pcm',token:lstToken,pcm:lstPcmToB64(frame)});
+    off+=LST_FRAME_SAMPLES;
+  }
+  lstUlAcc=off<merged.length?merged.subarray(off):new Int16Array(0);
+}
+function lstPushDlSamples(f32){
+  if(!lstDlQueue)lstDlQueue=new Float32Array(0);
+  const merged=new Float32Array(lstDlQueue.length+f32.length);
+  merged.set(lstDlQueue,0);merged.set(f32,lstDlQueue.length);
+  // Cap ~1.5 s @ ctx rate to avoid runaway after stalls.
+  const maxKeep=Math.floor((lstAudioCtx&&lstAudioCtx.sampleRate?lstAudioCtx.sampleRate:48000)*1.5);
+  lstDlQueue=merged.length>maxKeep?merged.subarray(merged.length-maxKeep):merged;
+}
 async function lstStartAudio(){
   lstAudioReady=false;
+  lstUlAcc=null;lstDlQueue=null;lstDlRead=0;
   try{
     const insecure=!window.isSecureContext;
     if(insecure){
       lstSetAudioHint(t('lst_audio_insecure'),true);
     }
-    // Do not force sampleRate:8000 — browsers often ignore it; we resample ourselves.
     lstAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
     if(lstAudioCtx.state==='suspended'){try{await lstAudioCtx.resume();}catch(_){}}
     lstNextPlay=0;
@@ -7582,7 +7619,6 @@ async function lstStartAudio(){
     }
     lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
     const src=lstAudioCtx.createMediaStreamSource(lstMicStream);
-    // ~64–128 ms @ 48 kHz → resampled ~10–21 ms @ 8 kHz chunks
     const proc=lstAudioCtx.createScriptProcessor(2048,1,1);
     lstUlProc=proc;
     const nativeRate=lstAudioCtx.sampleRate||48000;
@@ -7591,20 +7627,32 @@ async function lstStartAudio(){
       if(!(lstPttDown||lstDuplexLive))return;
       const input=ev.inputBuffer.getChannelData(0);
       const pcm=lstResampleTo8k(input,nativeRate);
-      if(pcm.length<80)return;
-      const bytes=new Uint8Array(pcm.buffer);
-      let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
-      wsSend({type:'lst_ul_pcm',token:lstToken,pcm:btoa(bin)});
+      lstEnqueueUl(pcm);
     };
     src.connect(proc);
-    // Keep the processor running without feeding speakers (avoids mic echo).
     const mute=lstAudioCtx.createGain();
     mute.gain.value=0;
     proc.connect(mute);
     mute.connect(lstAudioCtx.destination);
+
+    // Continuous DL playout (avoids BufferSource storms / tab crashes).
+    const dlProc=lstAudioCtx.createScriptProcessor(2048,1,1);
+    lstDlProc=dlProc;
+    dlProc.onaudioprocess=ev=>{
+      const out=ev.outputBuffer.getChannelData(0);
+      out.fill(0);
+      if(!lstDlQueue||!lstDlQueue.length)return;
+      const n=Math.min(out.length,lstDlQueue.length);
+      out.set(lstDlQueue.subarray(0,n));
+      lstDlQueue=lstDlQueue.subarray(n);
+    };
+    const dlGain=lstAudioCtx.createGain();
+    dlGain.gain.value=1;
+    dlProc.connect(dlGain);
+    dlGain.connect(lstAudioCtx.destination);
+
     if(lstDlTimer)clearInterval(lstDlTimer);
-    // 120 ms + in-flight guard — avoid spawning a thread storm on the Pi.
-    lstDlTimer=setInterval(lstPollDl,120);
+    lstDlTimer=setInterval(lstPollDl,80);
     lstAudioReady=true;
     lstSetAudioHint(t('lst_audio_ok'),true);
   }catch(e){
@@ -7615,8 +7663,10 @@ async function lstStartAudio(){
 }
 function lstStopAudio(){
   lstPttDown=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
+  lstUlAcc=null;lstDlQueue=null;
   if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
   if(lstUlProc){try{lstUlProc.disconnect();}catch(_){}lstUlProc=null;}
+  if(lstDlProc){try{lstDlProc.disconnect();}catch(_){}lstDlProc=null;}
   if(lstMicStream){lstMicStream.getTracks().forEach(t=>t.stop());lstMicStream=null;}
   if(lstAudioCtx){try{lstAudioCtx.close();}catch(_){}lstAudioCtx=null;}
 }
@@ -7631,12 +7681,9 @@ async function lstPollDl(){
     const pcm=new Int16Array(buf);
     const f32=new Float32Array(pcm.length);
     for(let i=0;i<pcm.length;i++)f32[i]=pcm[i]/32768;
-    // Schedule on a simple playout clock; resample buffer to AudioContext rate.
     const ctxRate=lstAudioCtx.sampleRate||8000;
-    let playBuf;
     if(Math.abs(ctxRate-8000)<1){
-      playBuf=lstAudioCtx.createBuffer(1,f32.length,8000);
-      playBuf.copyToChannel(f32,0);
+      lstPushDlSamples(f32);
     }else{
       const ratio=ctxRate/8000;
       const outLen=Math.max(1,Math.floor(f32.length*ratio));
@@ -7649,16 +7696,8 @@ async function lstPollDl(){
         const s1=f32[Math.min(i0+1,f32.length-1)]||0;
         out[i]=s0+(s1-s0)*frac;
       }
-      playBuf=lstAudioCtx.createBuffer(1,outLen,ctxRate);
-      playBuf.copyToChannel(out,0);
+      lstPushDlSamples(out);
     }
-    const src=lstAudioCtx.createBufferSource();
-    src.buffer=playBuf;
-    src.connect(lstAudioCtx.destination);
-    const now=lstAudioCtx.currentTime;
-    if(lstNextPlay<now+0.02)lstNextPlay=now+0.02;
-    src.start(lstNextPlay);
-    lstNextPlay+=playBuf.duration;
   }catch(_){}
   finally{lstDlBusy=false;}
 }
