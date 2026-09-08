@@ -632,20 +632,28 @@ fn log_host_memory(update: &SharedUpdateState) {
 /// Ensure outerplane `libtetra-codec` is installed (clone+cmake to /usr/local) so LST voice
 /// and optional Asterisk SIP can link. Prefer the tree script; fall back to a minimal inline build.
 /// Returns true when the library is linkable afterwards.
+///
+/// Note: cannot use the `log!` macro from `run_update` (it is scoped there); append to the
+/// shared update log the same way `log_host_memory` does.
 fn ensure_tetra_codec_installed(src_dir: &std::path::Path, update: &SharedUpdateState) -> bool {
+    let ota_log = |msg: String| {
+        tracing::info!("UPDATE: {}", msg);
+        update.lock().unwrap().append(&msg);
+    };
+
     if std::env::var("BOST_SKIP_TETRA_CODEC")
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
     {
-        log!(update, "BOST_SKIP_TETRA_CODEC set — not installing libtetra-codec");
+        ota_log("BOST_SKIP_TETRA_CODEC set — not installing libtetra-codec".into());
         return tetra_codec_lib_present();
     }
     if tetra_codec_lib_present() {
-        log!(update, "libtetra-codec already present — OK");
+        ota_log("libtetra-codec already present — OK".into());
         return true;
     }
 
-    log!(update, "--- Installing tetra-codec (outerplane ACELP for LST voice) ---");
+    ota_log("--- Installing tetra-codec (outerplane ACELP for LST voice) ---".into());
     let script = src_dir.join("contrib/install/install-tetra-codec.sh");
     if script.is_file() {
         #[cfg(unix)]
@@ -666,29 +674,26 @@ fn ensure_tetra_codec_installed(src_dir: &std::path::Path, update: &SharedUpdate
         }
         let label = format!("$ bash {}", script.display());
         if stream_cmd(update, label, cmd).is_none() {
-            log!(
-                update,
-                "WARN: install-tetra-codec.sh failed — LST voice will stay signalling-only"
+            ota_log(
+                "WARN: install-tetra-codec.sh failed — LST voice will stay signalling-only".into(),
             );
             return false;
         }
         let ok = tetra_codec_lib_present();
         if ok {
-            log!(update, "tetra-codec installed — LST voice link enabled");
+            ota_log("tetra-codec installed — LST voice link enabled".into());
         } else {
-            log!(
-                update,
-                "WARN: install-tetra-codec.sh finished but lib still not detected"
+            ota_log(
+                "WARN: install-tetra-codec.sh finished but lib still not detected".into(),
             );
         }
         return ok;
     }
 
-    log!(
-        update,
+    ota_log(format!(
         "WARN: {} missing — cannot auto-install codec (re-run OTA after sources include the script)",
         script.display()
-    );
+    ));
     false
 }
 
