@@ -11,13 +11,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 
+use crate::net_lst_dispatch::LST_DISPATCH_PROFILE;
+
 const MASKED_PASSWORD: &str = "••••••••";
 
 /// Active profile selection on disk (`profiles/active.json`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActiveProfiles {
     pub cell: String,
-    /// `None` / JSON null → offline (no `[brew]` section).
+    /// `None` / JSON null → offline (no `[brew]`).
+    /// `Some("__lst_dispatch__")` → LST Dispatch profile (no Brew).
+    /// `Some(name)` → named Brew profile.
     pub brew: Option<String>,
 }
 
@@ -544,6 +548,11 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
 }
 
 /// Apply named Cell × Brew profiles into the live config.toml.
+///
+/// `brew_name`:
+/// - `None` → Offline (remove `[brew]` and `[lst_dispatch]`)
+/// - `Some("__lst_dispatch__")` → LST Dispatch (remove `[brew]`, enable `[lst_dispatch]`)
+/// - `Some(name)` → named Brew profile (remove `[lst_dispatch]`, set `[brew]`)
 pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str>) -> Result<(), String> {
     let cell = get_cell_profile(config_path, cell_name)?;
     let current = fs::read_to_string(config_path).map_err(|e| e.to_string())?;
@@ -614,15 +623,38 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
     }
 
     match brew_name {
+        Some(name) if name == LST_DISPATCH_PROFILE => {
+            table.remove("brew");
+            let mut lst = toml::Table::new();
+            // Preserve operator_issi / default_gssi if already present.
+            let prev = table
+                .get("lst_dispatch")
+                .and_then(|v| v.as_table())
+                .cloned()
+                .unwrap_or_default();
+            lst.insert("enabled".into(), TomlValue::Boolean(true));
+            lst.insert(
+                "operator_issi".into(),
+                prev.get("operator_issi")
+                    .cloned()
+                    .unwrap_or(TomlValue::Integer(9_990_001)),
+            );
+            if let Some(g) = prev.get("default_gssi") {
+                lst.insert("default_gssi".into(), g.clone());
+            }
+            table.insert("lst_dispatch".into(), TomlValue::Table(lst));
+        }
         Some(name) => {
             let brew = get_brew_profile_raw(config_path, &sanitize_name(name)?)?;
             let mut brew_toml = json_to_toml(&brew)?.as_table().cloned().unwrap_or_default();
             brew_toml.remove("enabled");
             brew_toml.remove("password_set");
             table.insert("brew".into(), TomlValue::Table(brew_toml));
+            table.remove("lst_dispatch");
         }
         None => {
             table.remove("brew");
+            table.remove("lst_dispatch");
         }
     }
 
@@ -633,7 +665,11 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
         config_path,
         &ActiveProfiles {
             cell: sanitize_name(cell_name)?,
-            brew: brew_name.map(|n| sanitize_name(n)).transpose()?,
+            brew: match brew_name {
+                Some(name) if name == LST_DISPATCH_PROFILE => Some(LST_DISPATCH_PROFILE.to_string()),
+                Some(name) => Some(sanitize_name(name)?),
+                None => None,
+            },
         },
     )?;
     Ok(())

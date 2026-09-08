@@ -22,6 +22,9 @@ pub use soapy_driver::*;
 pub mod sec_brew;
 pub use sec_brew::*;
 
+pub mod sec_lst_dispatch;
+pub use sec_lst_dispatch::*;
+
 pub mod sec_asterisk;
 pub use sec_asterisk::*;
 

@@ -16,6 +16,7 @@ use tetra_entities::MessageRouter;
 use tetra_entities::net_asterisk::entity::AsteriskEntity;
 use tetra_entities::net_brew::entity::BrewEntity;
 use tetra_entities::net_brew::new_websocket_transport;
+use tetra_entities::net_lst_dispatch::{LstDispatchEntity, LstDispatchHandle, codec_available};
 use tetra_entities::net_dapnet::spawn_dapnet_worker;
 use tetra_entities::net_dashboard::DashboardServer;
 use tetra_entities::net_geoalarm::{GeoAlarmSink, spawn_geoalarm_worker};
@@ -218,6 +219,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
 fn build_bs_stack(
     cfg: &mut SharedConfig,
     config_path: &str,
+    lst_handle: Option<LstDispatchHandle>,
 ) -> (
     MessageRouter,
     Option<TelemetrySource>,
@@ -336,8 +338,24 @@ fn build_bs_stack(
         c_d.remove(&entity);
     }
 
-    // Register Brew entity if enabled
-    if let Some(ref brew_cfg) = cfg.config().brew {
+    // Register Brew XOR LST dispatch (same TetraEntity::Brew slot for CMCE routing).
+    let lst_enabled = cfg
+        .config()
+        .lst_dispatch
+        .as_ref()
+        .is_some_and(|l| l.enabled);
+    if lst_enabled && cfg.config().brew.is_some() {
+        panic!("Invalid config: [brew] and lst_dispatch.enabled are mutually exclusive");
+    }
+    if let Some(handle) = lst_handle {
+        if !lst_enabled {
+            tracing::warn!("LST handle provided but lst_dispatch not enabled — ignoring");
+        } else {
+            let entity = LstDispatchEntity::new(cfg.clone(), handle);
+            router.register_entity(Box::new(entity));
+            eprintln!(" -> LST Dispatch (local console) enabled");
+        }
+    } else if let Some(ref brew_cfg) = cfg.config().brew {
         let transport = new_websocket_transport(brew_cfg);
         let mut brew_entity = BrewEntity::new(cfg.clone(), transport);
         if let Some(ref sink) = tsink {
@@ -345,6 +363,8 @@ fn build_bs_stack(
         }
         router.register_entity(Box::new(brew_entity));
         eprintln!(" -> Brew/TetraPack integration enabled");
+    } else if lst_enabled {
+        eprintln!(" -> WARNING: lst_dispatch.enabled but no handle wired — dispatch inactive");
     }
 
     // Register Asterisk SIP/RTP entity if enabled. Only compiled in with the
@@ -441,7 +461,22 @@ fn main() {
         );
     }
 
-    let (mut router, tsource, cdispatchers, dapnet_telemetry_sink) = build_bs_stack(&mut cfg, &args.config);
+    let lst_handle = {
+        let lst_on = cfg
+            .config()
+            .lst_dispatch
+            .as_ref()
+            .is_some_and(|l| l.enabled);
+        if lst_on && cfg.config().brew.is_none() {
+            let issi = cfg.config().lst_dispatch.as_ref().unwrap().operator_issi;
+            Some(LstDispatchHandle::new(issi, codec_available()))
+        } else {
+            None
+        }
+    };
+
+    let (mut router, tsource, cdispatchers, dapnet_telemetry_sink) =
+        build_bs_stack(&mut cfg, &args.config, lst_handle.clone());
     // Clone for PHY attach after the dashboard is listening (degraded boot).
     let phy_tsink = dapnet_telemetry_sink.clone();
     let dapnet_cmd_tx = cdispatchers.get(&TetraEntity::Cmce).map(|dispatcher| dispatcher.clone_sender());
@@ -534,6 +569,10 @@ fn main() {
 
             if let Some(tx) = dash_cmd_tx {
                 dashboard.set_cmd_sender(tx);
+            }
+
+            if let Some(ref h) = lst_handle {
+                dashboard.set_lst_handle(h.clone());
             }
 
             // start() must be called before Arc::new() because it takes &mut self

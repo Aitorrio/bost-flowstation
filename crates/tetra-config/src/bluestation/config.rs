@@ -75,6 +75,9 @@ pub struct StackConfig {
     /// Brew protocol (TetraPack/BrandMeister) configuration
     pub brew: Option<CfgBrew>,
 
+    /// Local Site Trunking web dispatch (mutually exclusive with Brew when enabled).
+    pub lst_dispatch: Option<CfgLstDispatch>,
+
     /// Asterisk SIP/RTP bridge configuration.
     pub asterisk: CfgAsterisk,
 
@@ -222,6 +225,16 @@ impl StackConfig {
             && tz.parse::<chrono_tz::Tz>().is_err()
         {
             return Err("Invalid IANA timezone name in cell.timezone");
+        }
+
+        // LST dispatch and Brew backhaul are mutually exclusive.
+        if self.brew.is_some()
+            && self
+                .lst_dispatch
+                .as_ref()
+                .is_some_and(|l| l.enabled)
+        {
+            return Err("lst_dispatch.enabled cannot be used together with [brew]");
         }
 
         // Validate neighbor cells

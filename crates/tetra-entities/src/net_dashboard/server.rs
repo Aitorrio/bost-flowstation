@@ -1450,6 +1450,8 @@ pub struct DashboardServer {
     ts_last_broadcast: std::sync::Mutex<HashMap<(u16, u8), std::time::Instant>>,
     /// On-demand RadioID callsign resolver (ISSI → indicativ), cached locally.
     radioid: crate::net_dashboard::radioid::RadioIdCache,
+    /// LST Dispatch shared handle (None when profile not active).
+    lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
 }
 
 impl DashboardServer {
@@ -1473,11 +1475,16 @@ impl DashboardServer {
             login_throttle: Arc::new(Mutex::new(LoginThrottle::new())),
             ts_last_broadcast: std::sync::Mutex::new(HashMap::new()),
             radioid: crate::net_dashboard::radioid::RadioIdCache::new(radioid_path),
+            lst_handle: None,
         }
     }
 
     pub fn set_cmd_sender(&mut self, tx: CmdSender) {
         self.cmd_tx = Some(tx);
+    }
+
+    pub fn set_lst_handle(&mut self, handle: crate::net_lst_dispatch::LstDispatchHandle) {
+        self.lst_handle = Some(handle);
     }
 
     /// Provide the SharedConfig so the dashboard can read live SDS queue state.
@@ -1523,6 +1530,7 @@ impl DashboardServer {
         let sessions = Arc::clone(&self.sessions);
         let login_throttle = Arc::clone(&self.login_throttle);
         let radioid = self.radioid.clone();
+        let lst_handle = self.lst_handle.clone();
 
         std::thread::Builder::new()
             .name("dashboard-server".into())
@@ -1566,6 +1574,7 @@ impl DashboardServer {
                     let sessions = Arc::clone(&sessions);
                     let login_throttle = Arc::clone(&login_throttle);
                     let radioid = radioid.clone();
+                    let lst_handle = lst_handle.clone();
                     std::thread::Builder::new()
                         .name("dashboard-conn".into())
                         .spawn(move || {
@@ -1583,6 +1592,7 @@ impl DashboardServer {
                                 login_throttle,
                                 radioid,
                                 public_overview,
+                                lst_handle,
                             )
                         })
                         .ok();
@@ -2331,6 +2341,7 @@ fn handle_connection(
     login_throttle: SharedLoginThrottle,
     radioid: crate::net_dashboard::radioid::RadioIdCache,
     public_overview: bool,
+    lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
 ) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
     // Captured before the stream is wrapped in a BufReader — the login throttle keys on it.
@@ -2554,7 +2565,7 @@ fn handle_connection(
     // browser running on the BTS that connects via the box's LAN IP from a remote one, so it wrongly
     // blocked operators doing DGNA/SDS from the BTS itself. Set a username/password to lock it down.
     if req_line.contains("/ws") {
-        handle_ws(stream, state, clients, cmd_tx, update_state, shared_config.clone());
+        handle_ws(stream, state, clients, cmd_tx, update_state, shared_config.clone(), lst_handle);
     } else if req_line.contains("GET /api/service/status") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -3512,6 +3523,84 @@ fn handle_connection(
             }
             Err(e) => http_response(buf.into_inner(), 400, &format!("invalid JSON: {}", e)),
         }
+    // ── LST Dispatch ───────────────────────────────────────────────────
+    } else if req_line.contains("GET /api/lst/status") {
+        drain_http_headers(&mut stream);
+        let body = match &lst_handle {
+            Some(h) => h.status_json().to_string(),
+            None => r#"{"enabled":false,"session_busy":false}"#.to_string(),
+        };
+        http_json_response(stream, 200, &body);
+    } else if req_line.contains("GET /api/lst/positions") {
+        drain_http_headers(&mut stream);
+        let body = match &lst_handle {
+            Some(h) => h.positions_json().to_string(),
+            None => "[]".to_string(),
+        };
+        http_json_response(stream, 200, &body);
+    } else if req_line.contains("POST /api/lst/claim") {
+        drain_http_headers(&mut stream);
+        let Some(h) = &lst_handle else {
+            http_json_response(stream, 503, r#"{"ok":false,"error":"LST not active"}"#);
+            return;
+        };
+        let label = peer_ip.map(|ip| ip.to_string()).unwrap_or_else(|| "operator".into());
+        match h.claim(label) {
+            crate::net_lst_dispatch::ClaimResult::Ok { token } => {
+                http_json_response(
+                    stream,
+                    200,
+                    &serde_json::json!({"ok":true,"token":token.to_string()}).to_string(),
+                );
+            }
+            crate::net_lst_dispatch::ClaimResult::Busy { holder } => {
+                http_json_response(
+                    stream,
+                    409,
+                    &serde_json::json!({"ok":false,"error":"busy","holder":holder}).to_string(),
+                );
+            }
+        }
+    } else if req_line.contains("POST /api/lst/release") {
+        let body = read_http_body(&mut stream);
+        let Some(h) = &lst_handle else {
+            http_json_response(stream, 503, r#"{"ok":false,"error":"LST not active"}"#);
+            return;
+        };
+        let token = serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .and_then(|v| v.get("token").and_then(|t| t.as_str()).map(|s| s.to_string()))
+            .and_then(|s| uuid::Uuid::parse_str(&s).ok());
+        let ok = token.map(|t| h.release(t)).unwrap_or(false);
+        http_json_response(stream, 200, &format!(r#"{{"ok":{ok}}}"#));
+    } else if req_line.contains("GET /api/lst/dl") {
+        drain_http_headers(&mut stream);
+        let token = req_line
+            .split("token=")
+            .nth(1)
+            .and_then(|s| s.split(|c: char| c == ' ' || c == '&').next())
+            .and_then(|s| uuid::Uuid::parse_str(s.trim()).ok());
+        let Some(h) = &lst_handle else {
+            let _ = stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n");
+            return;
+        };
+        let Some(token) = token else {
+            let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+            return;
+        };
+        let chunks = h.take_dl_pcm(token, 8);
+        let mut bytes = Vec::new();
+        for c in chunks {
+            for s in c {
+                bytes.extend_from_slice(&s.to_le_bytes());
+            }
+        }
+        let hdr = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            bytes.len()
+        );
+        let _ = stream.write_all(hdr.as_bytes());
+        let _ = stream.write_all(&bytes);
     // ── WiFi management endpoints ──────────────────────────────────────
     // All paths under /api/wifi/* are GET (read) or POST (mutate). We keep
     // the handlers small and delegate to the `wifi` module — see that for
@@ -3650,6 +3739,7 @@ fn handle_ws(
     cmd_tx: Arc<Mutex<Option<CmdSender>>>,
     update_state: SharedUpdateState,
     shared_config: Option<tetra_config::bluestation::SharedConfig>,
+    lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
 ) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(50)));
 
@@ -3741,7 +3831,7 @@ fn handle_ws(
         // Then check for inbound messages from browser
         match ws.read() {
             Ok(Message::Text(text)) => {
-                handle_ws_command(&text, &state, &cmd_tx, &update_state, &shared_config);
+                handle_ws_command(&text, &state, &cmd_tx, &update_state, &shared_config, &lst_handle);
             }
             Ok(Message::Close(_)) => break,
             Ok(Message::Ping(data)) => {
@@ -3761,6 +3851,7 @@ fn handle_ws_command(
     cmd_tx: &Arc<Mutex<Option<CmdSender>>>,
     update_state: &SharedUpdateState,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+    lst_handle: &Option<crate::net_lst_dispatch::LstDispatchHandle>,
 ) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
         return;
@@ -4055,6 +4146,65 @@ fn handle_ws_command(
             // the broadcast to other browsers.
             if !send_cmd(ControlCommand::ClearEmergency { issi }) {
                 tracing::warn!("Dashboard: no control dispatcher for emergency_clear");
+            }
+        }
+        Some("lst_heartbeat") | Some("lst_join") | Some("lst_leave") | Some("lst_ptt")
+        | Some("lst_private") | Some("lst_hangup") | Some("lst_set_issi") | Some("lst_ul_pcm") => {
+            let Some(h) = lst_handle else {
+                return;
+            };
+            let Some(token) = v
+                .get("token")
+                .and_then(|t| t.as_str())
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            else {
+                return;
+            };
+            use crate::net_lst_dispatch::LstUiCommand;
+            match cmd_type {
+                Some("lst_heartbeat") => {
+                    let _ = h.heartbeat(token);
+                }
+                Some("lst_join") => {
+                    if let Some(gssi) = json_ssi(&v, "gssi") {
+                        let _ = h.push_cmd(token, LstUiCommand::JoinGroup { gssi });
+                    }
+                }
+                Some("lst_leave") => {
+                    let _ = h.push_cmd(token, LstUiCommand::LeaveGroup);
+                }
+                Some("lst_ptt") => {
+                    let down = v.get("down").and_then(|d| d.as_bool()).unwrap_or(false);
+                    let _ = h.push_cmd(token, LstUiCommand::Ptt { down });
+                }
+                Some("lst_private") => {
+                    if let Some(dest_issi) = json_ssi(&v, "issi") {
+                        let duplex = v.get("duplex").and_then(|d| d.as_bool()).unwrap_or(false);
+                        let _ = h.push_cmd(token, LstUiCommand::PrivateCall { dest_issi, duplex });
+                    }
+                }
+                Some("lst_hangup") => {
+                    let _ = h.push_cmd(token, LstUiCommand::Hangup);
+                }
+                Some("lst_set_issi") => {
+                    if let Some(issi) = json_ssi(&v, "issi") {
+                        let _ = h.push_cmd(token, LstUiCommand::SetOperatorIssi { issi });
+                    }
+                }
+                Some("lst_ul_pcm") => {
+                    if let Some(b64) = v.get("pcm").and_then(|p| p.as_str()) {
+                        if let Ok(raw) = lst_b64_decode(b64) {
+                            if raw.len() >= 2 && raw.len() % 2 == 0 && raw.len() <= 16_000 {
+                                let mut pcm = Vec::with_capacity(raw.len() / 2);
+                                for chunk in raw.chunks_exact(2) {
+                                    pcm.push(i16::from_le_bytes([chunk[0], chunk[1]]));
+                                }
+                                let _ = h.push_ul_pcm(token, pcm);
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         _ => {}
@@ -5810,6 +5960,14 @@ fn http_json_response(mut stream: TcpStream, code: u16, body: &str) {
         body
     );
     let _ = stream.write_all(resp.as_bytes());
+}
+
+fn lst_b64_decode(s: &str) -> Result<Vec<u8>, ()> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(s.trim())
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(s.trim()))
+        .map_err(|_| ())
 }
 
 /// Consume and discard HTTP request headers up to the blank line. Use this
@@ -7603,7 +7761,7 @@ enabled = true
         let state = Arc::new(RwLock::new(DashboardStateInner::new("/tmp/fs_ws_cmd_test.toml".to_string())));
         let cmd_tx = Arc::new(Mutex::new(Some(tx)));
         let update_state = Arc::new(Mutex::new(UpdateState::new()));
-        handle_ws_command(json, &state, &cmd_tx, &update_state, &None);
+        handle_ws_command(json, &state, &cmd_tx, &update_state, &None, &None);
         rx.try_iter().collect()
     }
 

@@ -16,6 +16,7 @@ pub mod network;
 #[cfg(feature = "asterisk")]
 pub mod net_asterisk;
 pub mod net_brew;
+pub mod net_lst_dispatch;
 pub mod net_control;
 pub mod net_dapnet;
 pub mod net_dashboard;

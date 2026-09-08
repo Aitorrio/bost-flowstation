@@ -475,6 +475,16 @@ body{
   display:grid;grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));
   gap:14px;
 }
+.lst-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start;}
+.lst-controls .field{margin-bottom:12px;}
+.lst-controls .row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.lst-ptt-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px;}
+.lst-ptt{min-height:56px;font-size:18px;font-weight:700;touch-action:none;user-select:none;}
+.lst-ptt.is-tx{background:var(--danger);color:#fff;}
+@media(max-width:900px){
+  .lst-layout{grid-template-columns:1fr;}
+  .lst-ptt{position:sticky;bottom:12px;z-index:5;}
+}
 .wifi-status-loading{
   font-size:12px;color:var(--text3);font-style:italic;
 }
@@ -3596,6 +3606,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <span class="nav-icon" data-icon="telegram"></span>
       <span class="nav-label" data-i18n="telegram">Telegram</span>
     </div>
+    <div class="nav-item" onclick="showPage('lst_dispatch',this)" id="nav-lst_dispatch">
+      <span class="nav-icon" data-icon="stations"></span>
+      <span class="nav-label" data-i18n="lst_dispatch">LST Dispatch</span>
+    </div>
     <!-- WiFi tab is hidden until we confirm NetworkManager is available on
          the host. The probe runs once at dashboard boot via /api/wifi/available
          and toggles this element's display. -->
@@ -5422,6 +5436,59 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
     </div>
 
+    <!-- ── LST DISPATCH ── -->
+    <div class="page" id="page-lst_dispatch">
+      <div class="section-label" data-i18n="integrations">Integrations</div>
+      <div class="banner banner-warn" id="lst-inactive-banner" style="display:none">
+        <span class="banner-ico" data-icon="alert"></span>
+        <div class="banner-body" data-i18n="lst_need_profile">Apply the “LST Dispatch” Brew profile (Home/Config) and restart to enable this console.</div>
+      </div>
+      <div class="banner banner-warn" id="lst-busy-banner" style="display:none">
+        <span class="banner-ico" data-icon="alert"></span>
+        <div class="banner-body"><span data-i18n="lst_busy">Dispatch in use by</span> <strong id="lst-busy-holder">—</strong></div>
+      </div>
+      <div class="lst-layout" id="lst-console" style="display:none">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title" data-i18n="lst_console">Dispatch console</div>
+            <div class="card-actions">
+              <button class="btn btn-sm" onclick="lstClaim()" id="lst-claim-btn" data-i18n="lst_claim">Take dispatch</button>
+              <button class="btn btn-sm btn-danger" onclick="lstRelease()" id="lst-release-btn" style="display:none" data-i18n="lst_release">Close dispatch</button>
+            </div>
+          </div>
+          <div class="card-body lst-controls">
+            <div class="field"><label class="form-label" data-i18n="lst_operator_issi">Dispatcher ISSI</label>
+              <div class="row-actions"><input type="number" id="lst-op-issi" min="1" max="16777214" style="flex:1">
+                <button class="btn btn-sm" onclick="lstSetIssi()" data-i18n="lst_apply_issi">Apply</button></div>
+            </div>
+            <div class="field"><label class="form-label" data-i18n="lst_gssi">Talkgroup GSSI</label>
+              <div class="row-actions"><input type="number" id="lst-gssi" min="1" max="16777214" style="flex:1">
+                <button class="btn btn-sm" onclick="lstJoin()" data-i18n="lst_join">Join</button>
+                <button class="btn btn-sm" onclick="lstLeave()" data-i18n="lst_leave">Leave</button></div>
+            </div>
+            <div class="lst-ptt-wrap">
+              <button class="btn lst-ptt" id="lst-ptt-btn" data-i18n="lst_ptt">PTT</button>
+              <span id="lst-call-state" class="help-text">—</span>
+            </div>
+            <div class="field"><label class="form-label" data-i18n="lst_sds">SDS</label>
+              <div class="row-actions"><input type="text" id="lst-sds-text" maxlength="140" style="flex:1" placeholder="…">
+                <button class="btn btn-sm" onclick="lstSendSds()" data-i18n="lst_send_sds">Send</button></div>
+            </div>
+            <p class="help-text" id="lst-codec-hint" style="display:none" data-i18n="lst_no_codec">Voice codec not available in this build — signalling only.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="card-title" data-i18n="lst_roster">Radios online</div>
+            <button class="btn btn-sm" onclick="lstRenderRoster()" data-i18n="wifi_refresh">Refresh</button></div>
+          <div class="card-body" style="padding:0;overflow:auto">
+            <table class="data-table" id="lst-roster-table"><thead><tr>
+              <th>ISSI</th><th data-i18n="lst_col_groups">Groups</th><th data-i18n="lst_col_pos">Position</th><th></th>
+            </tr></thead><tbody id="lst-roster-body"></tbody></table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── WIFI ──
          Three cards: current status (with disconnect / radio toggle), saved
          profiles list, and visible networks scan. The whole tab is only
@@ -6323,6 +6390,13 @@ const LANGS={
     cfg_del_cell:'Delete',cfg_del_brew:'Delete',
     cfg_del_cell_confirm:'Delete Cell profile “{name}”?',cfg_del_brew_confirm:'Delete Brew profile “{name}”?',
     cfg_brew_offline:'Offline (no Brew)',cfg_brew_offline_nodel:'Offline cannot be deleted.',
+    cfg_brew_lst:'LST Dispatch',cfg_brew_lst_nodel:'LST Dispatch cannot be deleted.',
+    lst_dispatch:'LST Dispatch',lst_need_profile:'Apply the “LST Dispatch” Brew profile (Home/Config) and restart to enable this console.',
+    lst_busy:'Dispatch in use by',lst_console:'Dispatch console',lst_claim:'Take dispatch',lst_release:'Close dispatch',
+    lst_operator_issi:'Dispatcher ISSI',lst_apply_issi:'Apply',lst_gssi:'Talkgroup GSSI',lst_join:'Join',lst_leave:'Leave',
+    lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Send',lst_roster:'Radios online',lst_col_groups:'Groups',lst_col_pos:'Position',
+    lst_no_codec:'Voice codec not available in this build — signalling only.',
+    lst_call_simplex:'Private simplex',lst_call_duplex:'Private duplex',lst_hangup:'Hang up',lst_pos_none:'—',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
     cfg_sheet_busy:'Close the open profile sheet first.',
     cfg_editing:'Editing Cell “{cell}” · Brew “{brew}”. Change the forms below, then Update or Save as.',
@@ -6682,6 +6756,13 @@ const LANGS={
     cfg_save_as_cell:'Guardar como',cfg_update_brew:'Actualizar Brew',cfg_del_brew:'Eliminar',cfg_save_as_brew:'Guardar como',
     cfg_del_cell_confirm:'¿Eliminar el perfil Cell “{name}”?',cfg_del_brew_confirm:'¿Eliminar el perfil Brew “{name}”?',
     cfg_brew_offline:'Offline (sin Brew)',cfg_brew_offline_nodel:'Offline no se puede eliminar.',
+    cfg_brew_lst:'Despacho LST',cfg_brew_lst_nodel:'Despacho LST no se puede eliminar.',
+    lst_dispatch:'Despacho LST',lst_need_profile:'Aplica el perfil Brew “Despacho LST” (Inicio/Config) y reinicia para activar esta consola.',
+    lst_busy:'Despacho en uso por',lst_console:'Consola de despacho',lst_claim:'Tomar despacho',lst_release:'Cerrar despacho',
+    lst_operator_issi:'ISSI despachador',lst_apply_issi:'Aplicar',lst_gssi:'GSSI / TG',lst_join:'Unirse',lst_leave:'Salir',
+    lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Enviar',lst_roster:'Radios online',lst_col_groups:'Grupos',lst_col_pos:'Ubicación',
+    lst_no_codec:'Codec de voz no disponible en este build — solo señalización.',
+    lst_call_simplex:'Privada simplex',lst_call_duplex:'Privada dúplex',lst_hangup:'Colgar',lst_pos_none:'—',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
     cfg_sheet_busy:'Cierra primero la hoja de perfil abierta.',
     cfg_editing:'Editando Cell “{cell}” · Brew “{brew}”. Cambia los formularios y pulsa Actualizar o Guardar como.',
@@ -7220,7 +7301,7 @@ function closeMobileSidebar(){
 }
 
 // ── Page navigation ───────────────────────────────────────────────────────
-const PAGE_TITLES={stations:'stations',dgna:'dgna',calls:'calls',lastheard:'lastheard',log:'log',sdslog:'sdslog',rf:'rf',health:'health',asterisk:'asterisk',dapnet:'dapnet',echolink:'echolink',meshcom:'meshcom',geoalarm:'geoalarm',setup:'setup',config:'config',system:'system'};
+const PAGE_TITLES={stations:'stations',dgna:'dgna',calls:'calls',lastheard:'lastheard',log:'log',sdslog:'sdslog',rf:'rf',health:'health',asterisk:'asterisk',dapnet:'dapnet',echolink:'echolink',meshcom:'meshcom',geoalarm:'geoalarm',telegram:'telegram',lst_dispatch:'lst_dispatch',setup:'setup',config:'config',system:'system',wifi:'wifi'};
 function showPage(name,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -7255,6 +7336,7 @@ function showPage(name,el){
   }
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
   if(name==='wifi')wifiRefresh();
+  if(name==='lst_dispatch')lstPageEnter();
   if(window.innerWidth<=700)closeMobileSidebar();
 }
 
@@ -7284,6 +7366,189 @@ async function wifiProbeAvailable(){
 async function wifiRefresh(){
   // Run status / saved / scan in parallel — they hit nmcli independently.
   await Promise.all([wifiLoadStatus(), wifiLoadSaved(), wifiScan()]);
+}
+
+/* ── LST Dispatch console ───────────────────────────────────────────── */
+let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
+async function lstPageEnter(){
+  lstBindPtt();
+  await lstRefreshStatus();
+  lstRenderRoster();
+}
+async function lstRefreshStatus(){
+  try{
+    const r=await fetch('/api/lst/status',{credentials:'same-origin',cache:'no-store'});
+    const j=await r.json();
+    const inactive=document.getElementById('lst-inactive-banner');
+    const busy=document.getElementById('lst-busy-banner');
+    const cons=document.getElementById('lst-console');
+    if(!j.enabled){
+      if(inactive)inactive.style.display='';
+      if(busy)busy.style.display='none';
+      if(cons)cons.style.display='none';
+      return;
+    }
+    if(inactive)inactive.style.display='none';
+    if(cons)cons.style.display='';
+    const op=document.getElementById('lst-op-issi');
+    if(op&&!op.dataset.touched)op.value=j.operator_issi||'';
+    const codecHint=document.getElementById('lst-codec-hint');
+    if(codecHint)codecHint.style.display=j.codec_available?'none':'';
+    const iOwn=!!lstToken;
+    const claimBtn=document.getElementById('lst-claim-btn');
+    const relBtn=document.getElementById('lst-release-btn');
+    if(j.session_busy&&!iOwn){
+      if(busy){busy.style.display='';const h=document.getElementById('lst-busy-holder');if(h)h.textContent=j.session_holder||'—';}
+      if(claimBtn)claimBtn.style.display='none';
+      if(relBtn)relBtn.style.display='none';
+      lstSetOwned(false);
+    }else{
+      if(busy)busy.style.display='none';
+      if(claimBtn)claimBtn.style.display=iOwn?'none':'';
+      if(relBtn)relBtn.style.display=iOwn?'':'none';
+      lstSetOwned(iOwn);
+    }
+    const st=document.getElementById('lst-call-state');
+    if(st){
+      const kind=j.call_kind||'—';
+      const peer=j.call_peer!=null?j.call_peer:'';
+      st.textContent=kind+(peer?(' '+peer):'')+(j.ptt?' TX':'');
+    }
+    try{
+      const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
+      const arr=await pr.json();
+      lstPositions={};
+      (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
+    }catch(_){}
+  }catch(e){console.warn('lst status',e);}
+}
+function lstSetOwned(on){
+  const ids=['lst-op-issi','lst-gssi','lst-ptt-btn','lst-sds-text'];
+  ids.forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=!on;});
+}
+async function lstClaim(){
+  const r=await fetch('/api/lst/claim',{method:'POST',credentials:'same-origin'});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||!j.ok){await lstRefreshStatus();return;}
+  lstToken=j.token;
+  if(lstHbTimer)clearInterval(lstHbTimer);
+  lstHbTimer=setInterval(()=>{if(lstToken)wsSend({type:'lst_heartbeat',token:lstToken});},8000);
+  await lstStartAudio();
+  await lstRefreshStatus();
+}
+async function lstRelease(){
+  if(lstToken){
+    await fetch('/api/lst/release',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:lstToken})});
+  }
+  lstToken=null;
+  if(lstHbTimer){clearInterval(lstHbTimer);lstHbTimer=null;}
+  lstStopAudio();
+  await lstRefreshStatus();
+}
+function lstSetIssi(){
+  const issi=Number(document.getElementById('lst-op-issi')?.value||0);
+  if(!lstToken||!issi)return;
+  document.getElementById('lst-op-issi').dataset.touched='1';
+  wsSend({type:'lst_set_issi',token:lstToken,issi});
+}
+function lstJoin(){
+  const gssi=Number(document.getElementById('lst-gssi')?.value||0);
+  if(!lstToken||!gssi)return;
+  wsSend({type:'lst_join',token:lstToken,gssi});
+}
+function lstLeave(){if(lstToken)wsSend({type:'lst_leave',token:lstToken});}
+function lstHangup(){if(lstToken)wsSend({type:'lst_hangup',token:lstToken});}
+function lstPrivate(issi,duplex){
+  if(!lstToken||!issi)return;
+  wsSend({type:'lst_private',token:lstToken,issi,duplex:!!duplex});
+}
+function lstSendSds(){
+  const text=document.getElementById('lst-sds-text')?.value||'';
+  const dest=Number(document.getElementById('lst-gssi')?.value||0)||Number(document.getElementById('lst-op-issi')?.value||0);
+  if(!text||!dest)return;
+  wsSend({type:'sds',dest_issi:dest,message:text});
+}
+function lstBindPtt(){
+  const btn=document.getElementById('lst-ptt-btn');
+  if(!btn||btn.dataset.bound)return;
+  btn.dataset.bound='1';
+  const down=e=>{e.preventDefault();if(!lstToken)return;btn.classList.add('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:true});};
+  const up=e=>{e.preventDefault();if(!lstToken)return;btn.classList.remove('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:false});};
+  btn.addEventListener('pointerdown',down);
+  btn.addEventListener('pointerup',up);
+  btn.addEventListener('pointercancel',up);
+  btn.addEventListener('pointerleave',up);
+}
+async function lstStartAudio(){
+  try{
+    lstAudioCtx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:8000});
+    lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:8000,channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
+    const src=lstAudioCtx.createMediaStreamSource(lstMicStream);
+    const proc=lstAudioCtx.createScriptProcessor(1024,1,1);
+    proc.onaudioprocess=ev=>{
+      if(!lstToken)return;
+      const btn=document.getElementById('lst-ptt-btn');
+      if(!btn||!btn.classList.contains('is-tx'))return;
+      const input=ev.inputBuffer.getChannelData(0);
+      const pcm=new Int16Array(input.length);
+      for(let i=0;i<input.length;i++){const s=Math.max(-1,Math.min(1,input[i]));pcm[i]=(s*32767)|0;}
+      const bytes=new Uint8Array(pcm.buffer);
+      let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+      wsSend({type:'lst_ul_pcm',token:lstToken,pcm:btoa(bin)});
+    };
+    src.connect(proc);proc.connect(lstAudioCtx.destination);
+    if(lstDlTimer)clearInterval(lstDlTimer);
+    lstDlTimer=setInterval(lstPollDl,60);
+  }catch(e){console.warn('lst audio',e);}
+}
+function lstStopAudio(){
+  if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
+  if(lstMicStream){lstMicStream.getTracks().forEach(t=>t.stop());lstMicStream=null;}
+  if(lstAudioCtx){try{lstAudioCtx.close();}catch(_){}lstAudioCtx=null;}
+}
+async function lstPollDl(){
+  if(!lstToken||!lstAudioCtx)return;
+  try{
+    const r=await fetch('/api/lst/dl?token='+encodeURIComponent(lstToken),{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)return;
+    const buf=await r.arrayBuffer();
+    if(buf.byteLength<4)return;
+    const pcm=new Int16Array(buf);
+    const f32=new Float32Array(pcm.length);
+    for(let i=0;i<pcm.length;i++)f32[i]=pcm[i]/32768;
+    const ab=lstAudioCtx.createBuffer(1,f32.length,8000);
+    ab.copyToChannel(f32,0);
+    const src=lstAudioCtx.createBufferSource();src.buffer=ab;src.connect(lstAudioCtx.destination);src.start();
+  }catch(_){}
+}
+function lstRenderRoster(){
+  const tb=document.getElementById('lst-roster-body');
+  if(!tb)return;
+  const ms=(typeof state!=='undefined'&&state.ms)?state.ms:{};
+  const rows=Object.values(ms).filter(m=>m&&m.issi);
+  tb.innerHTML='';
+  if(!rows.length){tb.innerHTML='<tr><td colspan="4" class="muted">—</td></tr>';return;}
+  rows.sort((a,b)=>a.issi-b.issi).forEach(m=>{
+    const groups=(m.groups||m.group_catalog||[]).map(g=>g.gssi||g).filter(Boolean).join(', ')||'—';
+    const pos=lstPositions[m.issi];
+    const posTxt=pos?(pos.lat.toFixed(5)+', '+pos.lon.toFixed(5)):t('lst_pos_none');
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td class="num">'+m.issi+'</td><td class="num">'+groups+'</td><td class="num">'+posTxt+'</td><td class="row-actions">'+
+      '<button class="btn btn-sm" data-issi="'+m.issi+'" data-act="sx">SX</button>'+
+      '<button class="btn btn-sm" data-issi="'+m.issi+'" data-act="dx">DX</button>'+
+      '<button class="btn btn-sm" data-issi="'+m.issi+'" data-act="sds">SDS</button></td>';
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll('button[data-act]').forEach(btn=>{
+    btn.onclick=()=>{
+      const issi=Number(btn.dataset.issi);
+      if(btn.dataset.act==='sx')lstPrivate(issi,false);
+      else if(btn.dataset.act==='dx')lstPrivate(issi,true);
+      else if(btn.dataset.act==='sds'){
+        const msg=prompt('SDS → '+issi);if(msg)wsSend({type:'sds',dest_issi:issi,message:msg});
+      }
+    };
+  });
 }
 
 async function wifiLoadStatus(){
@@ -9554,6 +9819,7 @@ function fillBrewProfileSelect(sel,brews,pick){
   const keep=sel.value;
   sel.innerHTML='';
   const off=document.createElement('option');off.value='';off.textContent=t('cfg_brew_offline')||'Offline (no Brew)';sel.appendChild(off);
+  const lst=document.createElement('option');lst.value='__lst_dispatch__';lst.textContent=t('cfg_brew_lst')||'LST Dispatch';sel.appendChild(lst);
   (brews||[]).forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+(p.active?' ●':'');sel.appendChild(o);});
   if(pick!==undefined&&pick!==null)sel.value=pick||'';
   else if(keep&&[...sel.options].some(o=>o.value===keep))sel.value=keep;
@@ -9758,7 +10024,7 @@ async function saveCellProfileSheet(){
 async function openBrewProfileSheet(mode){
   if(cfgSheetKind){vcMsg('vc-profiles-msg',t('cfg_sheet_busy'),false);return;}
   const sel=document.getElementById('vc-brew-profile')?.value||'';
-  if(mode==='edit'&&!sel){vcMsg('vc-profiles-msg',t('cfg_need_select_brew'),false);return;}
+  if(mode==='edit'&&(!sel||sel==='__lst_dispatch__')){vcMsg('vc-profiles-msg',t('cfg_need_select_brew'),false);return;}
   cfgLiveSnapshot=snapshotLiveVisual();
   cfgSheetKind='brew';
   cfgSheetMode=mode;
@@ -9824,6 +10090,7 @@ async function deleteSelectedCellProfile(){
 async function deleteSelectedBrewProfile(){
   const name=document.getElementById('vc-brew-profile')?.value;
   if(!name){vcMsg('vc-profiles-msg',t('cfg_brew_offline_nodel'),false);return;}
+  if(name==='__lst_dispatch__'){vcMsg('vc-profiles-msg',t('cfg_brew_lst_nodel'),false);return;}
   const ok=await dashConfirm(t('cfg_del_brew'),t('cfg_del_brew_confirm',{name:name}),{danger:true,confirmLabel:t('cfg_del_brew')});
   if(!ok)return;
   const r=await fetch('/api/profiles/brew/'+encodeURIComponent(name),{method:'DELETE'});

@@ -122,6 +122,17 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         return Err(format!("Unrecognized fields in brew config: {:?}", sorted_keys(&brew.extra)).into());
     }
 
+    // Optional lst_dispatch section
+    if let Some(ref lst) = root.lst_dispatch
+        && !lst.extra.is_empty()
+    {
+        return Err(format!(
+            "Unrecognized fields in lst_dispatch config: {:?}",
+            sorted_keys(&lst.extra)
+        )
+        .into());
+    }
+
     // Optional asterisk section
     if let Some(ref asterisk) = root.asterisk
         && !asterisk.extra.is_empty()
@@ -229,6 +240,7 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         net: net_dto_to_cfg(root.net_info),
         cell: cell_cfg,
         brew: None,
+        lst_dispatch: None,
         asterisk: apply_asterisk_patch(root.asterisk.unwrap_or_default())?,
         dapnet: apply_dapnet_patch(root.dapnet.unwrap_or_default())?,
         geoalarm: apply_geoalarm_patch(root.geoalarm.unwrap_or_default())?,
@@ -247,6 +259,10 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
 
     if let Some(brew) = root.brew {
         cfg.brew = Some(apply_brew_patch(brew));
+    }
+
+    if let Some(lst) = root.lst_dispatch {
+        cfg.lst_dispatch = Some(apply_lst_dispatch_patch(lst));
     }
 
     if let Some(dashboard) = root.dashboard {
@@ -305,6 +321,7 @@ struct TomlConfigRoot {
     cell_info: CellInfoDto,
 
     brew: Option<CfgBrewDto>,
+    lst_dispatch: Option<CfgLstDispatchDto>,
     asterisk: Option<CfgAsteriskDto>,
     dapnet: Option<CfgDapnetDto>,
     geoalarm: Option<CfgGeoalarmDto>,
