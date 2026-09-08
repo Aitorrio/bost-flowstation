@@ -486,7 +486,7 @@ impl TetraEntityTrait for LstDispatchEntity {
         TetraEntity::Brew
     }
 
-    fn rx_prim(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
+    fn rx_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
         match message.msg {
             SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
                 brew_uuid,
@@ -504,9 +504,14 @@ impl TetraEntityTrait for LstDispatchEntity {
                 ts,
             }) => {
                 self.on_network_call_ready(brew_uuid, call_id, carrier_num, ts);
+                let duplex = self.private.as_ref().is_some_and(|p| p.duplex && p.uuid == brew_uuid);
                 self.handle.set_status(|s| {
                     s.media_ready = true;
-                    s.last_error = None;
+                    s.last_error = Some(if duplex {
+                        "private duplex connected".into()
+                    } else {
+                        "private connected — hold PTT to talk".into()
+                    });
                 });
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupAccept { brew_uuid }) => {
@@ -525,11 +530,31 @@ impl TetraEntityTrait for LstDispatchEntity {
                     });
                 }
             }
+            // Radio answered (U-CONNECT). CMCE waits for ConnectConfirm before D-CONNECT-ACK /
+            // circuit open / MediaReady — same role Asterisk fills for SIP (FH: LST private).
+            SapMsgInner::CmceCallControl(CallControl::NetworkCircuitConnectRequest {
+                brew_uuid,
+                ..
+            }) => {
+                if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {
+                    tracing::info!("LST: MS answered — ConnectConfirm uuid={}", brew_uuid);
+                    self.push_cc(
+                        queue,
+                        CallControl::NetworkCircuitConnectConfirm {
+                            brew_uuid,
+                            grant: 0,
+                            permission: 0,
+                        },
+                    );
+                    self.handle.set_status(|s| {
+                        s.last_error = Some("private answering…".into());
+                    });
+                }
+            }
             SapMsgInner::CmceCallControl(CallControl::NetworkCircuitConnectConfirm {
                 brew_uuid,
                 ..
             }) => {
-                // MS answered; MediaReady usually follows — keep selection.
                 if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {
                     tracing::info!("LST: private connect confirmed uuid={}", brew_uuid);
                 }
@@ -563,6 +588,7 @@ impl TetraEntityTrait for LstDispatchEntity {
                     self.private = None;
                     self.handle.set_status(|s| {
                         s.ptt = false;
+                        s.media_ready = false;
                         if matches!(s.call_kind.as_deref(), Some("simplex" | "duplex")) {
                             s.call_kind = None;
                             s.call_peer = None;
