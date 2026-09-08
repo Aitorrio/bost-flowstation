@@ -7533,16 +7533,16 @@ function lstResampleTo8k(input,nativeRate){
 async function lstStartAudio(){
   lstAudioReady=false;
   try{
-    if(!window.isSecureContext){
+    const insecure=!window.isSecureContext;
+    if(insecure){
       lstSetAudioHint(t('lst_audio_insecure'),true);
-      // Still open AudioContext for possible playout if policy allows later; mic will fail.
     }
     // Do not force sampleRate:8000 — browsers often ignore it; we resample ourselves.
     lstAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
     if(lstAudioCtx.state==='suspended'){try{await lstAudioCtx.resume();}catch(_){}}
     lstNextPlay=0;
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-      lstSetAudioHint(t('lst_audio_mic_fail')+'MediaDevices API missing',true);
+      lstSetAudioHint((insecure?t('lst_audio_insecure')+' — ':'')+t('lst_audio_mic_fail')+'MediaDevices API missing (usa http://IP → contexto inseguro)',true);
       return;
     }
     lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});

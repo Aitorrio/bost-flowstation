@@ -629,6 +629,69 @@ fn log_host_memory(update: &SharedUpdateState) {
     }
 }
 
+/// Ensure outerplane `libtetra-codec` is installed (clone+cmake to /usr/local) so LST voice
+/// and optional Asterisk SIP can link. Prefer the tree script; fall back to a minimal inline build.
+/// Returns true when the library is linkable afterwards.
+fn ensure_tetra_codec_installed(src_dir: &std::path::Path, update: &SharedUpdateState) -> bool {
+    if std::env::var("BOST_SKIP_TETRA_CODEC")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+    {
+        log!(update, "BOST_SKIP_TETRA_CODEC set — not installing libtetra-codec");
+        return tetra_codec_lib_present();
+    }
+    if tetra_codec_lib_present() {
+        log!(update, "libtetra-codec already present — OK");
+        return true;
+    }
+
+    log!(update, "--- Installing tetra-codec (outerplane ACELP for LST voice) ---");
+    let script = src_dir.join("contrib/install/install-tetra-codec.sh");
+    if script.is_file() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&script) {
+                let mut perms = meta.permissions();
+                perms.set_mode(perms.mode() | 0o111);
+                let _ = std::fs::set_permissions(&script, perms);
+            }
+        }
+        let mut cmd = std::process::Command::new("bash");
+        cmd.arg(&script);
+        cmd.env("DEBIAN_FRONTEND", "noninteractive");
+        // Prefer single-job cmake on Pi during OTA (memory).
+        if std::env::var_os("BOST_TETRA_CODEC_JOBS").is_none() {
+            cmd.env("BOST_TETRA_CODEC_JOBS", "1");
+        }
+        let label = format!("$ bash {}", script.display());
+        if stream_cmd(update, label, cmd).is_none() {
+            log!(
+                update,
+                "WARN: install-tetra-codec.sh failed — LST voice will stay signalling-only"
+            );
+            return false;
+        }
+        let ok = tetra_codec_lib_present();
+        if ok {
+            log!(update, "tetra-codec installed — LST voice link enabled");
+        } else {
+            log!(
+                update,
+                "WARN: install-tetra-codec.sh finished but lib still not detected"
+            );
+        }
+        return ok;
+    }
+
+    log!(
+        update,
+        "WARN: {} missing — cannot auto-install codec (re-run OTA after sources include the script)",
+        script.display()
+    );
+    false
+}
+
 /// True when `libtetra-codec` is linkable on this host (ACELP for LST / optional SIP).
 /// Does **not** enable Asterisk SIP — only the Cargo feature that links the shared library.
 fn tetra_codec_lib_present() -> bool {
@@ -1456,6 +1519,8 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     log!(update, "Using cargo: {}", cargo.display());
     log_host_memory(&update);
     let jobs = std::env::var("BOST_OTA_JOBS").unwrap_or_else(|_| "1".into());
+    // Install outerplane ACELP before deciding --features asterisk (LST voice).
+    let _ = ensure_tetra_codec_installed(&src_dir, &update);
     let with_codec = tetra_codec_lib_present();
     if with_codec {
         log!(
@@ -1477,7 +1542,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     } else {
         log!(
             update,
-            "WARN: libtetra-codec not found — LST voice encode/decode disabled (signalling only). Install the .so / `pkg-config --exists tetra-codec`, or set BOST_OTA_FORCE_ASTERISK=1 / BOST_TETRA_CODEC_LIB=/path/to/libtetra-codec.so then re-run OTA"
+            "WARN: libtetra-codec not found — LST voice encode/decode disabled (signalling only). Next OTA will retry auto-install, or run: sudo bash /opt/bost-flowstation/contrib/install/install-tetra-codec.sh"
         );
     }
     let build = cargo_build_command(&cargo, &src_dir, &update, with_codec);

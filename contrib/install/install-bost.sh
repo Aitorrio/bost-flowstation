@@ -16,6 +16,7 @@
 #   BOST_FORCE_CLEAN=1  delete source tree and re-clone (keeps /etc/flowstation)
 #   BOST_USE_DEB=1      prefer .deb asset if available (optional)
 #   BOST_SKIP_BUILD=1   skip cargo build (use existing binary)
+#   BOST_SKIP_TETRA_CODEC=1  skip outerplane ACELP lib (LST voice / Asterisk feature off)
 set -euo pipefail
 
 REPO_URL="${BOST_REPO:-https://github.com/Aitorrio/bost-flowstation.git}"
@@ -137,6 +138,24 @@ fi
 
 chown -R "$SERVICE_USER:$SERVICE_USER" "$SRC_ROOT" || true
 
+# Native TETRA ACELP codec (outerplane) — required for LST Dispatch voice and optional Asterisk SIP.
+# Installs to /usr/local; cargo then builds with --features asterisk.
+CODEC_SCRIPT="$SRC_ROOT/contrib/install/install-tetra-codec.sh"
+WITH_ASTERISK_FEATURE=0
+if [[ "${BOST_SKIP_TETRA_CODEC:-0}" == "1" ]]; then
+  warn "BOST_SKIP_TETRA_CODEC=1 — LST voice encode/decode will be unavailable"
+elif [[ -x "$CODEC_SCRIPT" ]] || [[ -f "$CODEC_SCRIPT" ]]; then
+  chmod +x "$CODEC_SCRIPT" || true
+  log "Installing tetra-codec (libtetra-codec) for LST voice"
+  if bash "$CODEC_SCRIPT"; then
+    WITH_ASTERISK_FEATURE=1
+  else
+    warn "tetra-codec install failed — continuing without LST voice (signalling only)"
+  fi
+else
+  warn "install-tetra-codec.sh missing — continuing without LST voice"
+fi
+
 BUILT_BIN=""
 if [[ "${BOST_USE_DEB:-0}" == "1" ]]; then
   warn "BOST_USE_DEB=1 requested but .deb auto-download is not wired yet; building from source"
@@ -144,8 +163,14 @@ fi
 
 if [[ "${BOST_SKIP_BUILD:-0}" != "1" ]]; then
   install_rust "$SERVICE_USER"
-  log "Building bluestation-bs (release) — this can take a while on a Pi"
-  sudo -u "$SERVICE_USER" bash -lc "source \"\$HOME/.cargo/env\" && cd \"$SRC_ROOT\" && cargo build --release -p bluestation-bs"
+  CARGO_FEATURES=()
+  if [[ "$WITH_ASTERISK_FEATURE" == "1" ]]; then
+    CARGO_FEATURES=(--features asterisk)
+    log "Building bluestation-bs (release, --features asterisk) — this can take a while on a Pi"
+  else
+    log "Building bluestation-bs (release) — this can take a while on a Pi"
+  fi
+  sudo -u "$SERVICE_USER" bash -lc "source \"\$HOME/.cargo/env\" && cd \"$SRC_ROOT\" && cargo build --release -p bluestation-bs ${CARGO_FEATURES[*]:-}"
   BUILT_BIN="$SRC_ROOT/target/release/bluestation-bs"
 else
   BUILT_BIN="$SRC_ROOT/target/release/bluestation-bs"
@@ -351,4 +376,10 @@ echo " Config:     ${CFG_PATH}"
 echo " Setup:      open the Setup tab / first-run wizard"
 echo " RF starts disabled (backend=None) until you finish Setup."
 echo " Repo:       https://github.com/Aitorrio/bost-flowstation (branch ${BRANCH}, OTA ${OTA_CHANNEL})"
+if [[ "$WITH_ASTERISK_FEATURE" == "1" ]]; then
+  echo " Voice:      libtetra-codec installed (LST Dispatch ACELP linked)"
+else
+  echo " Voice:      signalling only — install codec later via OTA or:"
+  echo "             sudo bash ${SRC_ROOT}/contrib/install/install-tetra-codec.sh"
+fi
 echo "────────────────────────────────────────────────────────"
