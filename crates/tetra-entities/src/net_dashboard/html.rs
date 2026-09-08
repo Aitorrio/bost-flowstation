@@ -481,6 +481,22 @@ body{
 .lst-ptt-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px;}
 .lst-ptt{min-height:56px;font-size:18px;font-weight:700;touch-action:none;user-select:none;}
 .lst-ptt.is-tx{background:var(--danger);color:#fff;}
+#lst-roster-table .row-actions{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end;}
+#lst-roster-table .lst-act-btn{
+  width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;
+}
+#lst-roster-table .lst-act-btn .btn-icon,
+#lst-roster-table .lst-act-btn [data-icon]{
+  width:16px;height:16px;display:inline-flex;
+}
+#lst-roster-table .lst-act-btn svg{width:16px;height:16px;}
+.lst-call-tabs{display:flex;gap:6px;margin:0 0 14px;}
+.lst-call-tab{flex:1;}
+.lst-call-tab.is-active{background:var(--accent);color:#0b1218;border-color:var(--accent);}
+.lst-call-panel{display:none;}
+.lst-call-panel.is-active{display:block;}
+.lst-call-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;}
+.lst-call-peer{font-family:var(--mono);color:var(--accent);}
 @media(max-width:900px){
   .lst-layout{grid-template-columns:1fr;}
   .lst-ptt{position:sticky;bottom:12px;z-index:5;}
@@ -5931,6 +5947,38 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
+<!-- ── LST private call modal ── -->
+<div class="modal-overlay" id="lst-call-modal" onclick="if(event.target===this)closeLstCallModal()">
+  <div class="modal">
+    <div class="modal-title"><span data-i18n="lst_call_modal_title">Private call</span> · <span class="lst-call-peer" id="lst-call-modal-peer">—</span></div>
+    <div class="lst-call-tabs" role="tablist">
+      <button type="button" class="btn btn-sm lst-call-tab is-active" id="lst-call-tab-sx" data-mode="sx" onclick="lstCallSetTab('sx')" data-i18n="lst_tab_simplex">Simplex</button>
+      <button type="button" class="btn btn-sm lst-call-tab" id="lst-call-tab-dx" data-mode="dx" onclick="lstCallSetTab('dx')" data-i18n="lst_tab_duplex">Duplex</button>
+    </div>
+    <div class="lst-call-panel is-active" id="lst-call-panel-sx">
+      <div class="help-text" id="lst-call-modal-state-sx">—</div>
+      <div class="lst-call-actions">
+        <button type="button" class="btn btn-primary" onclick="lstCallDial(false)" data-i18n="lst_call_dial">Call</button>
+        <button type="button" class="btn btn-danger" onclick="lstHangup()" data-i18n="lst_hangup">Hang up</button>
+      </div>
+      <div class="lst-ptt-wrap" style="margin-top:4px">
+        <button type="button" class="btn lst-ptt" id="lst-call-ptt-btn" data-i18n="lst_ptt">PTT</button>
+      </div>
+    </div>
+    <div class="lst-call-panel" id="lst-call-panel-dx">
+      <div class="help-text" id="lst-call-modal-state-dx">—</div>
+      <div class="lst-call-actions">
+        <button type="button" class="btn btn-primary" onclick="lstCallDial(true)" data-i18n="lst_call_dial">Call</button>
+        <button type="button" class="btn btn-danger" onclick="lstHangup()" data-i18n="lst_hangup">Hang up</button>
+      </div>
+      <p class="help-text" data-i18n="lst_duplex_hint">Duplex: mic stays open while media is ready (no PTT).</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeLstCallModal()" data-i18n="cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── DGNA Modal (Dynamic Group Number Assignment) ── -->
 <div class="modal-overlay" id="dgna-modal">
   <div class="modal">
@@ -6407,6 +6455,9 @@ const LANGS={
     lst_audio_mic_fail:'Could not open the microphone: ',
     lst_audio_ok:'Mic/speakers ready.',
     lst_call_simplex:'Private simplex',lst_call_duplex:'Private duplex',lst_hangup:'Hang up',lst_pos_none:'—',
+    lst_roster_sds:'Send SDS',lst_roster_call:'Private call',
+    lst_call_modal_title:'Private call',lst_tab_simplex:'Simplex',lst_tab_duplex:'Duplex',
+    lst_call_dial:'Call',lst_duplex_hint:'Duplex: mic stays open while media is ready (no PTT).',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
     cfg_sheet_busy:'Close the open profile sheet first.',
     cfg_editing:'Editing Cell “{cell}” · Brew “{brew}”. Change the forms below, then Update or Save as.',
@@ -6780,6 +6831,9 @@ const LANGS={
     lst_audio_mic_fail:'No se pudo abrir el micrófono: ',
     lst_audio_ok:'Micro/altavoz listos.',
     lst_call_simplex:'Privada simplex',lst_call_duplex:'Privada dúplex',lst_hangup:'Colgar',lst_pos_none:'—',
+    lst_roster_sds:'Enviar SDS',lst_roster_call:'Llamada privada',
+    lst_call_modal_title:'Llamada privada',lst_tab_simplex:'Simplex',lst_tab_duplex:'Dúplex',
+    lst_call_dial:'Llamar',lst_duplex_hint:'Dúplex: el micro queda abierto mientras hay media (sin PTT).',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
     cfg_sheet_busy:'Cierra primero la hoja de perfil abierta.',
     cfg_editing:'Editando Cell “{cell}” · Brew “{brew}”. Cambia los formularios y pulsa Actualizar o Guardar como.',
@@ -7389,6 +7443,7 @@ async function wifiRefresh(){
 let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
 let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
+let lstCallPeer=0,lstCallTab='sx';
 const LST_FRAME_SAMPLES=480; // 60 ms @ 8 kHz = one TETRA ACELP block
 function lstSetAudioHint(msg,show){
   const el=document.getElementById('lst-audio-hint');
@@ -7474,12 +7529,21 @@ async function lstRefreshStatus(){
     if(!iOwn)lstSetAudioHint(t('lst_audio_need_claim'),true);
     else if(lstAudioReady)lstSetAudioHint(t('lst_audio_ok'),true);
     const st=document.getElementById('lst-call-state');
-    if(st){
+    const callTxt=(()=>{
       const kind=j.call_kind||'—';
       const peer=j.call_peer!=null?j.call_peer:'';
       const err=j.last_error?(' · '+j.last_error):'';
-      st.textContent=kind+(peer?(' '+peer):'')+(j.ptt?' TX':'')+err;
-    }
+      return kind+(peer?(' '+peer):'')+(j.ptt?' TX':'')+err;
+    })();
+    if(st)st.textContent=callTxt;
+    const stSx=document.getElementById('lst-call-modal-state-sx');
+    const stDx=document.getElementById('lst-call-modal-state-dx');
+    if(stSx)stSx.textContent=callTxt;
+    if(stDx)stDx.textContent=callTxt;
+    const pttMain=document.getElementById('lst-ptt-btn');
+    const pttModal=document.getElementById('lst-call-ptt-btn');
+    if(pttMain)pttMain.classList.toggle('is-tx',!!lstPttDown);
+    if(pttModal)pttModal.classList.toggle('is-tx',!!lstPttDown);
     try{
       const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
       const arr=await pr.json();
@@ -7531,6 +7595,42 @@ function lstPrivate(issi,duplex){
   if(!lstToken||!issi)return;
   wsSend({type:'lst_private',token:lstToken,issi,duplex:!!duplex});
 }
+function lstOpenSds(issi){
+  openSds(issi);
+  const op=Number(document.getElementById('lst-op-issi')?.value||0);
+  const src=document.getElementById('sds-callout-source');
+  if(src&&op)src.value=String(op);
+}
+function lstCallSetTab(mode){
+  lstCallTab=mode==='dx'?'dx':'sx';
+  const sxTab=document.getElementById('lst-call-tab-sx');
+  const dxTab=document.getElementById('lst-call-tab-dx');
+  const sxPanel=document.getElementById('lst-call-panel-sx');
+  const dxPanel=document.getElementById('lst-call-panel-dx');
+  if(sxTab)sxTab.classList.toggle('is-active',lstCallTab==='sx');
+  if(dxTab)dxTab.classList.toggle('is-active',lstCallTab==='dx');
+  if(sxPanel)sxPanel.classList.toggle('is-active',lstCallTab==='sx');
+  if(dxPanel)dxPanel.classList.toggle('is-active',lstCallTab==='dx');
+}
+function openLstCallModal(issi){
+  lstCallPeer=Number(issi)||0;
+  if(!lstCallPeer)return;
+  const peerEl=document.getElementById('lst-call-modal-peer');
+  if(peerEl)peerEl.textContent=String(lstCallPeer);
+  lstCallSetTab('sx');
+  lstBindCallModalPtt();
+  const modal=document.getElementById('lst-call-modal');
+  if(modal)modal.classList.add('open');
+  if(typeof applyLang==='function')applyLang();
+}
+function closeLstCallModal(){
+  const modal=document.getElementById('lst-call-modal');
+  if(modal)modal.classList.remove('open');
+}
+function lstCallDial(duplex){
+  if(!lstCallPeer)return;
+  lstPrivate(lstCallPeer,!!duplex);
+}
 function lstSendSds(){
   const text=document.getElementById('lst-sds-text')?.value||'';
   const gssi=Number(document.getElementById('lst-gssi')?.value||0);
@@ -7543,8 +7643,25 @@ function lstBindPtt(){
   const btn=document.getElementById('lst-ptt-btn');
   if(!btn||btn.dataset.bound)return;
   btn.dataset.bound='1';
-  const down=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=true;btn.classList.add('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:true});};
-  const up=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=false;btn.classList.remove('is-tx');wsSend({type:'lst_ptt',token:lstToken,down:false});};
+  const down=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=true;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:true});};
+  const up=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=false;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:false});};
+  btn.addEventListener('pointerdown',down);
+  btn.addEventListener('pointerup',up);
+  btn.addEventListener('pointercancel',up);
+  btn.addEventListener('pointerleave',up);
+}
+function lstSyncPttUi(){
+  ['lst-ptt-btn','lst-call-ptt-btn'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.classList.toggle('is-tx',!!lstPttDown);
+  });
+}
+function lstBindCallModalPtt(){
+  const btn=document.getElementById('lst-call-ptt-btn');
+  if(!btn||btn.dataset.bound)return;
+  btn.dataset.bound='1';
+  const down=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=true;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:true});};
+  const up=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=false;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:false});};
   btn.addEventListener('pointerdown',down);
   btn.addEventListener('pointerup',up);
   btn.addEventListener('pointercancel',up);
@@ -7708,28 +7825,24 @@ function lstRenderRoster(){
   const rows=Object.values(ms).filter(m=>m&&m.issi);
   tb.innerHTML='';
   if(!rows.length){tb.innerHTML='<tr><td colspan="4" class="muted">—</td></tr>';return;}
+  const sdsTitle=t('lst_roster_sds');
+  const callTitle=t('lst_roster_call');
   rows.sort((a,b)=>a.issi-b.issi).forEach(m=>{
     const groups=(m.groups||m.group_catalog||[]).map(g=>g.gssi||g).filter(Boolean).join(', ')||'—';
     const pos=lstPositions[m.issi];
     const posTxt=pos?(pos.lat.toFixed(5)+', '+pos.lon.toFixed(5)):t('lst_pos_none');
     const tr=document.createElement('tr');
     tr.innerHTML='<td class="num">'+m.issi+'</td><td class="num">'+groups+'</td><td class="num">'+posTxt+'</td><td class="row-actions">'+
-      '<button class="btn btn-sm" data-issi="'+m.issi+'" data-act="sx">SX</button>'+
-      '<button class="btn btn-sm" data-issi="'+m.issi+'" data-act="dx">DX</button>'+
-      '<button class="btn btn-sm" data-issi="'+m.issi+'" data-act="sds">SDS</button></td>';
+      '<button type="button" class="btn btn-sm lst-act-btn" data-issi="'+m.issi+'" data-act="sds" title="'+sdsTitle+'" aria-label="'+sdsTitle+'"><span class="btn-icon" data-icon="sdslog"></span></button>'+
+      '<button type="button" class="btn btn-sm lst-act-btn" data-issi="'+m.issi+'" data-act="call" title="'+callTitle+'" aria-label="'+callTitle+'"><span class="btn-icon" data-icon="calls"></span></button></td>';
     tb.appendChild(tr);
   });
+  if(typeof paintIcons==='function')paintIcons(tb);
   tb.querySelectorAll('button[data-act]').forEach(btn=>{
     btn.onclick=()=>{
       const issi=Number(btn.dataset.issi);
-      if(btn.dataset.act==='sx')lstPrivate(issi,false);
-      else if(btn.dataset.act==='dx')lstPrivate(issi,true);
-      else if(btn.dataset.act==='sds'){
-        const msg=prompt('SDS → '+issi);if(msg){
-          const op=Number(document.getElementById('lst-op-issi')?.value||0)||9999;
-          wsSend({type:'sds',dest_issi:issi,source_issi:op,dest_is_group:false,message:msg});
-        }
-      }
+      if(btn.dataset.act==='sds')lstOpenSds(issi);
+      else if(btn.dataset.act==='call')openLstCallModal(issi);
     };
   });
 }
