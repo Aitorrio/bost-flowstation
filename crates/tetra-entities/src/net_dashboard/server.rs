@@ -1460,45 +1460,60 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
-    // Step 5: rebuild only when the running binary's embedded git hash != repo HEAD.
+    // Step 5: decide whether to rebuild.
+    // Always try to install tetra-codec first — even when git HEAD already matches the binary,
+    // an existing install may still be signalling-only (no ACELP link). Without this, a second
+    // OTA would say "Already up to date" and never enable LST voice.
+    let codec_ok = ensure_tetra_codec_installed(&src_dir, &update);
+    let binary_has_codec = cfg!(feature = "asterisk");
+    let skip_codec = std::env::var("BOST_SKIP_TETRA_CODEC")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let need_voice_rebuild = codec_ok && !binary_has_codec && !skip_codec;
+
     let repo_head = remote_commit.as_str();
     let binary_current = binary_built_from(tetra_core::GIT_HASH, repo_head);
-    match binary_current {
-        Some(true) => {
-            log!(
-                update,
-                "Already up to date — running {} matches {}@{}.",
-                tetra_core::STACK_VERSION,
-                ota_branch,
-                &repo_head[..repo_head.len().min(12)]
-            );
-            update.lock().unwrap().finish(true);
-            return;
-        }
-        Some(false) => {
-            log!(
-                update,
-                "Running binary ({}) does not match {} — rebuilding (incremental).",
-                tetra_core::STACK_VERSION,
-                ota_branch
-            );
-        }
-        None => {
-            if !tree_moved {
-                log!(
-                    update,
-                    "Repository is up to date; running {} (build hash not verifiable).",
-                    tetra_core::STACK_VERSION
-                );
-                update.lock().unwrap().finish(true);
-                return;
+    let sources_match_binary = matches!(binary_current, Some(true))
+        || (matches!(binary_current, None) && !tree_moved);
+
+    if sources_match_binary && !need_voice_rebuild {
+        log!(
+            update,
+            "Already up to date — running {} matches {}@{}{}.",
+            tetra_core::STACK_VERSION,
+            ota_branch,
+            &repo_head[..repo_head.len().min(12)],
+            if binary_has_codec {
+                " (voice codec linked)"
+            } else if skip_codec {
+                " (BOST_SKIP_TETRA_CODEC)"
+            } else {
+                " (no libtetra-codec — signalling only)"
             }
-            log!(
-                update,
-                "Sources moved on {} but build hash is not verifiable — rebuilding to be safe.",
-                ota_branch
-            );
-        }
+        );
+        update.lock().unwrap().finish(true);
+        return;
+    }
+
+    if need_voice_rebuild && sources_match_binary {
+        log!(
+            update,
+            "Sources match {}, but this binary has no ACELP link — rebuilding with --features asterisk for LST voice.",
+            ota_branch
+        );
+    } else if matches!(binary_current, Some(false)) {
+        log!(
+            update,
+            "Running binary ({}) does not match {} — rebuilding (incremental).",
+            tetra_core::STACK_VERSION,
+            ota_branch
+        );
+    } else if matches!(binary_current, None) && tree_moved {
+        log!(
+            update,
+            "Sources moved on {} but build hash is not verifiable — rebuilding to be safe.",
+            ota_branch
+        );
     }
 
     // Step 6: build. cargo lives in ~/.cargo/bin, which the systemd service PATH usually omits, so
@@ -1519,8 +1534,6 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     log!(update, "Using cargo: {}", cargo.display());
     log_host_memory(&update);
     let jobs = std::env::var("BOST_OTA_JOBS").unwrap_or_else(|_| "1".into());
-    // Install outerplane ACELP before deciding --features asterisk (LST voice).
-    let _ = ensure_tetra_codec_installed(&src_dir, &update);
     let with_codec = tetra_codec_lib_present();
     if with_codec {
         log!(
