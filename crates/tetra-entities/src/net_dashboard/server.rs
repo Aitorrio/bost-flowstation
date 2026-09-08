@@ -633,17 +633,48 @@ fn log_host_memory(update: &SharedUpdateState) {
 /// Does **not** enable Asterisk SIP — only the Cargo feature that links the shared library.
 fn tetra_codec_lib_present() -> bool {
     use std::path::Path;
+
+    // Explicit override (path to .so) or force flag for OTA on hosts with unusual layouts.
+    if std::env::var("BOST_OTA_FORCE_ASTERISK")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
     if let Ok(p) = std::env::var("BOST_TETRA_CODEC_LIB") {
         if !p.is_empty() && Path::new(&p).is_file() {
             return true;
         }
     }
+
+    // Same discovery path as crates/tetra-entities/build.rs (preferred on Pi installs).
+    if let Ok(st) = std::process::Command::new("pkg-config")
+        .args(["--exists", "tetra-codec"])
+        .status()
+    {
+        if st.success() {
+            return true;
+        }
+    }
+    if let Ok(out) = std::process::Command::new("pkg-config")
+        .args(["--libs", "tetra-codec"])
+        .output()
+    {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            if text.contains("tetra-codec") || text.contains("-ltetra-codec") {
+                return true;
+            }
+        }
+    }
+
     const CANDIDATES: &[&str] = &[
         "/usr/local/lib/libtetra-codec.so",
         "/usr/lib/libtetra-codec.so",
         "/usr/lib/aarch64-linux-gnu/libtetra-codec.so",
         "/usr/lib/arm-linux-gnueabihf/libtetra-codec.so",
         "/opt/tetra/lib/libtetra-codec.so",
+        "/opt/bost-flowstation/lib/libtetra-codec.so",
         "/usr/local/lib/libtetra-codec.so.1",
         "/usr/lib/libtetra-codec.so.1",
     ];
@@ -1429,12 +1460,24 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     if with_codec {
         log!(
             update,
-            "libtetra-codec found — building with --features asterisk (ACELP for LST; does not enable SIP)"
+            "libtetra-codec / pkg-config tetra-codec found — building with --features asterisk (ACELP for LST; does not enable SIP)"
         );
+        if let Ok(out) = std::process::Command::new("pkg-config")
+            .args(["--libs", "tetra-codec"])
+            .output()
+        {
+            if out.status.success() {
+                log!(
+                    update,
+                    "pkg-config --libs tetra-codec: {}",
+                    String::from_utf8_lossy(&out.stdout).trim()
+                );
+            }
+        }
     } else {
         log!(
             update,
-            "WARN: libtetra-codec not found — LST voice encode/decode disabled (signalling only). Install the .so or set BOST_TETRA_CODEC_LIB=/path/to/libtetra-codec.so"
+            "WARN: libtetra-codec not found — LST voice encode/decode disabled (signalling only). Install the .so / `pkg-config --exists tetra-codec`, or set BOST_OTA_FORCE_ASTERISK=1 / BOST_TETRA_CODEC_LIB=/path/to/libtetra-codec.so then re-run OTA"
         );
     }
     let build = cargo_build_command(&cargo, &src_dir, &update, with_codec);

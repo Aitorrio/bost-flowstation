@@ -5475,6 +5475,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <button class="btn btn-sm" onclick="lstSendSds()" data-i18n="lst_send_sds">Send</button></div>
             </div>
             <p class="help-text" id="lst-codec-hint" style="display:none" data-i18n="lst_no_codec">Voice codec not available in this build — signalling only.</p>
+            <p class="help-text" id="lst-audio-hint" style="display:none"></p>
           </div>
         </div>
         <div class="card">
@@ -6395,7 +6396,11 @@ const LANGS={
     lst_busy:'Dispatch in use by',lst_console:'Dispatch console',lst_claim:'Take dispatch',lst_release:'Close dispatch',
     lst_operator_issi:'Dispatcher ISSI',lst_apply_issi:'Apply',lst_gssi:'Talkgroup GSSI',lst_join:'Join',lst_leave:'Leave',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Send',lst_roster:'Radios online',lst_col_groups:'Groups',lst_col_pos:'Position',
-    lst_no_codec:'Voice codec not available in this build — signalling only.',
+    lst_no_codec:'Voice codec not available in this build — signalling only. Install libtetra-codec (pkg-config tetra-codec), set BOST_OTA_FORCE_ASTERISK=1 if needed, then re-run OTA.',
+    lst_audio_insecure:'Browser blocks the microphone on http://IP (not a secure context). In Edge/Chrome open flags → “Insecure origins treated as secure” and add this exact URL (e.g. http://10.0.1.228:8080), then reload. Or put HTTPS in front of the dashboard.',
+    lst_audio_need_claim:'Press “Take dispatch” first — that gesture opens the mic/speakers prompt.',
+    lst_audio_mic_fail:'Could not open the microphone: ',
+    lst_audio_ok:'Mic/speakers ready.',
     lst_call_simplex:'Private simplex',lst_call_duplex:'Private duplex',lst_hangup:'Hang up',lst_pos_none:'—',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
     cfg_sheet_busy:'Close the open profile sheet first.',
@@ -6761,7 +6766,11 @@ const LANGS={
     lst_busy:'Despacho en uso por',lst_console:'Consola de despacho',lst_claim:'Tomar despacho',lst_release:'Cerrar despacho',
     lst_operator_issi:'ISSI despachador',lst_apply_issi:'Aplicar',lst_gssi:'GSSI / TG',lst_join:'Unirse',lst_leave:'Salir',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Enviar',lst_roster:'Radios online',lst_col_groups:'Grupos',lst_col_pos:'Ubicación',
-    lst_no_codec:'Codec de voz no disponible en este build — solo señalización.',
+    lst_no_codec:'Codec de voz no disponible en este build — solo señalización. Instala libtetra-codec (pkg-config tetra-codec), o BOST_OTA_FORCE_ASTERISK=1 si hace falta, y vuelve a hacer OTA.',
+    lst_audio_insecure:'El navegador bloquea el micrófono en http://IP (no es contexto seguro). En Edge/Chrome: flags → “Insecure origins treated as secure” y añade esta URL exacta (p. ej. http://10.0.1.228:8080), luego recarga. O pon HTTPS delante del panel.',
+    lst_audio_need_claim:'Pulsa primero “Tomar despacho”: ese gesto abre el permiso de micro/altavoz.',
+    lst_audio_mic_fail:'No se pudo abrir el micrófono: ',
+    lst_audio_ok:'Micro/altavoz listos.',
     lst_call_simplex:'Privada simplex',lst_call_duplex:'Privada dúplex',lst_hangup:'Colgar',lst_pos_none:'—',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
     cfg_sheet_busy:'Cierra primero la hoja de perfil abierta.',
@@ -7370,15 +7379,24 @@ async function wifiRefresh(){
 
 /* ── LST Dispatch console ───────────────────────────────────────────── */
 let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
-let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null;
+let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
+function lstSetAudioHint(msg,show){
+  const el=document.getElementById('lst-audio-hint');
+  if(!el)return;
+  if(!show||!msg){el.style.display='none';el.textContent='';return;}
+  el.style.display='';
+  el.textContent=msg;
+}
 async function lstPageEnter(){
   lstBindPtt();
   await lstRefreshStatus();
   lstRenderRoster();
+  if(!lstToken)lstSetAudioHint(t('lst_audio_need_claim'),true);
 }
 async function lstRefreshStatus(){
   try{
     const r=await fetch('/api/lst/status',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok){lstSetAudioHint('BS sin respuesta ('+r.status+')',true);return;}
     const j=await r.json();
     const inactive=document.getElementById('lst-inactive-banner');
     const busy=document.getElementById('lst-busy-banner');
@@ -7411,6 +7429,8 @@ async function lstRefreshStatus(){
       if(relBtn)relBtn.style.display=iOwn?'':'none';
       lstSetOwned(iOwn);
     }
+    if(!iOwn)lstSetAudioHint(t('lst_audio_need_claim'),true);
+    else if(lstAudioReady)lstSetAudioHint(t('lst_audio_ok'),true);
     const st=document.getElementById('lst-call-state');
     if(st){
       const kind=j.call_kind||'—';
@@ -7424,7 +7444,7 @@ async function lstRefreshStatus(){
       lstPositions={};
       (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
     }catch(_){}
-  }catch(e){console.warn('lst status',e);}
+  }catch(e){console.warn('lst status',e);lstSetAudioHint('Sin conexión con BS',true);}
 }
 function lstSetOwned(on){
   const ids=['lst-op-issi','lst-gssi','lst-ptt-btn','lst-sds-text'];
@@ -7438,7 +7458,7 @@ async function lstClaim(){
   if(lstHbTimer)clearInterval(lstHbTimer);
   lstHbTimer=setInterval(()=>{if(lstToken)wsSend({type:'lst_heartbeat',token:lstToken});},8000);
   if(lstStatusTimer)clearInterval(lstStatusTimer);
-  lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},2000);
+  lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},5000);
   await lstStartAudio();
   await lstRefreshStatus();
 }
@@ -7511,10 +7531,20 @@ function lstResampleTo8k(input,nativeRate){
   return pcm;
 }
 async function lstStartAudio(){
+  lstAudioReady=false;
   try{
+    if(!window.isSecureContext){
+      lstSetAudioHint(t('lst_audio_insecure'),true);
+      // Still open AudioContext for possible playout if policy allows later; mic will fail.
+    }
     // Do not force sampleRate:8000 — browsers often ignore it; we resample ourselves.
     lstAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(lstAudioCtx.state==='suspended'){try{await lstAudioCtx.resume();}catch(_){}}
     lstNextPlay=0;
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      lstSetAudioHint(t('lst_audio_mic_fail')+'MediaDevices API missing',true);
+      return;
+    }
     lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
     const src=lstAudioCtx.createMediaStreamSource(lstMicStream);
     // ~64–128 ms @ 48 kHz → resampled ~10–21 ms @ 8 kHz chunks
@@ -7538,18 +7568,26 @@ async function lstStartAudio(){
     proc.connect(mute);
     mute.connect(lstAudioCtx.destination);
     if(lstDlTimer)clearInterval(lstDlTimer);
-    lstDlTimer=setInterval(lstPollDl,50);
-  }catch(e){console.warn('lst audio',e);}
+    // 120 ms + in-flight guard — avoid spawning a thread storm on the Pi.
+    lstDlTimer=setInterval(lstPollDl,120);
+    lstAudioReady=true;
+    lstSetAudioHint(t('lst_audio_ok'),true);
+  }catch(e){
+    console.warn('lst audio',e);
+    const insecure=!window.isSecureContext;
+    lstSetAudioHint((insecure?t('lst_audio_insecure')+' — ':'')+t('lst_audio_mic_fail')+(e&&e.message?e.message:String(e)),true);
+  }
 }
 function lstStopAudio(){
-  lstPttDown=false;lstDuplexLive=false;lstNextPlay=0;
+  lstPttDown=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
   if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
   if(lstUlProc){try{lstUlProc.disconnect();}catch(_){}lstUlProc=null;}
   if(lstMicStream){lstMicStream.getTracks().forEach(t=>t.stop());lstMicStream=null;}
   if(lstAudioCtx){try{lstAudioCtx.close();}catch(_){}lstAudioCtx=null;}
 }
 async function lstPollDl(){
-  if(!lstToken||!lstAudioCtx)return;
+  if(!lstToken||!lstAudioCtx||lstDlBusy)return;
+  lstDlBusy=true;
   try{
     const r=await fetch('/api/lst/dl?token='+encodeURIComponent(lstToken),{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)return;
@@ -7587,6 +7625,7 @@ async function lstPollDl(){
     src.start(lstNextPlay);
     lstNextPlay+=playBuf.duration;
   }catch(_){}
+  finally{lstDlBusy=false;}
 }
 function lstRenderRoster(){
   const tb=document.getElementById('lst-roster-body');
