@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.2.6
+
+- Fix LST PTT borrow-checker errors so `tetra-entities` compiles on OTA.
+
 ## v0.2.5
 
 - Fix OTA build: import `CfgLstDispatch` / `apply_lst_dispatch_patch` in tetra-config.

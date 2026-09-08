@@ -171,17 +171,20 @@ impl LstDispatchEntity {
     }
 
     fn set_ptt(&mut self, queue: &mut MessageQueue, down: bool) {
-        if let Some(ref mut g) = self.group {
+        if let Some(g) = self.group.as_mut() {
             g.ptt = down;
             g.last_activity = Instant::now();
+        }
+        let group_snap = self.group.as_ref().map(|g| (g.uuid, g.gssi));
+        if let Some((uuid, gssi)) = group_snap {
+            let operator_issi = self.operator_issi;
             if down {
-                // Re-assert floor / keep network call alive as speaker.
                 self.push_cc(
                     queue,
                     CallControl::NetworkCallStart {
-                        brew_uuid: g.uuid,
-                        source_issi: self.operator_issi,
-                        dest_gssi: g.gssi,
+                        brew_uuid: uuid,
+                        source_issi: operator_issi,
+                        dest_gssi: gssi,
                         priority: 0,
                     },
                 );
@@ -191,13 +194,17 @@ impl LstDispatchEntity {
             self.handle.set_status(|s| s.ptt = down);
             return;
         }
-        if let Some(ref mut p) = self.private {
+
+        if let Some(p) = self.private.as_mut() {
             p.ptt = down;
+        }
+        let private_uuid = self.private.as_ref().map(|p| p.uuid);
+        if let Some(uuid) = private_uuid {
             if down {
                 self.push_cc(
                     queue,
                     CallControl::NetworkCircuitSimplexGranted {
-                        brew_uuid: p.uuid,
+                        brew_uuid: uuid,
                         grant: 0,
                         permission: 0,
                     },
@@ -206,7 +213,7 @@ impl LstDispatchEntity {
                 self.push_cc(
                     queue,
                     CallControl::NetworkCircuitSimplexIdle {
-                        brew_uuid: p.uuid,
+                        brew_uuid: uuid,
                         grant: 0,
                         permission: 0,
                     },
@@ -218,6 +225,7 @@ impl LstDispatchEntity {
             self.handle.set_status(|s| s.ptt = down);
             return;
         }
+
         self.handle
             .set_status(|s| s.last_error = Some("no active call for PTT".into()));
     }
