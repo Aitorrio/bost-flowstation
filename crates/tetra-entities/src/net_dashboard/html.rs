@@ -5475,7 +5475,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <button class="btn btn-sm" onclick="lstSendSds()" data-i18n="lst_send_sds">Send</button></div>
             </div>
             <p class="help-text" id="lst-codec-hint" style="display:none" data-i18n="lst_no_codec">Voice codec not available in this build — signalling only.</p>
+            <button type="button" class="btn btn-sm" id="lst-install-voice-btn" style="display:none;margin-top:8px" onclick="lstInstallVoice()" data-i18n="lst_install_voice">Install voice codec (OTA)</button>
             <p class="help-text" id="lst-audio-hint" style="display:none"></p>
+            <button type="button" class="btn btn-primary" id="lst-https-btn" style="display:none;margin-top:8px" onclick="lstOpenHttps()" data-i18n="lst_open_https">Open secure console (HTTPS) for microphone</button>
           </div>
         </div>
         <div class="card">
@@ -6396,8 +6398,11 @@ const LANGS={
     lst_busy:'Dispatch in use by',lst_console:'Dispatch console',lst_claim:'Take dispatch',lst_release:'Close dispatch',
     lst_operator_issi:'Dispatcher ISSI',lst_apply_issi:'Apply',lst_gssi:'Talkgroup GSSI',lst_join:'Join',lst_leave:'Leave',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Send',lst_roster:'Radios online',lst_col_groups:'Groups',lst_col_pos:'Position',
-    lst_no_codec:'Voice codec not available in this build — signalling only. Install libtetra-codec (pkg-config tetra-codec), set BOST_OTA_FORCE_ASTERISK=1 if needed, then re-run OTA.',
-    lst_audio_insecure:'Browser blocks the microphone on http://IP (not a secure context). In Edge/Chrome open flags → “Insecure origins treated as secure” and add this exact URL (e.g. http://10.0.1.228:8080), then reload. Or put HTTPS in front of the dashboard.',
+    lst_no_codec:'Voice codec not available in this build — signalling only. Use “Install voice codec (OTA)” below (no SSH).',
+    lst_install_voice:'Install voice codec (OTA)',
+    lst_open_https:'Open secure console (HTTPS) for microphone',
+    lst_https_need:'Microphone needs HTTPS. Click the button to open https://this-host:8443 (accept the certificate warning once).',
+    lst_audio_insecure:'Browser blocks the microphone on http://IP. Open the secure console (HTTPS :8443) — accept the certificate once.',
     lst_audio_need_claim:'Press “Take dispatch” first — that gesture opens the mic/speakers prompt.',
     lst_audio_mic_fail:'Could not open the microphone: ',
     lst_audio_ok:'Mic/speakers ready.',
@@ -6766,8 +6771,11 @@ const LANGS={
     lst_busy:'Despacho en uso por',lst_console:'Consola de despacho',lst_claim:'Tomar despacho',lst_release:'Cerrar despacho',
     lst_operator_issi:'ISSI despachador',lst_apply_issi:'Aplicar',lst_gssi:'GSSI / TG',lst_join:'Unirse',lst_leave:'Salir',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Enviar',lst_roster:'Radios online',lst_col_groups:'Grupos',lst_col_pos:'Ubicación',
-    lst_no_codec:'Codec de voz no disponible en este build — solo señalización. Instala libtetra-codec (pkg-config tetra-codec), o BOST_OTA_FORCE_ASTERISK=1 si hace falta, y vuelve a hacer OTA.',
-    lst_audio_insecure:'El navegador bloquea el micrófono en http://IP (no es contexto seguro). En Edge/Chrome: flags → “Insecure origins treated as secure” y añade esta URL exacta (p. ej. http://10.0.1.228:8080), luego recarga. O pon HTTPS delante del panel.',
+    lst_no_codec:'Codec de voz no disponible en este build — solo señalización. Usa “Instalar codec de voz (OTA)” abajo (sin SSH).',
+    lst_install_voice:'Instalar codec de voz (OTA)',
+    lst_open_https:'Abrir consola segura (HTTPS) para el micrófono',
+    lst_https_need:'El micrófono necesita HTTPS. Pulsa el botón para abrir https://este-equipo:8443 (acepta el aviso del certificado una vez).',
+    lst_audio_insecure:'El navegador bloquea el micrófono en http://IP. Abre la consola segura (HTTPS :8443) y acepta el certificado una vez.',
     lst_audio_need_claim:'Pulsa primero “Tomar despacho”: ese gesto abre el permiso de micro/altavoz.',
     lst_audio_mic_fail:'No se pudo abrir el micrófono: ',
     lst_audio_ok:'Micro/altavoz listos.',
@@ -7392,6 +7400,25 @@ async function lstPageEnter(){
   await lstRefreshStatus();
   lstRenderRoster();
   if(!lstToken)lstSetAudioHint(t('lst_audio_need_claim'),true);
+  if(!window.isSecureContext){
+    const httpsBtn=document.getElementById('lst-https-btn');
+    if(httpsBtn)httpsBtn.style.display='inline-block';
+    lstSetAudioHint(t('lst_https_need'),true);
+  }
+}
+async function lstInstallVoice(){
+  // Opens the OTA modal — server marks voice rebuild as an available update.
+  if(typeof startUpdate==='function')await startUpdate({fromBanner:true});
+  else await dashAlert(t('notice'),t('lst_install_voice'));
+}
+async function lstOpenHttps(){
+  let port=8443;
+  try{
+    const r=await fetch('/api/dashboard/tls',{credentials:'same-origin',cache:'no-store'});
+    if(r.ok){const j=await r.json();if(j&&j.https_port)port=j.https_port;}
+  }catch(_){}
+  const url='https://'+location.hostname+':'+port+location.pathname+location.search+location.hash;
+  location.assign(url);
 }
 async function lstRefreshStatus(){
   try{
@@ -7413,6 +7440,14 @@ async function lstRefreshStatus(){
     if(op&&!op.dataset.touched)op.value=j.operator_issi||'';
     const codecHint=document.getElementById('lst-codec-hint');
     if(codecHint)codecHint.style.display=j.codec_available?'none':'';
+    const installBtn=document.getElementById('lst-install-voice-btn');
+    if(installBtn)installBtn.style.display=j.codec_available?'none':'inline-block';
+    const httpsBtn=document.getElementById('lst-https-btn');
+    if(httpsBtn){
+      const needHttps=!window.isSecureContext;
+      httpsBtn.style.display=needHttps?'inline-block':'none';
+      if(needHttps&&!lstAudioReady)lstSetAudioHint(t('lst_https_need'),true);
+    }
     lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
     if(!j.ptt)lstPttDown=false;
     const iOwn=!!lstToken;
@@ -11634,6 +11669,9 @@ async function checkOtaInModal(){
         latest:d.latest||(d.branch||'—'),
       }),true);
       return;
+    }
+    if(d.voice_rebuild_needed){
+      setOtaChannelHint(t('lst_install_voice'),false);
     }
     otaPendingCheck=d;
     paintOtaReview(d);

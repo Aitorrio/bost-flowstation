@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Instant;
 
@@ -10,6 +10,10 @@ use tungstenite::{
 };
 
 use crate::net_control::commands::ControlCommand;
+use crate::net_dashboard::conn_stream::{
+    ensure_dashboard_tls, tls_dir_for_config, tls_status, ConnStream, PrefixedConn,
+    DASHBOARD_HTTPS_PORT,
+};
 use crate::net_dashboard::html::DASHBOARD_HTML;
 use crate::net_dashboard::state::{CallEntry, DashboardState, DashboardStateInner, MsEntry, MsGroupState};
 use crate::net_telemetry::TelemetryEvent;
@@ -1469,12 +1473,17 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // Always try to install tetra-codec first — even when git HEAD already matches the binary,
     // an existing install may still be signalling-only (no ACELP link). Without this, a second
     // OTA would say "Already up to date" and never enable LST voice.
-    let codec_ok = ensure_tetra_codec_installed(&src_dir, &update);
     let binary_has_codec = cfg!(feature = "asterisk");
     let skip_codec = std::env::var("BOST_SKIP_TETRA_CODEC")
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
-    let need_voice_rebuild = codec_ok && !binary_has_codec && !skip_codec;
+    // Always attempt install when this binary lacks ACELP — even if git already matches.
+    let codec_ok = if !binary_has_codec && !skip_codec {
+        ensure_tetra_codec_installed(&src_dir, &update)
+    } else {
+        tetra_codec_lib_present() || binary_has_codec
+    };
+    let need_voice_rebuild = !binary_has_codec && !skip_codec && codec_ok;
 
     let repo_head = remote_commit.as_str();
     let binary_current = binary_built_from(tetra_core::GIT_HASH, repo_head);
@@ -1482,6 +1491,12 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         || (matches!(binary_current, None) && !tree_moved);
 
     if sources_match_binary && !need_voice_rebuild {
+        if !binary_has_codec && !skip_codec {
+            log!(
+                update,
+                "WARN: libtetra-codec still missing after install attempt — LST voice unavailable. Retry OTA when the Pi has network access to github.com/outerplane/tetra-codec."
+            );
+        }
         log!(
             update,
             "Already up to date — running {} matches {}@{}{}.",
@@ -1712,6 +1727,25 @@ impl DashboardServer {
         let radioid = self.radioid.clone();
         let lst_handle = self.lst_handle.clone();
 
+        // Always try to materialise self-signed certs before spawning listeners.
+        let tls_dir = tls_dir_for_config(&config_path);
+        let tls_cfg = ensure_dashboard_tls(&tls_dir).map(|(cfg, _fp)| cfg);
+
+        // Shared handles cloned for the optional HTTPS sidecar (HTTP thread moves its copies).
+        let https_state = Arc::clone(&state);
+        let https_clients = Arc::clone(&clients);
+        let https_config_path = config_path.clone();
+        let https_cmd_tx = Arc::clone(&cmd_tx);
+        let https_update_state = Arc::clone(&update_state);
+        let https_source_dir_override = source_dir_override.clone();
+        let https_auth: SharedAuth = Arc::clone(&auth);
+        let https_public_overview = public_overview;
+        let https_shared_config = shared_config.clone();
+        let https_sessions = Arc::clone(&sessions);
+        let https_login_throttle = Arc::clone(&login_throttle);
+        let https_radioid = radioid.clone();
+        let https_lst_handle = lst_handle.clone();
+
         std::thread::Builder::new()
             .name("dashboard-server".into())
             .spawn(move || {
@@ -1759,7 +1793,7 @@ impl DashboardServer {
                         .name("dashboard-conn".into())
                         .spawn(move || {
                             handle_connection(
-                                stream,
+                                ConnStream::plain(stream),
                                 state,
                                 clients,
                                 config_path,
@@ -1779,6 +1813,97 @@ impl DashboardServer {
                 }
             })
             .expect("failed to spawn dashboard thread");
+
+        // HTTPS sidecar on a fixed port — same handle_connection path after rustls handshake.
+        if let Some(tls_config) = tls_cfg {
+            let https_addr = format!("{}:{}", bind, DASHBOARD_HTTPS_PORT);
+            let state = https_state;
+            let clients = https_clients;
+            let config_path = https_config_path;
+            let cmd_tx = https_cmd_tx;
+            let update_state = https_update_state;
+            let source_dir_override = https_source_dir_override;
+            let auth = https_auth;
+            let public_overview = https_public_overview;
+            let shared_config = https_shared_config;
+            let sessions = https_sessions;
+            let login_throttle = https_login_throttle;
+            let radioid = https_radioid;
+            let lst_handle = https_lst_handle;
+
+            std::thread::Builder::new()
+                .name("dashboard-https".into())
+                .spawn(move || {
+                    let listener = loop {
+                        match TcpListener::bind(&https_addr) {
+                            Ok(l) => {
+                                tracing::info!(
+                                    "Dashboard HTTPS listening on https://{} (self-signed; accept the browser warning)",
+                                    https_addr
+                                );
+                                break l;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Dashboard HTTPS failed to bind {}: {} — retrying in 5s",
+                                    https_addr,
+                                    e
+                                );
+                                std::thread::sleep(std::time::Duration::from_secs(5));
+                            }
+                        }
+                    };
+                    for stream in listener.incoming() {
+                        let Ok(tcp) = stream else { continue };
+                        let peer = tcp
+                            .peer_addr()
+                            .map(|a| a.to_string())
+                            .unwrap_or_else(|_| "unknown".into());
+                        let tls_config = Arc::clone(&tls_config);
+                        let state = Arc::clone(&state);
+                        let clients = Arc::clone(&clients);
+                        let config_path = config_path.clone();
+                        let cmd_tx = Arc::clone(&cmd_tx);
+                        let update_state = Arc::clone(&update_state);
+                        let source_dir_override = source_dir_override.clone();
+                        let auth = Arc::clone(&auth);
+                        let shared_config = shared_config.clone();
+                        let sessions = Arc::clone(&sessions);
+                        let login_throttle = Arc::clone(&login_throttle);
+                        let radioid = radioid.clone();
+                        let lst_handle = lst_handle.clone();
+                        std::thread::Builder::new()
+                            .name("dashboard-https-conn".into())
+                            .spawn(move || {
+                                let conn = match ConnStream::from_tls_handshake(tcp, tls_config) {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        tracing::debug!("[{}] TLS session init failed: {}", peer, e);
+                                        return;
+                                    }
+                                };
+                                handle_connection(
+                                    conn,
+                                    state,
+                                    clients,
+                                    config_path,
+                                    cmd_tx,
+                                    update_state,
+                                    source_dir_override,
+                                    auth,
+                                    shared_config,
+                                    sessions,
+                                    login_throttle,
+                                    radioid,
+                                    public_overview,
+                                    lst_handle,
+                                )
+                            })
+                            .ok();
+                    }
+                })
+                .expect("failed to spawn dashboard HTTPS thread");
+        }
     }
 
     pub fn handle_telemetry(&self, event: TelemetryEvent) {
@@ -2431,7 +2556,7 @@ fn timing_safe_eq(supplied: &[u8], expected: &[u8]) -> bool {
 /// Send an HTTP 401 Unauthorized response that triggers the browser's native
 /// Basic Auth dialog. Unused since the switch to cookie sessions.
 #[allow(dead_code)]
-fn http_response_401(mut stream: TcpStream) {
+fn http_response_401(mut stream: PrefixedConn) {
     let body = "Unauthorized";
     let resp = format!(
         "HTTP/1.1 401 Unauthorized\r\n\
@@ -2457,7 +2582,7 @@ fn send_control_cmd(cmd_tx: &Arc<Mutex<Option<CmdSender>>>, cmd: ControlCommand)
 }
 
 /// GET /api/sds-log — the persisted SDS Log as a JSON array, newest entry first.
-fn serve_sds_log(stream: TcpStream, state: &DashboardState) {
+fn serve_sds_log(stream: PrefixedConn, state: &DashboardState) {
     let body = {
         let s = state.read().unwrap();
         let list: Vec<_> = s.sds_log.iter().rev().cloned().collect();
@@ -2467,7 +2592,7 @@ fn serve_sds_log(stream: TcpStream, state: &DashboardState) {
 }
 
 /// GET /api/dgna-log — the persisted DGNA activity log as a JSON array, newest entry first.
-fn serve_dgna_log(stream: TcpStream, state: &DashboardState) {
+fn serve_dgna_log(stream: PrefixedConn, state: &DashboardState) {
     let body = {
         let s = state.read().unwrap();
         let list: Vec<_> = s.dgna_log.iter().rev().cloned().collect();
@@ -2477,7 +2602,7 @@ fn serve_dgna_log(stream: TcpStream, state: &DashboardState) {
 }
 
 /// Serialize the current live SDS queue to JSON and serve it.
-fn serve_live_sds_list(mut stream: TcpStream, cfg: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_live_sds_list(mut stream: PrefixedConn, cfg: &Option<tetra_config::bluestation::SharedConfig>) {
     let items: Vec<serde_json::Value> = cfg
         .as_ref()
         .map(|c| {
@@ -2508,7 +2633,7 @@ fn serve_live_sds_list(mut stream: TcpStream, cfg: &Option<tetra_config::bluesta
 }
 
 fn handle_connection(
-    mut stream: TcpStream,
+    mut stream: ConnStream,
     state: DashboardState,
     clients: WsClients,
     config_path: String,
@@ -2524,30 +2649,37 @@ fn handle_connection(
     lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
 ) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
-    // Captured before the stream is wrapped in a BufReader — the login throttle keys on it.
+    // Captured before the stream is wrapped — the login throttle keys on it.
     let peer_ip = stream.peer_addr().ok().map(|a| a.ip());
 
-    // ── Read the first 4KB of headers into a buffer, peek first for routing ──
-    // We need to both route on the request line AND read the Authorization header,
-    // so we collect all headers before dispatching.
-    let mut header_buf = Vec::with_capacity(2048);
-    {
-        // peek for the request line (already works for routing)
-        let mut peek_buf = [0u8; 4096];
-        let n = match stream.peek(&mut peek_buf) {
-            Ok(n) => n,
-            Err(_) => return,
-        };
-        header_buf.extend_from_slice(&peek_buf[..n]);
-    }
-    let header_str = String::from_utf8_lossy(&header_buf);
+    // ── Read the first 4KB for routing (TLS has no TcpStream::peek) ──
+    // Bytes are re-queued via PrefixedConn so drain_http_headers / BufReader / WS
+    // handshake still see the full request from the start.
+    let mut peek_buf = [0u8; 4096];
+    let n = match stream.read(&mut peek_buf) {
+        Ok(0) | Err(_) => return,
+        Ok(n) => n,
+    };
+    let header_buf = peek_buf[..n].to_vec();
+    let header_str = String::from_utf8_lossy(&header_buf).into_owned();
     let req_line = header_str.lines().next().unwrap_or("").to_string();
+    let mut stream = PrefixedConn::with_prefix(header_buf, stream);
 
     // Snom/desk-phone ActionURL endpoint. It has its own token and must work without the
     // dashboard cookie session, so handle it before the normal dashboard auth gate.
     if is_tpg2200_action_request(&req_line) {
         drain_http_headers(&mut stream);
         serve_tpg2200_action_url(stream, &req_line, &shared_config, &cmd_tx, &state);
+        return;
+    }
+
+    // Public TLS status (no auth) so the UI can advertise https://IP:8443.
+    if req_line.starts_with("GET /api/dashboard/tls ")
+        || req_line.starts_with("GET /api/dashboard/tls?")
+        || req_line.starts_with("GET /api/dashboard/tls HTTP")
+    {
+        drain_http_headers(&mut stream);
+        serve_dashboard_tls_status(stream);
         return;
     }
 
@@ -3913,7 +4045,7 @@ fn handle_connection(
 }
 
 fn handle_ws(
-    stream: TcpStream,
+    stream: PrefixedConn,
     state: DashboardState,
     clients: WsClients,
     cmd_tx: Arc<Mutex<Option<CmdSender>>>,
@@ -4396,7 +4528,7 @@ fn handle_ws_command(
     }
 }
 
-fn serve_update_status(mut stream: TcpStream, update_state: &SharedUpdateState) {
+fn serve_update_status(mut stream: PrefixedConn, update_state: &SharedUpdateState) {
     let (phase_str, success, log) = {
         let u = update_state.lock().unwrap();
         let phase_str = match &u.phase {
@@ -4427,7 +4559,7 @@ fn serve_update_status(mut stream: TcpStream, update_state: &SharedUpdateState) 
 /// derived from the call-sign prefix, or empty if unknown) and `{ "<id>": "" }` for IDs confirmed
 /// absent from RadioID. IDs still being fetched in the background are OMITTED, so the client retries
 /// them on a later poll. Lookups are non-blocking — unknown IDs are queued for background resolution.
-fn serve_callsigns(stream: TcpStream, radioid: &crate::net_dashboard::radioid::RadioIdCache, req_line: &str) {
+fn serve_callsigns(stream: PrefixedConn, radioid: &crate::net_dashboard::radioid::RadioIdCache, req_line: &str) {
     use crate::net_dashboard::radioid::Lookup;
     // Parse the `ids=` query parameter from "GET /api/callsigns?ids=1,2,3 HTTP/1.1".
     let ids: Vec<u32> = req_line
@@ -4470,7 +4602,7 @@ fn serve_callsigns(stream: TcpStream, radioid: &crate::net_dashboard::radioid::R
 ///
 /// Query: `?refresh=1` bypasses success cache; `?notes=1` also fetches changelog text
 /// (OTA modal). Boot/badge should omit notes to keep the Pi responsive.
-fn serve_update_check(mut stream: TcpStream, config_path: &str, refresh: bool, with_notes: bool) {
+fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool, with_notes: bool) {
     let channel = crate::net_dashboard::ota_channel::read_ota_channel(config_path);
     const CACHE_OK_SECS: u64 = 90;
     // Cache key includes notes so a light boot result does not starve the modal of changelog.
@@ -4591,6 +4723,11 @@ fn serve_update_check(mut stream: TcpStream, config_path: &str, refresh: bool, w
         };
         json
     };
+
+    // Even when git HEAD matches, keep "update available" if this binary has no ACELP link —
+    // so the GUI can install libtetra-codec without SSH.
+    let body = enrich_update_check_for_voice(body);
+
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
@@ -4599,12 +4736,44 @@ fn serve_update_check(mut stream: TcpStream, config_path: &str, refresh: bool, w
     let _ = stream.write_all(body.as_bytes());
 }
 
+fn enrich_update_check_for_voice(body: String) -> String {
+    let skip = std::env::var("BOST_SKIP_TETRA_CODEC")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let voice_needed = cfg!(not(feature = "asterisk")) && !skip;
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return body;
+    };
+    v["voice_codec_linked"] = serde_json::json!(cfg!(feature = "asterisk"));
+    v["voice_rebuild_needed"] = serde_json::json!(voice_needed);
+    if voice_needed {
+        v["update_available"] = serde_json::json!(true);
+        let notes = v
+            .get("release_notes")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if notes.is_empty() {
+            v["release_notes"] = serde_json::json!(
+                "- Install TETRA voice codec (libtetra-codec) and rebuild for LST Dispatch audio.\n- Confirm this update — no SSH required.\n- After restart, open https://IP:8443 so the browser allows the microphone."
+            );
+            v["notes_source"] = serde_json::json!("changelog");
+        }
+        if v.get("latest").and_then(|x| x.as_str()).is_none() {
+            v["latest"] =
+                serde_json::json!(format!("{}+voice", tetra_core::STACK_VERSION));
+        }
+    }
+    v.to_string()
+}
+
 /// GET /api/whitelist — return the effective whitelist as JSON:
 /// `{"issi_whitelist":[...], "source":"override"|"config", "enabled":bool}`.
 /// `enabled` is false when the list is empty (open network).
 /// GET /api/btsinfo — static cell + RF identity pulled from the running config, for the
 /// "TETRA BTS Details" card on the dashboard. Read-only; non-sensitive scalars only.
-fn serve_bts_info(mut stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_bts_info(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let body = match shared_config {
         Some(cfg) => {
             // Whitelist status (runtime override beats config) — mirrors serve_whitelist_get.
@@ -4665,7 +4834,7 @@ fn serve_bts_info(mut stream: TcpStream, shared_config: &Option<tetra_config::bl
 /// GET /api/dualcarrier — current Dual-Carrier ON/OFF state for the first-page toggle.
 /// Reads the switch + configured secondary carrier from the TOML (so the number is shown even while
 /// off), plus the running effective state and the main carrier.
-fn serve_dual_carrier_get(mut stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str) {
+fn serve_dual_carrier_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str) {
     let st = crate::net_dashboard::dual_carrier::read_dual_carrier(config_path);
     let main_carrier = shared_config.as_ref().map(|c| c.config().cell.main_carrier);
     // What the running stack is actually doing right now (may lag the file until the restart lands).
@@ -4697,7 +4866,7 @@ fn serve_dual_carrier_get(mut stream: TcpStream, shared_config: &Option<tetra_co
 /// never restart into something the BS would reject and loop on), writes the TOML, then schedules a
 /// controlled service restart to apply the new carrier set.
 fn serve_dual_carrier_post(
-    stream: TcpStream,
+    stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     config_path: &str,
     body: &str,
@@ -4781,7 +4950,7 @@ fn serve_dual_carrier_post(
     );
 }
 
-fn serve_whitelist_get(mut stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_whitelist_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let (list, source): (Vec<u32>, &str) = match shared_config {
         Some(cfg) => {
             let override_list = cfg.state_read().issi_whitelist_override.clone();
@@ -4858,7 +5027,7 @@ fn apply_issi_whitelist_live(
 ///
 /// Prefer `POST /api/profiles/cell/{name}/whitelist` so the list is bound to a Cell profile.
 fn serve_whitelist_post(
-    stream: TcpStream,
+    stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     config_path: &str,
     body: &str,
@@ -4893,7 +5062,7 @@ fn serve_whitelist_post(
 /// POST /api/profiles/cell/{name}/whitelist — persist ISSI list on the Cell profile.
 /// If that Cell is active, also apply live TOML + runtime override.
 fn serve_cell_whitelist_post(
-    stream: TcpStream,
+    stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     config_path: &str,
     cell_name: &str,
@@ -4954,7 +5123,7 @@ fn serve_cell_whitelist_post(
 // ---------------------------------------------------------------------------
 
 /// GET /api/dashboard-auth — `{auth_enabled, username}` (never the password).
-fn serve_dashboard_auth_get(stream: TcpStream, auth: &SharedAuth) {
+fn serve_dashboard_auth_get(stream: PrefixedConn, auth: &SharedAuth) {
     let creds = auth.read().unwrap_or_else(|e| e.into_inner()).clone();
     let body = match creds {
         Some((user, _)) => {
@@ -4975,7 +5144,7 @@ fn serve_dashboard_auth_get(stream: TcpStream, auth: &SharedAuth) {
 ///
 /// Persists via validate-before-write, hot-updates SharedAuth, invalidates sessions.
 fn serve_dashboard_auth_post(
-    stream: TcpStream,
+    stream: PrefixedConn,
     auth: &SharedAuth,
     sessions: &SharedSessionStore,
     config_path: &str,
@@ -5104,7 +5273,7 @@ fn serve_dashboard_auth_post(
 // ---------------------------------------------------------------------------
 
 /// GET /api/wx — return the effective WX service settings as JSON.
-fn serve_wx_get(mut stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_wx_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let wx = match shared_config {
         Some(cfg) => cfg.effective_wx_service(),
         None => tetra_config::bluestation::CfgWxService::default(),
@@ -5129,7 +5298,7 @@ fn serve_wx_get(mut stream: TcpStream, shared_config: &Option<tetra_config::blue
 
 /// POST /api/wx — update WX service settings. Body: JSON object with the same fields as
 /// GET. Applies immediately via the StackState override AND rewrites the TOML.
-fn serve_wx_post(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
+fn serve_wx_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use tetra_config::bluestation::WxRuntimeOverride;
 
     let json: serde_json::Value = match serde_json::from_str(body.trim()) {
@@ -5198,7 +5367,7 @@ fn serve_wx_post(stream: TcpStream, shared_config: &Option<tetra_config::bluesta
 }
 
 fn serve_sds_commands_get(
-    mut stream: TcpStream,
+    mut stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
 ) {
     use crate::net_dashboard::sds_commands;
@@ -5222,7 +5391,7 @@ fn serve_sds_commands_get(
 }
 
 fn serve_sds_commands_post(
-    stream: TcpStream,
+    stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     config_path: &str,
     body: &str,
@@ -5275,7 +5444,7 @@ fn serve_sds_commands_post(
 }
 
 /// Read an HTTP POST body off `stream`, returning the stream plus the body as a UTF-8 string.
-fn read_post_body(mut stream: TcpStream) -> (TcpStream, String) {
+fn read_post_body(mut stream: PrefixedConn) -> (PrefixedConn, String) {
     let body = read_http_body(&mut stream);
     let s = String::from_utf8_lossy(&body).into_owned();
     (stream, s)
@@ -5306,7 +5475,7 @@ fn telegram_token_acceptable(t: &str) -> bool {
 
 /// GET /api/telegram — return the effective Telegram settings as JSON. The token is masked and is
 /// never echoed in the clear; `token_set` tells the UI whether one is stored.
-fn serve_telegram_get(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_telegram_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let tg = match shared_config {
         Some(cfg) => cfg.effective_telegram(),
         None => tetra_config::bluestation::CfgTelegram::default(),
@@ -5332,7 +5501,7 @@ fn serve_telegram_get(stream: TcpStream, shared_config: &Option<tetra_config::bl
 
 /// POST /api/telegram — save Telegram settings. Applies immediately via the StackState override
 /// AND rewrites the TOML. The token is only changed when a fresh (non-masked) one is supplied.
-fn serve_telegram_post(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
+fn serve_telegram_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use tetra_config::bluestation::TelegramRuntimeOverride;
 
     let json: serde_json::Value = match serde_json::from_str(body.trim()) {
@@ -5392,7 +5561,7 @@ fn serve_telegram_post(stream: TcpStream, shared_config: &Option<tetra_config::b
 }
 
 /// POST /api/telegram/verify — validate the token via getMe and return the bot @username.
-fn serve_telegram_verify(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
+fn serve_telegram_verify(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let json: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
     let token = telegram_resolve_token(&json, shared_config);
     if token.is_empty() {
@@ -5416,7 +5585,7 @@ fn serve_telegram_verify(stream: TcpStream, shared_config: &Option<tetra_config:
 }
 
 /// POST /api/telegram/detect — return the chats that recently messaged the bot (getUpdates).
-fn serve_telegram_detect(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
+fn serve_telegram_detect(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let json: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
     let token = telegram_resolve_token(&json, shared_config);
     if token.is_empty() {
@@ -5449,7 +5618,7 @@ fn serve_telegram_detect(stream: TcpStream, shared_config: &Option<tetra_config:
 }
 
 /// POST /api/telegram/test — send a test alert to the configured (or body-supplied) chats.
-fn serve_telegram_test(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
+fn serve_telegram_test(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let json: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
     let Some(cfg) = shared_config else {
         http_json_response(stream, 200, "{\"ok\":false,\"error\":\"Config indisponibil\"}");
@@ -5490,7 +5659,7 @@ fn serve_telegram_test(stream: TcpStream, shared_config: &Option<tetra_config::b
     http_json_response(stream, 200, &body);
 }
 
-fn serve_system_info(mut stream: TcpStream, config_path: &str, probe_sdr: bool) {
+fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: bool) {
     let hostname = std::process::Command::new("hostname")
         .output()
         .ok()
@@ -5683,7 +5852,7 @@ fn serve_system_info(mut stream: TcpStream, config_path: &str, probe_sdr: bool) 
     let _ = stream.write_all(body.as_bytes());
 }
 
-fn serve_config_list(mut stream: TcpStream, config_path: &str) {
+fn serve_config_list(mut stream: PrefixedConn, config_path: &str) {
     let active_name = std::path::Path::new(config_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -5723,7 +5892,7 @@ fn serve_config_list(mut stream: TcpStream, config_path: &str) {
 }
 
 /// Read a specific config profile and serve its content as plain text.
-fn serve_config_profile_get(stream: TcpStream, config_path: &str, profile_name: &str) {
+fn serve_config_profile_get(stream: PrefixedConn, config_path: &str, profile_name: &str) {
     if profile_name.contains('/') || profile_name.contains('\\') || profile_name.contains("..") {
         return http_response(stream, 400, "invalid profile name");
     }
@@ -5787,7 +5956,7 @@ fn save_config_profile(config_path: &str, profile_name: &str, content: &str) -> 
 /// already-public scalars from the dashboard's own state — never SharedConfig/StackState, and never
 /// ISSIs/GSSIs, the whitelist, SDS contents or the log ring. The read lock is the dashboard's own
 /// RwLock (the same one the WS snapshot takes), held only long enough to copy a handful of counts.
-fn serve_public_snapshot(stream: TcpStream, state: &DashboardState) {
+fn serve_public_snapshot(stream: PrefixedConn, state: &DashboardState) {
     let body = match state.read() {
         Ok(s) => {
             let active_calls = s.calls.len();
@@ -5852,7 +6021,7 @@ fn activate_config_profile(config_path: &str, profile_name: &str) -> Result<(), 
     atomic_write(config_path, &profile_content).map_err(|e| format!("failed to copy profile: {}", e))
 }
 
-fn serve_html(mut stream: TcpStream) {
+fn serve_html(mut stream: PrefixedConn) {
     let body = dashboard_html_body().as_bytes();
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -5863,7 +6032,7 @@ fn serve_html(mut stream: TcpStream) {
 }
 
 /// Public brand favicon (antenna mark). PNG for Edge/Chrome tab compatibility; SVG optional.
-fn serve_favicon(mut stream: TcpStream, svg: bool) {
+fn serve_favicon(mut stream: PrefixedConn, svg: bool) {
     let (ctype, body): (&str, &[u8]) = if svg {
         ("image/svg+xml", crate::net_dashboard::html::FAVICON_SVG.as_bytes())
     } else {
@@ -6052,7 +6221,7 @@ fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, Str
     atomic_write(config_path, body).map_err(|e| (500, e.to_string()))
 }
 
-fn serve_config_get(mut stream: TcpStream, config_path: &str) {
+fn serve_config_get(mut stream: PrefixedConn, config_path: &str) {
     match std::fs::read_to_string(config_path) {
         Ok(content) => {
             let masked = mask_config_secrets(&content);
@@ -6121,7 +6290,7 @@ fn mask_toml_secret_line(line: &str, mask_for_key: fn(&str, &str) -> Option<Stri
     }
 }
 
-fn http_response(mut stream: TcpStream, code: u16, body: &str) {
+fn http_response(mut stream: PrefixedConn, code: u16, body: &str) {
     let status = if code == 200 { "OK" } else { "Error" };
     let resp = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -6135,7 +6304,7 @@ fn http_response(mut stream: TcpStream, code: u16, body: &str) {
 
 /// Like `http_response` but serves JSON. Used by the WiFi management endpoints
 /// which all return structured `{"ok": ..., ...}` payloads.
-fn http_json_response(mut stream: TcpStream, code: u16, body: &str) {
+fn http_json_response(mut stream: PrefixedConn, code: u16, body: &str) {
     let status = if code == 200 { "OK" } else { "Error" };
     let resp = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -6176,7 +6345,7 @@ fn profile_path_name(req_line: &str, method_prefix: &str) -> Option<String> {
     Some(url_decode(rest))
 }
 
-fn drain_http_headers(stream: &mut TcpStream) {
+fn drain_http_headers(stream: &mut PrefixedConn) {
     // We read byte-by-byte to find the \r\n\r\n delimiter. This is slower
     // than BufReader-line reads but doesn't consume bytes past the headers,
     // which matters for POST handlers that need to keep reading the body.
@@ -6197,7 +6366,7 @@ fn drain_http_headers(stream: &mut TcpStream) {
 /// Read an HTTP request body from the stream. Returns the body bytes.
 /// We read headers first to extract Content-Length, then read exactly that
 /// many bytes. Returns an empty vec if Content-Length is missing or 0.
-fn read_http_body(stream: &mut TcpStream) -> Vec<u8> {
+fn read_http_body(stream: &mut PrefixedConn) -> Vec<u8> {
     // Read headers line-by-line. We can't use BufReader here because we'd
     // lose buffered bytes when we drop it; instead read one byte at a time
     // until we hit the header/body separator, accumulating into a String we
@@ -6304,7 +6473,7 @@ fn url_decode(s: &str) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
-fn http_redirect(mut stream: TcpStream, location: &str) {
+fn http_redirect(mut stream: PrefixedConn, location: &str) {
     let resp = format!(
         "HTTP/1.1 302 Found\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         location
@@ -6312,39 +6481,59 @@ fn http_redirect(mut stream: TcpStream, location: &str) {
     let _ = stream.write_all(resp.as_bytes());
 }
 
-fn serve_login_success(mut stream: TcpStream, token: &str) {
+fn serve_login_success(mut stream: PrefixedConn, token: &str) {
     // Two cookies:
     //   fs_session: HttpOnly — the actual session token, inaccessible to JS.
     //   fs_auth: readable — a marker telling the dashboard JS "auth is on",
     //                       so it can decide to show the Logout button.
     // The marker carries no security value; the HttpOnly session is what's checked.
+    // On TLS, add Secure so browsers won't send the cookie over plain HTTP.
+    let secure = if stream.is_tls() { "; Secure" } else { "" };
     let body = "{\"ok\":true}";
     let resp = format!(
         "HTTP/1.1 200 OK\r\n\
          Content-Type: application/json\r\n\
          Content-Length: {}\r\n\
-         Set-Cookie: fs_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800\r\n\
-         Set-Cookie: fs_auth=1; Path=/; SameSite=Lax; Max-Age=604800\r\n\
+         Set-Cookie: fs_session={}; Path=/; HttpOnly; SameSite=Lax{}; Max-Age=604800\r\n\
+         Set-Cookie: fs_auth=1; Path=/; SameSite=Lax{}; Max-Age=604800\r\n\
          Connection: close\r\n\r\n{}",
         body.len(),
         token,
+        secure,
+        secure,
         body
     );
     let _ = stream.write_all(resp.as_bytes());
 }
 
-fn serve_logout(mut stream: TcpStream) {
+fn serve_logout(mut stream: PrefixedConn) {
     // Expire both cookies immediately; client navigates to /login next.
-    let resp = "HTTP/1.1 302 Found\r\n\
+    let secure = if stream.is_tls() { "; Secure" } else { "" };
+    let resp = format!(
+        "HTTP/1.1 302 Found\r\n\
                 Location: /login\r\n\
-                Set-Cookie: fs_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0\r\n\
-                Set-Cookie: fs_auth=; Path=/; SameSite=Lax; Max-Age=0\r\n\
+                Set-Cookie: fs_session=; Path=/; HttpOnly; SameSite=Lax{}; Max-Age=0\r\n\
+                Set-Cookie: fs_auth=; Path=/; SameSite=Lax{}; Max-Age=0\r\n\
                 Content-Length: 0\r\n\
-                Connection: close\r\n\r\n";
+                Connection: close\r\n\r\n",
+        secure, secure
+    );
     let _ = stream.write_all(resp.as_bytes());
 }
 
-fn serve_login_page(mut stream: TcpStream) {
+/// GET /api/dashboard/tls — HTTPS sidecar status for the UI (public, no auth).
+fn serve_dashboard_tls_status(stream: PrefixedConn) {
+    let st = tls_status();
+    let body = format!(
+        r#"{{"https_port":{},"enabled":{},"cert_fingerprint":"{}"}}"#,
+        st.https_port,
+        st.enabled,
+        st.cert_fingerprint.replace('"', ""),
+    );
+    http_json_response(stream, 200, &body);
+}
+
+fn serve_login_page(mut stream: PrefixedConn) {
     let body = login_html_body();
     let header = format!(
         "HTTP/1.1 200 OK\r\n\
@@ -6364,7 +6553,7 @@ fn serve_login_page(mut stream: TcpStream) {
 // ===========================================================================
 
 /// DELETE /api/sds-log — clear the persisted SDS Log.
-fn serve_sds_log_clear(stream: TcpStream, state: &DashboardState) {
+fn serve_sds_log_clear(stream: PrefixedConn, state: &DashboardState) {
     if let Ok(mut s) = state.write() {
         s.clear_sds_log();
     }
@@ -6372,7 +6561,7 @@ fn serve_sds_log_clear(stream: TcpStream, state: &DashboardState) {
 }
 
 /// DELETE /api/dgna-log — clear the persisted DGNA activity log.
-fn serve_dgna_log_clear(stream: TcpStream, state: &DashboardState) {
+fn serve_dgna_log_clear(stream: PrefixedConn, state: &DashboardState) {
     if let Ok(mut s) = state.write() {
         s.clear_dgna_log();
     }
@@ -6380,7 +6569,7 @@ fn serve_dgna_log_clear(stream: TcpStream, state: &DashboardState) {
 }
 
 /// GET /api/dapnet-log — the persisted DAPNET Log as a JSON array, newest entry first.
-fn serve_dapnet_log(stream: TcpStream, state: &DashboardState) {
+fn serve_dapnet_log(stream: PrefixedConn, state: &DashboardState) {
     let body = {
         match state.read() {
             Ok(s) => {
@@ -6394,7 +6583,7 @@ fn serve_dapnet_log(stream: TcpStream, state: &DashboardState) {
 }
 
 /// DELETE /api/dapnet-log — clear the persisted DAPNET Log.
-fn serve_dapnet_log_clear(stream: TcpStream, state: &DashboardState) {
+fn serve_dapnet_log_clear(stream: PrefixedConn, state: &DashboardState) {
     if let Ok(mut s) = state.write() {
         s.clear_dapnet_log();
     }
@@ -6449,7 +6638,7 @@ fn next_tpg2200_action_incident(cfg: &tetra_config::bluestation::SharedConfig, b
 /// Public-by-design ActionURL endpoint for phones that cannot hold the dashboard session cookie.
 /// The dedicated token is mandatory and configured in `[tpg2200_action]`.
 fn serve_tpg2200_action_url(
-    stream: TcpStream,
+    stream: PrefixedConn,
     req_line: &str,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     cmd_tx: &Arc<Mutex<Option<CmdSender>>>,
@@ -6549,7 +6738,7 @@ fn serve_tpg2200_action_url(
 }
 
 /// GET /api/asterisk/status — return Asterisk SIP/RTP config + runtime status.
-fn serve_asterisk_status(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_asterisk_status(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let body = match shared_config {
         Some(cfg) => {
             let c = cfg.config();
@@ -6606,7 +6795,7 @@ fn serve_asterisk_status(stream: TcpStream, shared_config: &Option<tetra_config:
 }
 
 /// GET /api/snom-notify — return effective Snom XML NOTIFY settings.
-fn serve_snom_notify_get(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_snom_notify_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let snom = shared_config.as_ref().map(|cfg| cfg.effective_snom_notify()).unwrap_or_default();
     let password = snom.ami_password.as_ref();
     let body = serde_json::json!({
@@ -6635,7 +6824,7 @@ fn serve_snom_notify_get(stream: TcpStream, shared_config: &Option<tetra_config:
 
 /// POST /api/snom-notify — update Snom XML NOTIFY settings live and persist to config.toml.
 fn serve_snom_notify_post(
-    stream: TcpStream,
+    stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     config_path: &str,
     body: &str,
@@ -6935,7 +7124,7 @@ fn dapnet_validate_route_conflicts(issi_routes: &BTreeMap<u32, u32>, gssi_routes
 
 /// GET /api/dapnet — return effective DAPNET settings as JSON. Secrets are masked and are never
 /// echoed in the clear.
-fn serve_dapnet_get(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_dapnet_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let (dapnet, runtime) = match shared_config {
         Some(cfg) => (cfg.effective_dapnet(), cfg.state_read().dapnet_status.clone()),
         None => (
@@ -7001,7 +7190,7 @@ fn serve_dapnet_get(stream: TcpStream, shared_config: &Option<tetra_config::blue
 /// POST /api/dapnet — update DAPNET settings. Applies immediately through StackState override
 /// and rewrites `[dapnet]` in config.toml. Secrets are changed only when a fresh, non-masked
 /// value is supplied.
-fn serve_dapnet_post(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
+fn serve_dapnet_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use tetra_config::bluestation::DapnetRuntimeOverride;
 
     let json: serde_json::Value = match serde_json::from_str(body.trim()) {
@@ -7131,7 +7320,7 @@ fn serve_dapnet_post(stream: TcpStream, shared_config: &Option<tetra_config::blu
 }
 
 /// GET /api/geoalarm — return effective GeoAlarm settings and runtime status as JSON.
-fn serve_geoalarm_get(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+fn serve_geoalarm_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let (geoalarm, runtime) = match shared_config {
         Some(cfg) => (cfg.effective_geoalarm(), cfg.state_read().geoalarm_status.clone()),
         None => (
@@ -7207,7 +7396,7 @@ fn serve_geoalarm_get(stream: TcpStream, shared_config: &Option<tetra_config::bl
 
 /// POST /api/geoalarm — update GeoAlarm settings. Applies immediately through StackState
 /// override and rewrites `[geoalarm]` in config.toml.
-fn serve_geoalarm_post(stream: TcpStream, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
+fn serve_geoalarm_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use tetra_config::bluestation::{CfgGeoalarmDto, GeoalarmRuntimeOverride, apply_geoalarm_patch};
 
     let json: serde_json::Value = match serde_json::from_str(body.trim()) {
@@ -7554,7 +7743,7 @@ fn push_dapnet_log_and_broadcast(
 
 /// POST /api/dapnet/send — send one outbound DAPNET message through the configured Hampager API.
 fn serve_dapnet_send(
-    stream: TcpStream,
+    stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     state: &DashboardState,
     clients: &WsClients,
