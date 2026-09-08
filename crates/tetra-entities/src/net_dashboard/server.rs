@@ -3944,9 +3944,14 @@ fn handle_ws_command(
 
             send_cmd(ControlCommand::SendSds {
                 handle: 0,
-                source_ssi: 9999,
+                source_ssi: v
+                    .get("source_issi")
+                    .and_then(|s| s.as_u64())
+                    .map(|n| n as u32)
+                    .filter(|&n| n >= 1 && n <= 16_777_214)
+                    .unwrap_or(9999),
                 dest_ssi: dest,
-                dest_is_group: false,
+                dest_is_group: v.get("dest_is_group").and_then(|d| d.as_bool()).unwrap_or(false),
                 len_bits,
                 payload,
             });

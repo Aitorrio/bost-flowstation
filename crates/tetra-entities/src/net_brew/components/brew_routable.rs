@@ -73,6 +73,24 @@ pub fn is_brew_inbound_allowed(config: &SharedConfig, ssi: u32) -> bool {
     is_active(config) && !config.config().cell.local_ssi_ranges.contains(ssi)
 }
 
+/// Admit network-originated group calls into CMCE when either Brew backhaul or LST Dispatch
+/// is the operator of the Brew entity slot.
+///
+/// - Brew active: same rules as [`is_brew_inbound_allowed`] (foreign GSSI only).
+/// - LST enabled without Brew: allow any GSSI (including local ranges) — LST is cell-local.
+/// - Neither: reject.
+#[inline]
+pub fn is_network_group_inbound_allowed(config: &SharedConfig, ssi: u32) -> bool {
+    if is_active(config) {
+        return is_brew_inbound_allowed(config, ssi);
+    }
+    config
+        .config()
+        .lst_dispatch
+        .as_ref()
+        .is_some_and(|l| l.enabled)
+}
+
 /// Determine whether Brew-originated external subscriber state may be mirrored into CMCE.
 ///
 /// Subscriber events for a local-only SSI are looped-back state, not external listeners.

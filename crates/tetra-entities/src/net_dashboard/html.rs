@@ -7412,7 +7412,8 @@ async function lstRefreshStatus(){
     if(st){
       const kind=j.call_kind||'—';
       const peer=j.call_peer!=null?j.call_peer:'';
-      st.textContent=kind+(peer?(' '+peer):'')+(j.ptt?' TX':'');
+      const err=j.last_error?(' · '+j.last_error):'';
+      st.textContent=kind+(peer?(' '+peer):'')+(j.ptt?' TX':'')+err;
     }
     try{
       const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
@@ -7464,9 +7465,11 @@ function lstPrivate(issi,duplex){
 }
 function lstSendSds(){
   const text=document.getElementById('lst-sds-text')?.value||'';
-  const dest=Number(document.getElementById('lst-gssi')?.value||0)||Number(document.getElementById('lst-op-issi')?.value||0);
-  if(!text||!dest)return;
-  wsSend({type:'sds',dest_issi:dest,message:text});
+  const gssi=Number(document.getElementById('lst-gssi')?.value||0);
+  const op=Number(document.getElementById('lst-op-issi')?.value||0);
+  const dest=gssi||op;
+  if(!text||!dest||!op)return;
+  wsSend({type:'sds',dest_issi:dest,source_issi:op,dest_is_group:!!gssi,message:text});
 }
 function lstBindPtt(){
   const btn=document.getElementById('lst-ptt-btn');
@@ -7487,13 +7490,12 @@ async function lstStartAudio(){
     const proc=lstAudioCtx.createScriptProcessor(1024,1,1);
     proc.onaudioprocess=ev=>{
       if(!lstToken)return;
-      const btn=document.getElementById('lst-ptt-btn');
-      if(!btn||!btn.classList.contains('is-tx'))return;
       const input=ev.inputBuffer.getChannelData(0);
       const pcm=new Int16Array(input.length);
       for(let i=0;i<input.length;i++){const s=Math.max(-1,Math.min(1,input[i]));pcm[i]=(s*32767)|0;}
       const bytes=new Uint8Array(pcm.buffer);
       let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);
+      // Entity drops frames unless PTT (group/simplex) or duplex private is active.
       wsSend({type:'lst_ul_pcm',token:lstToken,pcm:btoa(bin)});
     };
     src.connect(proc);proc.connect(lstAudioCtx.destination);
@@ -7545,7 +7547,10 @@ function lstRenderRoster(){
       if(btn.dataset.act==='sx')lstPrivate(issi,false);
       else if(btn.dataset.act==='dx')lstPrivate(issi,true);
       else if(btn.dataset.act==='sds'){
-        const msg=prompt('SDS → '+issi);if(msg)wsSend({type:'sds',dest_issi:issi,message:msg});
+        const msg=prompt('SDS → '+issi);if(msg){
+          const op=Number(document.getElementById('lst-op-issi')?.value||0)||9999;
+          wsSend({type:'sds',dest_issi:issi,source_issi:op,dest_is_group:false,message:msg});
+        }
       }
     };
   });
