@@ -17,13 +17,14 @@ use tetra_saps::{
     tmd::TmdCircuitDataReq,
 };
 
-use super::handle::{LstDispatchHandle, LstUiCommand};
+use super::handle::{LstDispatchHandle, LstUiCommand, epoch_ms};
 use super::media::LstCodec;
 
 const MAX_CMDS_PER_TICK: usize = 16;
 const MAX_UL_PCM_PER_TICK: usize = 32;
 const MAX_UL_BLOCKS_PER_TICK: usize = 6;
 const PENDING_UL_CAP: usize = 12;
+const TERMINAL_HOLD: Duration = Duration::from_secs(5);
 
 struct ActiveGroup {
     uuid: Uuid,
@@ -56,6 +57,8 @@ pub struct LstDispatchEntity {
     private: Option<ActivePrivate>,
     pending_ul: VecDeque<Vec<u8>>,
     dltime: TdmaTime,
+    /// After ended/failed, keep peer+phase visible until this instant.
+    terminal_clear_at: Option<Instant>,
 }
 
 impl LstDispatchEntity {
@@ -71,7 +74,10 @@ impl LstDispatchEntity {
             s.enabled = true;
             s.operator_issi = operator_issi;
             s.codec_available = codec.is_some();
-            s.media_ready = codec.is_some();
+            s.media_ready = false;
+            s.call_phase = "idle".into();
+            s.disconnect_cause = None;
+            s.call_started_ms = None;
         });
         Self {
             config,
@@ -82,6 +88,7 @@ impl LstDispatchEntity {
             private: None,
             pending_ul: VecDeque::with_capacity(8),
             dltime: TdmaTime::default(),
+            terminal_clear_at: None,
         }
     }
 
@@ -146,6 +153,13 @@ impl LstDispatchEntity {
             s.call_peer = Some(gssi);
             s.ptt = false;
             s.last_error = None;
+            // Don't clobber an active/recent private phase display.
+            if s.call_phase == "idle" || matches!(s.call_phase.as_str(), "ended" | "failed") {
+                s.call_phase = "idle".into();
+                s.disconnect_cause = None;
+                s.call_started_ms = None;
+                s.media_ready = false;
+            }
         });
         tracing::info!("LST: selected group GSSI={} as ISSI={}", gssi, self.operator_issi);
     }
@@ -163,10 +177,20 @@ impl LstDispatchEntity {
         }
         if self.private.is_none() {
             self.handle.set_status(|s| {
-                s.active_gssi = None;
-                s.call_kind = None;
-                s.call_peer = None;
-                s.ptt = false;
+                let holding = matches!(s.call_phase.as_str(), "ended" | "failed");
+                if !holding {
+                    s.active_gssi = None;
+                    s.call_kind = None;
+                    s.call_peer = None;
+                    s.ptt = false;
+                    s.call_phase = "idle".into();
+                    s.disconnect_cause = None;
+                    s.call_started_ms = None;
+                    s.media_ready = false;
+                } else {
+                    s.active_gssi = None;
+                    s.ptt = false;
+                }
             });
         }
     }
@@ -289,7 +313,17 @@ impl LstDispatchEntity {
                 .set_status(|s| s.last_error = Some("invalid ISSI".into()));
             return;
         }
-        self.hangup_private(queue);
+        self.terminal_clear_at = None;
+        // Tear down prior private without marking ended (we're redialing).
+        if let Some(p) = self.private.take() {
+            self.push_cc(
+                queue,
+                CallControl::NetworkCircuitRelease {
+                    brew_uuid: p.uuid,
+                    cause: 0,
+                },
+            );
+        }
         let uuid = Uuid::new_v4();
         let call = make_circuit_call(self.operator_issi, dest, duplex);
         self.push_cc(
@@ -313,11 +347,10 @@ impl LstDispatchEntity {
             s.call_peer = Some(dest);
             s.media_ready = false;
             s.ptt = false;
-            s.last_error = Some(if duplex {
-                "private duplex ringing…".into()
-            } else {
-                "private simplex — press PTT after answer".into()
-            });
+            s.call_phase = "dialing".into();
+            s.disconnect_cause = None;
+            s.call_started_ms = None;
+            s.last_error = None;
         });
         tracing::info!(
             "LST: private {} -> {} duplex={}",
@@ -328,7 +361,8 @@ impl LstDispatchEntity {
     }
 
     fn hangup_private(&mut self, queue: &mut MessageQueue) {
-        if let Some(p) = self.private.take() {
+        let had = self.private.take();
+        if let Some(p) = had {
             self.push_cc(
                 queue,
                 CallControl::NetworkCircuitRelease {
@@ -336,20 +370,70 @@ impl LstDispatchEntity {
                     cause: 0,
                 },
             );
-        }
-        if self.group.is_none() {
+            let dest = p.dest;
+            let duplex = p.duplex;
+            self.terminal_clear_at = Some(Instant::now() + TERMINAL_HOLD);
             self.handle.set_status(|s| {
+                s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
+                s.call_peer = Some(dest);
+                s.ptt = false;
+                s.media_ready = false;
+                s.call_phase = "ended".into();
+                s.disconnect_cause = Some(1); // UserRequestedDisconnection
+                s.last_error = None;
+                // Keep call_started_ms so UI can freeze timer until clear.
+            });
+        }
+    }
+
+    fn enter_private_failed(&mut self, dest: u32, duplex: bool, cause: u8) {
+        self.private = None;
+        self.terminal_clear_at = Some(Instant::now() + TERMINAL_HOLD);
+        self.handle.set_status(|s| {
+            s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
+            s.call_peer = Some(dest);
+            s.ptt = false;
+            s.media_ready = false;
+            s.call_phase = "failed".into();
+            s.disconnect_cause = Some(cause);
+            s.call_started_ms = None;
+            s.last_error = None;
+        });
+    }
+
+    fn enter_private_ended(&mut self, dest: u32, duplex: bool, cause: u8) {
+        self.private = None;
+        self.terminal_clear_at = Some(Instant::now() + TERMINAL_HOLD);
+        self.handle.set_status(|s| {
+            s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
+            s.call_peer = Some(dest);
+            s.ptt = false;
+            s.media_ready = false;
+            s.call_phase = "ended".into();
+            s.disconnect_cause = Some(cause);
+            s.last_error = None;
+        });
+    }
+
+    fn clear_terminal_hold(&mut self) {
+        self.terminal_clear_at = None;
+        let gssi = self.group.as_ref().map(|g| g.gssi);
+        self.handle.set_status(|s| {
+            s.ptt = false;
+            s.media_ready = false;
+            s.call_phase = "idle".into();
+            s.disconnect_cause = None;
+            s.call_started_ms = None;
+            s.last_error = None;
+            if let Some(g) = gssi {
+                s.active_gssi = Some(g);
+                s.call_kind = Some("group".into());
+                s.call_peer = Some(g);
+            } else {
                 s.call_kind = None;
                 s.call_peer = None;
-                s.ptt = false;
-            });
-        } else {
-            self.handle.set_status(|s| {
-                s.call_kind = Some("group".into());
-                s.call_peer = self.group.as_ref().map(|g| g.gssi);
-                s.ptt = false;
-            });
-        }
+            }
+        });
     }
 
     fn on_ul_pcm(&mut self, pcm: Vec<i16>) {
@@ -504,30 +588,46 @@ impl TetraEntityTrait for LstDispatchEntity {
                 ts,
             }) => {
                 self.on_network_call_ready(brew_uuid, call_id, carrier_num, ts);
-                let duplex = self.private.as_ref().is_some_and(|p| p.duplex && p.uuid == brew_uuid);
-                self.handle.set_status(|s| {
-                    s.media_ready = true;
-                    s.last_error = Some(if duplex {
-                        "private duplex connected".into()
-                    } else {
-                        "private connected — hold PTT to talk".into()
+                if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {
+                    let started = epoch_ms();
+                    self.handle.set_status(|s| {
+                        s.media_ready = true;
+                        s.call_phase = "established".into();
+                        s.disconnect_cause = None;
+                        s.call_started_ms = Some(started);
+                        s.last_error = None;
                     });
-                });
+                }
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupAccept { brew_uuid }) => {
                 if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {
                     tracing::info!("LST: private setup accepted uuid={}", brew_uuid);
+                    self.handle.set_status(|s| {
+                        if s.call_phase == "dialing" {
+                            // Stay dialing until Alert / answer.
+                        }
+                        s.last_error = None;
+                    });
+                }
+            }
+            SapMsgInner::CmceCallControl(CallControl::NetworkCircuitAlert { brew_uuid }) => {
+                if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {
+                    tracing::info!("LST: private ringing (Alert) uuid={}", brew_uuid);
+                    self.handle.set_status(|s| {
+                        s.call_phase = "ringing".into();
+                        s.last_error = None;
+                    });
                 }
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupReject { brew_uuid, cause }) => {
-                if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {
-                    self.private = None;
-                    self.handle.set_status(|s| {
-                        s.call_kind = None;
-                        s.call_peer = None;
-                        s.ptt = false;
-                        s.last_error = Some(format!("private call rejected (cause {cause})"));
-                    });
+                let rejected = self
+                    .private
+                    .as_ref()
+                    .filter(|p| p.uuid == brew_uuid)
+                    .map(|p| (p.dest, p.duplex));
+                if let Some((dest, duplex)) = rejected {
+                    tracing::info!("LST: private rejected cause={} uuid={}", cause, brew_uuid);
+                    self.enter_private_failed(dest, duplex, cause);
                 }
             }
             // Radio answered (U-CONNECT). CMCE waits for ConnectConfirm before D-CONNECT-ACK /
@@ -547,7 +647,8 @@ impl TetraEntityTrait for LstDispatchEntity {
                         },
                     );
                     self.handle.set_status(|s| {
-                        s.last_error = Some("private answering…".into());
+                        s.call_phase = "answering".into();
+                        s.last_error = None;
                     });
                 }
             }
@@ -562,39 +663,11 @@ impl TetraEntityTrait for LstDispatchEntity {
             SapMsgInner::TmdCircuitDataInd(ind) => {
                 self.on_dl_voice(&ind.data);
             }
-            SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid })
-            | SapMsgInner::CmceCallControl(CallControl::NetworkCircuitRelease { brew_uuid, .. }) => {
-                if self.group.as_ref().is_some_and(|g| g.uuid == brew_uuid) {
-                    let had_ready = self.group.as_ref().is_some_and(|g| g.call_id.is_some());
-                    let still_ptt = self.group.as_ref().is_some_and(|g| g.ptt);
-                    if let Some(g) = self.group.as_mut() {
-                        g.ptt = false;
-                        g.call_id = None;
-                        g.carrier_num = None;
-                        g.ts = None;
-                        // Keep GSSI selection so operator can PTT again.
-                    }
-                    self.handle.set_status(|s| {
-                        s.ptt = false;
-                        if still_ptt && !had_ready {
-                            s.last_error = Some(
-                                "group call rejected — check radios are affiliated to this GSSI"
-                                    .into(),
-                            );
-                        }
-                    });
-                }
-                if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {
-                    self.private = None;
-                    self.handle.set_status(|s| {
-                        s.ptt = false;
-                        s.media_ready = false;
-                        if matches!(s.call_kind.as_deref(), Some("simplex" | "duplex")) {
-                            s.call_kind = None;
-                            s.call_peer = None;
-                        }
-                    });
-                }
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }) => {
+                self.on_call_end_or_release(brew_uuid, 1);
+            }
+            SapMsgInner::CmceCallControl(CallControl::NetworkCircuitRelease { brew_uuid, cause }) => {
+                self.on_call_end_or_release(brew_uuid, cause);
             }
             _ => {}
         }
@@ -606,6 +679,11 @@ impl TetraEntityTrait for LstDispatchEntity {
     }
 
     fn tick_end(&mut self, queue: &mut MessageQueue, _ts: TdmaTime) -> bool {
+        if let Some(at) = self.terminal_clear_at {
+            if Instant::now() >= at {
+                self.clear_terminal_hold();
+            }
+        }
         self.flush_ul(queue);
         // Keep CMCE group call alive while PTT is held (~2.5 Hz keepalive).
         let keepalive_uuid = self.group.as_mut().and_then(|g| {
@@ -641,5 +719,38 @@ impl TetraEntityTrait for LstDispatchEntity {
             });
         }
         false
+    }
+}
+
+impl LstDispatchEntity {
+    fn on_call_end_or_release(&mut self, brew_uuid: Uuid, cause: u8) {
+        if self.group.as_ref().is_some_and(|g| g.uuid == brew_uuid) {
+            let had_ready = self.group.as_ref().is_some_and(|g| g.call_id.is_some());
+            let still_ptt = self.group.as_ref().is_some_and(|g| g.ptt);
+            if let Some(g) = self.group.as_mut() {
+                g.ptt = false;
+                g.call_id = None;
+                g.carrier_num = None;
+                g.ts = None;
+            }
+            self.handle.set_status(|s| {
+                s.ptt = false;
+                if still_ptt && !had_ready {
+                    s.last_error = Some(
+                        "group call rejected — check radios are affiliated to this GSSI"
+                            .into(),
+                    );
+                }
+            });
+        }
+        let ended = self
+            .private
+            .as_ref()
+            .filter(|p| p.uuid == brew_uuid)
+            .map(|p| (p.dest, p.duplex));
+        if let Some((dest, duplex)) = ended {
+            // User hangup already cleared private; this path is remote/network end.
+            self.enter_private_ended(dest, duplex, if cause == 0 { 14 } else { cause });
+        }
     }
 }

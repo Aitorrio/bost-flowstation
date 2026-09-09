@@ -38,6 +38,28 @@ pub struct LstRuntimeStatus {
     pub media_ready: bool,
     pub codec_available: bool,
     pub last_error: Option<String>,
+    /// idle | dialing | ringing | answering | established | ended | failed
+    pub call_phase: String,
+    pub disconnect_cause: Option<u8>,
+    /// Unix epoch ms when media became ready (UI timer).
+    pub call_started_ms: Option<u64>,
+}
+
+impl LstRuntimeStatus {
+    pub fn set_phase_idle(&mut self) {
+        self.call_phase = "idle".into();
+        self.disconnect_cause = None;
+        self.call_started_ms = None;
+        self.media_ready = false;
+    }
+}
+
+pub fn epoch_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +97,7 @@ impl LstDispatchHandle {
                     enabled: true,
                     operator_issi,
                     codec_available,
+                    call_phase: "idle".into(),
                     ..Default::default()
                 },
                 cmd_tx,
@@ -135,6 +158,9 @@ impl LstDispatchHandle {
             "media_ready": s.media_ready,
             "codec_available": s.codec_available,
             "last_error": s.last_error,
+            "call_phase": if s.call_phase.is_empty() { "idle" } else { s.call_phase.as_str() },
+            "disconnect_cause": s.disconnect_cause,
+            "call_started_ms": s.call_started_ms,
             "heartbeat_secs": super::session::HEARTBEAT_HINT_SECS,
         })
     }

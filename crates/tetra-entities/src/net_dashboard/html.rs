@@ -495,8 +495,54 @@ body{
 .lst-call-tab.is-active{background:var(--accent);color:#0b1218;border-color:var(--accent);}
 .lst-call-panel{display:none;}
 .lst-call-panel.is-active{display:block;}
-.lst-call-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;}
-.lst-call-peer{font-family:var(--mono);color:var(--accent);}
+.lst-phone{
+  text-align:center;padding:8px 4px 4px;
+}
+.lst-phone-peer{
+  font-family:var(--mono);font-size:28px;font-weight:700;letter-spacing:0.04em;
+  color:var(--text);line-height:1.2;margin:4px 0 2px;
+}
+.lst-phone-mode{
+  font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
+  color:var(--text3);margin-bottom:10px;
+}
+.lst-phone-phase{
+  font-size:15px;font-weight:600;color:var(--accent);min-height:22px;margin-bottom:4px;
+}
+.lst-phone-phase.is-failed{color:var(--danger);}
+.lst-phone-phase.is-ended{color:var(--text2);}
+.lst-phone-phase.is-established{color:var(--ok, #3dd68c);}
+.lst-phone-sub{font-size:12px;color:var(--text3);min-height:16px;margin-bottom:8px;}
+.lst-phone-timer{
+  font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums;
+  color:var(--text);margin:6px 0 16px;
+}
+.lst-phone-actions{display:flex;justify-content:center;gap:28px;align-items:center;margin:8px 0 12px;}
+.lst-phone-fab{
+  width:56px;height:56px;border-radius:50%;border:none;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;padding:0;
+}
+.lst-phone-fab svg{width:24px;height:24px;}
+.lst-phone-fab:disabled{opacity:0.35;cursor:not-allowed;}
+.lst-phone-fab-call{background:#1f9d55;color:#fff;}
+.lst-phone-fab-call:hover:not(:disabled){filter:brightness(1.08);}
+.lst-phone-fab-hang{background:var(--danger);color:#fff;}
+.lst-phone-fab-hang svg{transform:rotate(135deg);}
+.lst-phone-fab-hang:hover:not(:disabled){filter:brightness(1.08);}
+.lst-call-strip{
+  display:none;align-items:center;gap:12px;flex-wrap:wrap;
+  margin:0 0 14px;padding:10px 12px;border-radius:8px;
+  border:1px solid var(--border);background:rgba(255,255,255,0.03);
+}
+.lst-call-strip.is-open{display:flex;}
+.lst-call-strip-main{flex:1;min-width:140px;cursor:pointer;}
+.lst-call-strip-peer{font-family:var(--mono);font-weight:700;font-size:15px;}
+.lst-call-strip-phase{font-size:12px;color:var(--accent);margin-top:2px;}
+.lst-call-strip-phase.is-failed{color:var(--danger);}
+.lst-call-strip-phase.is-ended{color:var(--text2);}
+.lst-call-strip-timer{font-family:var(--mono);font-size:16px;font-variant-numeric:tabular-nums;}
+.lst-call-strip .lst-phone-fab{width:40px;height:40px;}
+.lst-call-strip .lst-phone-fab svg{width:18px;height:18px;}
 @media(max-width:900px){
   .lst-layout{grid-template-columns:1fr;}
   .lst-ptt{position:sticky;bottom:12px;z-index:5;}
@@ -5482,9 +5528,17 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <button class="btn btn-sm" onclick="lstJoin()" data-i18n="lst_join">Join</button>
                 <button class="btn btn-sm" onclick="lstLeave()" data-i18n="lst_leave">Leave</button></div>
             </div>
+            <div class="lst-call-strip" id="lst-call-strip">
+              <div class="lst-call-strip-main" onclick="lstOpenStripModal()">
+                <div class="lst-call-strip-peer" id="lst-strip-peer">—</div>
+                <div class="lst-call-strip-phase" id="lst-strip-phase">—</div>
+              </div>
+              <div class="lst-call-strip-timer" id="lst-strip-timer">00:00</div>
+              <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-strip-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up"><span data-icon="calls"></span></button>
+            </div>
             <div class="lst-ptt-wrap">
               <button class="btn lst-ptt" id="lst-ptt-btn" data-i18n="lst_ptt">PTT</button>
-              <span id="lst-call-state" class="help-text">—</span>
+              <span id="lst-call-state" class="help-text" style="display:none">—</span>
             </div>
             <div class="field"><label class="form-label" data-i18n="lst_sds">SDS</label>
               <div class="row-actions"><input type="text" id="lst-sds-text" maxlength="140" style="flex:1" placeholder="…">
@@ -5949,29 +6003,29 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
 <!-- ── LST private call modal ── -->
 <div class="modal-overlay" id="lst-call-modal" onclick="if(event.target===this)closeLstCallModal()">
-  <div class="modal">
-    <div class="modal-title"><span data-i18n="lst_call_modal_title">Private call</span> · <span class="lst-call-peer" id="lst-call-modal-peer">—</span></div>
+  <div class="modal" style="width:min(380px,94vw)">
     <div class="lst-call-tabs" role="tablist">
       <button type="button" class="btn btn-sm lst-call-tab is-active" id="lst-call-tab-sx" data-mode="sx" onclick="lstCallSetTab('sx')" data-i18n="lst_tab_simplex">Simplex</button>
       <button type="button" class="btn btn-sm lst-call-tab" id="lst-call-tab-dx" data-mode="dx" onclick="lstCallSetTab('dx')" data-i18n="lst_tab_duplex">Duplex</button>
     </div>
-    <div class="lst-call-panel is-active" id="lst-call-panel-sx">
-      <div class="help-text" id="lst-call-modal-state-sx">—</div>
-      <div class="lst-call-actions">
-        <button type="button" class="btn btn-primary" onclick="lstCallDial(false)" data-i18n="lst_call_dial">Call</button>
-        <button type="button" class="btn btn-danger" onclick="lstHangup()" data-i18n="lst_hangup">Hang up</button>
+    <div class="lst-phone">
+      <div class="lst-phone-mode" id="lst-phone-mode">Simplex</div>
+      <div class="lst-phone-peer" id="lst-call-modal-peer">—</div>
+      <div class="lst-phone-phase" id="lst-phone-phase">—</div>
+      <div class="lst-phone-sub" id="lst-phone-sub"></div>
+      <div class="lst-phone-timer" id="lst-phone-timer">00:00</div>
+      <div class="lst-phone-actions">
+        <button type="button" class="lst-phone-fab lst-phone-fab-call" id="lst-phone-dial" onclick="lstCallDialActive()" title="Call" aria-label="Call"><span data-icon="calls"></span></button>
+        <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-phone-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up"><span data-icon="calls"></span></button>
       </div>
-      <div class="lst-ptt-wrap" style="margin-top:4px">
-        <button type="button" class="btn lst-ptt" id="lst-call-ptt-btn" data-i18n="lst_ptt">PTT</button>
+      <div class="lst-call-panel is-active" id="lst-call-panel-sx">
+        <div class="lst-ptt-wrap" id="lst-call-ptt-wrap" style="margin-top:8px;display:none">
+          <button type="button" class="btn lst-ptt" id="lst-call-ptt-btn" data-i18n="lst_ptt">PTT</button>
+        </div>
       </div>
-    </div>
-    <div class="lst-call-panel" id="lst-call-panel-dx">
-      <div class="help-text" id="lst-call-modal-state-dx">—</div>
-      <div class="lst-call-actions">
-        <button type="button" class="btn btn-primary" onclick="lstCallDial(true)" data-i18n="lst_call_dial">Call</button>
-        <button type="button" class="btn btn-danger" onclick="lstHangup()" data-i18n="lst_hangup">Hang up</button>
+      <div class="lst-call-panel" id="lst-call-panel-dx">
+        <p class="help-text" data-i18n="lst_duplex_hint">Duplex: mic stays open while media is ready (no PTT).</p>
       </div>
-      <p class="help-text" data-i18n="lst_duplex_hint">Duplex: mic stays open while media is ready (no PTT).</p>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeLstCallModal()" data-i18n="cancel">Cancel</button>
@@ -6458,6 +6512,11 @@ const LANGS={
     lst_roster_sds:'Send SDS',lst_roster_call:'Private call',
     lst_call_modal_title:'Private call',lst_tab_simplex:'Simplex',lst_tab_duplex:'Duplex',
     lst_call_dial:'Call',lst_duplex_hint:'Duplex: mic stays open while media is ready (no PTT).',
+    lst_phase_idle:'Idle',lst_phase_dialing:'Calling…',lst_phase_ringing:'Ringing…',
+    lst_phase_answering:'Answering…',lst_phase_established:'Connected',lst_phase_ended:'Call ended',
+    lst_phase_failed:'Call failed',
+    lst_cause_unreachable:'Unreachable',lst_cause_busy:'Busy',lst_cause_rejected:'Rejected',
+    lst_cause_error:'Connection error',lst_cause_finished:'Finished',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
     cfg_sheet_busy:'Close the open profile sheet first.',
     cfg_editing:'Editing Cell “{cell}” · Brew “{brew}”. Change the forms below, then Update or Save as.',
@@ -6834,6 +6893,11 @@ const LANGS={
     lst_roster_sds:'Enviar SDS',lst_roster_call:'Llamada privada',
     lst_call_modal_title:'Llamada privada',lst_tab_simplex:'Simplex',lst_tab_duplex:'Dúplex',
     lst_call_dial:'Llamar',lst_duplex_hint:'Dúplex: el micro queda abierto mientras hay media (sin PTT).',
+    lst_phase_idle:'En espera',lst_phase_dialing:'Llamando…',lst_phase_ringing:'Timbrando…',
+    lst_phase_answering:'Descolgando…',lst_phase_established:'Establecida',lst_phase_ended:'Finalizada',
+    lst_phase_failed:'Fallida',
+    lst_cause_unreachable:'Inalcanzable',lst_cause_busy:'Ocupado',lst_cause_rejected:'Rechazada',
+    lst_cause_error:'Error de conexión',lst_cause_finished:'Finalizada',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
     cfg_sheet_busy:'Cierra primero la hoja de perfil abierta.',
     cfg_editing:'Editando Cell “{cell}” · Brew “{brew}”. Cambia los formularios y pulsa Actualizar o Guardar como.',
@@ -7444,6 +7508,7 @@ let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCt
 let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
 let lstCallPeer=0,lstCallTab='sx';
+let lstLastStatus=null,lstTimerFrozenSecs=null,lstTimerTick=null;
 const LST_FRAME_SAMPLES=480; // 60 ms @ 8 kHz = one TETRA ACELP block
 function lstSetAudioHint(msg,show){
   const el=document.getElementById('lst-audio-hint');
@@ -7507,10 +7572,15 @@ async function lstRefreshStatus(){
     }
     lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
     if(!j.ptt)lstPttDown=false;
-    // Faster status while a private call is up (media_ready / duplex flag).
-    if(lstStatusTimer&&lstToken&&(j.call_kind==='simplex'||j.call_kind==='duplex')){
+    const phase=j.call_phase||'idle';
+    const privateActive=phase!=='idle'&&(j.call_kind==='simplex'||j.call_kind==='duplex'||phase==='ended'||phase==='failed');
+    // Faster poll while private phase is active (incl. terminal hold).
+    if(lstStatusTimer&&lstToken&&privateActive){
       clearInterval(lstStatusTimer);
       lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},1000);
+    }else if(lstStatusTimer&&lstToken&&!privateActive){
+      clearInterval(lstStatusTimer);
+      lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},5000);
     }
     const iOwn=!!lstToken;
     const claimBtn=document.getElementById('lst-claim-btn');
@@ -7528,18 +7598,8 @@ async function lstRefreshStatus(){
     }
     if(!iOwn)lstSetAudioHint(t('lst_audio_need_claim'),true);
     else if(lstAudioReady)lstSetAudioHint(t('lst_audio_ok'),true);
-    const st=document.getElementById('lst-call-state');
-    const callTxt=(()=>{
-      const kind=j.call_kind||'—';
-      const peer=j.call_peer!=null?j.call_peer:'';
-      const err=j.last_error?(' · '+j.last_error):'';
-      return kind+(peer?(' '+peer):'')+(j.ptt?' TX':'')+err;
-    })();
-    if(st)st.textContent=callTxt;
-    const stSx=document.getElementById('lst-call-modal-state-sx');
-    const stDx=document.getElementById('lst-call-modal-state-dx');
-    if(stSx)stSx.textContent=callTxt;
-    if(stDx)stDx.textContent=callTxt;
+    lstLastStatus=j;
+    lstUpdateCallUi(j);
     const pttMain=document.getElementById('lst-ptt-btn');
     const pttModal=document.getElementById('lst-call-ptt-btn');
     if(pttMain)pttMain.classList.toggle('is-tx',!!lstPttDown);
@@ -7551,6 +7611,132 @@ async function lstRefreshStatus(){
       (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
     }catch(_){}
   }catch(e){console.warn('lst status',e);lstSetAudioHint('Sin conexión con BS',true);}
+}
+function lstPhaseLabel(phase){
+  const key='lst_phase_'+(phase||'idle');
+  const v=t(key);
+  return v===key?(phase||'idle'):v;
+}
+function lstCauseLabel(cause){
+  const c=Number(cause);
+  if(c===3)return t('lst_cause_unreachable');
+  if(c===2)return t('lst_cause_busy');
+  if(c===11)return t('lst_cause_rejected');
+  if(c===1||c===14)return t('lst_cause_finished');
+  if(cause==null||cause===undefined||cause==='')return '';
+  return t('lst_cause_error');
+}
+function lstFormatTimer(secs){
+  const s=Math.max(0,Math.floor(secs||0));
+  const mm=String(Math.floor(s/60)).padStart(2,'0');
+  const ss=String(s%60).padStart(2,'0');
+  return mm+':'+ss;
+}
+function lstCallElapsedSecs(j){
+  const phase=j.call_phase||'idle';
+  if(phase==='established'&&j.call_started_ms){
+    lstTimerFrozenSecs=null;
+    return Math.max(0,(Date.now()-Number(j.call_started_ms))/1000);
+  }
+  if((phase==='ended'||phase==='failed')&&j.call_started_ms){
+    if(lstTimerFrozenSecs==null)lstTimerFrozenSecs=Math.max(0,(Date.now()-Number(j.call_started_ms))/1000);
+    return lstTimerFrozenSecs;
+  }
+  if(phase==='idle')lstTimerFrozenSecs=null;
+  return 0;
+}
+function lstEnsureTimerTick(){
+  if(lstTimerTick)return;
+  lstTimerTick=setInterval(()=>{
+    if(!lstLastStatus)return;
+    const phase=lstLastStatus.call_phase||'idle';
+    if(phase!=='established'&&phase!=='ended'&&phase!=='failed')return;
+    const txt=lstFormatTimer(lstCallElapsedSecs(lstLastStatus));
+    const phoneT=document.getElementById('lst-phone-timer');
+    const stripT=document.getElementById('lst-strip-timer');
+    if(phoneT)phoneT.textContent=txt;
+    if(stripT)stripT.textContent=txt;
+  },500);
+}
+function lstUpdateCallUi(j){
+  lstEnsureTimerTick();
+  const phase=j.call_phase||'idle';
+  const kind=j.call_kind||'';
+  const peer=j.call_peer!=null?j.call_peer:null;
+  const isPrivatePhase=phase!=='idle'&&(kind==='simplex'||kind==='duplex'||phase==='ended'||phase==='failed');
+  const phaseTxt=lstPhaseLabel(phase);
+  const causeTxt=(phase==='failed'||phase==='ended')?lstCauseLabel(j.disconnect_cause):'';
+  const sub=causeTxt||(j.ptt?'TX':'')||(j.last_error&&phase==='failed'?j.last_error:'');
+  const timerTxt=lstFormatTimer(lstCallElapsedSecs(j));
+  const active=!(phase==='idle'||phase==='ended'||phase==='failed');
+  const canDial=!!lstToken&&!!lstCallPeer&&!active;
+  const canHang=!!lstToken&&active;
+
+  const strip=document.getElementById('lst-call-strip');
+  if(strip){
+    strip.classList.toggle('is-open',!!isPrivatePhase);
+    const sp=document.getElementById('lst-strip-peer');
+    const sph=document.getElementById('lst-strip-phase');
+    const st=document.getElementById('lst-strip-timer');
+    const sh=document.getElementById('lst-strip-hang');
+    if(sp)sp.textContent=peer!=null?String(peer):'—';
+    if(sph){
+      sph.textContent=phaseTxt+(sub?(' · '+sub):'');
+      sph.classList.toggle('is-failed',phase==='failed');
+      sph.classList.toggle('is-ended',phase==='ended');
+    }
+    if(st)st.textContent=timerTxt;
+    if(sh){
+      sh.disabled=!canHang;
+      sh.title=t('lst_hangup');
+      sh.setAttribute('aria-label',t('lst_hangup'));
+    }
+  }
+
+  const peerEl=document.getElementById('lst-call-modal-peer');
+  if(peerEl&&(peer!=null||lstCallPeer))peerEl.textContent=String(peer!=null?peer:lstCallPeer||'—');
+  const modeEl=document.getElementById('lst-phone-mode');
+  if(modeEl){
+    const tabMode=lstCallTab==='dx'?'duplex':(kind==='duplex'?'duplex':'simplex');
+    modeEl.textContent=tabMode==='duplex'?t('lst_tab_duplex'):t('lst_tab_simplex');
+  }
+  const ph=document.getElementById('lst-phone-phase');
+  if(ph){
+    ph.textContent=phaseTxt;
+    ph.classList.toggle('is-failed',phase==='failed');
+    ph.classList.toggle('is-ended',phase==='ended');
+    ph.classList.toggle('is-established',phase==='established');
+  }
+  const subEl=document.getElementById('lst-phone-sub');
+  if(subEl)subEl.textContent=sub||'';
+  const phoneT=document.getElementById('lst-phone-timer');
+  if(phoneT)phoneT.textContent=timerTxt;
+  const dialBtn=document.getElementById('lst-phone-dial');
+  const hangBtn=document.getElementById('lst-phone-hang');
+  if(dialBtn){
+    dialBtn.disabled=!canDial;
+    dialBtn.title=t('lst_call_dial');
+    dialBtn.setAttribute('aria-label',t('lst_call_dial'));
+  }
+  if(hangBtn){
+    hangBtn.disabled=!canHang;
+    hangBtn.title=t('lst_hangup');
+    hangBtn.setAttribute('aria-label',t('lst_hangup'));
+  }
+
+  const pttWrap=document.getElementById('lst-call-ptt-wrap');
+  if(pttWrap){
+    const showPtt=lstCallTab==='sx'&&phase==='established'&&kind==='simplex';
+    pttWrap.style.display=showPtt?'':'none';
+  }
+  // Sync tabs with live kind when private is up.
+  if(kind==='duplex'&&lstCallTab!=='dx')lstCallSetTab('dx');
+  else if(kind==='simplex'&&phase!=='idle'&&lstCallTab!=='sx')lstCallSetTab('sx');
+
+  if(typeof paintIcons==='function'){
+    paintIcons(document.getElementById('lst-call-modal'));
+    paintIcons(document.getElementById('lst-call-strip'));
+  }
 }
 function lstSetOwned(on){
   const ids=['lst-op-issi','lst-gssi','lst-ptt-btn','lst-sds-text'];
@@ -7611,17 +7797,26 @@ function lstCallSetTab(mode){
   if(dxTab)dxTab.classList.toggle('is-active',lstCallTab==='dx');
   if(sxPanel)sxPanel.classList.toggle('is-active',lstCallTab==='sx');
   if(dxPanel)dxPanel.classList.toggle('is-active',lstCallTab==='dx');
+  const modeEl=document.getElementById('lst-phone-mode');
+  if(modeEl)modeEl.textContent=lstCallTab==='dx'?t('lst_tab_duplex'):t('lst_tab_simplex');
+  if(lstLastStatus)lstUpdateCallUi(lstLastStatus);
 }
 function openLstCallModal(issi){
-  lstCallPeer=Number(issi)||0;
+  lstCallPeer=Number(issi)||lstCallPeer||0;
   if(!lstCallPeer)return;
   const peerEl=document.getElementById('lst-call-modal-peer');
   if(peerEl)peerEl.textContent=String(lstCallPeer);
-  lstCallSetTab('sx');
+  if(!lstLastStatus||!lstLastStatus.call_kind||lstLastStatus.call_phase==='idle')lstCallSetTab('sx');
   lstBindCallModalPtt();
   const modal=document.getElementById('lst-call-modal');
   if(modal)modal.classList.add('open');
   if(typeof applyLang==='function')applyLang();
+  if(typeof paintIcons==='function')paintIcons(modal);
+  if(lstLastStatus)lstUpdateCallUi(lstLastStatus);
+}
+function lstOpenStripModal(){
+  const peer=(lstLastStatus&&lstLastStatus.call_peer!=null)?lstLastStatus.call_peer:lstCallPeer;
+  if(peer)openLstCallModal(peer);
 }
 function closeLstCallModal(){
   const modal=document.getElementById('lst-call-modal');
@@ -7630,6 +7825,9 @@ function closeLstCallModal(){
 function lstCallDial(duplex){
   if(!lstCallPeer)return;
   lstPrivate(lstCallPeer,!!duplex);
+}
+function lstCallDialActive(){
+  lstCallDial(lstCallTab==='dx');
 }
 function lstSendSds(){
   const text=document.getElementById('lst-sds-text')?.value||'';
