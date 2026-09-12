@@ -8354,6 +8354,23 @@ function lstOpenGroupsPop(anchor,issi,groups){
   if(lstGroupsPop.timer)clearTimeout(lstGroupsPop.timer);
   lstGroupsPop.timer=setTimeout(lstCloseGroupsPop,3500);
 }
+function lstBindGroupsExpand(root){
+  if(!root)return;
+  root.querySelectorAll('button.lst-g-expand[data-act="gexpand"]').forEach(btn=>{
+    if(btn.dataset.gbound)return;
+    btn.dataset.gbound='1';
+    btn.onclick=(ev)=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+      const issi=Number(btn.dataset.issi);
+      const m=(state.ms&&state.ms[issi])||{};
+      const sel=m.selected_group!=null?m.selected_group:null;
+      const gl=m.groups||[];
+      const extras=sel!=null?gl.filter(g=>g!==sel):(gl.length?gl.slice(1):[]);
+      lstOpenGroupsPop(btn,issi,extras.length?extras:gl);
+    };
+  });
+}
 function lstGroupsCell(m){
   const gl=(m.groups||[]).slice();
   const sel=m.selected_group!=null?m.selected_group:null;
@@ -8406,19 +8423,14 @@ function lstRenderRoster(){
   });
   if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
   if(typeof paintIcons==='function')paintIcons(tb);
+  lstBindGroupsExpand(tb);
   tb.querySelectorAll('button[data-act]').forEach(btn=>{
+    if(btn.dataset.act==='gexpand')return;
     btn.onclick=(ev)=>{
       ev.preventDefault();
       ev.stopPropagation();
       const issi=Number(btn.dataset.issi);
-      if(btn.dataset.act==='gexpand'){
-        const m=(state.ms&&state.ms[issi])||{};
-        const sel=m.selected_group!=null?m.selected_group:null;
-        const gl=m.groups||[];
-        const extras=sel!=null?gl.filter(g=>g!==sel):(gl.length?gl.slice(1):[]);
-        lstOpenGroupsPop(btn,issi,extras.length?extras:gl);
-      }
-      else if(btn.dataset.act==='sds')lstOpenSds(issi);
+      if(btn.dataset.act==='sds')lstOpenSds(issi);
       else if(btn.dataset.act==='dgna')openDgna(issi);
       else if(btn.dataset.act==='call')openLstCallModal(issi);
     };
@@ -9710,6 +9722,7 @@ function renderStations(){
   const bc=document.getElementById('badge-calls');
   if(bc){bc.textContent=callCount;bc.style.display=callCount?'flex':'none';}
   const tb=document.getElementById('ms-tbody');
+  if(typeof lstCloseGroupsPop==='function')lstCloseGroupsPop();
   if(!ms.length){
     tb.innerHTML=`<tr><td colspan="7"><div class="empty-state"><span class="empty-ico">${svgIcon('radios')}</span><div class="empty-msg">${t('no_terminals')}</div></div></td></tr>`;
     if(document.getElementById('page-lst_dispatch')?.classList.contains('active')&&typeof lstRenderRoster==='function')lstRenderRoster();
@@ -9717,36 +9730,11 @@ function renderStations(){
   }
   tb.innerHTML=ms.sort((a,b)=>a.issi-b.issi).map(m=>{
     const r=m.rssi_dbfs,rL=r!=null?`${r.toFixed(1)} dBFS`:'—',pct=rssiPct(r),gcls=rssiGaugeClass(r);
-    let grps;
-    const gl=m.groups||[],sel=m.selected_group;
-    // The selected/active TG (the one the MS last keyed up on) is rendered as a solid blue
-    // badge with a â–¶ marker; the merely scanned/affiliated TGs are dim. Until the MS is heard
-    // on a call sel is null — so right after a restart all groups show dim (scanned), without
-    // implying the station is actively on any of them.
-    const gBadge=g=>g===sel
-      ?`<span class="badge badge-blue" style="font-weight:700;font-size:9px" title="${t('tg_selected')}"><span class="tg-marker">${ICON_MARKER}</span>${g}</span>`
-      :`<span class="badge badge-dim" style="font-size:9px">${g}</span>`;
-    if(gl.length>1){
-      const gList=gl.slice().sort((a,b)=>(b===sel)-(a===sel)||a-b).map(gBadge).join(' ');
-      // Always show a neutral "+N affiliated" badge — never "⚡ SCAN" (FH-BUG-032). On the BS
-      // side we have NO signal that the radio is actively scanning; we only have the static set
-      // of affiliated groups, which the radio keeps re-attaching with lifetime=0 even after scan
-      // is turned off on the device (intentional — see FH-BUG-022). "⚡ SCAN" was read by
-      // operators as a live "this radio is scanning" claim, which we cannot back up. "+N
-      // affiliated" is honest: these N groups are affiliated alongside the selected one (if any).
-      // With a selected TG, the selected one is marked â–¶ and N excludes it; with none selected
-      // yet (e.g. before the first PTT), N counts them all.
-      const others=sel!=null?gl.filter(g=>g!==sel).length:gl.length;
-      const extraBadge=`<span class="badge badge-dim" style="font-size:9px;margin-right:4px" title="${t('tg_affiliated_hint')}">+${others} ${t('tg_affiliated_short')}</span>`;
-      grps=`${extraBadge}${gList}`;
-    } else if(gl.length===1){
-      grps=`<span class="badge badge-blue">${gl[0]}</span>`;
-    } else {
-      grps='<span class="badge badge-dim">—</span>';
-    }
+    // Compact groups: selected TG pill + chevron popover for affiliates (same UX as LST roster).
+    const grps=typeof lstGroupsCell==='function'?lstGroupsCell(m):'<span class="badge badge-dim">—</span>';
     const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
     const emg=!!state.emergencies[m.issi];
-    return`<tr${emg?' class="row-emergency"':''}>
+    return`<tr${emg?' class="row-emergency"':''} data-ms-issi="${m.issi}">
       <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${idCell(m.issi)}</td><td>${grps}</td>
       <td class="col-mobile-hide">${eeLabel(m.energy_saving_mode||0)}</td>
       <td><div class="gauge ${gcls}"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%"></div></div><span class="gauge-value">${rL}</span></div></td>
@@ -9756,6 +9744,7 @@ function renderStations(){
     </tr>`;
   }).join('');
   applyTableStackLabels(tb);
+  lstBindGroupsExpand(tb);
   if(document.getElementById('page-lst_dispatch')?.classList.contains('active')&&typeof lstRenderRoster==='function')lstRenderRoster();
 }
 
