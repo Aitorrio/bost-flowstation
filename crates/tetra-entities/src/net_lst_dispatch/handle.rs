@@ -20,6 +20,8 @@ pub enum LstUiCommand {
     SetOperatorIssi { issi: u32 },
     JoinGroup { gssi: u32 },
     LeaveGroup,
+    /// Multi-TG listen list + TX talkgroup (0 = listen-only / no TX selected).
+    SetScanList { list: Vec<u32>, tx: u32 },
     Ptt { down: bool },
     PrivateCall { dest_issi: u32, duplex: bool },
     Answer,
@@ -33,6 +35,8 @@ pub struct LstRuntimeStatus {
     pub session_holder: Option<String>,
     pub operator_issi: u32,
     pub active_gssi: Option<u32>,
+    /// Talkgroup currently received (radio floor on a monitored GSSI).
+    pub rx_gssi: Option<u32>,
     pub ptt: bool,
     pub call_kind: Option<String>,
     pub call_peer: Option<u32>,
@@ -148,9 +152,12 @@ impl LstDispatchHandle {
         let mut g = self.inner.lock().unwrap();
         let ok = g.session.release(token);
         if ok {
-            // Drop media / ask entity to idle.
+            // Drop media / ask entity to idle and clear multi-TG affiliations.
             let _ = g.cmd_tx.try_send(LstUiCommand::Hangup);
-            let _ = g.cmd_tx.try_send(LstUiCommand::LeaveGroup);
+            let _ = g.cmd_tx.try_send(LstUiCommand::SetScanList {
+                list: Vec::new(),
+                tx: 0,
+            });
             g.dl_pcm.clear();
             while g.ul_pcm_rx.try_recv().is_ok() {}
         }
@@ -324,6 +331,7 @@ impl LstSharedInner {
             "session_holder": s.session_holder,
             "operator_issi": s.operator_issi,
             "active_gssi": s.active_gssi,
+            "rx_gssi": s.rx_gssi,
             "ptt": s.ptt,
             "call_kind": s.call_kind,
             "call_peer": s.call_peer,

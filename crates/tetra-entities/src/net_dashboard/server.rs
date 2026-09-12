@@ -4466,7 +4466,7 @@ fn handle_ws_command(
                 tracing::warn!("Dashboard: no control dispatcher for emergency_clear");
             }
         }
-        Some("lst_heartbeat") | Some("lst_join") | Some("lst_leave") | Some("lst_ptt")
+        Some("lst_heartbeat") | Some("lst_join") | Some("lst_scan") | Some("lst_leave") | Some("lst_ptt")
         | Some("lst_private") | Some("lst_answer") | Some("lst_hangup") | Some("lst_set_issi")
         | Some("lst_ul_pcm") => {
             let Some(h) = lst_handle else {
@@ -4488,6 +4488,24 @@ fn handle_ws_command(
                     if let Some(gssi) = json_ssi(&v, "gssi") {
                         let _ = h.push_cmd(token, LstUiCommand::JoinGroup { gssi });
                     }
+                }
+                Some("lst_scan") => {
+                    let list = v
+                        .get("list")
+                        .and_then(|a| a.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|x| x.as_u64().map(|n| n as u32))
+                                .filter(|n| *n > 0 && *n <= 16_777_214)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let tx = v
+                        .get("tx")
+                        .and_then(|t| t.as_u64())
+                        .map(|n| n as u32)
+                        .unwrap_or(0);
+                    let _ = h.push_cmd(token, LstUiCommand::SetScanList { list, tx });
                 }
                 Some("lst_leave") => {
                     let _ = h.push_cmd(token, LstUiCommand::LeaveGroup);

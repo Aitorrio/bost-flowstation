@@ -27,7 +27,12 @@ impl BrewNotification {
     fn enabled(self, config: &SharedConfig) -> bool {
         match self {
             BrewNotification::Never => false,
-            BrewNotification::IfGroupRoutable(gssi) => brew::is_brew_gssi_routable(config, gssi),
+            // Real Brew: only routable GSSIs. LST Dispatch occupies the Brew slot and needs
+            // FloorGranted/Released for every local group floor so the console can highlight RX
+            // and filter multi-TG listen.
+            BrewNotification::IfGroupRoutable(gssi) => {
+                brew::is_brew_gssi_routable(config, gssi) || brew::is_lst_dispatch_active(config)
+            }
         }
     }
 }

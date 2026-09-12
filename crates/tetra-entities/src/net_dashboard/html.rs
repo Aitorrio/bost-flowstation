@@ -490,18 +490,49 @@ body{
 }
 .lst-controls .field{margin-bottom:12px;}
 .lst-controls .row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-.lst-scan-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+.lst-scan-field{margin-bottom:12px;}
+.lst-scan-row{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;
+}
+.lst-scan-row .form-label{
+  margin:0;flex:0 0 auto;white-space:nowrap;min-width:0;
+}
+.lst-scan-row input[type=number]{flex:1 1 110px;min-width:90px;}
+.lst-scan-list{display:flex;flex-wrap:wrap;gap:8px;margin:0;min-height:0;}
 .lst-scan-chip{
-  display:inline-flex;align-items:center;gap:6px;padding:4px 8px;
-  border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:12px;
-  background:rgba(255,255,255,0.03);
+  display:inline-flex;align-items:center;gap:6px;padding:6px 8px 6px 8px;
+  border:1px solid var(--border);border-radius:999px;font-family:var(--mono);font-size:12px;
+  background:rgba(255,255,255,0.03);color:var(--text);line-height:1;cursor:pointer;
+  transition:background .12s ease,border-color .12s ease,color .12s ease,box-shadow .12s ease;
+  user-select:none;
 }
-.lst-scan-chip.is-tx{border-color:var(--accent);color:var(--accent);}
+.lst-scan-chip .lst-scan-mic{
+  display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;
+  color:inherit;flex-shrink:0;
+}
+.lst-scan-chip .lst-scan-mic svg{width:14px;height:14px;display:block;}
+.lst-scan-chip .lst-scan-num{font-weight:700;letter-spacing:0.02em;}
+.lst-scan-chip.is-tx{
+  border-color:color-mix(in srgb,#3b82f6 55%, var(--border));
+  background:color-mix(in srgb,#3b82f6 18%, transparent);
+  color:#93c5fd;box-shadow:inset 0 0 0 1px rgba(59,130,246,0.12);
+}
+.lst-scan-chip.is-rx{
+  border-color:color-mix(in srgb,#16a34a 55%, var(--border));
+  background:color-mix(in srgb,#16a34a 20%, transparent);
+  color:#86efac;box-shadow:inset 0 0 0 1px rgba(22,163,74,0.14);
+}
+.lst-scan-chip.is-tx-live{
+  border-color:color-mix(in srgb,#dc2626 60%, var(--border));
+  background:color-mix(in srgb,#dc2626 22%, transparent);
+  color:#fca5a5;box-shadow:inset 0 0 0 1px rgba(220,38,38,0.16);
+}
 .lst-scan-chip button{
-  border:none;background:transparent;color:var(--text3);cursor:pointer;padding:0 2px;font-size:14px;line-height:1;
+  border:none;background:transparent;color:inherit;opacity:0.55;cursor:pointer;
+  padding:0 2px;font-size:14px;line-height:1;border-radius:4px;
 }
-.lst-scan-chip button:hover{color:var(--danger);}
-.lst-scan-hint{font-size:11px;color:var(--text3);margin:4px 0 10px;line-height:1.4;}
+.lst-scan-chip button:hover{opacity:1;color:var(--danger);}
+.lst-scan-chip:hover{filter:brightness(1.05);}
 .lst-ptt-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px;}
 .lst-ptt{
   display:inline-flex;align-items:center;justify-content:center;gap:10px;
@@ -5638,14 +5669,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <div class="row-actions"><input type="number" id="lst-op-issi" min="1" max="16777214" style="flex:1">
                 <button class="btn btn-sm" onclick="lstSetIssi()" data-i18n="lst_apply_issi">Apply</button></div>
             </div>
-            <div class="field">
-              <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
-              <div class="row-actions">
-                <input type="number" id="lst-scan-gssi" min="1" max="16777214" style="flex:1" placeholder="GSSI">
+            <div class="field lst-scan-field">
+              <div class="lst-scan-row">
+                <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
+                <input type="number" id="lst-scan-gssi" min="1" max="16777214" placeholder="GSSI">
                 <button class="btn btn-sm" onclick="lstScanAdd()" data-i18n="lst_scan_add">Add</button>
               </div>
               <div class="lst-scan-list" id="lst-scan-list"></div>
-              <p class="lst-scan-hint" data-i18n="lst_scan_hint">Mark one TG as TX (transmit). Multi-TG listen comes in a later update.</p>
             </div>
             <div class="lst-call-strip" id="lst-call-strip">
               <div class="lst-call-strip-main" onclick="lstOpenStripModal()">
@@ -7705,7 +7735,7 @@ let lstMicDenied=false,lstRxUntil=0,lstAvBarTimer=null;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
 let lstCallPeer=0,lstCallTab='sx';
 let lstLastStatus=null,lstTimerFrozenSecs=null,lstTimerTick=null;
-let lstScanList=[],lstScanTx=0,lstSpaceBound=false,lstSpaceDown=false;
+let lstScanList=[],lstScanTx=0,lstRxGssi=0,lstSpaceBound=false,lstSpaceDown=false;
 const LST_FRAME_SAMPLES=480; // 60 ms @ 8 kHz = one TETRA ACELP block
 function lstScanStorageKey(){return 'fs_lst_scan_'+location.host;}
 function lstLoadScan(){
@@ -7721,23 +7751,38 @@ function lstLoadScan(){
 function lstSaveScan(){
   try{localStorage.setItem(lstScanStorageKey(),JSON.stringify({list:lstScanList,tx:lstScanTx}));}catch(_){}
 }
+function lstSyncScanToServer(){
+  if(!lstToken)return;
+  wsSend({type:'lst_scan',token:lstToken,list:lstScanList.slice(),tx:lstScanTx||0});
+}
 function lstRenderScan(){
   const el=document.getElementById('lst-scan-list');
   if(!el)return;
   if(!lstScanList.length){el.innerHTML='<span class="muted">—</span>';return;}
   el.innerHTML=lstScanList.map(g=>{
     const isTx=g===lstScanTx;
-    return '<span class="lst-scan-chip'+(isTx?' is-tx':'')+'">'+
-      '<button type="button" class="lst-scan-tx" data-gssi="'+g+'" title="'+t('lst_scan_tx')+'">'+(isTx?'●':'○')+'</button>'+
-      '<span>'+g+(isTx?' · TX':'')+'</span>'+
+    const isRx=!!lstRxGssi&&g===lstRxGssi;
+    const isTxLive=isTx&&!!lstPttDown;
+    let cls='lst-scan-chip';
+    if(isTxLive)cls+=' is-tx-live';
+    else if(isRx)cls+=' is-rx';
+    else if(isTx)cls+=' is-tx';
+    const mic=isTx?'<span class="lst-scan-mic" data-icon="mic" aria-hidden="true"></span>':'';
+    return '<span class="'+cls+'" data-gssi="'+g+'" title="'+(isTx?t('lst_scan_tx'):'')+'">'+
+      mic+
+      '<span class="lst-scan-num">'+g+'</span>'+
       '<button type="button" data-rm="'+g+'" title="'+t('lst_scan_remove')+'">×</button></span>';
   }).join('');
-  el.querySelectorAll('button.lst-scan-tx').forEach(b=>{
-    b.onclick=()=>lstScanSetTx(Number(b.dataset.gssi));
+  el.querySelectorAll('.lst-scan-chip').forEach(chip=>{
+    chip.onclick=e=>{
+      if(e.target&&e.target.closest&&e.target.closest('[data-rm]'))return;
+      lstScanSetTx(Number(chip.dataset.gssi));
+    };
   });
   el.querySelectorAll('button[data-rm]').forEach(b=>{
-    b.onclick=()=>lstScanRemove(Number(b.dataset.rm));
+    b.onclick=e=>{e.stopPropagation();lstScanRemove(Number(b.dataset.rm));};
   });
+  if(typeof paintIcons==='function')paintIcons(el);
 }
 function lstScanAdd(){
   const inp=document.getElementById('lst-scan-gssi');
@@ -7745,24 +7790,19 @@ function lstScanAdd(){
   if(!gssi||gssi>16777214)return;
   if(!lstScanList.includes(gssi))lstScanList.push(gssi);
   if(!lstScanTx)lstScanSetTx(gssi);
-  else{lstSaveScan();lstRenderScan();}
+  else{lstSaveScan();lstRenderScan();lstSyncScanToServer();}
   if(inp)inp.value='';
 }
 function lstScanRemove(gssi){
   lstScanList=lstScanList.filter(g=>g!==gssi);
-  if(lstScanTx===gssi){
-    lstScanTx=lstScanList[0]||0;
-    if(lstScanTx&&lstToken)lstJoinGssi(lstScanTx);
-    else if(!lstScanTx&&lstToken)lstLeave();
-  }
-  lstSaveScan();lstRenderScan();
+  if(lstScanTx===gssi)lstScanTx=lstScanList[0]||0;
+  lstSaveScan();lstRenderScan();lstSyncScanToServer();
 }
 function lstScanSetTx(gssi){
   if(!gssi)return;
   if(!lstScanList.includes(gssi))lstScanList.push(gssi);
   lstScanTx=gssi;
-  lstSaveScan();lstRenderScan();
-  if(lstToken)lstJoinGssi(gssi);
+  lstSaveScan();lstRenderScan();lstSyncScanToServer();
 }
 function lstJoinGssi(gssi){
   if(!lstToken||!gssi)return;
@@ -7796,11 +7836,12 @@ async function lstPageEnter(){
   lstRenderRoster();
   lstRenderBottomPanels();
   if(typeof loadSdsLog==='function')loadSdsLog();
-  if(!lstToken)lstSetAudioHint(t('lst_audio_need_claim'),true);
   if(!window.isSecureContext){
     const httpsBtn=document.getElementById('lst-https-btn');
     if(httpsBtn)httpsBtn.style.display='inline-block';
     lstSetAudioHint(t('lst_https_need'),true);
+  }else{
+    lstSetAudioHint('',false);
   }
 }
 async function lstInstallVoice(){
@@ -7862,11 +7903,14 @@ function lstApplyStatusPayload(j){
   const phase=j.call_phase||'idle';
   const privateActive=phase!=='idle';
   if(lstToken)lstSetFastPoll(privateActive);
-  // Sync scan TX chip from server active_gssi when known.
-  if(j.active_gssi&&j.call_kind==='group'){
-    if(!lstScanList.includes(j.active_gssi)){lstScanList.push(j.active_gssi);lstSaveScan();}
-    if(lstScanTx!==j.active_gssi){lstScanTx=j.active_gssi;lstSaveScan();lstRenderScan();}
+  // Keep local TX selection authoritative; only adopt server TX if we have none yet.
+  if(j.active_gssi&&j.call_kind==='group'&&!lstScanTx){
+    if(!lstScanList.includes(j.active_gssi)){lstScanList.push(j.active_gssi);}
+    lstScanTx=j.active_gssi;lstSaveScan();
   }
+  const nextRx=Number(j.rx_gssi)||0;
+  if(nextRx!==lstRxGssi){lstRxGssi=nextRx;}
+  lstRenderScan();
   const iOwn=!!lstToken;
   const claimBtn=document.getElementById('lst-claim-btn');
   const relBtn=document.getElementById('lst-release-btn');
@@ -7881,8 +7925,9 @@ function lstApplyStatusPayload(j){
     if(relBtn)relBtn.style.display=iOwn?'':'none';
     lstSetOwned(iOwn);
   }
-  if(!iOwn)lstSetAudioHint(t('lst_audio_need_claim'),true);
-  else if(lstAudioReady)lstSetAudioHint(t('lst_audio_ok'),true);
+  // Ready / claim prompts live in the AV status pill — hide the old text line unless error/HTTPS.
+  if(iOwn&&lstAudioReady)lstSetAudioHint('',false);
+  else if(!iOwn)lstSetAudioHint('',false);
   lstLastStatus=j;
   lstUpdateCallUi(j);
   lstSyncPttUi();
@@ -8043,7 +8088,7 @@ async function lstClaim(){
   lstHbTimer=setInterval(()=>{if(lstToken)wsSend({type:'lst_heartbeat',token:lstToken});},8000);
   lstSetFastPoll(false);
   await lstStartAudio();
-  if(lstScanTx)lstJoinGssi(lstScanTx);
+  lstSyncScanToServer();
   await lstRefreshStatus();
 }
 async function lstRelease(){
@@ -8053,7 +8098,9 @@ async function lstRelease(){
   lstToken=null;
   if(lstHbTimer){clearInterval(lstHbTimer);lstHbTimer=null;}
   if(lstStatusTimer){clearInterval(lstStatusTimer);lstStatusTimer=null;}
+  lstRxGssi=0;
   lstStopAudio();
+  lstRenderScan();
   await lstRefreshStatus();
 }
 function lstSetIssi(){
@@ -8199,6 +8246,7 @@ function lstSyncPttUi(){
     const el=document.getElementById(id);
     if(el)el.classList.toggle('is-tx',!!lstPttDown);
   });
+  lstRenderScan();
   lstRefreshAvBar();
 }
 function lstAvIcoState(el,state){
@@ -8229,7 +8277,7 @@ function lstRefreshAvBar(){
     lstAvIcoState(spk,'bad');
     lstAvIcoState(mic,'bad');
   }
-  const rxOn=Date.now()<lstRxUntil||(lstDlQueue&&lstDlQueue.length>160);
+  const rxOn=!!lstRxGssi||Date.now()<lstRxUntil||(lstDlQueue&&lstDlQueue.length>160);
   rx.classList.toggle('is-rx-on',!!rxOn);
   rx.classList.toggle('is-idle',!rxOn);
   tx.classList.toggle('is-tx-on',!!lstPttDown);
@@ -8381,7 +8429,7 @@ async function lstStartAudio(){
     if(lstDlTimer)clearInterval(lstDlTimer);
     lstDlTimer=setInterval(lstPollDl,80);
     lstAudioReady=true;
-    lstSetAudioHint(t('lst_audio_ok'),true);
+    lstSetAudioHint('',false);
     lstRefreshAvBar();
   }catch(e){
     console.warn('lst audio',e);

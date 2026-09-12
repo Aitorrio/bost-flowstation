@@ -3,7 +3,7 @@
 //! Registered as [`TetraEntity::Brew`] only when real Brew is absent, so CMCE
 //! `NetworkCallReady` / circuit media route here unchanged.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
@@ -13,6 +13,7 @@ use tetra_config::bluestation::SharedConfig;
 use tetra_core::{Sap, TdmaTime, tetra_entities::TetraEntity};
 use tetra_saps::{
     SapMsg, SapMsgInner,
+    control::brew::{BrewSubscriberAction, MmSubscriberUpdate},
     control::call_control::{CallControl, NetworkCircuitCall},
     tmd::TmdCircuitDataReq,
 };
@@ -52,6 +53,14 @@ struct ActivePrivate {
     network_call: Option<NetworkCircuitCall>,
 }
 
+/// Radio floor currently monitored for multi-TG RX (console DL).
+struct ActiveRx {
+    gssi: u32,
+    call_id: u16,
+    carrier_num: u16,
+    ts: u8,
+}
+
 pub struct LstDispatchEntity {
     #[allow(dead_code)]
     config: SharedConfig,
@@ -60,6 +69,9 @@ pub struct LstDispatchEntity {
     codec: Option<LstCodec>,
     group: Option<ActiveGroup>,
     private: Option<ActivePrivate>,
+    /// GSSIs the operator is affiliated to for multi-TG listen.
+    listen_gssis: HashSet<u32>,
+    rx: Option<ActiveRx>,
     pending_ul: VecDeque<Vec<u8>>,
     dltime: TdmaTime,
     /// After ended/failed, keep peer+phase visible until this instant.
@@ -83,6 +95,7 @@ impl LstDispatchEntity {
             s.call_phase = "idle".into();
             s.disconnect_cause = None;
             s.call_started_ms = None;
+            s.rx_gssi = None;
         });
         Self {
             config,
@@ -91,6 +104,8 @@ impl LstDispatchEntity {
             codec,
             group: None,
             private: None,
+            listen_gssis: HashSet::new(),
+            rx: None,
             pending_ul: VecDeque::with_capacity(8),
             dltime: TdmaTime::default(),
             terminal_clear_at: None,
@@ -106,15 +121,120 @@ impl LstDispatchEntity {
         });
     }
 
+    fn push_mm(&self, queue: &mut MessageQueue, issi: u32, action: BrewSubscriberAction, groups: Vec<u32>) {
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Brew,
+            dest: TetraEntity::Cmce,
+            msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate { issi, groups, action }),
+        });
+    }
+
+    fn clear_rx(&mut self) {
+        self.rx = None;
+        self.handle.set_status(|s| s.rx_gssi = None);
+    }
+
+    /// Diff-sync CMCE affiliations for multi-TG listen.
+    fn sync_listen(&mut self, queue: &mut MessageQueue, new_list: Vec<u32>) {
+        let new_set: HashSet<u32> = new_list
+            .into_iter()
+            .filter(|g| *g > 0 && *g <= 16_777_214)
+            .collect();
+        let to_add: Vec<u32> = new_set.difference(&self.listen_gssis).copied().collect();
+        let to_rem: Vec<u32> = self.listen_gssis.difference(&new_set).copied().collect();
+        let was_empty = self.listen_gssis.is_empty();
+        let now_empty = new_set.is_empty();
+
+        if was_empty && !now_empty {
+            self.push_mm(
+                queue,
+                self.operator_issi,
+                BrewSubscriberAction::Register,
+                Vec::new(),
+            );
+        }
+        if !to_add.is_empty() {
+            self.push_mm(
+                queue,
+                self.operator_issi,
+                BrewSubscriberAction::Affiliate,
+                to_add,
+            );
+        }
+        if !to_rem.is_empty() {
+            self.push_mm(
+                queue,
+                self.operator_issi,
+                BrewSubscriberAction::Deaffiliate,
+                to_rem,
+            );
+        }
+        if !was_empty && now_empty {
+            self.push_mm(
+                queue,
+                self.operator_issi,
+                BrewSubscriberAction::Deregister,
+                Vec::new(),
+            );
+        }
+
+        self.listen_gssis = new_set;
+        if let Some(rx) = self.rx.as_ref() {
+            if !self.listen_gssis.contains(&rx.gssi) {
+                self.clear_rx();
+            }
+        }
+    }
+
+    fn set_scan_list(&mut self, queue: &mut MessageQueue, list: Vec<u32>, tx: u32) {
+        let mut list = list;
+        if tx > 0 && !list.contains(&tx) {
+            list.push(tx);
+        }
+        self.sync_listen(queue, list);
+        if tx > 0 {
+            self.join_group(queue, tx);
+        } else {
+            self.leave_group(queue);
+        }
+    }
+
     fn process_cmds(&mut self, queue: &mut MessageQueue) {
         for cmd in self.handle.drain_cmds(MAX_CMDS_PER_TICK) {
             match cmd {
                 LstUiCommand::SetOperatorIssi { issi } => {
-                    self.operator_issi = issi.clamp(1, 16_777_214);
-                    self.handle.set_status(|s| s.operator_issi = self.operator_issi);
+                    let issi = issi.clamp(1, 16_777_214);
+                    if issi != self.operator_issi {
+                        let keep: Vec<u32> = self.listen_gssis.iter().copied().collect();
+                        if !keep.is_empty() {
+                            self.push_mm(
+                                queue,
+                                self.operator_issi,
+                                BrewSubscriberAction::Deregister,
+                                Vec::new(),
+                            );
+                            self.listen_gssis.clear();
+                        }
+                        self.operator_issi = issi;
+                        self.handle.set_status(|s| s.operator_issi = issi);
+                        if !keep.is_empty() {
+                            self.sync_listen(queue, keep);
+                        }
+                    } else {
+                        self.handle.set_status(|s| s.operator_issi = self.operator_issi);
+                    }
                 }
-                LstUiCommand::JoinGroup { gssi } => self.join_group(queue, gssi),
+                LstUiCommand::JoinGroup { gssi } => {
+                    if gssi > 0 && !self.listen_gssis.contains(&gssi) {
+                        let mut list: Vec<u32> = self.listen_gssis.iter().copied().collect();
+                        list.push(gssi);
+                        self.sync_listen(queue, list);
+                    }
+                    self.join_group(queue, gssi);
+                }
                 LstUiCommand::LeaveGroup => self.leave_group(queue),
+                LstUiCommand::SetScanList { list, tx } => self.set_scan_list(queue, list, tx),
                 LstUiCommand::Ptt { down } => self.set_ptt(queue, down),
                 LstUiCommand::PrivateCall { dest_issi, duplex } => {
                     self.start_private(queue, dest_issi, duplex);
@@ -646,12 +766,67 @@ impl LstDispatchEntity {
         }
     }
 
-    fn on_dl_voice(&mut self, data: &[u8]) {
+    fn on_dl_voice(&mut self, carrier_num: u16, ts: u8, data: &[u8]) {
+        // Private media always accepted when circuit is up.
+        let private_live = self.private.as_ref().is_some_and(|p| {
+            p.carrier_num == Some(carrier_num) && p.ts == Some(ts)
+        });
+        let group_rx = self.rx.as_ref().is_some_and(|r| {
+            r.carrier_num == carrier_num && r.ts == ts && self.listen_gssis.contains(&r.gssi)
+        });
+        // Fallback: while we hold group PTT media on our own circuit is UL; DL from radios on
+        // monitored TGs should arrive with FloorGranted. If FloorGranted is missing, still accept
+        // UL-forwarded frames when we have any listen set and are not private-busy (legacy path).
+        let listen_fallback = self.private.is_none()
+            && self.rx.is_none()
+            && !self.listen_gssis.is_empty()
+            && !self.group.as_ref().is_some_and(|g| g.ptt);
+
+        if !(private_live || group_rx || listen_fallback) {
+            return;
+        }
         let Some(ref mut codec) = self.codec else {
             return;
         };
         if let Some(pcm) = codec.decode_tmd(data) {
             self.handle.push_dl_pcm(pcm);
+        }
+    }
+
+    fn on_floor_granted(
+        &mut self,
+        call_id: u16,
+        source_issi: u32,
+        dest_gssi: u32,
+        carrier_num: u16,
+        ts: u8,
+    ) {
+        if source_issi == self.operator_issi {
+            return;
+        }
+        if !self.listen_gssis.contains(&dest_gssi) {
+            return;
+        }
+        self.rx = Some(ActiveRx {
+            gssi: dest_gssi,
+            call_id,
+            carrier_num,
+            ts,
+        });
+        self.handle.set_status(|s| s.rx_gssi = Some(dest_gssi));
+        tracing::debug!(
+            "LST: RX floor gssi={} from issi={} ts={}",
+            dest_gssi,
+            source_issi,
+            ts
+        );
+    }
+
+    fn on_floor_released(&mut self, call_id: u16, carrier_num: u16, ts: u8) {
+        if self.rx.as_ref().is_some_and(|r| {
+            r.call_id == call_id || (r.carrier_num == carrier_num && r.ts == ts)
+        }) {
+            self.clear_rx();
         }
     }
 }
@@ -776,7 +951,30 @@ impl TetraEntityTrait for LstDispatchEntity {
                 }
             }
             SapMsgInner::TmdCircuitDataInd(ind) => {
-                self.on_dl_voice(&ind.data);
+                self.on_dl_voice(ind.carrier_num, ind.ts, &ind.data);
+            }
+            SapMsgInner::CmceCallControl(CallControl::FloorGranted {
+                call_id,
+                source_issi,
+                dest_gssi,
+                carrier_num,
+                ts,
+            }) => {
+                self.on_floor_granted(call_id, source_issi, dest_gssi, carrier_num, ts);
+            }
+            SapMsgInner::CmceCallControl(CallControl::FloorReleased {
+                call_id,
+                carrier_num,
+                ts,
+            }) => {
+                self.on_floor_released(call_id, carrier_num, ts);
+            }
+            SapMsgInner::CmceCallControl(CallControl::CallEnded {
+                call_id,
+                carrier_num,
+                ts,
+            }) => {
+                self.on_floor_released(call_id, carrier_num, ts);
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }) => {
                 self.on_call_end_or_release(brew_uuid, 1);

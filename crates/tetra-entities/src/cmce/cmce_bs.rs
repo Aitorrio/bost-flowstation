@@ -279,7 +279,10 @@ impl TetraEntityTrait for CmceBs {
                         unreachable!();
                     };
                     if source == TetraEntity::Brew {
-                        if !crate::net_brew::is_brew_external_subscriber_allowed(&self.config, update.issi) {
+                        let lst_active = crate::net_brew::is_lst_dispatch_active(&self.config);
+                        if !lst_active
+                            && !crate::net_brew::is_brew_external_subscriber_allowed(&self.config, update.issi)
+                        {
                             tracing::trace!(
                                 "CMCE: ignoring Brew subscriber update issi={} action={:?}",
                                 update.issi,
@@ -287,7 +290,11 @@ impl TetraEntityTrait for CmceBs {
                             );
                             return;
                         }
-                        if update.action == BrewSubscriberAction::Register && update.groups.is_empty() {
+                        // LST needs empty Register to attach the virtual operator before Affiliate.
+                        if !lst_active
+                            && update.action == BrewSubscriberAction::Register
+                            && update.groups.is_empty()
+                        {
                             tracing::trace!("CMCE: ignoring Brew presence-only register issi={}", update.issi);
                             return;
                         }
