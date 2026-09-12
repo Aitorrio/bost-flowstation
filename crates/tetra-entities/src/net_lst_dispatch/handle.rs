@@ -79,6 +79,8 @@ struct LstSharedInner {
     /// Downlink PCM chunks for the owning browser (PCM16 LE @ 8 kHz).
     dl_pcm: VecDeque<Vec<i16>>,
     positions: HashMap<u32, LstPosition>,
+    /// Dashboard WS fan-out (same list as DashboardServer::clients).
+    ws_clients: Option<Arc<Mutex<Vec<Sender<String>>>>>,
 }
 
 #[derive(Clone)]
@@ -106,14 +108,24 @@ impl LstDispatchHandle {
                 ul_pcm_rx,
                 dl_pcm: VecDeque::with_capacity(DL_PCM_CAP),
                 positions: HashMap::new(),
+                ws_clients: None,
             })),
         }
+    }
+
+    /// Wire dashboard WebSocket clients so status changes push `lst_status` immediately.
+    pub fn attach_ws_clients(&self, clients: Arc<Mutex<Vec<Sender<String>>>>) {
+        self.inner.lock().unwrap().ws_clients = Some(clients);
     }
 
     pub fn claim(&self, client_label: String) -> ClaimResult {
         let mut g = self.inner.lock().unwrap();
         let r = g.session.claim(client_label);
         g.refresh_busy();
+        let push = g.status_push_msg();
+        let clients = g.ws_clients.clone();
+        drop(g);
+        Self::fanout_status(clients, push);
         r
     }
 
@@ -121,6 +133,10 @@ impl LstDispatchHandle {
         let mut g = self.inner.lock().unwrap();
         let ok = g.session.heartbeat(token);
         g.refresh_busy();
+        let push = g.status_push_msg();
+        let clients = g.ws_clients.clone();
+        drop(g);
+        Self::fanout_status(clients, push);
         ok
     }
 
@@ -135,6 +151,10 @@ impl LstDispatchHandle {
             while g.ul_pcm_rx.try_recv().is_ok() {}
         }
         g.refresh_busy();
+        let push = g.status_push_msg();
+        let clients = g.ws_clients.clone();
+        drop(g);
+        Self::fanout_status(clients, push);
         ok
     }
 
@@ -145,24 +165,17 @@ impl LstDispatchHandle {
     pub fn status_json(&self) -> serde_json::Value {
         let mut g = self.inner.lock().unwrap();
         g.refresh_busy();
-        let s = &g.status;
-        serde_json::json!({
-            "enabled": s.enabled,
-            "session_busy": s.session_busy,
-            "session_holder": s.session_holder,
-            "operator_issi": s.operator_issi,
-            "active_gssi": s.active_gssi,
-            "ptt": s.ptt,
-            "call_kind": s.call_kind,
-            "call_peer": s.call_peer,
-            "media_ready": s.media_ready,
-            "codec_available": s.codec_available,
-            "last_error": s.last_error,
-            "call_phase": if s.call_phase.is_empty() { "idle" } else { s.call_phase.as_str() },
-            "disconnect_cause": s.disconnect_cause,
-            "call_started_ms": s.call_started_ms,
-            "heartbeat_secs": super::session::HEARTBEAT_HINT_SECS,
-        })
+        g.status_value()
+    }
+
+    fn fanout_status(clients: Option<Arc<Mutex<Vec<Sender<String>>>>>, msg: String) {
+        let Some(clients) = clients else {
+            return;
+        };
+        let Ok(mut list) = clients.lock() else {
+            return;
+        };
+        list.retain(|tx| tx.try_send(msg.clone()).is_ok());
     }
 
     pub fn positions_json(&self) -> serde_json::Value {
@@ -262,6 +275,10 @@ impl LstDispatchHandle {
         let mut g = self.inner.lock().unwrap();
         f(&mut g.status);
         g.refresh_busy();
+        let push = g.status_push_msg();
+        let clients = g.ws_clients.clone();
+        drop(g);
+        Self::fanout_status(clients, push);
     }
 
     pub fn push_dl_pcm(&self, pcm: Vec<i16>) {
@@ -289,5 +306,34 @@ impl LstSharedInner {
     fn refresh_busy(&mut self) {
         self.status.session_busy = self.session.has_owner();
         self.status.session_holder = self.session.busy_holder();
+    }
+
+    fn status_value(&self) -> serde_json::Value {
+        let s = &self.status;
+        serde_json::json!({
+            "enabled": s.enabled,
+            "session_busy": s.session_busy,
+            "session_holder": s.session_holder,
+            "operator_issi": s.operator_issi,
+            "active_gssi": s.active_gssi,
+            "ptt": s.ptt,
+            "call_kind": s.call_kind,
+            "call_peer": s.call_peer,
+            "media_ready": s.media_ready,
+            "codec_available": s.codec_available,
+            "last_error": s.last_error,
+            "call_phase": if s.call_phase.is_empty() { "idle" } else { s.call_phase.as_str() },
+            "disconnect_cause": s.disconnect_cause,
+            "call_started_ms": s.call_started_ms,
+            "heartbeat_secs": super::session::HEARTBEAT_HINT_SECS,
+        })
+    }
+
+    fn status_push_msg(&self) -> String {
+        let mut v = self.status_value();
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("type".into(), serde_json::json!("lst_status"));
+        }
+        v.to_string()
     }
 }

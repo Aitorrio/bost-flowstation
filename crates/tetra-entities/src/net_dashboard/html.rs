@@ -475,13 +475,39 @@ body{
   display:grid;grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));
   gap:14px;
 }
-.lst-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start;}
+.lst-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:stretch;}
+.lst-layout > .card{display:flex;flex-direction:column;min-height:420px;height:100%;}
+.lst-layout > .card > .card-body{flex:1;min-height:0;}
+.lst-roster-scroll{
+  padding:0;overflow:auto;flex:1;min-height:0;
+  scrollbar-width:thin;scrollbar-color:var(--border) transparent;
+}
+.lst-roster-scroll::-webkit-scrollbar{width:6px;height:6px;}
+.lst-roster-scroll::-webkit-scrollbar-track{background:transparent;}
+.lst-roster-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;}
 .lst-controls .field{margin-bottom:12px;}
 .lst-controls .row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.lst-scan-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+.lst-scan-chip{
+  display:inline-flex;align-items:center;gap:6px;padding:4px 8px;
+  border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:12px;
+  background:rgba(255,255,255,0.03);
+}
+.lst-scan-chip.is-tx{border-color:var(--accent);color:var(--accent);}
+.lst-scan-chip button{
+  border:none;background:transparent;color:var(--text3);cursor:pointer;padding:0 2px;font-size:14px;line-height:1;
+}
+.lst-scan-chip button:hover{color:var(--danger);}
+.lst-scan-hint{font-size:11px;color:var(--text3);margin:4px 0 10px;line-height:1.4;}
 .lst-ptt-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px;}
-.lst-ptt{min-height:56px;font-size:18px;font-weight:700;touch-action:none;user-select:none;}
-.lst-ptt.is-tx{background:var(--danger);color:#fff;}
-#lst-roster-table .row-actions{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end;}
+.lst-ptt{
+  min-height:64px;font-size:16px;font-weight:700;letter-spacing:0.06em;
+  touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+  border:1px solid var(--border);background:rgba(255,255,255,0.04);
+}
+.lst-ptt:active,.lst-ptt.is-tx{background:var(--danger);color:#fff;border-color:var(--danger);}
+.lst-ptt-hint{font-size:11px;color:var(--text3);}
+#lst-roster-table .row-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end;}
 #lst-roster-table .lst-act-btn{
   width:34px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;
 }
@@ -545,6 +571,7 @@ body{
 .lst-call-strip .lst-phone-fab svg{width:18px;height:18px;}
 @media(max-width:900px){
   .lst-layout{grid-template-columns:1fr;}
+  .lst-layout > .card{min-height:0;height:auto;}
   .lst-ptt{position:sticky;bottom:12px;z-index:5;}
 }
 .wifi-status-loading{
@@ -5523,10 +5550,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <div class="row-actions"><input type="number" id="lst-op-issi" min="1" max="16777214" style="flex:1">
                 <button class="btn btn-sm" onclick="lstSetIssi()" data-i18n="lst_apply_issi">Apply</button></div>
             </div>
-            <div class="field"><label class="form-label" data-i18n="lst_gssi">Talkgroup GSSI</label>
-              <div class="row-actions"><input type="number" id="lst-gssi" min="1" max="16777214" style="flex:1">
-                <button class="btn btn-sm" onclick="lstJoin()" data-i18n="lst_join">Join</button>
-                <button class="btn btn-sm" onclick="lstLeave()" data-i18n="lst_leave">Leave</button></div>
+            <div class="field">
+              <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
+              <div class="row-actions">
+                <input type="number" id="lst-scan-gssi" min="1" max="16777214" style="flex:1" placeholder="GSSI">
+                <button class="btn btn-sm" onclick="lstScanAdd()" data-i18n="lst_scan_add">Add</button>
+              </div>
+              <div class="lst-scan-list" id="lst-scan-list"></div>
+              <p class="lst-scan-hint" data-i18n="lst_scan_hint">Mark one TG as TX (transmit). Multi-TG listen comes in a later update.</p>
             </div>
             <div class="lst-call-strip" id="lst-call-strip">
               <div class="lst-call-strip-main" onclick="lstOpenStripModal()">
@@ -5537,7 +5568,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-strip-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up"><span data-icon="calls"></span></button>
             </div>
             <div class="lst-ptt-wrap">
-              <button class="btn lst-ptt" id="lst-ptt-btn" data-i18n="lst_ptt">PTT</button>
+              <button type="button" class="btn lst-ptt" id="lst-ptt-btn" data-i18n="lst_ptt">PTT</button>
+              <span class="lst-ptt-hint" data-i18n="lst_ptt_space">Spacebar = PTT on this page (when not typing).</span>
               <span id="lst-call-state" class="help-text" style="display:none">—</span>
             </div>
             <div class="field"><label class="form-label" data-i18n="lst_sds">SDS</label>
@@ -5553,10 +5585,17 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card">
           <div class="card-head"><div class="card-title" data-i18n="lst_roster">Radios online</div>
             <button class="btn btn-sm" onclick="lstRenderRoster()" data-i18n="wifi_refresh">Refresh</button></div>
-          <div class="card-body" style="padding:0;overflow:auto">
-            <table class="data-table" id="lst-roster-table"><thead><tr>
-              <th>ISSI</th><th data-i18n="lst_col_groups">Groups</th><th data-i18n="lst_col_pos">Position</th><th></th>
-            </tr></thead><tbody id="lst-roster-body"></tbody></table>
+          <div class="card-body lst-roster-scroll">
+            <div class="table-wrap">
+              <table class="data-table table-stack" id="lst-roster-table"><thead><tr>
+                <th data-i18n="th_issi_cs">ISSI / Callsign</th>
+                <th data-i18n="th_groups">Groups</th>
+                <th data-i18n="th_signal">Signal</th>
+                <th data-i18n="th_status">Status</th>
+                <th class="col-mobile-hide" data-i18n="th_last_seen">Last seen</th>
+                <th data-i18n="th_actions">Actions</th>
+              </tr></thead><tbody id="lst-roster-body"></tbody></table>
+            </div>
           </div>
         </div>
       </div>
@@ -6517,6 +6556,9 @@ const LANGS={
     lst_phase_failed:'Call failed',
     lst_cause_unreachable:'Unreachable',lst_cause_busy:'Busy',lst_cause_rejected:'Rejected',
     lst_cause_error:'Connection error',lst_cause_finished:'Finished',
+    lst_scan_list:'Scan list (TGs)',lst_scan_add:'Add',lst_scan_tx:'TX',lst_scan_remove:'Remove',
+    lst_scan_hint:'Mark one TG as TX (transmit). Multi-TG listen comes in a later update.',
+    lst_ptt_space:'Spacebar = PTT on this page (when not typing).',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
     cfg_sheet_busy:'Close the open profile sheet first.',
     cfg_editing:'Editing Cell “{cell}” · Brew “{brew}”. Change the forms below, then Update or Save as.',
@@ -6898,6 +6940,9 @@ const LANGS={
     lst_phase_failed:'Fallida',
     lst_cause_unreachable:'Inalcanzable',lst_cause_busy:'Ocupado',lst_cause_rejected:'Rechazada',
     lst_cause_error:'Error de conexión',lst_cause_finished:'Finalizada',
+    lst_scan_list:'Lista de escaneo (TGs)',lst_scan_add:'Añadir',lst_scan_tx:'TX',lst_scan_remove:'Quitar',
+    lst_scan_hint:'Marca un TG como TX (transmitir). La escucha multi-TG llega en una actualización posterior.',
+    lst_ptt_space:'Barra espaciadora = PTT en esta página (si no estás escribiendo).',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
     cfg_sheet_busy:'Cierra primero la hoja de perfil abierta.',
     cfg_editing:'Editando Cell “{cell}” · Brew “{brew}”. Cambia los formularios y pulsa Actualizar o Guardar como.',
@@ -6961,7 +7006,7 @@ const LANGS={
     fallback_help:'Repara el config.toml principal en Config (formularios, TOML en bruto o Restaurar .bak) y reinicia. El fichero .fallback no se actualiza solo.',
     sds_title:'⬡ Enviar Mensaje SDS',sds_dest:'ISSI Destino',
     sds_msg_label:'Mensaje',cancel:'Cancelar',confirm:'Confirmar',ok:'Aceptar',notice:'Aviso',action_failed:'Error',send:'Enviar',
-    th_issi:'ISSI',th_groups:'Grupos',th_ee:'Ahorro Energía',th_signal:'Señal',
+    th_issi:'ISSI',th_issi_cs:'ISSI / Indicativo',th_groups:'Grupos',th_ee:'Ahorro Energía',th_signal:'Señal',
     th_status:'Estado',th_last_seen:'Visto',th_actions:'Acciones',
     th_id:'ID',th_type:'Tipo',th_caller:'Llamante',
     th_dest:'Destino',th_speaker:'Hablante',th_duration:'Duración',
@@ -7509,7 +7554,69 @@ let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
 let lstCallPeer=0,lstCallTab='sx';
 let lstLastStatus=null,lstTimerFrozenSecs=null,lstTimerTick=null;
+let lstScanList=[],lstScanTx=0,lstSpaceBound=false,lstSpaceDown=false;
 const LST_FRAME_SAMPLES=480; // 60 ms @ 8 kHz = one TETRA ACELP block
+function lstScanStorageKey(){return 'fs_lst_scan_'+location.host;}
+function lstLoadScan(){
+  try{
+    const raw=localStorage.getItem(lstScanStorageKey());
+    if(!raw){lstScanList=[];lstScanTx=0;return;}
+    const j=JSON.parse(raw);
+    lstScanList=Array.isArray(j.list)?j.list.map(Number).filter(n=>n>0):[];
+    lstScanTx=Number(j.tx)||0;
+    if(lstScanTx&&!lstScanList.includes(lstScanTx))lstScanList.push(lstScanTx);
+  }catch(_){lstScanList=[];lstScanTx=0;}
+}
+function lstSaveScan(){
+  try{localStorage.setItem(lstScanStorageKey(),JSON.stringify({list:lstScanList,tx:lstScanTx}));}catch(_){}
+}
+function lstRenderScan(){
+  const el=document.getElementById('lst-scan-list');
+  if(!el)return;
+  if(!lstScanList.length){el.innerHTML='<span class="muted">—</span>';return;}
+  el.innerHTML=lstScanList.map(g=>{
+    const isTx=g===lstScanTx;
+    return '<span class="lst-scan-chip'+(isTx?' is-tx':'')+'">'+
+      '<button type="button" class="lst-scan-tx" data-gssi="'+g+'" title="'+t('lst_scan_tx')+'">'+(isTx?'●':'○')+'</button>'+
+      '<span>'+g+(isTx?' · TX':'')+'</span>'+
+      '<button type="button" data-rm="'+g+'" title="'+t('lst_scan_remove')+'">×</button></span>';
+  }).join('');
+  el.querySelectorAll('button.lst-scan-tx').forEach(b=>{
+    b.onclick=()=>lstScanSetTx(Number(b.dataset.gssi));
+  });
+  el.querySelectorAll('button[data-rm]').forEach(b=>{
+    b.onclick=()=>lstScanRemove(Number(b.dataset.rm));
+  });
+}
+function lstScanAdd(){
+  const inp=document.getElementById('lst-scan-gssi');
+  const gssi=Number(inp?.value||0);
+  if(!gssi||gssi>16777214)return;
+  if(!lstScanList.includes(gssi))lstScanList.push(gssi);
+  if(!lstScanTx)lstScanSetTx(gssi);
+  else{lstSaveScan();lstRenderScan();}
+  if(inp)inp.value='';
+}
+function lstScanRemove(gssi){
+  lstScanList=lstScanList.filter(g=>g!==gssi);
+  if(lstScanTx===gssi){
+    lstScanTx=lstScanList[0]||0;
+    if(lstScanTx&&lstToken)lstJoinGssi(lstScanTx);
+    else if(!lstScanTx&&lstToken)lstLeave();
+  }
+  lstSaveScan();lstRenderScan();
+}
+function lstScanSetTx(gssi){
+  if(!gssi)return;
+  if(!lstScanList.includes(gssi))lstScanList.push(gssi);
+  lstScanTx=gssi;
+  lstSaveScan();lstRenderScan();
+  if(lstToken)lstJoinGssi(gssi);
+}
+function lstJoinGssi(gssi){
+  if(!lstToken||!gssi)return;
+  wsSend({type:'lst_join',token:lstToken,gssi});
+}
 function lstSetAudioHint(msg,show){
   const el=document.getElementById('lst-audio-hint');
   if(!el)return;
@@ -7517,8 +7624,23 @@ function lstSetAudioHint(msg,show){
   el.style.display='';
   el.textContent=msg;
 }
+function lstSetFastPoll(on){
+  if(!lstToken)return;
+  if(lstStatusTimer)clearInterval(lstStatusTimer);
+  lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},on?1000:4000);
+}
+function lstOptimisticStatus(patch){
+  const base=Object.assign({},lstLastStatus||{enabled:true,call_phase:'idle'});
+  Object.assign(base,patch);
+  lstLastStatus=base;
+  lstUpdateCallUi(base);
+  lstSetFastPoll(true);
+}
 async function lstPageEnter(){
+  lstLoadScan();
+  lstRenderScan();
   lstBindPtt();
+  lstBindSpacePtt();
   await lstRefreshStatus();
   lstRenderRoster();
   if(!lstToken)lstSetAudioHint(t('lst_audio_need_claim'),true);
@@ -7547,70 +7669,70 @@ async function lstRefreshStatus(){
     const r=await fetch('/api/lst/status',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok){lstSetAudioHint('BS sin respuesta ('+r.status+')',true);return;}
     const j=await r.json();
-    const inactive=document.getElementById('lst-inactive-banner');
-    const busy=document.getElementById('lst-busy-banner');
-    const cons=document.getElementById('lst-console');
-    if(!j.enabled){
-      if(inactive)inactive.style.display='';
-      if(busy)busy.style.display='none';
-      if(cons)cons.style.display='none';
-      return;
-    }
-    if(inactive)inactive.style.display='none';
-    if(cons)cons.style.display='';
-    const op=document.getElementById('lst-op-issi');
-    if(op&&!op.dataset.touched)op.value=j.operator_issi||'';
-    const codecHint=document.getElementById('lst-codec-hint');
-    if(codecHint)codecHint.style.display=j.codec_available?'none':'';
-    const installBtn=document.getElementById('lst-install-voice-btn');
-    if(installBtn)installBtn.style.display=j.codec_available?'none':'inline-block';
-    const httpsBtn=document.getElementById('lst-https-btn');
-    if(httpsBtn){
-      const needHttps=!window.isSecureContext;
-      httpsBtn.style.display=needHttps?'inline-block':'none';
-      if(needHttps&&!lstAudioReady)lstSetAudioHint(t('lst_https_need'),true);
-    }
-    lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
-    if(!j.ptt)lstPttDown=false;
-    const phase=j.call_phase||'idle';
-    const privateActive=phase!=='idle'&&(j.call_kind==='simplex'||j.call_kind==='duplex'||phase==='ended'||phase==='failed');
-    // Faster poll while private phase is active (incl. terminal hold).
-    if(lstStatusTimer&&lstToken&&privateActive){
-      clearInterval(lstStatusTimer);
-      lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},1000);
-    }else if(lstStatusTimer&&lstToken&&!privateActive){
-      clearInterval(lstStatusTimer);
-      lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},5000);
-    }
-    const iOwn=!!lstToken;
-    const claimBtn=document.getElementById('lst-claim-btn');
-    const relBtn=document.getElementById('lst-release-btn');
-    if(j.session_busy&&!iOwn){
-      if(busy){busy.style.display='';const h=document.getElementById('lst-busy-holder');if(h)h.textContent=j.session_holder||'—';}
-      if(claimBtn)claimBtn.style.display='none';
-      if(relBtn)relBtn.style.display='none';
-      lstSetOwned(false);
-    }else{
-      if(busy)busy.style.display='none';
-      if(claimBtn)claimBtn.style.display=iOwn?'none':'';
-      if(relBtn)relBtn.style.display=iOwn?'':'none';
-      lstSetOwned(iOwn);
-    }
-    if(!iOwn)lstSetAudioHint(t('lst_audio_need_claim'),true);
-    else if(lstAudioReady)lstSetAudioHint(t('lst_audio_ok'),true);
-    lstLastStatus=j;
-    lstUpdateCallUi(j);
-    const pttMain=document.getElementById('lst-ptt-btn');
-    const pttModal=document.getElementById('lst-call-ptt-btn');
-    if(pttMain)pttMain.classList.toggle('is-tx',!!lstPttDown);
-    if(pttModal)pttModal.classList.toggle('is-tx',!!lstPttDown);
+    lstApplyStatusPayload(j);
     try{
       const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
       const arr=await pr.json();
       lstPositions={};
       (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
+      if(document.getElementById('page-lst_dispatch')?.classList.contains('active'))lstRenderRoster();
     }catch(_){}
   }catch(e){console.warn('lst status',e);lstSetAudioHint('Sin conexión con BS',true);}
+}
+function lstApplyStatusPayload(j){
+  if(!j||typeof j!=='object')return;
+  const inactive=document.getElementById('lst-inactive-banner');
+  const busy=document.getElementById('lst-busy-banner');
+  const cons=document.getElementById('lst-console');
+  if(j.enabled===false){
+    if(inactive)inactive.style.display='';
+    if(busy)busy.style.display='none';
+    if(cons)cons.style.display='none';
+    return;
+  }
+  if(inactive)inactive.style.display='none';
+  if(cons)cons.style.display='';
+  const op=document.getElementById('lst-op-issi');
+  if(op&&!op.dataset.touched&&j.operator_issi!=null)op.value=j.operator_issi||'';
+  const codecHint=document.getElementById('lst-codec-hint');
+  if(codecHint)codecHint.style.display=j.codec_available?'none':'';
+  const installBtn=document.getElementById('lst-install-voice-btn');
+  if(installBtn)installBtn.style.display=j.codec_available?'none':'inline-block';
+  const httpsBtn=document.getElementById('lst-https-btn');
+  if(httpsBtn){
+    const needHttps=!window.isSecureContext;
+    httpsBtn.style.display=needHttps?'inline-block':'none';
+    if(needHttps&&!lstAudioReady)lstSetAudioHint(t('lst_https_need'),true);
+  }
+  lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
+  if(!j.ptt&&!lstSpaceDown)lstPttDown=false;
+  const phase=j.call_phase||'idle';
+  const privateActive=phase!=='idle';
+  if(lstToken)lstSetFastPoll(privateActive);
+  // Sync scan TX chip from server active_gssi when known.
+  if(j.active_gssi&&j.call_kind==='group'){
+    if(!lstScanList.includes(j.active_gssi)){lstScanList.push(j.active_gssi);lstSaveScan();}
+    if(lstScanTx!==j.active_gssi){lstScanTx=j.active_gssi;lstSaveScan();lstRenderScan();}
+  }
+  const iOwn=!!lstToken;
+  const claimBtn=document.getElementById('lst-claim-btn');
+  const relBtn=document.getElementById('lst-release-btn');
+  if(j.session_busy&&!iOwn){
+    if(busy){busy.style.display='';const h=document.getElementById('lst-busy-holder');if(h)h.textContent=j.session_holder||'—';}
+    if(claimBtn)claimBtn.style.display='none';
+    if(relBtn)relBtn.style.display='none';
+    lstSetOwned(false);
+  }else{
+    if(busy)busy.style.display='none';
+    if(claimBtn)claimBtn.style.display=iOwn?'none':'';
+    if(relBtn)relBtn.style.display=iOwn?'':'none';
+    lstSetOwned(iOwn);
+  }
+  if(!iOwn)lstSetAudioHint(t('lst_audio_need_claim'),true);
+  else if(lstAudioReady)lstSetAudioHint(t('lst_audio_ok'),true);
+  lstLastStatus=j;
+  lstUpdateCallUi(j);
+  lstSyncPttUi();
 }
 function lstPhaseLabel(phase){
   const key='lst_phase_'+(phase||'idle');
@@ -7739,7 +7861,7 @@ function lstUpdateCallUi(j){
   }
 }
 function lstSetOwned(on){
-  const ids=['lst-op-issi','lst-gssi','lst-ptt-btn','lst-sds-text'];
+  const ids=['lst-op-issi','lst-scan-gssi','lst-ptt-btn','lst-sds-text','lst-call-ptt-btn'];
   ids.forEach(id=>{const el=document.getElementById(id);if(el)el.disabled=!on;});
 }
 async function lstClaim(){
@@ -7749,9 +7871,9 @@ async function lstClaim(){
   lstToken=j.token;
   if(lstHbTimer)clearInterval(lstHbTimer);
   lstHbTimer=setInterval(()=>{if(lstToken)wsSend({type:'lst_heartbeat',token:lstToken});},8000);
-  if(lstStatusTimer)clearInterval(lstStatusTimer);
-  lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},5000);
+  lstSetFastPoll(false);
   await lstStartAudio();
+  if(lstScanTx)lstJoinGssi(lstScanTx);
   await lstRefreshStatus();
 }
 async function lstRelease(){
@@ -7769,17 +7891,42 @@ function lstSetIssi(){
   if(!lstToken||!issi)return;
   document.getElementById('lst-op-issi').dataset.touched='1';
   wsSend({type:'lst_set_issi',token:lstToken,issi});
+  lstRefreshStatus();
 }
 function lstJoin(){
-  const gssi=Number(document.getElementById('lst-gssi')?.value||0);
+  const gssi=lstScanTx||Number(document.getElementById('lst-scan-gssi')?.value||0);
   if(!lstToken||!gssi)return;
-  wsSend({type:'lst_join',token:lstToken,gssi});
+  lstScanSetTx(gssi);
 }
-function lstLeave(){if(lstToken)wsSend({type:'lst_leave',token:lstToken});}
-function lstHangup(){if(lstToken)wsSend({type:'lst_hangup',token:lstToken});}
+function lstLeave(){if(lstToken){wsSend({type:'lst_leave',token:lstToken});lstRefreshStatus();}}
+function lstHangup(){
+  if(!lstToken)return;
+  lstOptimisticStatus({
+    call_phase:'ended',
+    disconnect_cause:1,
+    media_ready:false,
+    ptt:false,
+    call_kind:lstLastStatus&&lstLastStatus.call_kind?lstLastStatus.call_kind:(lstCallTab==='dx'?'duplex':'simplex'),
+    call_peer:lstCallPeer||(lstLastStatus&&lstLastStatus.call_peer)||null
+  });
+  wsSend({type:'lst_hangup',token:lstToken});
+  lstRefreshStatus();
+}
 function lstPrivate(issi,duplex){
   if(!lstToken||!issi)return;
+  lstCallPeer=issi;
+  lstOptimisticStatus({
+    call_phase:'dialing',
+    call_kind:duplex?'duplex':'simplex',
+    call_peer:issi,
+    media_ready:false,
+    ptt:false,
+    disconnect_cause:null,
+    call_started_ms:null,
+    last_error:null
+  });
   wsSend({type:'lst_private',token:lstToken,issi,duplex:!!duplex});
+  lstRefreshStatus();
 }
 function lstOpenSds(issi){
   openSds(issi);
@@ -7831,22 +7978,45 @@ function lstCallDialActive(){
 }
 function lstSendSds(){
   const text=document.getElementById('lst-sds-text')?.value||'';
-  const gssi=Number(document.getElementById('lst-gssi')?.value||0);
+  const gssi=lstScanTx||0;
   const op=Number(document.getElementById('lst-op-issi')?.value||0);
   const dest=gssi||op;
   if(!text||!dest||!op)return;
   wsSend({type:'sds',dest_issi:dest,source_issi:op,dest_is_group:!!gssi,message:text});
 }
-function lstBindPtt(){
-  const btn=document.getElementById('lst-ptt-btn');
+function lstPttDownEvt(e){
+  if(e){e.preventDefault();if(e.button!=null&&e.button!==0)return;}
+  if(!lstToken)return;
+  lstPttDown=true;lstSyncPttUi();
+  wsSend({type:'lst_ptt',token:lstToken,down:true});
+}
+function lstPttUpEvt(e){
+  if(e)e.preventDefault();
+  if(!lstToken)return;
+  lstPttDown=false;lstSpaceDown=false;lstSyncPttUi();
+  wsSend({type:'lst_ptt',token:lstToken,down:false});
+}
+function lstBindPttButton(btn){
   if(!btn||btn.dataset.bound)return;
   btn.dataset.bound='1';
-  const down=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=true;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:true});};
-  const up=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=false;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:false});};
+  const down=e=>{
+    e.preventDefault();
+    try{btn.setPointerCapture(e.pointerId);}catch(_){}
+    lstPttDownEvt(e);
+  };
+  const up=e=>{
+    e.preventDefault();
+    try{if(btn.hasPointerCapture&&btn.hasPointerCapture(e.pointerId))btn.releasePointerCapture(e.pointerId);}catch(_){}
+    lstPttUpEvt(e);
+  };
   btn.addEventListener('pointerdown',down);
   btn.addEventListener('pointerup',up);
   btn.addEventListener('pointercancel',up);
-  btn.addEventListener('pointerleave',up);
+  btn.addEventListener('lostpointercapture',up);
+  btn.addEventListener('contextmenu',ev=>ev.preventDefault());
+}
+function lstBindPtt(){
+  lstBindPttButton(document.getElementById('lst-ptt-btn'));
 }
 function lstSyncPttUi(){
   ['lst-ptt-btn','lst-call-ptt-btn'].forEach(id=>{
@@ -7855,15 +8025,32 @@ function lstSyncPttUi(){
   });
 }
 function lstBindCallModalPtt(){
-  const btn=document.getElementById('lst-call-ptt-btn');
-  if(!btn||btn.dataset.bound)return;
-  btn.dataset.bound='1';
-  const down=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=true;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:true});};
-  const up=e=>{e.preventDefault();if(!lstToken)return;lstPttDown=false;lstSyncPttUi();wsSend({type:'lst_ptt',token:lstToken,down:false});};
-  btn.addEventListener('pointerdown',down);
-  btn.addEventListener('pointerup',up);
-  btn.addEventListener('pointercancel',up);
-  btn.addEventListener('pointerleave',up);
+  lstBindPttButton(document.getElementById('lst-call-ptt-btn'));
+}
+function lstBindSpacePtt(){
+  if(lstSpaceBound)return;
+  lstSpaceBound=true;
+  const isTyping=el=>{
+    if(!el)return false;
+    const tag=(el.tagName||'').toLowerCase();
+    return tag==='input'||tag==='textarea'||tag==='select'||el.isContentEditable;
+  };
+  window.addEventListener('keydown',e=>{
+    if(e.code!=='Space'&&e.key!==' ')return;
+    const page=document.getElementById('page-lst_dispatch');
+    if(!page||!page.classList.contains('active'))return;
+    if(isTyping(document.activeElement))return;
+    if(e.repeat){e.preventDefault();return;}
+    e.preventDefault();
+    lstSpaceDown=true;
+    lstPttDownEvt(e);
+  });
+  window.addEventListener('keyup',e=>{
+    if(e.code!=='Space'&&e.key!==' ')return;
+    if(!lstSpaceDown&&!lstPttDown)return;
+    e.preventDefault();
+    lstPttUpEvt(e);
+  });
 }
 function lstResampleTo8k(input,nativeRate){
   const TARGET=8000;
@@ -8022,24 +8209,50 @@ function lstRenderRoster(){
   const ms=(typeof state!=='undefined'&&state.ms)?state.ms:{};
   const rows=Object.values(ms).filter(m=>m&&m.issi);
   tb.innerHTML='';
-  if(!rows.length){tb.innerHTML='<tr><td colspan="4" class="muted">—</td></tr>';return;}
-  const sdsTitle=t('lst_roster_sds');
+  if(!rows.length){
+    tb.innerHTML='<tr><td colspan="6"><div class="empty-state"><span class="empty-ico">'+(typeof svgIcon==='function'?svgIcon('radios'):'')+'</span><div class="empty-msg">'+(t('no_terminals')||'—')+'</div></div></td></tr>';
+    return;
+  }
+  const sdsTitle=t('lst_roster_sds')||t('sds');
   const callTitle=t('lst_roster_call');
+  const dgnaTitle=t('dgna_title')||t('dgna');
   rows.sort((a,b)=>a.issi-b.issi).forEach(m=>{
-    const groups=(m.groups||m.group_catalog||[]).map(g=>g.gssi||g).filter(Boolean).join(', ')||'—';
-    const pos=lstPositions[m.issi];
-    const posTxt=pos?(pos.lat.toFixed(5)+', '+pos.lon.toFixed(5)):t('lst_pos_none');
+    const r=m.rssi_dbfs,rL=r!=null?`${Number(r).toFixed(1)} dBFS`:'—',pct=typeof rssiPct==='function'?rssiPct(r):0,gcls=typeof rssiGaugeClass==='function'?rssiGaugeClass(r):'';
+    const gl=m.groups||[],sel=m.selected_group;
+    const gBadge=g=>g===sel
+      ?`<span class="badge badge-blue" style="font-weight:700;font-size:9px"><span class="tg-marker">${typeof ICON_MARKER!=='undefined'?ICON_MARKER:''}</span>${g}</span>`
+      :`<span class="badge badge-dim" style="font-size:9px">${g}</span>`;
+    let grps;
+    if(gl.length>1){
+      const others=sel!=null?gl.filter(g=>g!==sel).length:gl.length;
+      const extra=`<span class="badge badge-dim" style="font-size:9px;margin-right:4px">+${others} ${t('tg_affiliated_short')||'aff'}</span>`;
+      grps=extra+gl.slice().sort((a,b)=>(b===sel)-(a===sel)||a-b).map(gBadge).join(' ');
+    }else if(gl.length===1)grps=`<span class="badge badge-blue">${gl[0]}</span>`;
+    else grps='<span class="badge badge-dim">—</span>';
+    const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
+    const emg=!!(state.emergencies&&state.emergencies[m.issi]);
     const tr=document.createElement('tr');
-    tr.innerHTML='<td class="num">'+m.issi+'</td><td class="num">'+groups+'</td><td class="num">'+posTxt+'</td><td class="row-actions">'+
-      '<button type="button" class="btn btn-sm lst-act-btn" data-issi="'+m.issi+'" data-act="sds" title="'+sdsTitle+'" aria-label="'+sdsTitle+'"><span class="btn-icon" data-icon="sdslog"></span></button>'+
-      '<button type="button" class="btn btn-sm lst-act-btn" data-issi="'+m.issi+'" data-act="call" title="'+callTitle+'" aria-label="'+callTitle+'"><span class="btn-icon" data-icon="calls"></span></button></td>';
+    if(emg)tr.className='row-emergency';
+    tr.innerHTML=
+      `<td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${typeof idCell==='function'?idCell(m.issi):('<code>'+m.issi+'</code>')}</td>`+
+      `<td>${grps}</td>`+
+      `<td><div class="gauge ${gcls}"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%"></div></div><span class="gauge-value">${rL}</span></div></td>`+
+      `<td><span class="pill pill-ok">${t('online_badge')}</span></td>`+
+      `<td class="col-mobile-hide">${typeof lastSeenLabel==='function'?lastSeenLabel(ls):'—'}</td>`+
+      `<td class="row-actions">`+
+        `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="sds" title="${sdsTitle}" aria-label="${sdsTitle}"><span class="btn-icon" data-icon="sdslog"></span></button>`+
+        `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="dgna" title="${dgnaTitle}" aria-label="${dgnaTitle}"><span class="btn-icon" data-icon="dgna"></span></button>`+
+        `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="call" title="${callTitle}" aria-label="${callTitle}"><span class="btn-icon" data-icon="calls"></span></button>`+
+      `</td>`;
     tb.appendChild(tr);
   });
+  if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
   if(typeof paintIcons==='function')paintIcons(tb);
   tb.querySelectorAll('button[data-act]').forEach(btn=>{
     btn.onclick=()=>{
       const issi=Number(btn.dataset.issi);
       if(btn.dataset.act==='sds')lstOpenSds(issi);
+      else if(btn.dataset.act==='dgna')openDgna(issi);
       else if(btn.dataset.act==='call')openLstCallModal(issi);
     };
   });
@@ -8650,6 +8863,9 @@ function handleMsg(msg){
       delete state.emergencies[msg.issi];
       renderEmergencyBanner();renderStations();break;
     case 'health':handleHealth(msg);break;
+    case 'lst_status':
+      lstApplyStatusPayload(msg);
+      break;
   }
 }
 
@@ -9248,6 +9464,7 @@ function renderStations(){
     </tr>`;
   }).join('');
   applyTableStackLabels(tb);
+  if(document.getElementById('page-lst_dispatch')?.classList.contains('active')&&typeof lstRenderRoster==='function')lstRenderRoster();
 }
 
 function renderCalls(){

@@ -1679,6 +1679,7 @@ impl DashboardServer {
     }
 
     pub fn set_lst_handle(&mut self, handle: crate::net_lst_dispatch::LstDispatchHandle) {
+        handle.attach_ws_clients(self.clients.clone());
         self.lst_handle = Some(handle);
     }
 
