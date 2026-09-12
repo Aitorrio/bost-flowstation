@@ -4467,7 +4467,8 @@ fn handle_ws_command(
             }
         }
         Some("lst_heartbeat") | Some("lst_join") | Some("lst_leave") | Some("lst_ptt")
-        | Some("lst_private") | Some("lst_hangup") | Some("lst_set_issi") | Some("lst_ul_pcm") => {
+        | Some("lst_private") | Some("lst_answer") | Some("lst_hangup") | Some("lst_set_issi")
+        | Some("lst_ul_pcm") => {
             let Some(h) = lst_handle else {
                 return;
             };
@@ -4500,6 +4501,9 @@ fn handle_ws_command(
                         let duplex = v.get("duplex").and_then(|d| d.as_bool()).unwrap_or(false);
                         let _ = h.push_cmd(token, LstUiCommand::PrivateCall { dest_issi, duplex });
                     }
+                }
+                Some("lst_answer") => {
+                    let _ = h.push_cmd(token, LstUiCommand::Answer);
                 }
                 Some("lst_hangup") => {
                     let _ = h.push_cmd(token, LstUiCommand::Hangup);

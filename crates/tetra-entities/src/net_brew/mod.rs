@@ -16,7 +16,10 @@ pub use components::brew_routable::is_brew_external_subscriber_allowed;
 pub use components::brew_routable::is_brew_gssi_routable;
 pub use components::brew_routable::is_brew_inbound_allowed;
 pub use components::brew_routable::is_brew_issi_routable;
+pub use components::brew_routable::is_lst_dispatch_active;
+pub use components::brew_routable::is_lst_operator_issi;
 pub use components::brew_routable::is_network_group_inbound_allowed;
+pub use components::brew_routable::lst_operator_issi;
 
 use std::time::Duration;
 

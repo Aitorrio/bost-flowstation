@@ -16,6 +16,7 @@ use tetra_saps::{
     control::call_control::{CallControl, NetworkCircuitCall},
     tmd::TmdCircuitDataReq,
 };
+use tetra_pdus::cmce::enums::disconnect_cause::DisconnectCause;
 
 use super::handle::{LstDispatchHandle, LstUiCommand, epoch_ms};
 use super::media::LstCodec;
@@ -45,6 +46,10 @@ struct ActivePrivate {
     carrier_num: Option<u16>,
     ts: Option<u8>,
     ptt: bool,
+    /// Radio → dispatcher (LST is the called party).
+    inbound: bool,
+    /// Cached circuit call for ConnectRequest on Answer.
+    network_call: Option<NetworkCircuitCall>,
 }
 
 pub struct LstDispatchEntity {
@@ -114,6 +119,7 @@ impl LstDispatchEntity {
                 LstUiCommand::PrivateCall { dest_issi, duplex } => {
                     self.start_private(queue, dest_issi, duplex);
                 }
+                LstUiCommand::Answer => self.answer_inbound(queue),
                 LstUiCommand::Hangup => {
                     self.hangup_private(queue);
                     // Also cease group TX if holding PTT.
@@ -341,10 +347,13 @@ impl LstDispatchEntity {
             carrier_num: None,
             ts: None,
             ptt: false,
+            inbound: false,
+            network_call: None,
         });
         self.handle.set_status(|s| {
             s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
             s.call_peer = Some(dest);
+            s.call_inbound = false;
             s.media_ready = false;
             s.ptt = false;
             s.call_phase = "dialing".into();
@@ -376,6 +385,7 @@ impl LstDispatchEntity {
             self.handle.set_status(|s| {
                 s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
                 s.call_peer = Some(dest);
+                s.call_inbound = false;
                 s.ptt = false;
                 s.media_ready = false;
                 s.call_phase = "ended".into();
@@ -392,6 +402,7 @@ impl LstDispatchEntity {
         self.handle.set_status(|s| {
             s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
             s.call_peer = Some(dest);
+            s.call_inbound = false;
             s.ptt = false;
             s.media_ready = false;
             s.call_phase = "failed".into();
@@ -407,12 +418,113 @@ impl LstDispatchEntity {
         self.handle.set_status(|s| {
             s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
             s.call_peer = Some(dest);
+            s.call_inbound = false;
             s.ptt = false;
             s.media_ready = false;
             s.call_phase = "ended".into();
             s.disconnect_cause = Some(cause);
             s.last_error = None;
         });
+    }
+
+    fn on_inbound_setup(&mut self, queue: &mut MessageQueue, brew_uuid: Uuid, call: NetworkCircuitCall) {
+        if call.destination != 0 && call.destination != self.operator_issi {
+            tracing::info!(
+                "LST: rejecting SetupRequest uuid={} dst={} (operator is {})",
+                brew_uuid,
+                call.destination,
+                self.operator_issi
+            );
+            self.push_cc(
+                queue,
+                CallControl::NetworkCircuitSetupReject {
+                    brew_uuid,
+                    cause: DisconnectCause::CalledPartyNotReachable.into_raw() as u8,
+                },
+            );
+            return;
+        }
+        if self.private.is_some() {
+            self.push_cc(
+                queue,
+                CallControl::NetworkCircuitSetupReject {
+                    brew_uuid,
+                    cause: DisconnectCause::CalledPartyBusy.into_raw() as u8,
+                },
+            );
+            return;
+        }
+        if !self.handle.has_session_owner() {
+            self.push_cc(
+                queue,
+                CallControl::NetworkCircuitSetupReject {
+                    brew_uuid,
+                    cause: DisconnectCause::CalledPartyNotReachable.into_raw() as u8,
+                },
+            );
+            return;
+        }
+        let duplex = call.duplex != 0;
+        let peer = call.source_issi;
+        self.terminal_clear_at = None;
+        self.private = Some(ActivePrivate {
+            uuid: brew_uuid,
+            dest: peer,
+            duplex,
+            call_id: None,
+            carrier_num: None,
+            ts: None,
+            ptt: false,
+            inbound: true,
+            network_call: Some(call),
+        });
+        self.push_cc(
+            queue,
+            CallControl::NetworkCircuitSetupAccept { brew_uuid },
+        );
+        self.push_cc(
+            queue,
+            CallControl::NetworkCircuitAlert { brew_uuid },
+        );
+        self.handle.set_status(|s| {
+            s.call_kind = Some(if duplex { "duplex" } else { "simplex" }.into());
+            s.call_peer = Some(peer);
+            s.call_inbound = true;
+            s.media_ready = false;
+            s.ptt = false;
+            s.call_phase = "ringing".into();
+            s.disconnect_cause = None;
+            s.call_started_ms = None;
+            s.last_error = None;
+        });
+        tracing::info!(
+            "LST: inbound private ringing from {} duplex={}",
+            peer,
+            duplex
+        );
+    }
+
+    fn answer_inbound(&mut self, queue: &mut MessageQueue) {
+        let Some(p) = self.private.as_ref().filter(|p| p.inbound) else {
+            return;
+        };
+        let brew_uuid = p.uuid;
+        let mut call = p
+            .network_call
+            .clone()
+            .unwrap_or_else(|| make_circuit_call(p.dest, self.operator_issi, p.duplex));
+        call.destination = self.operator_issi;
+        call.grant = 0;
+        call.permission = 0;
+        self.push_cc(
+            queue,
+            CallControl::NetworkCircuitConnectRequest { brew_uuid, call },
+        );
+        self.handle.set_status(|s| {
+            s.call_phase = "answering".into();
+            s.last_error = None;
+        });
+        tracing::info!("LST: answering inbound private uuid={}", brew_uuid);
     }
 
     fn clear_terminal_hold(&mut self) {
@@ -598,6 +710,9 @@ impl TetraEntityTrait for LstDispatchEntity {
                         s.last_error = None;
                     });
                 }
+            }
+            SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupRequest { brew_uuid, call }) => {
+                self.on_inbound_setup(queue, brew_uuid, call);
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupAccept { brew_uuid }) => {
                 if self.private.as_ref().is_some_and(|p| p.uuid == brew_uuid) {

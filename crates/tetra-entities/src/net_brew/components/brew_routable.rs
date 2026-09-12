@@ -91,6 +91,34 @@ pub fn is_network_group_inbound_allowed(config: &SharedConfig, ssi: u32) -> bool
         .is_some_and(|l| l.enabled)
 }
 
+/// True when LST Dispatch occupies the Brew entity slot (no real Brew config).
+#[inline]
+pub fn is_lst_dispatch_active(config: &SharedConfig) -> bool {
+    !is_active(config)
+        && config
+            .config()
+            .lst_dispatch
+            .as_ref()
+            .is_some_and(|l| l.enabled)
+}
+
+/// Configured dispatcher ISSI when LST Dispatch is enabled.
+#[inline]
+pub fn lst_operator_issi(config: &SharedConfig) -> Option<u32> {
+    config
+        .config()
+        .lst_dispatch
+        .as_ref()
+        .filter(|l| l.enabled)
+        .map(|l| l.operator_issi)
+}
+
+/// True when `issi` is the LST dispatcher identity (radio → console private call target).
+#[inline]
+pub fn is_lst_operator_issi(config: &SharedConfig, issi: u32) -> bool {
+    lst_operator_issi(config).is_some_and(|op| op == issi)
+}
+
 /// Determine whether Brew-originated external subscriber state may be mirrored into CMCE.
 ///
 /// Subscriber events for a local-only SSI are looped-back state, not external listeners.

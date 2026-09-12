@@ -834,7 +834,9 @@ impl CcBsSubentity {
         #[cfg(not(feature = "asterisk"))]
         let network_entity = TetraEntity::Brew;
 
-        if network_entity == TetraEntity::Brew && !brew::is_active(&self.config) {
+        let lst_active = brew::is_lst_dispatch_active(&self.config);
+
+        if network_entity == TetraEntity::Brew && !brew::is_active(&self.config) && !lst_active {
             tracing::info!(
                 "CMCE: rejecting U-SETUP P2P from ISSI {} (Brew disabled, called_ssi={})",
                 calling_party.ssi,
@@ -864,7 +866,8 @@ impl CcBsSubentity {
 
         // The backhaul-connected and ISSI-routability gates are Brew-specific (they check the
         // Brew websocket state and the Brew ISSI whitelist). Asterisk-bridged calls bypass them.
-        if network_entity == TetraEntity::Brew && !self.config.state_read().network_connected {
+        // LST Dispatch answers cell-local privates without a Brew backhaul.
+        if network_entity == TetraEntity::Brew && !lst_active && !self.config.state_read().network_connected {
             tracing::info!(
                 "CMCE: rejecting U-SETUP over Brew src={} dst={} (backhaul disconnected)",
                 calling_party.ssi,
@@ -880,7 +883,10 @@ impl CcBsSubentity {
             return;
         }
 
-        if network_entity == TetraEntity::Brew && !brew::is_brew_issi_routable(&self.config, calling_party.ssi) {
+        if network_entity == TetraEntity::Brew
+            && !lst_active
+            && !brew::is_brew_issi_routable(&self.config, calling_party.ssi)
+        {
             tracing::info!(
                 "CMCE: rejecting U-SETUP P2P over Brew src={} dst={} (source ISSI not routable)",
                 calling_party.ssi,
@@ -899,6 +905,7 @@ impl CcBsSubentity {
         let has_external_called_party = Self::has_external_called_party(pdu, &network_call);
         let destination_routable = network_entity == TetraEntity::Asterisk
             || network_call.destination == 0
+            || lst_active
             || brew::is_brew_issi_routable(&self.config, network_call.destination);
 
         if !has_external_called_party && !destination_routable {

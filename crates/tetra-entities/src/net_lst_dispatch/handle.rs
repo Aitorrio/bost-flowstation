@@ -22,6 +22,7 @@ pub enum LstUiCommand {
     LeaveGroup,
     Ptt { down: bool },
     PrivateCall { dest_issi: u32, duplex: bool },
+    Answer,
     Hangup,
 }
 
@@ -35,6 +36,8 @@ pub struct LstRuntimeStatus {
     pub ptt: bool,
     pub call_kind: Option<String>,
     pub call_peer: Option<u32>,
+    /// True when the radio dialed the dispatcher (inbound private).
+    pub call_inbound: bool,
     pub media_ready: bool,
     pub codec_available: bool,
     pub last_error: Option<String>,
@@ -51,6 +54,7 @@ impl LstRuntimeStatus {
         self.disconnect_cause = None;
         self.call_started_ms = None;
         self.media_ready = false;
+        self.call_inbound = false;
     }
 }
 
@@ -160,6 +164,10 @@ impl LstDispatchHandle {
 
     pub fn is_owner(&self, token: Uuid) -> bool {
         self.inner.lock().unwrap().session.is_owner(token)
+    }
+
+    pub fn has_session_owner(&self) -> bool {
+        self.inner.lock().unwrap().session.has_owner()
     }
 
     pub fn status_json(&self) -> serde_json::Value {
@@ -319,6 +327,7 @@ impl LstSharedInner {
             "ptt": s.ptt,
             "call_kind": s.call_kind,
             "call_peer": s.call_peer,
+            "call_inbound": s.call_inbound,
             "media_ready": s.media_ready,
             "codec_available": s.codec_available,
             "last_error": s.last_error,
