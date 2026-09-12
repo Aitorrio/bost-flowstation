@@ -492,17 +492,24 @@ body{
 .lst-controls .row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 .lst-scan-field{margin-bottom:12px;}
 .lst-scan-row{
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;
+  display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;flex-wrap:nowrap;
 }
 .lst-scan-row .form-label{
-  margin:0;flex:0 0 auto;white-space:nowrap;min-width:0;
+  margin:0;flex:0 1 auto;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.lst-scan-row input[type=number]{flex:1 1 110px;min-width:90px;}
-.lst-scan-list{display:flex;flex-wrap:wrap;gap:8px;margin:0;min-height:0;}
+.lst-scan-row .form-input{
+  flex:1 1 0;min-width:0;width:auto;
+}
+.lst-scan-row .btn{flex:0 0 auto;white-space:nowrap;}
+.lst-scan-list{display:flex;flex-wrap:wrap;gap:8px;margin:0;min-height:0;align-items:center;}
+.lst-scan-empty{
+  width:100%;padding:12px 4px;text-align:center;
+  font-size:13px;font-weight:500;color:var(--text2);
+}
 .lst-scan-chip{
-  display:inline-flex;align-items:center;gap:6px;padding:6px 8px 6px 8px;
-  border:1px solid var(--border);border-radius:999px;font-family:var(--mono);font-size:12px;
-  background:rgba(255,255,255,0.03);color:var(--text);line-height:1;cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;padding:6px 10px;
+  border:1px solid var(--border2);border-radius:999px;font-family:var(--mono);font-size:12px;
+  background:var(--bg);color:var(--text);line-height:1;cursor:pointer;
   transition:background .12s ease,border-color .12s ease,color .12s ease,box-shadow .12s ease;
   user-select:none;
 }
@@ -511,50 +518,66 @@ body{
   color:inherit;flex-shrink:0;
 }
 .lst-scan-chip .lst-scan-mic svg{width:14px;height:14px;display:block;}
-.lst-scan-chip .lst-scan-num{font-weight:700;letter-spacing:0.02em;}
+.lst-scan-chip .lst-scan-num{font-weight:700;letter-spacing:0.02em;color:inherit;}
+/* Soft fill + dark ink for readable colored states (light UI). */
 .lst-scan-chip.is-tx{
-  border-color:color-mix(in srgb,#3b82f6 55%, var(--border));
-  background:color-mix(in srgb,#3b82f6 18%, transparent);
-  color:#93c5fd;box-shadow:inset 0 0 0 1px rgba(59,130,246,0.12);
+  background:#dbeafe;border-color:#93c5fd;color:#1e3a8a;
+  box-shadow:none;
 }
 .lst-scan-chip.is-rx{
-  border-color:color-mix(in srgb,#16a34a 55%, var(--border));
-  background:color-mix(in srgb,#16a34a 20%, transparent);
-  color:#86efac;box-shadow:inset 0 0 0 1px rgba(22,163,74,0.14);
+  background:#dcfce7;border-color:#86efac;color:#14532d;
+  box-shadow:none;
 }
 .lst-scan-chip.is-tx-live{
-  border-color:color-mix(in srgb,#dc2626 60%, var(--border));
-  background:color-mix(in srgb,#dc2626 22%, transparent);
-  color:#fca5a5;box-shadow:inset 0 0 0 1px rgba(220,38,38,0.16);
+  background:#fee2e2;border-color:#fca5a5;color:#7f1d1d;
+  box-shadow:none;
 }
 .lst-scan-chip button{
-  border:none;background:transparent;color:inherit;opacity:0.55;cursor:pointer;
+  border:none;background:transparent;color:inherit;opacity:0.65;cursor:pointer;
   padding:0 2px;font-size:14px;line-height:1;border-radius:4px;
 }
-.lst-scan-chip button:hover{opacity:1;color:var(--danger);}
-.lst-scan-chip:hover{filter:brightness(1.05);}
+.lst-scan-chip button:hover{opacity:1;}
+.lst-scan-chip:hover{filter:brightness(0.98);}
+[data-theme="dark"] .lst-scan-chip{
+  background:rgba(255,255,255,0.04);border-color:var(--border2);color:var(--text);
+}
+[data-theme="dark"] .lst-scan-chip.is-tx{
+  background:rgba(59,130,246,0.28);border-color:#60a5fa;color:#eff6ff;
+}
+[data-theme="dark"] .lst-scan-chip.is-rx{
+  background:rgba(22,163,74,0.28);border-color:#4ade80;color:#ecfdf5;
+}
+[data-theme="dark"] .lst-scan-chip.is-tx-live{
+  background:rgba(220,38,38,0.30);border-color:#f87171;color:#fef2f2;
+}
 .lst-ptt-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px;}
 .lst-ptt{
-  display:inline-flex;align-items:center;justify-content:center;gap:10px;
-  min-height:56px;padding:12px 18px;border-radius:14px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  width:100%;min-height:64px;padding:12px 16px;border-radius:14px;
   font-size:15px;font-weight:800;letter-spacing:0.08em;
   touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
   border:1px solid var(--border2);background:linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02));
   color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);
   transition:background .12s ease,border-color .12s ease,box-shadow .12s ease,transform .08s ease;
 }
+.lst-ptt-main{display:inline-flex;align-items:center;justify-content:center;gap:10px;}
 .lst-ptt .lst-ptt-ico{
   display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;
 }
 .lst-ptt .lst-ptt-ico svg{width:20px;height:20px;display:block;}
+.lst-ptt-space{
+  font-size:10px;font-weight:500;letter-spacing:0.01em;text-transform:none;
+  color:var(--text3);line-height:1.25;text-align:center;max-width:100%;
+}
 .lst-ptt:hover:not(:disabled){border-color:var(--accent);background:rgba(255,255,255,0.06);}
 .lst-ptt:active,.lst-ptt.is-tx{
   background:linear-gradient(180deg,#ef4444,#dc2626);color:#fff;border-color:#b91c1c;
   box-shadow:0 0 0 3px rgba(220,38,38,0.28),inset 0 1px 0 rgba(255,255,255,0.12);
   transform:translateY(1px);
 }
+.lst-ptt.is-tx .lst-ptt-space,.lst-ptt:active .lst-ptt-space{color:rgba(255,255,255,0.78);}
 .lst-ptt:disabled{opacity:0.45;cursor:not-allowed;}
-.lst-ptt-hint{font-size:11px;color:var(--text3);}
+#page-lst_dispatch .lst-controls .row-actions .form-input{width:auto;min-width:0;}
 .lst-av-bar{margin-top:auto;padding-top:14px;display:flex;justify-content:flex-start;}
 .lst-av-pill{
   display:inline-flex;align-items:center;gap:10px;
@@ -688,6 +711,8 @@ body:not(.no-touch-mode) #lst-roster-table .lst-act-btn{
 @media(max-width:900px){
   .lst-layout{grid-template-columns:1fr;}
   .lst-layout > .card{min-height:0;height:auto;}
+  .lst-scan-row{flex-wrap:wrap;}
+  .lst-scan-row .form-label{max-width:100%;flex:1 0 100%;}
   .lst-ptt{position:sticky;bottom:12px;z-index:5;}
   .lst-bottom{grid-template-columns:1fr;}
   .lst-g-pop{max-width:calc(100vw - 16px);}
@@ -5666,13 +5691,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
           <div class="card-body lst-controls">
             <div class="field"><label class="form-label" data-i18n="lst_operator_issi">Dispatcher ISSI</label>
-              <div class="row-actions"><input type="number" id="lst-op-issi" min="1" max="16777214" style="flex:1">
+              <div class="row-actions"><input type="number" class="form-input" id="lst-op-issi" min="1" max="16777214" style="flex:1">
                 <button class="btn btn-sm" onclick="lstSetIssi()" data-i18n="lst_apply_issi">Apply</button></div>
             </div>
             <div class="field lst-scan-field">
               <div class="lst-scan-row">
                 <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
-                <input type="number" id="lst-scan-gssi" min="1" max="16777214" placeholder="GSSI">
+                <input type="number" class="form-input" id="lst-scan-gssi" min="1" max="16777214" placeholder="GSSI">
                 <button class="btn btn-sm" onclick="lstScanAdd()" data-i18n="lst_scan_add">Add</button>
               </div>
               <div class="lst-scan-list" id="lst-scan-list"></div>
@@ -5687,14 +5712,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </div>
             <div class="lst-ptt-wrap">
               <button type="button" class="btn lst-ptt" id="lst-ptt-btn">
-                <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
-                <span data-i18n="lst_ptt">PTT</span>
+                <span class="lst-ptt-main">
+                  <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
+                  <span data-i18n="lst_ptt">PTT</span>
+                </span>
+                <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar = PTT on this page (when not typing).</span>
               </button>
-              <span class="lst-ptt-hint" data-i18n="lst_ptt_space">Spacebar = PTT on this page (when not typing).</span>
               <span id="lst-call-state" class="help-text" style="display:none">—</span>
             </div>
             <div class="field"><label class="form-label" data-i18n="lst_sds">SDS</label>
-              <div class="row-actions"><input type="text" id="lst-sds-text" maxlength="140" style="flex:1" placeholder="…">
+              <div class="row-actions"><input type="text" class="form-input" id="lst-sds-text" maxlength="140" style="flex:1" placeholder="…">
                 <button class="btn btn-sm" onclick="lstSendSds()" data-i18n="lst_send_sds">Send</button></div>
             </div>
             <p class="help-text" id="lst-codec-hint" style="display:none" data-i18n="lst_no_codec">Voice codec not available in this build — signalling only.</p>
@@ -6227,8 +6254,11 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="lst-call-panel is-active" id="lst-call-panel-sx">
         <div class="lst-ptt-wrap" id="lst-call-ptt-wrap" style="margin-top:8px;display:none">
           <button type="button" class="btn lst-ptt" id="lst-call-ptt-btn">
-            <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
-            <span data-i18n="lst_ptt">PTT</span>
+            <span class="lst-ptt-main">
+              <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
+              <span data-i18n="lst_ptt">PTT</span>
+            </span>
+            <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar = PTT on this page (when not typing).</span>
           </button>
         </div>
       </div>
@@ -6729,6 +6759,7 @@ const LANGS={
     lst_cause_unreachable:'Unreachable',lst_cause_busy:'Busy',lst_cause_rejected:'Rejected',
     lst_cause_error:'Connection error',lst_cause_finished:'Finished',
     lst_scan_list:'Scan list (TGs)',lst_scan_add:'Add',lst_scan_tx:'TX',lst_scan_remove:'Remove',
+    lst_scan_empty:'No TGs selected',
     lst_scan_hint:'Mark one TG as TX (transmit). Multi-TG listen comes in a later update.',
     lst_ptt_space:'Spacebar = PTT on this page (when not typing).',
     lst_activity:'Activity',lst_sds_inbox:'SDS received',lst_open_full:'Full log',
@@ -7117,6 +7148,7 @@ const LANGS={
     lst_cause_unreachable:'Inalcanzable',lst_cause_busy:'Ocupado',lst_cause_rejected:'Rechazada',
     lst_cause_error:'Error de conexión',lst_cause_finished:'Finalizada',
     lst_scan_list:'Lista de escaneo (TGs)',lst_scan_add:'Añadir',lst_scan_tx:'TX',lst_scan_remove:'Quitar',
+    lst_scan_empty:'Sin TGs seleccionados',
     lst_scan_hint:'Marca un TG como TX (transmitir). La escucha multi-TG llega en una actualización posterior.',
     lst_ptt_space:'Barra espaciadora = PTT en esta página (si no estás escribiendo).',
     lst_activity:'Actividad',lst_sds_inbox:'SDS recibidos',lst_open_full:'Log completo',
@@ -7758,7 +7790,10 @@ function lstSyncScanToServer(){
 function lstRenderScan(){
   const el=document.getElementById('lst-scan-list');
   if(!el)return;
-  if(!lstScanList.length){el.innerHTML='<span class="muted">—</span>';return;}
+  if(!lstScanList.length){
+    el.innerHTML='<div class="lst-scan-empty">'+t('lst_scan_empty')+'</div>';
+    return;
+  }
   el.innerHTML=lstScanList.map(g=>{
     const isTx=g===lstScanTx;
     const isRx=!!lstRxGssi&&g===lstRxGssi;
