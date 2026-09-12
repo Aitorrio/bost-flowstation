@@ -488,26 +488,32 @@ body{
 #page-lst_dispatch .lst-controls{
   padding:16px 18px;display:flex;flex-direction:column;min-height:0;
 }
-.lst-controls .field{margin-bottom:12px;}
-.lst-controls .row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-.lst-scan-field{margin-bottom:12px;}
-.lst-scan-row{
-  display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;flex-wrap:nowrap;
+/* .field is a horizontal settings-row elsewhere; consola needs stacked label → controls. */
+#page-lst_dispatch .lst-controls .field{
+  display:flex;flex-direction:column;align-items:stretch;gap:6px;
+  padding:0;min-height:0;margin-bottom:12px;
 }
-.lst-scan-row .form-label{
-  margin:0;flex:0 1 auto;max-width:46%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+#page-lst_dispatch .lst-controls .field + .field::before{display:none;content:none;}
+.lst-controls .row-actions{display:flex;gap:8px;flex-wrap:nowrap;align-items:center;width:100%;}
+#page-lst_dispatch .lst-controls .row-actions .form-input{flex:1 1 0;min-width:0;width:auto;}
+.lst-scan-field{width:100%;}
+.lst-scan-row{
+  display:flex;align-items:center;gap:8px;width:100%;flex-wrap:nowrap;
 }
 .lst-scan-row .form-input{
   flex:1 1 0;min-width:0;width:auto;
 }
 .lst-scan-row .btn{flex:0 0 auto;white-space:nowrap;}
-.lst-scan-list{display:flex;flex-wrap:wrap;gap:8px;margin:0;min-height:0;align-items:center;}
+.lst-scan-list{
+  display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;
+  gap:8px;width:100%;margin:2px 0 0;min-height:0;box-sizing:border-box;
+}
 .lst-scan-empty{
-  width:100%;padding:12px 4px;text-align:center;
+  width:100%;padding:12px 4px;text-align:center;box-sizing:border-box;
   font-size:13px;font-weight:500;color:var(--text2);
 }
 .lst-scan-chip{
-  display:inline-flex;align-items:center;gap:6px;padding:6px 10px;
+  display:inline-flex;align-items:center;gap:6px;padding:6px 10px;flex:0 0 auto;
   border:1px solid var(--border2);border-radius:999px;font-family:var(--mono);font-size:12px;
   background:var(--bg);color:var(--text);line-height:1;cursor:pointer;
   transition:background .12s ease,border-color .12s ease,color .12s ease,box-shadow .12s ease;
@@ -556,6 +562,7 @@ body{
   width:100%;min-height:64px;padding:12px 16px;border-radius:14px;
   font-size:15px;font-weight:800;letter-spacing:0.08em;
   touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent;overflow:visible;
   border:1px solid var(--border2);background:linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02));
   color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);
   transition:background .12s ease,border-color .12s ease,box-shadow .12s ease,transform .08s ease;
@@ -566,8 +573,9 @@ body{
 }
 .lst-ptt .lst-ptt-ico svg{width:20px;height:20px;display:block;}
 .lst-ptt-space{
-  font-size:10px;font-weight:500;letter-spacing:0.01em;text-transform:none;
-  color:var(--text3);line-height:1.25;text-align:center;max-width:100%;
+  font-size:clamp(10px,2.8vw,11px);font-weight:500;letter-spacing:0.01em;text-transform:none;
+  color:var(--text3);line-height:1.2;text-align:center;white-space:nowrap;
+  max-width:100%;overflow:visible;
 }
 .lst-ptt:hover:not(:disabled){border-color:var(--accent);background:rgba(255,255,255,0.06);}
 .lst-ptt:active,.lst-ptt.is-tx{
@@ -577,7 +585,6 @@ body{
 }
 .lst-ptt.is-tx .lst-ptt-space,.lst-ptt:active .lst-ptt-space{color:rgba(255,255,255,0.78);}
 .lst-ptt:disabled{opacity:0.45;cursor:not-allowed;}
-#page-lst_dispatch .lst-controls .row-actions .form-input{width:auto;min-width:0;}
 .lst-av-bar{margin-top:auto;padding-top:14px;display:flex;justify-content:flex-start;}
 .lst-av-pill{
   display:inline-flex;align-items:center;gap:10px;
@@ -711,8 +718,6 @@ body:not(.no-touch-mode) #lst-roster-table .lst-act-btn{
 @media(max-width:900px){
   .lst-layout{grid-template-columns:1fr;}
   .lst-layout > .card{min-height:0;height:auto;}
-  .lst-scan-row{flex-wrap:wrap;}
-  .lst-scan-row .form-label{max-width:100%;flex:1 0 100%;}
   .lst-ptt{position:sticky;bottom:12px;z-index:5;}
   .lst-bottom{grid-template-columns:1fr;}
   .lst-g-pop{max-width:calc(100vw - 16px);}
@@ -5695,8 +5700,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <button class="btn btn-sm" onclick="lstSetIssi()" data-i18n="lst_apply_issi">Apply</button></div>
             </div>
             <div class="field lst-scan-field">
+              <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
               <div class="lst-scan-row">
-                <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
                 <input type="number" class="form-input" id="lst-scan-gssi" min="1" max="16777214" placeholder="GSSI">
                 <button class="btn btn-sm" onclick="lstScanAdd()" data-i18n="lst_scan_add">Add</button>
               </div>
@@ -5716,7 +5721,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                   <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
                   <span data-i18n="lst_ptt">PTT</span>
                 </span>
-                <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar = PTT on this page (when not typing).</span>
+                <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar</span>
               </button>
               <span id="lst-call-state" class="help-text" style="display:none">—</span>
             </div>
@@ -6258,7 +6263,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
               <span data-i18n="lst_ptt">PTT</span>
             </span>
-            <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar = PTT on this page (when not typing).</span>
+            <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar</span>
           </button>
         </div>
       </div>
@@ -6761,7 +6766,7 @@ const LANGS={
     lst_scan_list:'Scan list (TGs)',lst_scan_add:'Add',lst_scan_tx:'TX',lst_scan_remove:'Remove',
     lst_scan_empty:'No TGs selected',
     lst_scan_hint:'Mark one TG as TX (transmit). Multi-TG listen comes in a later update.',
-    lst_ptt_space:'Spacebar = PTT on this page (when not typing).',
+    lst_ptt_space:'Spacebar',
     lst_activity:'Activity',lst_sds_inbox:'SDS received',lst_open_full:'Full log',
     lst_sds_filter_private:'Private',lst_sds_filter_group:'Group',
     lst_live:'Live',lst_groups_expand:'Show affiliated groups',lst_groups_collapse:'Hide affiliated groups',
@@ -7150,7 +7155,7 @@ const LANGS={
     lst_scan_list:'Lista de escaneo (TGs)',lst_scan_add:'Añadir',lst_scan_tx:'TX',lst_scan_remove:'Quitar',
     lst_scan_empty:'Sin TGs seleccionados',
     lst_scan_hint:'Marca un TG como TX (transmitir). La escucha multi-TG llega en una actualización posterior.',
-    lst_ptt_space:'Barra espaciadora = PTT en esta página (si no estás escribiendo).',
+    lst_ptt_space:'Barra espaciadora',
     lst_activity:'Actividad',lst_sds_inbox:'SDS recibidos',lst_open_full:'Log completo',
     lst_sds_filter_private:'Privado',lst_sds_filter_group:'Grupo',
     lst_live:'En curso',lst_groups_expand:'Mostrar grupos afiliados',lst_groups_collapse:'Ocultar grupos afiliados',
@@ -8257,21 +8262,36 @@ function lstPttUpEvt(e){
 function lstBindPttButton(btn){
   if(!btn||btn.dataset.bound)return;
   btn.dataset.bound='1';
-  const down=e=>{
-    e.preventDefault();
-    try{btn.setPointerCapture(e.pointerId);}catch(_){}
-    lstPttDownEvt(e);
-  };
-  const up=e=>{
-    e.preventDefault();
-    try{if(btn.hasPointerCapture&&btn.hasPointerCapture(e.pointerId))btn.releasePointerCapture(e.pointerId);}catch(_){}
+  let pid=null;
+  const end=(e)=>{
+    if(pid==null)return;
+    if(e&&e.pointerId!=null&&e.pointerId!==pid)return;
+    const was=pid;
+    pid=null;
+    window.removeEventListener('pointerup',end,true);
+    window.removeEventListener('blur',onBlur);
+    try{if(was!=null)btn.releasePointerCapture(was);}catch(_){}
     lstPttUpEvt(e);
   };
-  btn.addEventListener('pointerdown',down);
-  btn.addEventListener('pointerup',up);
-  btn.addEventListener('pointercancel',up);
-  btn.addEventListener('lostpointercapture',up);
-  btn.addEventListener('contextmenu',ev=>ev.preventDefault());
+  const onBlur=()=>end(null);
+  const start=(e)=>{
+    if(btn.disabled)return;
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    // Critical on mobile: block scroll/context-menu so long-press keeps PTT held.
+    e.preventDefault();
+    e.stopPropagation();
+    if(pid!=null)return;
+    pid=e.pointerId;
+    try{btn.setPointerCapture(e.pointerId);}catch(_){}
+    window.addEventListener('pointerup',end,true);
+    window.addEventListener('blur',onBlur);
+    lstPttDownEvt(e);
+  };
+  // Do NOT end on pointercancel — Android long-press cancels the pointer while finger is still down.
+  btn.addEventListener('pointerdown',start,{passive:false});
+  btn.addEventListener('contextmenu',ev=>{ev.preventDefault();ev.stopPropagation();});
+  btn.addEventListener('selectstart',ev=>ev.preventDefault());
+  btn.addEventListener('dragstart',ev=>ev.preventDefault());
 }
 function lstBindPtt(){
   lstBindPttButton(document.getElementById('lst-ptt-btn'));
