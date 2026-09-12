@@ -516,14 +516,21 @@ body{
   width:16px;height:16px;display:inline-flex;
 }
 #lst-roster-table .lst-act-btn svg{width:16px;height:16px;}
+.lst-g-cell{display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:280px;}
+.lst-g-row{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;}
+.lst-g-expand{
+  border:none;background:transparent;color:var(--text3);cursor:pointer;
+  padding:0 2px;font-size:12px;line-height:1;font-family:var(--mono);
+}
+.lst-g-expand:hover{color:var(--accent);}
+.lst-g-more{display:none;flex-wrap:wrap;gap:4px;padding-top:2px;}
+.lst-g-more.is-open{display:flex;}
 .lst-call-tabs{display:flex;gap:6px;margin:0 0 14px;}
 .lst-call-tab{flex:1;}
 .lst-call-tab.is-active{background:var(--accent);color:#0b1218;border-color:var(--accent);}
 .lst-call-panel{display:none;}
 .lst-call-panel.is-active{display:block;}
-.lst-phone{
-  text-align:center;padding:8px 4px 4px;
-}
+.lst-phone{text-align:center;padding:8px 4px 4px;}
 .lst-phone-peer{
   font-family:var(--mono);font-size:28px;font-weight:700;letter-spacing:0.04em;
   color:var(--text);line-height:1.2;margin:4px 0 2px;
@@ -532,9 +539,7 @@ body{
   font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
   color:var(--text3);margin-bottom:10px;
 }
-.lst-phone-phase{
-  font-size:15px;font-weight:600;color:var(--accent);min-height:22px;margin-bottom:4px;
-}
+.lst-phone-phase{font-size:15px;font-weight:600;color:var(--accent);min-height:22px;margin-bottom:4px;}
 .lst-phone-phase.is-failed{color:var(--danger);}
 .lst-phone-phase.is-ended{color:var(--text2);}
 .lst-phone-phase.is-established{color:var(--ok, #3dd68c);}
@@ -569,10 +574,19 @@ body{
 .lst-call-strip-timer{font-family:var(--mono);font-size:16px;font-variant-numeric:tabular-nums;}
 .lst-call-strip .lst-phone-fab{width:40px;height:40px;}
 .lst-call-strip .lst-phone-fab svg{width:18px;height:18px;}
+.lst-bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px;}
+.lst-bottom > .card{display:flex;flex-direction:column;min-height:220px;max-height:320px;}
+.lst-bottom .card-body{flex:1;min-height:0;overflow:auto;padding:0;
+  scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.lst-bottom .card-body::-webkit-scrollbar{width:6px;}
+.lst-bottom .card-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;}
+.lst-bottom .data-table{font-size:12px;}
+.lst-bottom .sds-msg{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 @media(max-width:900px){
   .lst-layout{grid-template-columns:1fr;}
   .lst-layout > .card{min-height:0;height:auto;}
   .lst-ptt{position:sticky;bottom:12px;z-index:5;}
+  .lst-bottom{grid-template-columns:1fr;}
 }
 .wifi-status-loading{
   font-size:12px;color:var(--text3);font-style:italic;
@@ -5536,7 +5550,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <span class="banner-ico" data-icon="alert"></span>
         <div class="banner-body"><span data-i18n="lst_busy">Dispatch in use by</span> <strong id="lst-busy-holder">—</strong></div>
       </div>
-      <div class="lst-layout" id="lst-console" style="display:none">
+      <div id="lst-console" style="display:none">
+      <div class="lst-layout">
         <div class="card">
           <div class="card-head">
             <div class="card-title" data-i18n="lst_console">Dispatch console</div>
@@ -5590,14 +5605,43 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <table class="data-table table-stack" id="lst-roster-table"><thead><tr>
                 <th data-i18n="th_issi_cs">ISSI / Callsign</th>
                 <th data-i18n="th_groups">Groups</th>
-                <th data-i18n="th_signal">Signal</th>
-                <th data-i18n="th_status">Status</th>
                 <th class="col-mobile-hide" data-i18n="th_last_seen">Last seen</th>
                 <th data-i18n="th_actions">Actions</th>
               </tr></thead><tbody id="lst-roster-body"></tbody></table>
             </div>
           </div>
         </div>
+      </div>
+      <div class="lst-bottom" id="lst-bottom-panels">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title" data-i18n="lst_activity">Activity</div>
+            <button class="btn btn-sm" onclick="showPage('lastheard',document.getElementById('nav-lastheard'))" data-i18n="lst_open_full">Full log</button>
+          </div>
+          <div class="card-body">
+            <table class="data-table table-stack" id="lst-activity-table"><thead><tr>
+              <th data-i18n="th_time">Time</th>
+              <th data-i18n="th_issi">ISSI</th>
+              <th data-i18n="th_activity">Activity</th>
+              <th data-i18n="th_dest">Dest</th>
+            </tr></thead><tbody id="lst-activity-body"></tbody></table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title" data-i18n="lst_sds_inbox">SDS received</div>
+            <button class="btn btn-sm" onclick="showPage('sdslog',document.getElementById('nav-sdslog'))" data-i18n="lst_open_full">Full log</button>
+          </div>
+          <div class="card-body">
+            <table class="data-table table-stack" id="lst-sds-table"><thead><tr>
+              <th data-i18n="th_time">Time</th>
+              <th data-i18n="th_from">From</th>
+              <th data-i18n="th_to">To</th>
+              <th data-i18n="th_message">Message</th>
+            </tr></thead><tbody id="lst-sds-body"></tbody></table>
+          </div>
+        </div>
+      </div>
       </div>
     </div>
 
@@ -6559,6 +6603,8 @@ const LANGS={
     lst_scan_list:'Scan list (TGs)',lst_scan_add:'Add',lst_scan_tx:'TX',lst_scan_remove:'Remove',
     lst_scan_hint:'Mark one TG as TX (transmit). Multi-TG listen comes in a later update.',
     lst_ptt_space:'Spacebar = PTT on this page (when not typing).',
+    lst_activity:'Activity',lst_sds_inbox:'SDS received',lst_open_full:'Full log',
+    lst_live:'Live',lst_groups_expand:'Show affiliated groups',lst_groups_collapse:'Hide affiliated groups',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
     cfg_sheet_busy:'Close the open profile sheet first.',
     cfg_editing:'Editing Cell “{cell}” · Brew “{brew}”. Change the forms below, then Update or Save as.',
@@ -6943,6 +6989,8 @@ const LANGS={
     lst_scan_list:'Lista de escaneo (TGs)',lst_scan_add:'Añadir',lst_scan_tx:'TX',lst_scan_remove:'Quitar',
     lst_scan_hint:'Marca un TG como TX (transmitir). La escucha multi-TG llega en una actualización posterior.',
     lst_ptt_space:'Barra espaciadora = PTT en esta página (si no estás escribiendo).',
+    lst_activity:'Actividad',lst_sds_inbox:'SDS recibidos',lst_open_full:'Log completo',
+    lst_live:'En curso',lst_groups_expand:'Mostrar grupos afiliados',lst_groups_collapse:'Ocultar grupos afiliados',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
     cfg_sheet_busy:'Cierra primero la hoja de perfil abierta.',
     cfg_editing:'Editando Cell “{cell}” · Brew “{brew}”. Cambia los formularios y pulsa Actualizar o Guardar como.',
@@ -7643,6 +7691,8 @@ async function lstPageEnter(){
   lstBindSpacePtt();
   await lstRefreshStatus();
   lstRenderRoster();
+  lstRenderBottomPanels();
+  if(typeof loadSdsLog==='function')loadSdsLog();
   if(!lstToken)lstSetAudioHint(t('lst_audio_need_claim'),true);
   if(!window.isSecureContext){
     const httpsBtn=document.getElementById('lst-https-btn');
@@ -8203,6 +8253,35 @@ async function lstPollDl(){
   }catch(_){}
   finally{lstDlBusy=false;}
 }
+const lstRosterExpanded={};
+function lstToggleRosterGroups(issi){
+  const k=String(issi);
+  lstRosterExpanded[k]=!lstRosterExpanded[k];
+  lstRenderRoster();
+}
+function lstGroupsCell(m){
+  const gl=(m.groups||[]).slice();
+  const sel=m.selected_group!=null?m.selected_group:null;
+  const marker=typeof ICON_MARKER!=='undefined'?ICON_MARKER:'';
+  const primary=sel!=null?sel:(gl.length?gl[0]:null);
+  const expandExtra=sel!=null?gl.filter(g=>g!==sel):gl.slice(1);
+  const canExpand=expandExtra.length>0;
+  const open=!!lstRosterExpanded[String(m.issi)];
+  let primaryHtml;
+  if(primary==null)primaryHtml='<span class="badge badge-dim" style="font-size:9px">—</span>';
+  else if(sel!=null&&primary===sel){
+    primaryHtml=`<span class="badge badge-blue" style="font-weight:700;font-size:9px" title="${t('tg_selected')||''}"><span class="tg-marker">${marker}</span>${primary}</span>`;
+  }else{
+    primaryHtml=`<span class="badge badge-dim" style="font-size:9px">${primary}</span>`;
+  }
+  const chev=canExpand
+    ?`<button type="button" class="lst-g-expand" data-issi="${m.issi}" data-act="gexpand" aria-expanded="${open?'true':'false'}" title="${open?(t('lst_groups_collapse')||'Collapse'):(t('lst_groups_expand')||'Expand')}">${open?'‹':'›'}</button>`
+    :'';
+  const more=canExpand
+    ?`<div class="lst-g-more${open?' is-open':''}">${expandExtra.map(g=>`<span class="badge badge-dim" style="font-size:9px">${g}</span>`).join('')}</div>`
+    :'';
+  return `<div class="lst-g-cell"><div class="lst-g-row">${primaryHtml}${chev}</div>${more}</div>`;
+}
 function lstRenderRoster(){
   const tb=document.getElementById('lst-roster-body');
   if(!tb)return;
@@ -8210,34 +8289,20 @@ function lstRenderRoster(){
   const rows=Object.values(ms).filter(m=>m&&m.issi);
   tb.innerHTML='';
   if(!rows.length){
-    tb.innerHTML='<tr><td colspan="6"><div class="empty-state"><span class="empty-ico">'+(typeof svgIcon==='function'?svgIcon('radios'):'')+'</span><div class="empty-msg">'+(t('no_terminals')||'—')+'</div></div></td></tr>';
+    tb.innerHTML='<tr><td colspan="4"><div class="empty-state"><span class="empty-ico">'+(typeof svgIcon==='function'?svgIcon('radios'):'')+'</span><div class="empty-msg">'+(t('no_terminals')||'—')+'</div></div></td></tr>';
     return;
   }
   const sdsTitle=t('lst_roster_sds')||t('sds');
   const callTitle=t('lst_roster_call');
   const dgnaTitle=t('dgna_title')||t('dgna');
   rows.sort((a,b)=>a.issi-b.issi).forEach(m=>{
-    const r=m.rssi_dbfs,rL=r!=null?`${Number(r).toFixed(1)} dBFS`:'—',pct=typeof rssiPct==='function'?rssiPct(r):0,gcls=typeof rssiGaugeClass==='function'?rssiGaugeClass(r):'';
-    const gl=m.groups||[],sel=m.selected_group;
-    const gBadge=g=>g===sel
-      ?`<span class="badge badge-blue" style="font-weight:700;font-size:9px"><span class="tg-marker">${typeof ICON_MARKER!=='undefined'?ICON_MARKER:''}</span>${g}</span>`
-      :`<span class="badge badge-dim" style="font-size:9px">${g}</span>`;
-    let grps;
-    if(gl.length>1){
-      const others=sel!=null?gl.filter(g=>g!==sel).length:gl.length;
-      const extra=`<span class="badge badge-dim" style="font-size:9px;margin-right:4px">+${others} ${t('tg_affiliated_short')||'aff'}</span>`;
-      grps=extra+gl.slice().sort((a,b)=>(b===sel)-(a===sel)||a-b).map(gBadge).join(' ');
-    }else if(gl.length===1)grps=`<span class="badge badge-blue">${gl[0]}</span>`;
-    else grps='<span class="badge badge-dim">—</span>';
     const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
     const emg=!!(state.emergencies&&state.emergencies[m.issi]);
     const tr=document.createElement('tr');
     if(emg)tr.className='row-emergency';
     tr.innerHTML=
       `<td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${typeof idCell==='function'?idCell(m.issi):('<code>'+m.issi+'</code>')}</td>`+
-      `<td>${grps}</td>`+
-      `<td><div class="gauge ${gcls}"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%"></div></div><span class="gauge-value">${rL}</span></div></td>`+
-      `<td><span class="pill pill-ok">${t('online_badge')}</span></td>`+
+      `<td>${lstGroupsCell(m)}</td>`+
       `<td class="col-mobile-hide">${typeof lastSeenLabel==='function'?lastSeenLabel(ls):'—'}</td>`+
       `<td class="row-actions">`+
         `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="sds" title="${sdsTitle}" aria-label="${sdsTitle}"><span class="btn-icon" data-icon="sdslog"></span></button>`+
@@ -8249,13 +8314,81 @@ function lstRenderRoster(){
   if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
   if(typeof paintIcons==='function')paintIcons(tb);
   tb.querySelectorAll('button[data-act]').forEach(btn=>{
-    btn.onclick=()=>{
+    btn.onclick=(ev)=>{
+      ev.preventDefault();
+      ev.stopPropagation();
       const issi=Number(btn.dataset.issi);
-      if(btn.dataset.act==='sds')lstOpenSds(issi);
+      if(btn.dataset.act==='gexpand')lstToggleRosterGroups(issi);
+      else if(btn.dataset.act==='sds')lstOpenSds(issi);
       else if(btn.dataset.act==='dgna')openDgna(issi);
       else if(btn.dataset.act==='call')openLstCallModal(issi);
     };
   });
+}
+function lstFmtDuration(secs){
+  const s=Math.max(0,Math.floor(secs||0));
+  const mm=String(Math.floor(s/60)).padStart(2,'0');
+  const ss=String(s%60).padStart(2,'0');
+  return mm+':'+ss;
+}
+function lstRenderActivity(){
+  const tb=document.getElementById('lst-activity-body');
+  if(!tb)return;
+  const live=[];
+  const calls=(typeof state!=='undefined'&&state.calls)?Object.values(state.calls):[];
+  calls.forEach(c=>{
+    if(!c)return;
+    const started=c.started_at||Date.now();
+    const dur=lstFmtDuration((Date.now()-started)/1000);
+    const kind=c.call_type==='group'?(t('act_call_group')||'TG'):(t('act_call_individual')||'Priv');
+    const from=c.active_speaker||c.caller_issi||'—';
+    const dest=c.call_type==='group'?('GSSI '+(c.gssi||'—')):(c.called_issi||'—');
+    live.push({ts:t('lst_live')||'live',issi:from,activityHtml:`<span class="pill pill-ok">${kind}</span> <span class="badge badge-dim" style="font-size:9px">${t('lst_live')||'live'}</span>`,dest,dur});
+  });
+  const heard=(state.lastHeard||[]).slice(0,40);
+  if(!live.length&&!heard.length){
+    tb.innerHTML=`<tr><td colspan="4"><div class="empty-state"><span class="empty-ico">${typeof svgIcon==='function'?svgIcon('lastheard'):''}</span><div class="empty-msg">${t('no_activity')||'—'}</div></div></td></tr>`;
+    if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
+    return;
+  }
+  const liveRows=live.map(e=>`<tr>
+      <td><span class="num">${escHtml(String(e.ts))}</span></td>
+      <td>${typeof idCell==='function'?idCell(e.issi):('<code>'+e.issi+'</code>')}</td>
+      <td>${e.activityHtml}</td>
+      <td><code>${escHtml(String(e.dest))}</code> · <span class="num accent">${e.dur}</span></td>
+    </tr>`).join('');
+  const heardRows=heard.map(e=>{
+    const destStr=e.dest?`<code>${e.dest}</code>`:'<span class="muted">—</span>';
+    return`<tr>
+      <td><span class="num">${escHtml(e.ts||'')}</span></td>
+      <td>${typeof idCell==='function'?idCell(e.issi):('<code>'+e.issi+'</code>')}</td>
+      <td>${typeof activityBadge==='function'?activityBadge(e.activity):escHtml(e.activity||'')}</td>
+      <td>${destStr}</td>
+    </tr>`;
+  }).join('');
+  tb.innerHTML=liveRows+heardRows;
+  if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
+}
+function lstRenderSdsInbox(){
+  const tb=document.getElementById('lst-sds-body');
+  if(!tb)return;
+  const all=(state.sdsLog||[]).filter(e=>!e.direction||e.direction==='rx'||e.direction==='net');
+  const rows=all.slice(0,40);
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="4" class="sds-empty" style="text-align:center;padding:16px">${t('no_sds')||'—'}</td></tr>`;
+    if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
+    return;
+  }
+  tb.innerHTML=rows.map(e=>{
+    const to=e.is_group?`<code>${e.dest_issi}</code>`:(typeof idCell==='function'?idCell(e.dest_issi):('<code>'+e.dest_issi+'</code>'));
+    const body=typeof sdsMessageBody==='function'?sdsMessageBody(e):escHtml(e.text||'');
+    return`<tr><td class="sds-time num">${escHtml(e.ts||'')}</td><td>${typeof idCell==='function'?idCell(e.source_issi):('<code>'+e.source_issi+'</code>')}</td><td>${to}</td><td class="sds-msg">${body}</td></tr>`;
+  }).join('');
+  if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
+}
+function lstRenderBottomPanels(){
+  lstRenderActivity();
+  lstRenderSdsInbox();
 }
 
 async function wifiLoadStatus(){
@@ -9470,7 +9603,8 @@ function renderStations(){
 function renderCalls(){
   document.getElementById('stat-calls').textContent=Object.keys(state.calls).length;
   const tb=document.getElementById('calls-tbody'),calls=Object.values(state.calls);
-  if(!calls.length){tb.innerHTML=`<tr><td colspan="6"><div class="empty-state"><span class="empty-ico">${svgIcon('calls')}</span><div class="empty-msg">${t('no_calls')}</div></div></td></tr>`;return;}
+  if(!calls.length){tb.innerHTML=`<tr><td colspan="6"><div class="empty-state"><span class="empty-ico">${svgIcon('calls')}</span><div class="empty-msg">${t('no_calls')}</div></div></td></tr>`;}
+  else{
   tb.innerHTML=calls.map(c=>{
     const dur=Math.floor((Date.now()-(c.started_at||Date.now()))/1000);
     const mm=String(Math.floor(dur/60)).padStart(2,'0'),ss=String(dur%60).padStart(2,'0');
@@ -9489,12 +9623,15 @@ function renderCalls(){
     return`<tr${emg?' class="row-emergency"':''}><td class="col-mobile-hide"><code>${c.call_id}</code></td><td>${emgBadge}<span class="pill ${pillv}">${label}</span></td><td>${c.caller_issi?idCell(c.caller_issi):'<span class="muted">—</span>'}</td><td>${to}</td><td class="col-mobile-hide">${spk}</td><td><span class="num accent">${mm}:${ss}</span></td></tr>`;
   }).join('');
   applyTableStackLabels(tb);
+  }
+  if(typeof lstRenderActivity==='function')lstRenderActivity();
 }
 
 function renderLastHeard(){
   const tb=document.getElementById('lastheard-tbody');
   if(!tb)return;
-  if(!state.lastHeard.length){tb.innerHTML=`<tr><td colspan="4"><div class="empty-state"><span class="empty-ico">${svgIcon('lastheard')}</span><div class="empty-msg">${t('no_activity')}</div></div></td></tr>`;return;}
+  if(!state.lastHeard.length){tb.innerHTML=`<tr><td colspan="4"><div class="empty-state"><span class="empty-ico">${svgIcon('lastheard')}</span><div class="empty-msg">${t('no_activity')}</div></div></td></tr>`;}
+  else{
   tb.innerHTML=state.lastHeard.map(e=>{
     const destStr=e.dest?`<code>${e.dest}</code>`:'<span class="muted">—</span>';
     const isOnline=!!state.ms[e.issi];
@@ -9505,6 +9642,8 @@ function renderLastHeard(){
     </tr>`;
   }).join('');
   applyTableStackLabels(tb);
+  }
+  if(typeof lstRenderActivity==='function')lstRenderActivity();
 }
 function clearLastHeard(){state.lastHeard=[];renderLastHeard();}
 
@@ -9574,10 +9713,13 @@ function renderSdsLog(){
   const rows=state.sdsLog||[];
   sdsLogPageIndex=clampLogPage(sdsLogPageIndex,rows.length);
   setLogPager('sdslog-page',sdsLogPageIndex,rows.length);
-  if(!rows.length){tb.innerHTML=`<tr><td colspan="5" class="sds-empty" style="text-align:center;padding:24px">${t('no_sds')}</td></tr>`;return;}
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="5" class="sds-empty" style="text-align:center;padding:24px">${t('no_sds')}</td></tr>`;}
+  else{
   const start=sdsLogPageIndex*LOG_PAGE_SIZE;
   tb.innerHTML=rows.slice(start,start+LOG_PAGE_SIZE).map(sdsRow).join('');
   applyTableStackLabels(tb);
+  }
+  if(typeof lstRenderSdsInbox==='function')lstRenderSdsInbox();
 }
 async function loadSdsLog(){
   try{const r=await fetch('/api/sds-log');if(!r.ok)return;state.sdsLog=await r.json();sdsLogPageIndex=0;renderSdsLog();refreshCallsigns();}catch{}
