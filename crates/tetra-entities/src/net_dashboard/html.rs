@@ -5656,7 +5656,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card">
           <div class="card-head">
             <div class="card-title" data-i18n="lst_sds_inbox">SDS received</div>
-            <button class="btn btn-sm" onclick="showPage('sdslog',document.getElementById('nav-sdslog'))" data-i18n="lst_open_full">Full log</button>
+            <div class="card-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <select id="lst-sds-filter" class="form-input" style="width:auto;min-width:120px;padding:4px 8px;font-size:11px" onchange="lstRenderSdsInbox()">
+                <option value="private" data-i18n="lst_sds_filter_private">Private</option>
+                <option value="group" data-i18n="lst_sds_filter_group">Group</option>
+              </select>
+              <button class="btn btn-sm" onclick="showPage('sdslog',document.getElementById('nav-sdslog'))" data-i18n="lst_open_full">Full log</button>
+            </div>
           </div>
           <div class="card-body">
             <table class="data-table table-stack" id="lst-sds-table"><thead><tr>
@@ -6629,6 +6635,7 @@ const LANGS={
     lst_scan_hint:'Mark one TG as TX (transmit). Multi-TG listen comes in a later update.',
     lst_ptt_space:'Spacebar = PTT on this page (when not typing).',
     lst_activity:'Activity',lst_sds_inbox:'SDS received',lst_open_full:'Full log',
+    lst_sds_filter_private:'Private',lst_sds_filter_group:'Group',
     lst_live:'Live',lst_groups_expand:'Show affiliated groups',lst_groups_collapse:'Hide affiliated groups',
     lst_incoming_todo:'Incoming private calls to the dispatcher ISSI are next (CMCE→LST routing).',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
@@ -7016,6 +7023,7 @@ const LANGS={
     lst_scan_hint:'Marca un TG como TX (transmitir). La escucha multi-TG llega en una actualización posterior.',
     lst_ptt_space:'Barra espaciadora = PTT en esta página (si no estás escribiendo).',
     lst_activity:'Actividad',lst_sds_inbox:'SDS recibidos',lst_open_full:'Log completo',
+    lst_sds_filter_private:'Privado',lst_sds_filter_group:'Grupo',
     lst_live:'En curso',lst_groups_expand:'Mostrar grupos afiliados',lst_groups_collapse:'Ocultar grupos afiliados',
     lst_incoming_todo:'Las llamadas privadas entrantes al ISSI del despachador son el siguiente paso (enrutado CMCE→LST).',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
@@ -8388,7 +8396,7 @@ function lstRenderRoster(){
     tr.innerHTML=
       `<td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${typeof idCell==='function'?idCell(m.issi):('<code>'+m.issi+'</code>')}</td>`+
       `<td>${lstGroupsCell(m)}</td>`+
-      `<td class="col-mobile-hide"><span data-lst-seen>${typeof lastSeenLabel==='function'?lastSeenLabel(ls):'—'}</span></td>`+
+      `<td class="col-mobile-hide" data-lst-seen>${typeof lastSeenLabel==='function'?lastSeenLabel(ls):'—'}</td>`+
       `<td class="row-actions">`+
         `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="sds" title="${sdsTitle}" aria-label="${sdsTitle}"><span class="btn-icon" data-icon="sdslog"></span></button>`+
         `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="dgna" title="${dgnaTitle}" aria-label="${dgnaTitle}"><span class="btn-icon" data-icon="dgna"></span></button>`+
@@ -8419,15 +8427,15 @@ function lstRenderRoster(){
 function lstTickRosterSeen(){
   const tb=document.getElementById('lst-roster-body');
   if(!tb||!document.getElementById('page-lst_dispatch')?.classList.contains('active'))return;
-  tb.querySelectorAll('tr[data-lst-issi]').forEach(tr=>{
+  tb.querySelectorAll('[data-lst-seen]').forEach(el=>{
+    const tr=el.closest('tr[data-lst-issi]');
+    if(!tr)return;
     const issi=Number(tr.dataset.lstIssi);
     const m=state.ms&&state.ms[issi];
     if(!m)return;
-    const el=tr.querySelector('[data-lst-seen]');
-    if(!el)return;
     const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
     const next=typeof lastSeenLabel==='function'?lastSeenLabel(ls):'—';
-    if(el.textContent!==next)el.textContent=next;
+    if(el.innerHTML!==next)el.innerHTML=next;
   });
 }
 function lstFmtDuration(secs){
@@ -8439,6 +8447,7 @@ function lstFmtDuration(secs){
 function lstRenderActivity(){
   const tb=document.getElementById('lst-activity-body');
   if(!tb)return;
+  const liveKeys=new Set();
   const live=[];
   const calls=(typeof state!=='undefined'&&state.calls)?Object.values(state.calls):[];
   calls.forEach(c=>{
@@ -8447,10 +8456,22 @@ function lstRenderActivity(){
     const dur=lstFmtDuration((Date.now()-started)/1000);
     const kind=c.call_type==='group'?(t('act_call_group')||'TG'):(t('act_call_individual')||'Priv');
     const from=c.active_speaker||c.caller_issi||'—';
-    const dest=c.call_type==='group'?('GSSI '+(c.gssi||'—')):(c.called_issi||'—');
+    const destNum=c.call_type==='group'?(c.gssi||0):(c.called_issi||0);
+    const dest=c.call_type==='group'?('GSSI '+destNum):destNum;
+    const act=c.call_type==='group'?'call_group':'call_individual';
+    liveKeys.add(`${Number(from)||0}|${act}|${Number(destNum)||0}`);
     live.push({ts:t('lst_live')||'live',issi:from,activityHtml:`<span class="pill pill-ok">${kind}</span> <span class="badge badge-dim" style="font-size:9px">${t('lst_live')||'live'}</span>`,dest,dur});
   });
-  const heard=(state.lastHeard||[]).slice(0,40);
+  const seen=new Set();
+  const heard=(state.lastHeard||[]).filter(e=>{
+    if(!e)return false;
+    const key=`${Number(e.issi)||0}|${e.activity||''}|${Number(e.dest)||0}`;
+    if(liveKeys.has(key))return false;
+    const dedupe=`${e.ts||''}|${key}`;
+    if(seen.has(dedupe))return false;
+    seen.add(dedupe);
+    return true;
+  }).slice(0,40);
   if(!live.length&&!heard.length){
     tb.innerHTML=`<tr><td colspan="4"><div class="empty-state"><span class="empty-ico">${typeof svgIcon==='function'?svgIcon('lastheard'):''}</span><div class="empty-msg">${t('no_activity')||'—'}</div></div></td></tr>`;
     if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
@@ -8474,15 +8495,31 @@ function lstRenderActivity(){
   tb.innerHTML=liveRows+heardRows;
   if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
 }
+function lstSdsSubscribedGroups(){
+  const set=new Set((typeof lstScanList!=='undefined'?lstScanList:[]).map(Number).filter(n=>n>0));
+  const active=Number((lstLastStatus&&lstLastStatus.active_gssi)||0);
+  if(active)set.add(active);
+  const tx=Number((typeof lstScanTx!=='undefined'?lstScanTx:0)||0);
+  if(tx)set.add(tx);
+  return set;
+}
 function lstRenderSdsInbox(){
   const tb=document.getElementById('lst-sds-body');
   if(!tb)return;
   const op=Number((lstLastStatus&&lstLastStatus.operator_issi)||document.getElementById('lst-op-issi')?.value||0)||0;
+  const mode=(document.getElementById('lst-sds-filter')?.value)||'private';
+  const groups=lstSdsSubscribedGroups();
   const all=(state.sdsLog||[]).filter(e=>{
+    if(!e||e.direction==='tx')return false;
+    const dest=Number(e.dest_issi)||0;
+    if(mode==='group'){
+      if(!e.is_group)return false;
+      return groups.has(dest);
+    }
+    // private: only SDS addressed to the dispatcher ISSI
     if(!op)return false;
-    if(e.direction==='tx')return false;
     if(e.is_group)return false;
-    return Number(e.dest_issi)===op;
+    return dest===op;
   });
   const rows=all.slice(0,40);
   if(!rows.length){
@@ -8491,7 +8528,9 @@ function lstRenderSdsInbox(){
     return;
   }
   tb.innerHTML=rows.map(e=>{
-    const to=typeof idCell==='function'?idCell(e.dest_issi):('<code>'+e.dest_issi+'</code>');
+    const to=e.is_group
+      ?`<code>${e.dest_issi}</code>`
+      :(typeof idCell==='function'?idCell(e.dest_issi):('<code>'+e.dest_issi+'</code>'));
     const body=typeof sdsMessageBody==='function'?sdsMessageBody(e):escHtml(e.text||'');
     return`<tr><td class="sds-time num">${escHtml(e.ts||'')}</td><td>${typeof idCell==='function'?idCell(e.source_issi):('<code>'+e.source_issi+'</code>')}</td><td>${to}</td><td class="sds-msg">${body}</td></tr>`;
   }).join('');
@@ -9134,7 +9173,12 @@ function lastSeenLabel(secs){
 }
 function pushLastHeard(entry){
   const now=new Date().toTimeString().slice(0,8);
-  state.lastHeard.unshift({ts:entry.ts||now,issi:entry.issi,activity:entry.activity,dest:entry.dest||0});
+  const ts=entry.ts||now;
+  const issi=entry.issi,activity=entry.activity,dest=entry.dest||0;
+  // call_started often embeds last_heard and the server also emits a last_heard event.
+  const dup=(state.lastHeard||[]).some(e=>e&&e.issi===issi&&e.activity===activity&&(e.dest||0)===dest&&e.ts===ts);
+  if(dup)return;
+  state.lastHeard.unshift({ts,issi,activity,dest});
   if(state.lastHeard.length>50)state.lastHeard.length=50;
 }
 function activityBadge(activity){
