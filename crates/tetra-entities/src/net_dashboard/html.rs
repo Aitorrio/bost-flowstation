@@ -3683,7 +3683,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <!-- MONITOR — live, read-mostly surfaces (ordered by glance-frequency). -->
     <div class="nav-section-label" data-i18n-section="monitor">MONITOR</div>
     <div class="nav-item active" onclick="showPage('stations',this)" id="nav-stations">
-      <span class="nav-icon" data-icon="radios"></span>
+      <span class="nav-icon" data-icon="home"></span>
       <span class="nav-label" data-i18n="stations">Home</span>
       <span class="nav-badge" id="badge-ms">0</span>
     </div>
@@ -3736,7 +3736,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <span class="nav-label" data-i18n="telegram">Telegram</span>
     </div>
     <div class="nav-item" onclick="showPage('lst_dispatch',this)" id="nav-lst_dispatch">
-      <span class="nav-icon" data-icon="stations"></span>
+      <span class="nav-icon" data-icon="lst"></span>
       <span class="nav-label" data-i18n="lst_dispatch">LST Dispatch</span>
     </div>
     <!-- WiFi tab is hidden until we confirm NetworkManager is available on
@@ -6409,7 +6409,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 // reuses ICONS / svgIcon verbatim for every emoji site.
 const ICONS = {
   // nav — monitor
-  radios:'<path d="M5 14a9 9 0 0 1 9-9"/><path d="M5 14a5.5 5.5 0 0 1 5.5-5.5"/><circle cx="6.5" cy="12.5" r="1.6"/><path d="M7.5 13.5 13 19"/>',
+  home:'<path d="M4 11.5 12 4l8 7.5"/><path d="M6.5 10.8V20h11V10.8"/><path d="M10 20v-5h4v5"/>',
+  radios:'<rect x="8" y="8" width="8" height="12.5" rx="1.8"/><path d="M10.5 5.5v2.5M13.5 4v4"/><circle cx="12" cy="13" r="1.35"/><path d="M10 17.5h4"/><path d="M16 10.5h1.5M16 13.5h1.5"/>',
+  lst:'<path d="M5 13a7 7 0 0 1 14 0"/><path d="M5 13v3.2a1.8 1.8 0 0 0 1.8 1.8H8"/><path d="M19 13v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8.5 18h5"/><rect x="15.5" y="15" width="4" height="5" rx="1.2"/><path d="M12 9.5v2"/>',
   dgna:'<path d="M6 8h8"/><path d="M6 12h8"/><path d="M6 16h6"/><path d="M17 7v10"/><path d="M14 10l3-3 3 3"/><path d="M14 14l3 3 3-3"/>',
   calls:'<path d="M6.5 4.5h3l1.2 3.2-1.7 1.3a11 11 0 0 0 4.7 4.7l1.3-1.7 3.2 1.2v3a1.5 1.5 0 0 1-1.6 1.5A13.5 13.5 0 0 1 5 6.1 1.5 1.5 0 0 1 6.5 4.5Z"/>',
   lastheard:'<path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h-2"/>',
