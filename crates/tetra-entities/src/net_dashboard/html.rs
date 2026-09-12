@@ -485,6 +485,9 @@ body{
 .lst-roster-scroll::-webkit-scrollbar{width:6px;height:6px;}
 .lst-roster-scroll::-webkit-scrollbar-track{background:transparent;}
 .lst-roster-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;}
+#page-lst_dispatch .lst-controls{
+  padding:16px 18px;display:flex;flex-direction:column;min-height:0;
+}
 .lst-controls .field{margin-bottom:12px;}
 .lst-controls .row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 .lst-scan-list{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
@@ -501,12 +504,56 @@ body{
 .lst-scan-hint{font-size:11px;color:var(--text3);margin:4px 0 10px;line-height:1.4;}
 .lst-ptt-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px;}
 .lst-ptt{
-  min-height:64px;font-size:16px;font-weight:700;letter-spacing:0.06em;
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  min-height:56px;padding:12px 18px;border-radius:14px;
+  font-size:15px;font-weight:800;letter-spacing:0.08em;
   touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
-  border:1px solid var(--border);background:rgba(255,255,255,0.04);
+  border:1px solid var(--border2);background:linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02));
+  color:var(--text);box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);
+  transition:background .12s ease,border-color .12s ease,box-shadow .12s ease,transform .08s ease;
 }
-.lst-ptt:active,.lst-ptt.is-tx{background:var(--danger);color:#fff;border-color:var(--danger);}
+.lst-ptt .lst-ptt-ico{
+  display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;
+}
+.lst-ptt .lst-ptt-ico svg{width:20px;height:20px;display:block;}
+.lst-ptt:hover:not(:disabled){border-color:var(--accent);background:rgba(255,255,255,0.06);}
+.lst-ptt:active,.lst-ptt.is-tx{
+  background:linear-gradient(180deg,#ef4444,#dc2626);color:#fff;border-color:#b91c1c;
+  box-shadow:0 0 0 3px rgba(220,38,38,0.28),inset 0 1px 0 rgba(255,255,255,0.12);
+  transform:translateY(1px);
+}
+.lst-ptt:disabled{opacity:0.45;cursor:not-allowed;}
 .lst-ptt-hint{font-size:11px;color:var(--text3);}
+.lst-av-bar{margin-top:auto;padding-top:14px;display:flex;justify-content:flex-start;}
+.lst-av-pill{
+  display:inline-flex;align-items:center;gap:10px;
+  padding:7px 14px 7px 12px;border-radius:999px;
+  border:1px solid var(--border);background:rgba(255,255,255,0.03);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.lst-av-sess{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+  background:#64748b;box-shadow:0 0 0 3px rgba(100,116,139,0.18);
+}
+.lst-av-sess.is-on{background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,0.22);}
+.lst-av-sess.is-off{background:#64748b;box-shadow:0 0 0 3px rgba(100,116,139,0.18);}
+.lst-av-ico{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:18px;height:18px;color:var(--text3);opacity:0.55;transition:color .12s ease,opacity .12s ease;
+}
+.lst-av-ico svg{width:16px;height:16px;display:block;}
+.lst-av-ico.is-idle{color:var(--text3);opacity:0.5;}
+.lst-av-ico.is-ok{color:#16a34a;opacity:1;}
+.lst-av-ico.is-bad{color:#dc2626;opacity:1;}
+.lst-av-sep{width:1px;height:14px;background:var(--border);opacity:0.9;margin:0 2px;}
+.lst-av-tag{
+  font-family:var(--mono);font-size:11px;font-weight:800;letter-spacing:0.08em;
+  color:var(--text3);opacity:0.45;line-height:1;min-width:1.6em;text-align:center;
+  transition:color .12s ease,opacity .12s ease;
+}
+.lst-av-tag.is-idle{color:var(--text3);opacity:0.45;}
+.lst-av-tag.is-rx-on{color:#16a34a;opacity:1;}
+.lst-av-tag.is-tx-on{color:#dc2626;opacity:1;}
 #lst-roster-table .row-actions{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end;}
 #lst-roster-table .lst-act-btn{
   width:34px;height:34px;min-width:34px;min-height:34px;padding:0;margin:0;
@@ -5609,7 +5656,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-strip-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up"><span data-icon="calls"></span></button>
             </div>
             <div class="lst-ptt-wrap">
-              <button type="button" class="btn lst-ptt" id="lst-ptt-btn" data-i18n="lst_ptt">PTT</button>
+              <button type="button" class="btn lst-ptt" id="lst-ptt-btn">
+                <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
+                <span data-i18n="lst_ptt">PTT</span>
+              </button>
               <span class="lst-ptt-hint" data-i18n="lst_ptt_space">Spacebar = PTT on this page (when not typing).</span>
               <span id="lst-call-state" class="help-text" style="display:none">—</span>
             </div>
@@ -5621,6 +5671,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <button type="button" class="btn btn-sm" id="lst-install-voice-btn" style="display:none;margin-top:8px" onclick="lstInstallVoice()" data-i18n="lst_install_voice">Install voice codec (OTA)</button>
             <p class="help-text" id="lst-audio-hint" style="display:none"></p>
             <button type="button" class="btn btn-primary" id="lst-https-btn" style="display:none;margin-top:8px" onclick="lstOpenHttps()" data-i18n="lst_open_https">Open secure console (HTTPS) for microphone</button>
+            <div class="lst-av-bar" id="lst-av-bar" aria-hidden="true">
+              <div class="lst-av-pill">
+                <span class="lst-av-sess is-off" id="lst-av-sess"></span>
+                <span class="lst-av-ico is-idle" id="lst-av-spk" data-icon="speaker"></span>
+                <span class="lst-av-ico is-idle" id="lst-av-mic" data-icon="mic"></span>
+                <span class="lst-av-sep" aria-hidden="true"></span>
+                <span class="lst-av-tag is-idle" id="lst-av-rx">RX</span>
+                <span class="lst-av-tag is-idle" id="lst-av-tx">TX</span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="card">
@@ -6136,7 +6196,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
       <div class="lst-call-panel is-active" id="lst-call-panel-sx">
         <div class="lst-ptt-wrap" id="lst-call-ptt-wrap" style="margin-top:8px;display:none">
-          <button type="button" class="btn lst-ptt" id="lst-call-ptt-btn" data-i18n="lst_ptt">PTT</button>
+          <button type="button" class="btn lst-ptt" id="lst-call-ptt-btn">
+            <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
+            <span data-i18n="lst_ptt">PTT</span>
+          </button>
         </div>
       </div>
       <div class="lst-call-panel" id="lst-call-panel-dx">
@@ -6411,9 +6474,11 @@ const ICONS = {
   // nav — monitor
   home:'<path d="M4 11.5 12 4l8 7.5"/><path d="M6.5 10.8V20h11V10.8"/><path d="M10 20v-5h4v5"/>',
   radios:'<rect x="8" y="8" width="8" height="12.5" rx="1.8"/><path d="M10.5 5.5v2.5M13.5 4v4"/><circle cx="12" cy="13" r="1.35"/><path d="M10 17.5h4"/><path d="M16 10.5h1.5M16 13.5h1.5"/>',
-  lst:'<path d="M5 13a7 7 0 0 1 14 0"/><path d="M5 13v3.2a1.8 1.8 0 0 0 1.8 1.8H8"/><path d="M19 13v2.5a1.5 1.5 0 0 1-1.5 1.5H16"/><path d="M8.5 18h5"/><rect x="15.5" y="15" width="4" height="5" rx="1.2"/><path d="M12 9.5v2"/>',
+  lst:'<path d="M4.2 12.2a7.8 7.8 0 0 1 12.2 0"/><path d="M4.2 12.2v3.8a2.2 2.2 0 0 0 2.2 2.2H8"/><path d="M16.4 12.2v2.6"/><path d="M8 18.2h5.2"/><rect x="13.2" y="12.2" width="7" height="9.2" rx="1.7"/><path d="M15.2 9.6v2.6M18.2 8.8v3.4"/><circle cx="16.7" cy="15.6" r="1.25"/><path d="M15.2 18.8h3"/><path d="M10.3 8.2v2.4"/>',
   dgna:'<path d="M6 8h8"/><path d="M6 12h8"/><path d="M6 16h6"/><path d="M17 7v10"/><path d="M14 10l3-3 3 3"/><path d="M14 14l3 3 3-3"/>',
   calls:'<path d="M6.5 4.5h3l1.2 3.2-1.7 1.3a11 11 0 0 0 4.7 4.7l1.3-1.7 3.2 1.2v3a1.5 1.5 0 0 1-1.6 1.5A13.5 13.5 0 0 1 5 6.1 1.5 1.5 0 0 1 6.5 4.5Z"/>',
+  mic:'<rect x="9" y="3.5" width="6" height="10" rx="3"/><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0"/><path d="M12 17v3.5M9 20.5h6"/>',
+  speaker:'<path d="M3.5 9.5v5l7.5 3.8V5.7Z"/><path d="M14 9a3.2 3.2 0 0 1 0 6"/><path d="M16.8 7a6 6 0 0 1 0 10"/>',
   lastheard:'<path d="M4 12h2M8 8v8M12 5v14M16 8v8M20 12h-2"/>',
   log:'<rect x="5" y="4" width="14" height="16" rx="2.5"/><path d="M9 9h6M9 13h6M9 17h3"/>',
   sdslog:'<path d="M4.5 6.5A1.5 1.5 0 0 1 6 5h12a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 18 16H9l-4 3v-3a1.5 1.5 0 0 1-.5-1.1Z"/>',
@@ -7636,6 +7701,7 @@ async function wifiRefresh(){
 /* ── LST Dispatch console ───────────────────────────────────────────── */
 let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
 let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
+let lstMicDenied=false,lstRxUntil=0,lstAvBarTimer=null;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
 let lstCallPeer=0,lstCallTab='sx';
 let lstLastStatus=null,lstTimerFrozenSecs=null,lstTimerTick=null;
@@ -7820,6 +7886,7 @@ function lstApplyStatusPayload(j){
   lstLastStatus=j;
   lstUpdateCallUi(j);
   lstSyncPttUi();
+  lstRefreshAvBar();
 }
 function lstPhaseLabel(phase){
   const key='lst_phase_'+(phase||'idle');
@@ -8132,6 +8199,49 @@ function lstSyncPttUi(){
     const el=document.getElementById(id);
     if(el)el.classList.toggle('is-tx',!!lstPttDown);
   });
+  lstRefreshAvBar();
+}
+function lstAvIcoState(el,state){
+  if(!el)return;
+  el.classList.remove('is-idle','is-ok','is-bad');
+  el.classList.add('is-'+state);
+}
+function lstRefreshAvBar(){
+  const sess=document.getElementById('lst-av-sess');
+  const spk=document.getElementById('lst-av-spk');
+  const mic=document.getElementById('lst-av-mic');
+  const rx=document.getElementById('lst-av-rx');
+  const tx=document.getElementById('lst-av-tx');
+  if(!sess||!spk||!mic||!rx||!tx)return;
+  const owned=!!lstToken;
+  sess.classList.toggle('is-on',owned);
+  sess.classList.toggle('is-off',!owned);
+  if(!owned){
+    lstAvIcoState(spk,'idle');
+    lstAvIcoState(mic,'idle');
+  }else if(lstMicDenied||!window.isSecureContext){
+    lstAvIcoState(spk,lstAudioReady?'ok':'bad');
+    lstAvIcoState(mic,'bad');
+  }else if(lstAudioReady){
+    lstAvIcoState(spk,'ok');
+    lstAvIcoState(mic,'ok');
+  }else{
+    lstAvIcoState(spk,'bad');
+    lstAvIcoState(mic,'bad');
+  }
+  const rxOn=Date.now()<lstRxUntil||(lstDlQueue&&lstDlQueue.length>160);
+  rx.classList.toggle('is-rx-on',!!rxOn);
+  rx.classList.toggle('is-idle',!rxOn);
+  tx.classList.toggle('is-tx-on',!!lstPttDown);
+  tx.classList.toggle('is-idle',!lstPttDown);
+  if(rxOn){
+    if(lstAvBarTimer)clearTimeout(lstAvBarTimer);
+    lstAvBarTimer=setTimeout(()=>{lstAvBarTimer=null;lstRefreshAvBar();},720);
+  }
+}
+function lstMarkRx(){
+  lstRxUntil=Date.now()+800;
+  lstRefreshAvBar();
 }
 function lstBindCallModalPtt(){
   lstBindPttButton(document.getElementById('lst-call-ptt-btn'));
@@ -8215,20 +8325,26 @@ function lstPushDlSamples(f32){
 }
 async function lstStartAudio(){
   lstAudioReady=false;
+  lstMicDenied=false;
   lstUlAcc=null;lstDlQueue=null;lstDlRead=0;
+  lstRefreshAvBar();
   try{
     const insecure=!window.isSecureContext;
     if(insecure){
+      lstMicDenied=true;
       lstSetAudioHint(t('lst_audio_insecure'),true);
     }
     lstAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
     if(lstAudioCtx.state==='suspended'){try{await lstAudioCtx.resume();}catch(_){}}
     lstNextPlay=0;
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+      lstMicDenied=true;
       lstSetAudioHint((insecure?t('lst_audio_insecure')+' — ':'')+t('lst_audio_mic_fail')+'MediaDevices API missing (usa http://IP → contexto inseguro)',true);
+      lstRefreshAvBar();
       return;
     }
     lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
+    lstMicDenied=false;
     const src=lstAudioCtx.createMediaStreamSource(lstMicStream);
     const proc=lstAudioCtx.createScriptProcessor(2048,1,1);
     lstUlProc=proc;
@@ -8266,20 +8382,27 @@ async function lstStartAudio(){
     lstDlTimer=setInterval(lstPollDl,80);
     lstAudioReady=true;
     lstSetAudioHint(t('lst_audio_ok'),true);
+    lstRefreshAvBar();
   }catch(e){
     console.warn('lst audio',e);
     const insecure=!window.isSecureContext;
+    const name=e&&e.name;
+    lstMicDenied=insecure||name==='NotAllowedError'||name==='PermissionDeniedError'||name==='SecurityError';
     lstSetAudioHint((insecure?t('lst_audio_insecure')+' — ':'')+t('lst_audio_mic_fail')+(e&&e.message?e.message:String(e)),true);
+    lstRefreshAvBar();
   }
 }
 function lstStopAudio(){
   lstPttDown=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
+  lstMicDenied=false;lstRxUntil=0;
   lstUlAcc=null;lstDlQueue=null;
+  if(lstAvBarTimer){clearTimeout(lstAvBarTimer);lstAvBarTimer=null;}
   if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
   if(lstUlProc){try{lstUlProc.disconnect();}catch(_){}lstUlProc=null;}
   if(lstDlProc){try{lstDlProc.disconnect();}catch(_){}lstDlProc=null;}
   if(lstMicStream){lstMicStream.getTracks().forEach(t=>t.stop());lstMicStream=null;}
   if(lstAudioCtx){try{lstAudioCtx.close();}catch(_){}lstAudioCtx=null;}
+  lstRefreshAvBar();
 }
 async function lstPollDl(){
   if(!lstToken||!lstAudioCtx||lstDlBusy)return;
@@ -8309,6 +8432,7 @@ async function lstPollDl(){
       }
       lstPushDlSamples(out);
     }
+    lstMarkRx();
   }catch(_){}
   finally{lstDlBusy=false;}
 }
