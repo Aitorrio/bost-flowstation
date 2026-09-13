@@ -12,8 +12,8 @@ use std::time::Duration;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConnection;
 
-/// Fixed HTTPS sidecar port (HTTP stays on the configured dashboard port).
-pub const DASHBOARD_HTTPS_PORT: u16 = 8443;
+/// Default HTTPS port when TLS status has not been initialised yet.
+pub const DEFAULT_HTTPS_PORT: u16 = 443;
 
 const CERT_FILE: &str = "cert.pem";
 const KEY_FILE: &str = "key.pem";
@@ -30,7 +30,7 @@ static TLS_STATUS: OnceLock<DashboardTlsStatus> = OnceLock::new();
 
 pub fn tls_status() -> DashboardTlsStatus {
     TLS_STATUS.get().cloned().unwrap_or(DashboardTlsStatus {
-        https_port: DASHBOARD_HTTPS_PORT,
+        https_port: DEFAULT_HTTPS_PORT,
         enabled: false,
         cert_fingerprint: String::new(),
     })
@@ -191,7 +191,10 @@ pub fn tls_dir_for_config(config_path: &str) -> PathBuf {
 }
 
 /// Ensure cert+key exist (openssl CLI). Returns `(ServerConfig, sha256 fingerprint hex)` when usable.
-pub fn ensure_dashboard_tls(tls_dir: &Path) -> Option<(Arc<rustls::ServerConfig>, String)> {
+pub fn ensure_dashboard_tls(
+    tls_dir: &Path,
+    https_port: u16,
+) -> Option<(Arc<rustls::ServerConfig>, String)> {
     if let Err(e) = fs::create_dir_all(tls_dir) {
         tracing::warn!("Dashboard TLS: cannot create {}: {}", tls_dir.display(), e);
         return None;
@@ -218,7 +221,7 @@ pub fn ensure_dashboard_tls(tls_dir: &Path) -> Option<(Arc<rustls::ServerConfig>
     match load_tls_config(&cert_path, &key_path) {
         Ok((cfg, fp)) => {
             set_tls_status(DashboardTlsStatus {
-                https_port: DASHBOARD_HTTPS_PORT,
+                https_port,
                 enabled: true,
                 cert_fingerprint: fp.clone(),
             });
@@ -227,7 +230,7 @@ pub fn ensure_dashboard_tls(tls_dir: &Path) -> Option<(Arc<rustls::ServerConfig>
         Err(e) => {
             tracing::warn!("Dashboard TLS: failed to load certs: {} — HTTPS disabled", e);
             set_tls_status(DashboardTlsStatus {
-                https_port: DASHBOARD_HTTPS_PORT,
+                https_port,
                 enabled: false,
                 cert_fingerprint: String::new(),
             });

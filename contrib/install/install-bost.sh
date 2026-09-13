@@ -204,7 +204,8 @@ has_live_dashboard = bool(re.search(r'(?m)^\[dashboard\]\s*$', text))
 dash = (
     '\n[dashboard]\n'
     'bind = "0.0.0.0"\n'
-    'port = 8080\n'
+    'port = 80\n'
+    'https_port = 443\n'
     'username = "admin"\n'
     'password = "1234"\n'
     'source_dir = "/opt/bost-flowstation"\n'
@@ -246,7 +247,8 @@ voice_service = true
 
 [dashboard]
 bind = "0.0.0.0"
-port = 8080
+port = 80
+https_port = 443
 username = "admin"
 password = "1234"
 source_dir = "/opt/bost-flowstation"
@@ -370,7 +372,7 @@ IP="${IP:-<pi-ip>}"
 echo
 echo "────────────────────────────────────────────────────────"
 echo " Bost FlowStation installed"
-echo " Dashboard:  http://${IP}:8080"
+echo " Dashboard:  https://${IP}/  (HTTP :80 and legacy :8080/:8443 redirect here)"
 echo " Login:      admin / 1234"
 echo " Config:     ${CFG_PATH}"
 echo " Setup:      open the Setup tab / first-run wizard"

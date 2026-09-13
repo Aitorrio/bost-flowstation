@@ -2,11 +2,16 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use toml::Value;
 
-/// Dashboard HTTP server configuration
+/// Dashboard HTTP / HTTPS server configuration.
+///
+/// Canonical access is HTTPS on [`CfgDashboard::https_port`] (default 443).
+/// [`CfgDashboard::port`] (default 80) is a cleartext listener that only redirects to HTTPS.
 #[derive(Debug, Clone)]
 pub struct CfgDashboard {
-    /// Port to listen on (default: 8080)
+    /// Cleartext HTTP port used only to redirect to HTTPS (default: 80).
     pub port: u16,
+    /// HTTPS port for the real dashboard (default: 443).
+    pub https_port: u16,
     /// Bind address (default: 0.0.0.0 — all interfaces, so the dashboard is reachable from the LAN).
     /// Off-host access without credentials is read-only: control commands are only honoured from
     /// localhost or an authenticated session. Set username/password to allow off-host control, or set
@@ -45,7 +50,8 @@ pub struct CfgDashboard {
 impl Default for CfgDashboard {
     fn default() -> Self {
         Self {
-            port: 8080,
+            port: 80,
+            https_port: 443,
             bind: "0.0.0.0".to_string(),
             source_dir: None,
             ota_channel: "stable".to_string(),
@@ -61,6 +67,8 @@ impl Default for CfgDashboard {
 pub struct CfgDashboardDto {
     #[serde(default = "default_port")]
     pub port: u16,
+    #[serde(default = "default_https_port")]
+    pub https_port: u16,
     #[serde(default = "default_bind")]
     pub bind: String,
     #[serde(default)]
@@ -83,7 +91,10 @@ pub struct CfgDashboardDto {
 }
 
 fn default_port() -> u16 {
-    8080
+    80
+}
+fn default_https_port() -> u16 {
+    443
 }
 fn default_bind() -> String {
     // All interfaces by default. The dashboard is normally opened from another machine on the LAN, so
@@ -101,6 +112,12 @@ fn default_ota_channel() -> String {
 pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, String> {
     if src.port == 0 {
         return Err("dashboard: port cannot be 0".to_string());
+    }
+    if src.https_port == 0 {
+        return Err("dashboard: https_port cannot be 0".to_string());
+    }
+    if src.port == src.https_port {
+        return Err("dashboard: port and https_port must differ".to_string());
     }
     // Validate source_dir if provided: must be an existing directory.
     if let Some(ref sd) = src.source_dir {
@@ -139,6 +156,7 @@ pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, Strin
     };
     Ok(CfgDashboard {
         port: src.port,
+        https_port: src.https_port,
         bind: src.bind,
         source_dir: src.source_dir,
         ota_channel,

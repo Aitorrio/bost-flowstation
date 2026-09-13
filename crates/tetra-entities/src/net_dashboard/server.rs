@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Instant;
 
@@ -12,8 +12,8 @@ use tungstenite::{
 use crate::net_control::commands::ControlCommand;
 use crate::net_dashboard::conn_stream::{
     ensure_dashboard_tls, tls_dir_for_config, tls_status, ConnStream, PrefixedConn,
-    DASHBOARD_HTTPS_PORT,
 };
+use crate::net_dashboard::dashboard_ports::{LEGACY_HTTP_PORT, LEGACY_HTTPS_PORT};
 use crate::net_dashboard::html::DASHBOARD_HTML;
 use crate::net_dashboard::state::{CallEntry, DashboardState, DashboardStateInner, MsEntry, MsGroupState};
 use crate::net_telemetry::TelemetryEvent;
@@ -1712,8 +1712,7 @@ impl DashboardServer {
         s.fallback_config_reason = reason;
     }
 
-    pub fn start(&mut self, bind: &str, port: u16) {
-        let addr = format!("{}:{}", bind, port);
+    pub fn start(&mut self, bind: &str, http_port: u16, https_port: u16) {
         let state = Arc::clone(&self.state);
         let clients = Arc::clone(&self.clients);
         let config_path = self.config_path.clone();
@@ -1730,9 +1729,8 @@ impl DashboardServer {
 
         // Always try to materialise self-signed certs before spawning listeners.
         let tls_dir = tls_dir_for_config(&config_path);
-        let tls_cfg = ensure_dashboard_tls(&tls_dir).map(|(cfg, _fp)| cfg);
+        let tls_cfg = ensure_dashboard_tls(&tls_dir, https_port).map(|(cfg, _fp)| cfg);
 
-        // Shared handles cloned for the optional HTTPS sidecar (HTTP thread moves its copies).
         let https_state = Arc::clone(&state);
         let https_clients = Arc::clone(&clients);
         let https_config_path = config_path.clone();
@@ -1747,23 +1745,33 @@ impl DashboardServer {
         let https_radioid = radioid.clone();
         let https_lst_handle = lst_handle.clone();
 
+        // HTTP is redirect-only when TLS is up; otherwise keep serving the full dashboard
+        // on the cleartext port so a missing openssl doesn't brick the UI.
+        let http_redirect_only = tls_cfg.is_some();
+        let http_bind = bind.to_string();
+        let http_port_owned = http_port;
+        let https_port_for_redirect = https_port;
+
         std::thread::Builder::new()
-            .name("dashboard-server".into())
+            .name("dashboard-http".into())
             .spawn(move || {
-                // WiFi resilience: light nmcli loop (does nothing without NetworkManager).
                 crate::wifi::spawn_watchdog();
-                // Retry the bind instead of giving up after a single failure (FH-BUG-043).
-                // On a cold boot the configured bind address may not be assigned yet — DHCP
-                // lease still pending, or a VPN/wg/tun interface that comes up after the
-                // service — so the first bind can fail with EADDRNOTAVAIL even with
-                // After=network-online.target. Previously the thread logged once and exited,
-                // leaving the dashboard permanently down (while the RF stack ran fine) until a
-                // manual stop/start. Retrying lets it self-heal once the address appears. This
-                // loop runs only on the dashboard thread, so it can never block the PHY/main loop.
+                let addr = format!("{}:{}", http_bind, http_port_owned);
                 let listener = loop {
                     match TcpListener::bind(&addr) {
                         Ok(l) => {
-                            tracing::info!("Dashboard listening on http://{}", addr);
+                            if http_redirect_only {
+                                tracing::info!(
+                                    "Dashboard HTTP redirect on http://{} → https (port {})",
+                                    addr,
+                                    https_port_for_redirect
+                                );
+                            } else {
+                                tracing::warn!(
+                                    "Dashboard listening on http://{} (HTTPS unavailable — install openssl for TLS)",
+                                    addr
+                                );
+                            }
                             break l;
                         }
                         Err(e) => {
@@ -1778,6 +1786,10 @@ impl DashboardServer {
                 };
                 for stream in listener.incoming() {
                     let Ok(stream) = stream else { continue };
+                    if http_redirect_only {
+                        serve_https_redirect_plain(stream, https_port_for_redirect);
+                        continue;
+                    }
                     let state = Arc::clone(&state);
                     let clients = Arc::clone(&clients);
                     let config_path = config_path.clone();
@@ -1813,11 +1825,16 @@ impl DashboardServer {
                         .ok();
                 }
             })
-            .expect("failed to spawn dashboard thread");
+            .expect("failed to spawn dashboard HTTP thread");
 
-        // HTTPS sidecar on a fixed port — same handle_connection path after rustls handshake.
+        // Legacy cleartext :8080 — OTA/bookmarks still land somewhere useful.
+        if http_redirect_only && http_port != LEGACY_HTTP_PORT {
+            spawn_legacy_http_redirect(bind, LEGACY_HTTP_PORT, https_port);
+        }
+
+        // Canonical HTTPS dashboard.
         if let Some(tls_config) = tls_cfg {
-            let https_addr = format!("{}:{}", bind, DASHBOARD_HTTPS_PORT);
+            let https_addr = format!("{}:{}", bind, https_port);
             let state = https_state;
             let clients = https_clients;
             let config_path = https_config_path;
@@ -1831,6 +1848,7 @@ impl DashboardServer {
             let login_throttle = https_login_throttle;
             let radioid = https_radioid;
             let lst_handle = https_lst_handle;
+            let tls_for_legacy = Arc::clone(&tls_config);
 
             std::thread::Builder::new()
                 .name("dashboard-https".into())
@@ -1904,6 +1922,11 @@ impl DashboardServer {
                     }
                 })
                 .expect("failed to spawn dashboard HTTPS thread");
+
+            // Legacy TLS :8443 → redirect to canonical https://host/…
+            if https_port != LEGACY_HTTPS_PORT {
+                spawn_legacy_https_redirect(bind, LEGACY_HTTPS_PORT, https_port, tls_for_legacy);
+            }
         }
     }
 
@@ -2674,7 +2697,7 @@ fn handle_connection(
         return;
     }
 
-    // Public TLS status (no auth) so the UI can advertise https://IP:8443.
+    // Public TLS status (no auth) so the UI can advertise the canonical HTTPS URL.
     if req_line.starts_with("GET /api/dashboard/tls ")
         || req_line.starts_with("GET /api/dashboard/tls?")
         || req_line.starts_with("GET /api/dashboard/tls HTTP")
@@ -4779,7 +4802,7 @@ fn enrich_update_check_for_voice(body: String) -> String {
             .to_string();
         if notes.is_empty() {
             v["release_notes"] = serde_json::json!(
-                "- Install TETRA voice codec (libtetra-codec) and rebuild for LST Dispatch audio.\n- Confirm this update — no SSH required.\n- After restart, open https://IP:8443 so the browser allows the microphone."
+                "- Install TETRA voice codec (libtetra-codec) and rebuild for LST Dispatch audio.\n- Confirm this update — no SSH required.\n- After restart, open https://IP (port 443) so the browser allows the microphone. Old bookmarks to :8080 / :8443 redirect automatically."
             );
             v["notes_source"] = serde_json::json!("changelog");
         }
@@ -6504,6 +6527,171 @@ fn http_redirect(mut stream: PrefixedConn, location: &str) {
     let _ = stream.write_all(resp.as_bytes());
 }
 
+fn request_target(req_line: &str) -> &str {
+    let mut parts = req_line.split_whitespace();
+    let _method = parts.next();
+    match parts.next() {
+        Some(t) if t.starts_with('/') => t,
+        _ => "/",
+    }
+}
+
+fn host_header<'a>(header_str: &'a str) -> Option<&'a str> {
+    for line in header_str.lines().skip(1) {
+        if line.is_empty() || line == "\r" {
+            break;
+        }
+        let trimmed = line.trim_end_matches('\r');
+        if let Some(rest) = trimmed
+            .strip_prefix("Host:")
+            .or_else(|| trimmed.strip_prefix("host:"))
+        {
+            return Some(rest.trim());
+        }
+    }
+    None
+}
+
+fn host_without_port(host: &str) -> &str {
+    if host.starts_with('[') {
+        if let Some(end) = host.find(']') {
+            return &host[..=end];
+        }
+        return host;
+    }
+    if let Some((h, p)) = host.rsplit_once(':') {
+        if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) {
+            return h;
+        }
+    }
+    host
+}
+
+fn absolute_https_location(header_str: &str, req_line: &str, https_port: u16) -> String {
+    let host = host_without_port(host_header(header_str).unwrap_or("localhost"));
+    let path = request_target(req_line);
+    if https_port == 443 {
+        format!("https://{host}{path}")
+    } else {
+        format!("https://{host}:{https_port}{path}")
+    }
+}
+
+fn write_plain_redirect(mut stream: TcpStream, location: &str) {
+    let resp = format!(
+        "HTTP/1.1 302 Found\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        location
+    );
+    let _ = stream.write_all(resp.as_bytes());
+}
+
+fn serve_https_redirect_plain(mut stream: TcpStream, https_port: u16) {
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+    let mut buf = [0u8; 4096];
+    let n = match stream.read(&mut buf) {
+        Ok(0) | Err(_) => return,
+        Ok(n) => n,
+    };
+    let header_str = String::from_utf8_lossy(&buf[..n]);
+    let req_line = header_str.lines().next().unwrap_or("");
+    let location = absolute_https_location(&header_str, req_line, https_port);
+    write_plain_redirect(stream, &location);
+}
+
+fn spawn_legacy_http_redirect(bind: &str, listen_port: u16, https_port: u16) {
+    let addr = format!("{}:{}", bind, listen_port);
+    std::thread::Builder::new()
+        .name("dashboard-http-legacy".into())
+        .spawn(move || {
+            let listener = loop {
+                match TcpListener::bind(&addr) {
+                    Ok(l) => {
+                        tracing::info!(
+                            "Dashboard legacy HTTP redirect on http://{} → https (port {})",
+                            addr,
+                            https_port
+                        );
+                        break l;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Dashboard legacy HTTP bind {}: {} — retrying in 5s",
+                            addr,
+                            e
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                    }
+                }
+            };
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+                serve_https_redirect_plain(stream, https_port);
+            }
+        })
+        .ok();
+}
+
+fn spawn_legacy_https_redirect(
+    bind: &str,
+    listen_port: u16,
+    https_port: u16,
+    tls_config: Arc<rustls::ServerConfig>,
+) {
+    let addr = format!("{}:{}", bind, listen_port);
+    std::thread::Builder::new()
+        .name("dashboard-https-legacy".into())
+        .spawn(move || {
+            let listener = loop {
+                match TcpListener::bind(&addr) {
+                    Ok(l) => {
+                        tracing::info!(
+                            "Dashboard legacy HTTPS redirect on https://{} → canonical HTTPS :{}",
+                            addr,
+                            https_port
+                        );
+                        break l;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Dashboard legacy HTTPS bind {}: {} — retrying in 5s",
+                            addr,
+                            e
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                    }
+                }
+            };
+            for stream in listener.incoming() {
+                let Ok(tcp) = stream else { continue };
+                let tls_config = Arc::clone(&tls_config);
+                std::thread::Builder::new()
+                    .name("dashboard-https-legacy-conn".into())
+                    .spawn(move || {
+                        let mut conn = match ConnStream::from_tls_handshake(tcp, tls_config) {
+                            Ok(c) => c,
+                            Err(_) => return,
+                        };
+                        let _ = conn.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+                        let mut buf = [0u8; 4096];
+                        let n = match conn.read(&mut buf) {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => n,
+                        };
+                        let header_str = String::from_utf8_lossy(&buf[..n]);
+                        let req_line = header_str.lines().next().unwrap_or("");
+                        let location = absolute_https_location(&header_str, req_line, https_port);
+                        let resp = format!(
+                            "HTTP/1.1 302 Found\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            location
+                        );
+                        let _ = conn.write_all(resp.as_bytes());
+                    })
+                    .ok();
+            }
+        })
+        .ok();
+}
+
 fn serve_login_success(mut stream: PrefixedConn, token: &str) {
     // Two cookies:
     //   fs_session: HttpOnly — the actual session token, inaccessible to JS.
@@ -6544,7 +6732,7 @@ fn serve_logout(mut stream: PrefixedConn) {
     let _ = stream.write_all(resp.as_bytes());
 }
 
-/// GET /api/dashboard/tls — HTTPS sidecar status for the UI (public, no auth).
+/// GET /api/dashboard/tls — HTTPS status for the UI (public, no auth).
 fn serve_dashboard_tls_status(stream: PrefixedConn) {
     let st = tls_status();
     let body = format!(

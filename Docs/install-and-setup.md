@@ -23,7 +23,7 @@ sudo ./contrib/install/install-bost.sh
 3. Builds `bluestation-bs` with Cargo and installs it to `/usr/local/bin/bluestation-bs`.
 4. Writes `/etc/flowstation/config.toml` if missing, with:
    - `phy_io.backend = "None"` (web always starts)
-   - `[dashboard]` on `0.0.0.0:8080`, login `admin` / `1234`
+   - `[dashboard]` HTTPS on `:443`, HTTP redirect on `:80`, login `admin` / `1234`
    - `service_name = "bluestation-bs"`
    - sibling `config.toml.fallback` and `setup.json` (`setup_complete=false`)
 5. Installs `bost-setup-helper.sh` + a sudoers drop-in (allowlisted actions only).
@@ -66,7 +66,7 @@ sudo systemctl reload NetworkManager
 
 ## First login
 
-1. Open `http://<pi-ip>:8080`
+1. Open `https://<pi-ip>/` (or `http://<pi-ip>/` — redirects to HTTPS; old `:8080` / `:8443` bookmarks also redirect)
 2. Log in with `admin` / `1234` (change password in Config when convenient)
 3. The **Setup** wizard appears if `setup.json` has `setup_complete=false`
 4. Steps: welcome → SDR scan / install driver (SXceiver or Lime) → RF/net/Brew (or defaults) → enable RF + restart → ensure systemd autostart → finish

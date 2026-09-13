@@ -418,6 +418,14 @@ fn main() {
     // Parse command-line arguments
     let args = Args::parse();
 
+    // OTA / upgrades: rewrite legacy dashboard ports (8080→80, ensure https_port=443)
+    // before parse so new installs and old boxes share the same defaults.
+    {
+        use tetra_entities::net_dashboard::dashboard_ports::migrate_legacy_dashboard_ports;
+        migrate_legacy_dashboard_ports(&args.config);
+        migrate_legacy_dashboard_ports(&format!("{}.fallback", args.config));
+    }
+
     // Load config — parse+validate primary; on failure try <config>.fallback the same way.
     let (stack_cfg, fallback_info) = match load_config_with_fallback(&args.config) {
         ConfigLoadResult::Primary(c) => (c, None),
@@ -576,8 +584,11 @@ fn main() {
             }
 
             // start() must be called before Arc::new() because it takes &mut self
-            dashboard.start(&dash_cfg.bind, dash_cfg.port);
-            eprintln!(" -> Dashboard enabled on http://{}:{}", dash_cfg.bind, dash_cfg.port);
+            dashboard.start(&dash_cfg.bind, dash_cfg.port, dash_cfg.https_port);
+            eprintln!(
+                " -> Dashboard HTTPS on https://{}:{} (HTTP :{} redirects; legacy :8080/:8443 redirect when free)",
+                dash_cfg.bind, dash_cfg.https_port, dash_cfg.port
+            );
 
             // If we started on fallback config, tell the dashboard to show the warning banner.
             if let Some((ref fb_path, ref fb_reason)) = fallback_info {

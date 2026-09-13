@@ -6806,8 +6806,8 @@ const LANGS={
     lst_no_codec:'Voice codec not available in this build — signalling only. Use “Install voice codec (OTA)” below (no SSH).',
     lst_install_voice:'Install voice codec (OTA)',
     lst_open_https:'Open secure console (HTTPS) for microphone',
-    lst_https_need:'Microphone needs HTTPS. Click the button to open https://this-host:8443 (accept the certificate warning once).',
-    lst_audio_insecure:'Browser blocks the microphone on http://IP. Open the secure console (HTTPS :8443) — accept the certificate once.',
+    lst_https_need:'Microphone needs HTTPS. Click the button to open https://this-host/ (accept the certificate warning once).',
+    lst_audio_insecure:'Browser blocks the microphone on http://IP. Open the secure console (HTTPS) — accept the certificate once.',
     lst_audio_need_claim:'Press “Take dispatch” first — that gesture opens the mic/speakers prompt.',
     lst_audio_mic_fail:'Could not open the microphone: ',
     lst_audio_ok:'Mic/speakers ready.',
@@ -7229,8 +7229,8 @@ const LANGS={
     lst_no_codec:'Codec de voz no disponible en este build — solo señalización. Usa “Instalar codec de voz (OTA)” abajo (sin SSH).',
     lst_install_voice:'Instalar codec de voz (OTA)',
     lst_open_https:'Abrir consola segura (HTTPS) para el micrófono',
-    lst_https_need:'El micrófono necesita HTTPS. Pulsa el botón para abrir https://este-equipo:8443 (acepta el aviso del certificado una vez).',
-    lst_audio_insecure:'El navegador bloquea el micrófono en http://IP. Abre la consola segura (HTTPS :8443) y acepta el certificado una vez.',
+    lst_https_need:'El micrófono necesita HTTPS. Pulsa el botón para abrir https://este-equipo/ (acepta el aviso del certificado una vez).',
+    lst_audio_insecure:'El navegador bloquea el micrófono en http://IP. Abre la consola segura (HTTPS) y acepta el certificado una vez.',
     lst_audio_need_claim:'Pulsa primero “Tomar despacho”: ese gesto abre el permiso de micro/altavoz.',
     lst_audio_mic_fail:'No se pudo abrir el micrófono: ',
     lst_audio_ok:'Micro/altavoz listos.',
@@ -8016,13 +8016,13 @@ async function lstInstallVoice(){
   else await dashAlert(t('notice'),t('lst_install_voice'));
 }
 async function lstOpenHttps(){
-  let port=8443;
+  let port=443;
   try{
     const r=await fetch('/api/dashboard/tls',{credentials:'same-origin',cache:'no-store'});
     if(r.ok){const j=await r.json();if(j&&j.https_port)port=j.https_port;}
   }catch(_){}
-  const url='https://'+location.hostname+':'+port+location.pathname+location.search+location.hash;
-  location.assign(url);
+  const base=port===443?('https://'+location.hostname):('https://'+location.hostname+':'+port);
+  location.assign(base+location.pathname+location.search+location.hash);
 }
 async function lstRefreshStatus(){
   try{

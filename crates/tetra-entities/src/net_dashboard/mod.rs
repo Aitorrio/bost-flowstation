@@ -2,6 +2,7 @@ pub mod callsign;
 pub mod conn_stream;
 pub mod dapnet;
 pub mod dashboard_auth;
+pub mod dashboard_ports;
 pub mod dual_carrier;
 pub mod geoalarm;
 pub mod html;

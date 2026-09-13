@@ -54,7 +54,7 @@ When it finishes you should see something like:
 
 | | |
 |---|---|
-| Dashboard | `http://<pi-ip>:8080` |
+| Dashboard | `https://<pi-ip>/` (HTTP `:80` redirects; legacy `:8080` / `:8443` also redirect after OTA) |
 | Default login | `admin` / `1234` |
 | Config on disk | `/etc/flowstation/config.toml` (+ `.fallback` reserve) |
 | Sources | `/opt/bost-flowstation` (branch `bost`) |

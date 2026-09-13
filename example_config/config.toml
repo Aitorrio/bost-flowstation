@@ -533,22 +533,23 @@ voice_service = true
 
 ###############################################################################
 
-# OPTIONAL: Web dashboard — accessible at http://<BTS-IP>:8080 (FlowStation)
+# OPTIONAL: Web dashboard — accessible at https://<BTS-IP>/ (HTTP :80 redirects; legacy :8080/:8443 also redirect after OTA)
 #
 # Live view of terminals, active calls, log, config editor, kick and SDS.
+# HTTPS is the canonical UI (self-signed cert; accept the browser warning once).
 #
 # [dashboard]
-# port = 8080                    # HTTP port the dashboard listens on (default: 8080; must not be 0)
+# port = 80                      # Cleartext HTTP — redirects to HTTPS (default: 80; must not be 0)
+# https_port = 443               # Real dashboard over TLS (default: 443; must differ from port)
 # bind = "0.0.0.0"               # bind address (default: 0.0.0.0 = all interfaces; use 127.0.0.1 for localhost-only)
 #
-# OPTIONAL: HTTP Basic Auth — protect the dashboard with a username and password.
-# When set, the browser will show a native login dialog on first access.
+# OPTIONAL: form login — protect the dashboard with a username and password.
+# When set, the browser shows /login on first access.
 # Both username and password must be set together, or neither.
 #
-# SECURITY NOTE: HTTP Basic Auth transmits credentials as base64 (not encrypted).
-# This protects against casual/accidental access on a LAN, but is NOT secure over
-# the public internet without TLS. For internet-facing use, put a reverse proxy
-# with HTTPS (e.g. nginx, Caddy) in front of the dashboard.
+# SECURITY NOTE: Prefer HTTPS (default). Cookies set over TLS use the Secure flag.
+# For internet-facing use, put a reverse proxy with a trusted certificate in front
+# of the dashboard, or keep auth credentials strong and LAN-only.
 #
 # username = "admin"
 # password = "changeme"
