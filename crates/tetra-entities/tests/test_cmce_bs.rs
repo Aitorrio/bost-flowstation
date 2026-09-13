@@ -1262,7 +1262,7 @@ fn test_network_preempts_local_group_speaker() {
         })
         .expect("FloorReleased must carry carrier/ts");
 
-    // UL quiet → complete Ready (same path LST/Brew use after TrafficUlActivity).
+    // Early quiet must not Ready before min_hold (~400 ms).
     test.submit_message(SapMsg {
         sap: Sap::Control,
         src: TetraEntity::Umac,
@@ -1274,6 +1274,17 @@ fn test_network_preempts_local_group_speaker() {
         }),
     });
     test.run_stack(Some(1));
+    let early = test.dump_sinks();
+    assert!(
+        !early.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { .. })
+        )),
+        "must not NetworkCallReady before preempt min_hold"
+    );
+
+    // Advance past min_hold with UL still quiet → Ready.
+    test.run_stack(Some(40));
     let ready_msgs = test.dump_sinks();
     assert!(
         ready_msgs.iter().any(|msg| matches!(
@@ -1284,7 +1295,7 @@ fn test_network_preempts_local_group_speaker() {
                 ..
             }) if *ready_uuid == brew_uuid && *ready_call == call_id
         )),
-        "LST/Brew must receive NetworkCallReady after UL quiet"
+        "LST/Brew must receive NetworkCallReady after UL quiet + min_hold"
     );
     assert!(
         ready_msgs.iter().any(|msg| matches!(

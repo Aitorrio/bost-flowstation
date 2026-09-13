@@ -543,9 +543,10 @@ impl CcBsSubentity {
             }
 
             if !watch.ready_sent {
+                let min_hold_ok = watch.min_ready_at.age(now) >= 0;
                 let deadline_hit = watch.ready_deadline.age(now) >= 0;
-                let quiet = !watch.ul_active;
-                if quiet || deadline_hit {
+                let quiet = !watch.ul_active && min_hold_ok;
+                if (quiet || deadline_hit) && min_hold_ok {
                     if quiet {
                         tracing::info!(
                             "CMCE: preempt UL quiet → talk_permit call_id={} network_issi={}",
@@ -624,6 +625,7 @@ impl CcBsSubentity {
                 ts: watch.ts,
             },
         );
+        self.ul_slot_hot.insert((watch.carrier_num, watch.ts), false);
         queue.push_back(SapMsg {
             sap: Sap::Control,
             src: TetraEntity::Cmce,
@@ -645,18 +647,29 @@ impl CcBsSubentity {
         ts: u8,
         active: bool,
     ) {
+        self.ul_slot_hot.insert((carrier_num, ts), active);
+        if !active {
+            // Keep preempted_issi for soft-restart targeting until slot goes cold for good.
+        }
+
         let now = self.dltime;
         let mut complete: Vec<PreemptPendingReady> = Vec::new();
         for watch in self.preempt_pending.values_mut() {
             if watch.carrier_num == carrier_num && watch.ts == ts && !watch.ready_sent {
                 watch.ul_active = active;
-                if !active {
+                let min_hold_ok = watch.min_ready_at.age(now) >= 0;
+                if !active && min_hold_ok {
                     tracing::info!(
                         "CMCE: preempt UL quiet → talk_permit call_id={} network_issi={}",
                         watch.call_id,
                         watch.network_speaker
                     );
                     complete.push(*watch);
+                } else if !active && !min_hold_ok {
+                    tracing::debug!(
+                        "CMCE: UL quiet early call_id={} — waiting min_hold before Ready",
+                        watch.call_id
+                    );
                 }
             }
         }

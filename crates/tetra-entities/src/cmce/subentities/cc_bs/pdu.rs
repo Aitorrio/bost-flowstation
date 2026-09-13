@@ -12,6 +12,8 @@ impl CcBsSubentity {
             subscriber_groups: HashMap::new(),
             group_listeners: HashMap::new(),
             preempt_pending: HashMap::new(),
+            ul_slot_hot: HashMap::new(),
+            ul_slot_preempted_issi: HashMap::new(),
             telemetry: None,
         }
     }

@@ -366,15 +366,51 @@ impl CcBsSubentity {
         // and destroys the traffic path / LST downlink).
         Self::signal_umac_set_dl_media_source(queue, carrier_num, ts, CircuitDlMediaSource::SwMI);
 
-        if hard_preempt {
-            // Hold AssignedControl (hangtime stays ON from FloorReleased). Defer
-            // RemoteFloorGranted + NetworkCallReady until UL quiet or deadline so LST/Brew
-            // talk-permit matches air. Shared path for LST Dispatch and real Brew.
+        // Soft restart after NetworkCallEnd while walkie UL still hot must not Ready immediately.
+        let ul_hot = self.ul_slot_hot.get(&(carrier_num, ts)).copied().unwrap_or(false);
+        let defer_ready = hard_preempt || ul_hot;
+
+        if defer_ready {
+            let preempted = if hard_preempt {
+                prev_speaker
+            } else {
+                self.ul_slot_preempted_issi
+                    .get(&(carrier_num, ts))
+                    .copied()
+                    .unwrap_or(prev_speaker)
+            };
+            if !hard_preempt {
+                // Soft path: hangtime may already be on from NetworkCallEnd; push cease again.
+                tracing::info!(
+                    "CMCE: defer Ready (UL still hot) call_id={} C{}TS{}",
+                    call_id,
+                    carrier_num,
+                    ts
+                );
+                self.send_d_tx_ceased_facch(queue, call_id, dest_gssi, carrier_num, ts);
+                // Ensure hangtime stays ON (NetworkCallEnd already FloorReleased; soft must not
+                // RemoteFloorGranted). Re-assert FloorReleased to UMAC only if needed — safe.
+                self.notify_floor_released(
+                    queue,
+                    CallTimeslot {
+                        call_id,
+                        carrier_num,
+                        ts,
+                    },
+                    true,
+                    BrewNotification::Never,
+                );
+            } else {
+                self.ul_slot_preempted_issi.insert((carrier_num, ts), preempted);
+            }
+            self.ul_slot_hot.insert((carrier_num, ts), true);
+
             tracing::info!(
                 "CMCE: preempt pending Ready call_id={} (holding hangtime, awaiting UL quiet)",
                 call_id
             );
             let next_cease_at = self.dltime.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+            let min_ready_at = self.dltime.add_timeslots(PREEMPT_MIN_HOLD_TS);
             let ready_deadline = self.dltime.add_timeslots(PREEMPT_READY_DEADLINE_TS);
             let post_cease_until = self.dltime.add_timeslots(PREEMPT_POST_CEASE_TS);
             self.preempt_pending.insert(
@@ -387,8 +423,9 @@ impl CcBsSubentity {
                     ts,
                     usage,
                     network_speaker: source_issi,
-                    preempted_issi: prev_speaker,
+                    preempted_issi: preempted,
                     next_cease_at,
+                    min_ready_at,
                     ready_deadline,
                     post_cease_until,
                     ready_sent: false,

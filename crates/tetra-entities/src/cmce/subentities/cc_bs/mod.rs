@@ -52,7 +52,7 @@ mod timers;
 
 use lifecycle::{
     BrewNotification, CallTimeslot, GroupFloorGrant, PreemptPendingReady, PREEMPT_CEASE_INTERVAL_TS,
-    PREEMPT_POST_CEASE_TS, PREEMPT_READY_DEADLINE_TS,
+    PREEMPT_MIN_HOLD_TS, PREEMPT_POST_CEASE_TS, PREEMPT_READY_DEADLINE_TS,
 };
 use pdu::is_emergency_priority;
 use procedures::{GroupTransitionError, IndividualTransitionError};
@@ -78,6 +78,10 @@ pub struct CcBsSubentity {
     group_listeners: HashMap<u32, usize>,
     /// After hard-preempt of a local MS by LST/Brew: hold hangtime, cease, defer Ready.
     preempt_pending: HashMap<u16, PreemptPendingReady>,
+    /// Slots with UL still hot (TrafficUlActivity) — blocks soft Ready after NetworkCallEnd.
+    ul_slot_hot: HashMap<(u16, u8), bool>,
+    /// Last local ISSI preempted on a slot (for soft-restart cease targeting).
+    ul_slot_preempted_issi: HashMap<(u16, u8), u32>,
     /// Dashboard telemetry sink (call-lifecycle events). `None` when telemetry is disabled.
     telemetry: Option<crate::net_telemetry::TelemetrySink>,
 }

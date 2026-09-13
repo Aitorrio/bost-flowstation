@@ -83,8 +83,8 @@ struct HangtimeUlWatch {
     last_reported_active: Option<bool>,
 }
 
-/// Slots without UL voice before declaring quiet to CMCE (~160 ms).
-const HANGTIME_UL_QUIET_TS: i32 = 12;
+/// Slots without UL voice after seen voice before declaring quiet (~400 ms).
+const HANGTIME_UL_QUIET_TS: i32 = 28;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PendingCircuitClose {
@@ -2114,14 +2114,13 @@ impl UmacBs {
             let Some(watch) = self.hangtime_ul_watch.get(&key).copied() else {
                 continue;
             };
-            let quiet = if watch.seen_ul {
-                self.last_ul_voice
+            // Never declare quiet without having seen UL voice after FloorReleased — hangtime
+            // used to drop TCH decode and that caused false quiet at ~160 ms (field log 23:19).
+            let quiet = watch.seen_ul
+                && self
+                    .last_ul_voice
                     .get(&key)
-                    .map(|t| t.age(now) >= HANGTIME_UL_QUIET_TS)
-                    .unwrap_or(true)
-            } else {
-                watch.since.age(now) >= HANGTIME_UL_QUIET_TS
-            };
+                    .is_some_and(|t| t.age(now) >= HANGTIME_UL_QUIET_TS);
             if !quiet || watch.last_reported_active == Some(false) {
                 continue;
             }
@@ -2129,8 +2128,8 @@ impl UmacBs {
                 w.last_reported_active = Some(false);
             }
             let (carrier_num, ts) = key;
-            tracing::debug!(
-                "UMAC: hangtime UL quiet C{}TS{} → TrafficUlActivity(false)",
+            tracing::info!(
+                "UMAC: hangtime UL quiet after seen voice C{}TS{} → TrafficUlActivity(false)",
                 carrier_num,
                 ts
             );
@@ -2179,16 +2178,31 @@ impl UmacBs {
             // Floor-control signals drive traffic↔signalling transitions during hangtime.
             CallControl::FloorReleased { carrier_num, ts, .. } => {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, true);
-                self.last_ul_voice.remove(&(carrier_num, ts));
+                // Keep decoding UL as traffic so preempt quiet is based on real voice, not silence-of-decode.
+                self.scheduler_for_mut(carrier_num).set_force_ul_traffic_decode(ts, true);
+                // Do not clear last_ul_voice — seed watch as already active (MS was transmitting).
+                if !self.last_ul_voice.contains_key(&(carrier_num, ts)) {
+                    self.last_ul_voice.insert((carrier_num, ts), self.dltime);
+                }
                 self.ul_signal_owner.remove(&(carrier_num, ts));
                 self.hangtime_ul_watch.insert(
                     (carrier_num, ts),
                     HangtimeUlWatch {
                         since: self.dltime,
-                        seen_ul: false,
-                        last_reported_active: None,
+                        seen_ul: true,
+                        last_reported_active: Some(true),
                     },
                 );
+                queue.push_back(SapMsg {
+                    sap: Sap::Control,
+                    src: TetraEntity::Umac,
+                    dest: TetraEntity::Cmce,
+                    msg: SapMsgInner::CmceCallControl(CallControl::TrafficUlActivity {
+                        carrier_num,
+                        ts,
+                        active: true,
+                    }),
+                });
             }
             CallControl::FloorGranted {
                 carrier_num,
@@ -2197,18 +2211,21 @@ impl UmacBs {
                 ..
             } => {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, false);
+                self.scheduler_for_mut(carrier_num).set_force_ul_traffic_decode(ts, false);
                 self.last_ul_voice.insert((carrier_num, ts), self.dltime);
                 self.ul_signal_owner.insert((carrier_num, ts), source_issi);
                 self.hangtime_ul_watch.remove(&(carrier_num, ts));
             }
             CallControl::RemoteFloorGranted { carrier_num, ts, .. } => {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, false);
+                self.scheduler_for_mut(carrier_num).set_force_ul_traffic_decode(ts, false);
                 self.last_ul_voice.remove(&(carrier_num, ts));
                 self.ul_signal_owner.remove(&(carrier_num, ts));
                 self.hangtime_ul_watch.remove(&(carrier_num, ts));
             }
             CallControl::CallEnded { carrier_num, ts, .. } => {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, false);
+                self.scheduler_for_mut(carrier_num).set_force_ul_traffic_decode(ts, false);
                 self.last_ul_voice.remove(&(carrier_num, ts));
                 self.ul_signal_owner.remove(&(carrier_num, ts));
                 self.hangtime_ul_watch.remove(&(carrier_num, ts));

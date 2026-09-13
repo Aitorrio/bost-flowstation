@@ -120,6 +120,10 @@ pub struct BsChannelScheduler {
     /// and signal UL usage as AssignedOnly so MS can request the floor.
     hangtime: [bool; 4],
 
+    /// While true, keep decoding UL as traffic even if hangtime DL is on (preempt UL-watch).
+    /// AACH DL still uses AssignedControl via hangtime; UL PHY stays Tp so voice reaches UMAC.
+    force_ul_traffic_decode: [bool; 4],
+
     /// Per-timeslot set of SSIs whose RandomAccessAck was dropped by dl_drop_all_except_stolen.
     /// The next STCH built for a matching SSI should carry random_access_flag=true to properly
     /// acknowledge the random access per ETSI 21.4.3.1.
@@ -192,6 +196,7 @@ impl BsChannelScheduler {
             ulsched: EMPTY_SCHED,
             circuits: CircuitMgr::new(),
             hangtime: [false, false, false, false],
+            force_ul_traffic_decode: [false, false, false, false],
             pending_ra_acks: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             mcch_chan_alloc_sent_this_frame: false,
             // Start each timeslot's marker cursor at 4 (first valid value).
@@ -254,6 +259,22 @@ impl BsChannelScheduler {
             return false;
         }
         self.hangtime[ts as usize - 1]
+    }
+
+    /// Keep UL PHY in traffic mode during DL hangtime (preempt UL watch).
+    pub fn set_force_ul_traffic_decode(&mut self, ts: u8, active: bool) {
+        if !(1..=4).contains(&ts) {
+            tracing::warn!("BsChannelScheduler::set_force_ul_traffic_decode: invalid ts {}", ts);
+            return;
+        }
+        self.force_ul_traffic_decode[ts as usize - 1] = active;
+    }
+
+    pub fn force_ul_traffic_decode(&self, ts: u8) -> bool {
+        if !(1..=4).contains(&ts) {
+            return false;
+        }
+        self.force_ul_traffic_decode[ts as usize - 1]
     }
 
     fn is_hangtime_effective(&self, ts: u8) -> bool {
@@ -875,6 +896,7 @@ impl BsChannelScheduler {
         // Clearing hangtime here is safe: if the circuit is gone, this timeslot is no longer in use.
         if (1..=4).contains(&ts) {
             self.hangtime[ts as usize - 1] = false;
+            self.force_ul_traffic_decode[ts as usize - 1] = false;
         }
         self.circuits.close_circuit(dir, self.carrier_num, ts)
     }
@@ -1360,7 +1382,9 @@ impl BsChannelScheduler {
         };
 
         let dl_is_traffic = dl_circuit_active && !hang_effective;
-        let ul_is_traffic = ul_circuit_active && !hang_effective;
+        // Preempt UL-watch: keep decoding UL voice while DL hangtime holds AssignedControl.
+        let ul_is_traffic =
+            ul_circuit_active && (!hang_effective || self.force_ul_traffic_decode(ts.t));
 
         // Build the block for this timeslot with anything scheduled (traffic or signalling)
         // For traffic timeslots, also check for FACCH/stealing (STCH half-slot)

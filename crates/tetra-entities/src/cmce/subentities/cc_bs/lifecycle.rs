@@ -32,7 +32,9 @@ pub(super) struct PreemptPendingReady {
     pub(super) network_speaker: u32,
     pub(super) preempted_issi: u32,
     pub(super) next_cease_at: TdmaTime,
-    /// Force Ready even if UL still up (~800 ms).
+    /// Earliest Ready (quiet or timeout) — avoid flash Ready before cease can land (~400 ms).
+    pub(super) min_ready_at: TdmaTime,
+    /// Force Ready even if UL still up (~1.25 s).
     pub(super) ready_deadline: TdmaTime,
     /// Keep cease retries after Ready until this time.
     pub(super) post_cease_until: TdmaTime,
@@ -43,8 +45,10 @@ pub(super) struct PreemptPendingReady {
 
 /// Re-send D-TX CEASED / NotGranted while preempt pending (~300 ms).
 pub(super) const PREEMPT_CEASE_INTERVAL_TS: i32 = 22;
-/// Defer NetworkCallReady at most ~800 ms waiting for UL quiet.
-pub(super) const PREEMPT_READY_DEADLINE_TS: i32 = 58;
+/// Minimum hangtime+cease before Ready (~400 ms).
+pub(super) const PREEMPT_MIN_HOLD_TS: i32 = 30;
+/// Defer NetworkCallReady at most ~1.25 s waiting for UL quiet.
+pub(super) const PREEMPT_READY_DEADLINE_TS: i32 = 90;
 /// Continue cease FACCH briefly after Ready (~2.5 s from preempt start).
 pub(super) const PREEMPT_POST_CEASE_TS: i32 = 180;
 
