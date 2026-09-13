@@ -28,6 +28,13 @@ impl CcBsSubentity {
             CallControl::UlInactivityTimeout { carrier_num, ts } => {
                 self.handle_ul_inactivity_timeout_slot(queue, carrier_num, ts);
             }
+            CallControl::TrafficUlActivity {
+                carrier_num,
+                ts,
+                active,
+            } => {
+                self.on_traffic_ul_activity(queue, carrier_num, ts, active);
+            }
             CallControl::NetworkCircuitSetupRequest { brew_uuid, call } => {
                 self.rx_network_circuit_setup_request(queue, src_entity, brew_uuid, call);
             }

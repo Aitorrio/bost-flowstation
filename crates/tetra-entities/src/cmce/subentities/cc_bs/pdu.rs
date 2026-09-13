@@ -11,7 +11,7 @@ impl CcBsSubentity {
             individual_calls: HashMap::new(),
             subscriber_groups: HashMap::new(),
             group_listeners: HashMap::new(),
-            preempt_cease_watches: HashMap::new(),
+            preempt_pending: HashMap::new(),
             telemetry: None,
         }
     }
@@ -942,7 +942,7 @@ impl CcBsSubentity {
             let is_local = matches!(call.origin, CallOrigin::Local { .. });
 
             let carrier_num = call.carrier_num;
-            self.preempt_cease_watches.remove(&call_id);
+            self.preempt_pending.remove(&call_id);
             if let Ok(circuit) = self.circuits.close_circuit_slot(Direction::Both, carrier_num, ts) {
                 Self::signal_umac_circuit_close(queue, circuit, self.dltime);
             }

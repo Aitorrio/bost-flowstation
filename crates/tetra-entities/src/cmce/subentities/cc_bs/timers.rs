@@ -33,8 +33,8 @@ impl CcBsSubentity {
         self.check_hangtime_expiry(queue);
         // Reclaim a network group-call timeslot whose backhaul media died without a GROUP_IDLE.
         self.check_network_media_inactivity(queue);
-        // Keep pushing cease to a preempted walkie that may still be on UL.
-        self.check_preempt_cease_retry(queue);
+        // Keep pushing cease to a preempted walkie; complete Ready when UL quiet / deadline.
+        self.check_preempt_pending(queue);
 
         // Energy-economy group-call announce batching: re-emit the group D-SETUP across the
         // union of affiliated EE members' wake frames so members on a different sleep phase
@@ -522,34 +522,64 @@ impl CcBsSubentity {
         }
     }
 
-    /// After hard-preempt, keep FACCH cease / GrantedToOtherUser flowing briefly so a walkie
-    /// that missed the first steal still drops UL — without AssignedControl hangtime (which
-    /// would also block LST DL) and without circuit Open teardown.
-    pub(super) fn check_preempt_cease_retry(&mut self, queue: &mut MessageQueue) {
+    /// Hard-preempt (LST/Brew): hold hangtime, re-send cease, defer NetworkCallReady until
+    /// UL quiet (`TrafficUlActivity`) or ready_deadline — then RemoteFloorGranted + Ready.
+    pub(super) fn check_preempt_pending(&mut self, queue: &mut MessageQueue) {
         let now = self.dltime;
-        let due: Vec<PreemptCeaseWatch> = self
-            .preempt_cease_watches
-            .values()
-            .copied()
-            .filter(|w| w.next_at.age(now) >= 0)
-            .collect();
+        let call_ids: Vec<u16> = self.preempt_pending.keys().copied().collect();
 
-        for mut watch in due {
+        for call_id in call_ids {
+            let Some(mut watch) = self.preempt_pending.get(&call_id).copied() else {
+                continue;
+            };
+
             let still_network = self
                 .active_calls
-                .get(&watch.call_id)
+                .get(&call_id)
                 .is_some_and(|c| c.tx_active && !c.local_floor && c.source_issi == watch.network_speaker);
+            if !still_network {
+                self.preempt_pending.remove(&call_id);
+                continue;
+            }
 
-            if !still_network || watch.until.age(now) >= 0 {
-                self.preempt_cease_watches.remove(&watch.call_id);
+            if !watch.ready_sent {
+                let deadline_hit = watch.ready_deadline.age(now) >= 0;
+                let quiet = !watch.ul_active;
+                if quiet || deadline_hit {
+                    if quiet {
+                        tracing::info!(
+                            "CMCE: preempt UL quiet → talk_permit call_id={} network_issi={}",
+                            call_id,
+                            watch.network_speaker
+                        );
+                    } else {
+                        tracing::warn!(
+                            "CMCE: preempt timeout → talk_permit call_id={} (UL may still be up)",
+                            call_id
+                        );
+                    }
+                    self.complete_preempt_pending_ready(queue, &watch);
+                    watch.ready_sent = true;
+                    watch.next_cease_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+                    self.preempt_pending.insert(call_id, watch);
+                    continue;
+                }
+            }
+
+            if watch.ready_sent && watch.post_cease_until.age(now) >= 0 {
+                self.preempt_pending.remove(&call_id);
+                continue;
+            }
+
+            if watch.next_cease_at.age(now) < 0 {
                 continue;
             }
 
             tracing::debug!(
-                "CMCE: preempt cease retry call_id={} preempted_issi={} network_issi={}",
-                watch.call_id,
-                watch.preempted_issi,
-                watch.network_speaker
+                "CMCE: preempt cease retry call_id={} ready_sent={} preempted_issi={}",
+                call_id,
+                watch.ready_sent,
+                watch.preempted_issi
             );
             let prev_addr = TetraAddress::new(watch.preempted_issi, SsiType::Issi);
             self.fsm_send_d_tx_granted_individual(
@@ -562,17 +592,80 @@ impl CcBsSubentity {
                 Some(watch.network_speaker),
             );
             self.send_d_tx_ceased_facch(queue, watch.call_id, watch.dest_gssi, watch.carrier_num, watch.ts);
-            self.send_d_tx_granted_facch(
-                queue,
-                watch.call_id,
-                watch.network_speaker,
-                watch.dest_gssi,
-                watch.carrier_num,
-                watch.ts,
-            );
+            if watch.ready_sent {
+                self.send_d_tx_granted_facch(
+                    queue,
+                    watch.call_id,
+                    watch.network_speaker,
+                    watch.dest_gssi,
+                    watch.carrier_num,
+                    watch.ts,
+                );
+            }
+            watch.next_cease_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+            self.preempt_pending.insert(call_id, watch);
+        }
+    }
 
-            watch.next_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
-            self.preempt_cease_watches.insert(watch.call_id, watch);
+    fn complete_preempt_pending_ready(&mut self, queue: &mut MessageQueue, watch: &PreemptPendingReady) {
+        self.send_d_tx_granted_facch(
+            queue,
+            watch.call_id,
+            watch.network_speaker,
+            watch.dest_gssi,
+            watch.carrier_num,
+            watch.ts,
+        );
+        self.notify_remote_floor_granted(
+            queue,
+            CallTimeslot {
+                call_id: watch.call_id,
+                carrier_num: watch.carrier_num,
+                ts: watch.ts,
+            },
+        );
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Brew,
+            msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
+                brew_uuid: watch.brew_uuid,
+                call_id: watch.call_id,
+                carrier_num: watch.carrier_num,
+                ts: watch.ts,
+                usage: watch.usage,
+            }),
+        });
+    }
+
+    pub(super) fn on_traffic_ul_activity(
+        &mut self,
+        queue: &mut MessageQueue,
+        carrier_num: u16,
+        ts: u8,
+        active: bool,
+    ) {
+        let now = self.dltime;
+        let mut complete: Vec<PreemptPendingReady> = Vec::new();
+        for watch in self.preempt_pending.values_mut() {
+            if watch.carrier_num == carrier_num && watch.ts == ts && !watch.ready_sent {
+                watch.ul_active = active;
+                if !active {
+                    tracing::info!(
+                        "CMCE: preempt UL quiet → talk_permit call_id={} network_issi={}",
+                        watch.call_id,
+                        watch.network_speaker
+                    );
+                    complete.push(*watch);
+                }
+            }
+        }
+        for mut watch in complete {
+            self.complete_preempt_pending_ready(queue, &watch);
+            watch.ready_sent = true;
+            watch.ul_active = false;
+            watch.next_cease_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+            self.preempt_pending.insert(watch.call_id, watch);
         }
     }
 

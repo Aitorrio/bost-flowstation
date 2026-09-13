@@ -17,24 +17,36 @@ pub(super) struct CallTimeslot {
     pub(super) ts: u8,
 }
 
-/// Persistent cease after network hard-preempt of a local group speaker.
-/// `PartialEq` only: `TdmaTime` does not implement `Eq`.
+/// After network hard-preempt of a local group speaker: hold AssignedControl, re-send
+/// cease, and defer NetworkCallReady / RemoteFloorGranted until UL is quiet (or deadline).
+/// Applies to LST Dispatch and Brew (shared NetworkCallStart path).
+/// `PartialEq` only: `TdmaTime` / `Uuid` pairing — `TdmaTime` does not implement `Eq`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct PreemptCeaseWatch {
+pub(super) struct PreemptPendingReady {
+    pub(super) brew_uuid: uuid::Uuid,
     pub(super) call_id: u16,
     pub(super) dest_gssi: u32,
     pub(super) carrier_num: u16,
     pub(super) ts: u8,
+    pub(super) usage: u8,
     pub(super) network_speaker: u32,
     pub(super) preempted_issi: u32,
-    pub(super) next_at: TdmaTime,
-    pub(super) until: TdmaTime,
+    pub(super) next_cease_at: TdmaTime,
+    /// Force Ready even if UL still up (~800 ms).
+    pub(super) ready_deadline: TdmaTime,
+    /// Keep cease retries after Ready until this time.
+    pub(super) post_cease_until: TdmaTime,
+    pub(super) ready_sent: bool,
+    /// Assumed true at arm (MS was transmitting); cleared by TrafficUlActivity(false).
+    pub(super) ul_active: bool,
 }
 
-/// Re-send D-TX CEASED / GrantedToOtherUser after hard preempt (~300 ms).
+/// Re-send D-TX CEASED / NotGranted while preempt pending (~300 ms).
 pub(super) const PREEMPT_CEASE_INTERVAL_TS: i32 = 22;
-/// Stop re-sending cease after hard preempt (~2.5 s).
-pub(super) const PREEMPT_CEASE_DURATION_TS: i32 = 180;
+/// Defer NetworkCallReady at most ~800 ms waiting for UL quiet.
+pub(super) const PREEMPT_READY_DEADLINE_TS: i32 = 58;
+/// Continue cease FACCH briefly after Ready (~2.5 s from preempt start).
+pub(super) const PREEMPT_POST_CEASE_TS: i32 = 180;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BrewNotification {

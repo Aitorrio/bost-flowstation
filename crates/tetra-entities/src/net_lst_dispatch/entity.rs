@@ -494,7 +494,7 @@ impl LstDispatchEntity {
                         brew_uuid: uuid,
                         source_issi: operator_issi,
                         dest_gssi: gssi,
-                        priority: 0,
+                        priority: 11,
                     },
                 );
                 // Talk-permit only after NetworkCallReady — show pending, not TX.

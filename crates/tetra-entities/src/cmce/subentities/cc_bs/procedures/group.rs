@@ -366,29 +366,40 @@ impl CcBsSubentity {
         // and destroys the traffic path / LST downlink).
         Self::signal_umac_set_dl_media_source(queue, carrier_num, ts, CircuitDlMediaSource::SwMI);
 
-        self.send_d_tx_granted_facch(queue, call_id, source_issi, dest_gssi, carrier_num, ts);
-
-        self.notify_remote_floor_granted(queue, CallTimeslot { call_id, carrier_num, ts });
-
         if hard_preempt {
-            // Keep pushing cease / GrantedToOtherUser while the walkie may still be on UL.
-            // ~300 ms interval for ~2.5 s; no hangtime thrash and no circuit teardown.
-            let next_at = self.dltime.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
-            let until = self.dltime.add_timeslots(PREEMPT_CEASE_DURATION_TS);
-            self.preempt_cease_watches.insert(
+            // Hold AssignedControl (hangtime stays ON from FloorReleased). Defer
+            // RemoteFloorGranted + NetworkCallReady until UL quiet or deadline so LST/Brew
+            // talk-permit matches air. Shared path for LST Dispatch and real Brew.
+            tracing::info!(
+                "CMCE: preempt pending Ready call_id={} (holding hangtime, awaiting UL quiet)",
+                call_id
+            );
+            let next_cease_at = self.dltime.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+            let ready_deadline = self.dltime.add_timeslots(PREEMPT_READY_DEADLINE_TS);
+            let post_cease_until = self.dltime.add_timeslots(PREEMPT_POST_CEASE_TS);
+            self.preempt_pending.insert(
                 call_id,
-                PreemptCeaseWatch {
+                PreemptPendingReady {
+                    brew_uuid,
                     call_id,
                     dest_gssi,
                     carrier_num,
                     ts,
+                    usage,
                     network_speaker: source_issi,
                     preempted_issi: prev_speaker,
-                    next_at,
-                    until,
+                    next_cease_at,
+                    ready_deadline,
+                    post_cease_until,
+                    ready_sent: false,
+                    ul_active: true,
                 },
             );
+            return Ok(());
         }
+
+        self.send_d_tx_granted_facch(queue, call_id, source_issi, dest_gssi, carrier_num, ts);
+        self.notify_remote_floor_granted(queue, CallTimeslot { call_id, carrier_num, ts });
 
         queue.push_back(SapMsg {
             sap: Sap::Control,
@@ -418,7 +429,7 @@ impl CcBsSubentity {
         let state = call.state();
         Self::validate_group_transition(call_id, state, call.formal_state, GroupEvent::NetworkCallEnd)?;
 
-        self.preempt_cease_watches.remove(&call_id);
+        self.preempt_pending.remove(&call_id);
 
         if matches!(state, GroupCallState::Transmitting) {
             if let Some(active_call) = self.active_calls.get_mut(&call_id) {

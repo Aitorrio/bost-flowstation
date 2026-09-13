@@ -1210,33 +1210,12 @@ fn test_network_preempts_local_group_speaker() {
                 ..
             }) if *released == call_id
         )),
-        "preempt must FloorReleased so LST/UMAC clear the local speaker"
+        "preempt must FloorReleased so hangtime/AssignedControl stays on for cease"
     );
     assert!(
         find_lcmc_req(&preempt_msgs, TEST_ISSI, CmcePduTypeDl::DTxGranted).is_some()
             || find_lcmc_req(&preempt_msgs, TEST_GSSI, CmcePduTypeDl::DTxCeased).is_some(),
         "preempt must signal NotGranted to MS and/or D-TX CEASED on the GSSI"
-    );
-    assert!(
-        preempt_msgs.iter().any(|msg| matches!(
-            &msg.msg,
-            SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
-                brew_uuid: ready_uuid,
-                call_id: ready_call,
-                ..
-            }) if *ready_uuid == brew_uuid && *ready_call == call_id
-        )),
-        "LST/Brew must receive NetworkCallReady after hard preempt"
-    );
-    assert!(
-        preempt_msgs.iter().any(|msg| matches!(
-            &msg.msg,
-            SapMsgInner::CmceCallControl(CallControl::RemoteFloorGranted {
-                call_id: granted_call,
-                ..
-            }) if *granted_call == call_id
-        )),
-        "UMAC must see RemoteFloorGranted for the network speaker"
     );
     assert!(
         preempt_msgs.iter().any(|msg| matches!(
@@ -1254,6 +1233,68 @@ fn test_network_preempts_local_group_speaker() {
             SapMsgInner::CmceCallControl(CallControl::Open(_))
         )),
         "preempt must NOT Open/teardown the existing group circuit"
+    );
+    assert!(
+        !preempt_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { .. })
+        )),
+        "hard preempt must defer NetworkCallReady until UL quiet / deadline"
+    );
+    assert!(
+        !preempt_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::RemoteFloorGranted { .. })
+        )),
+        "hard preempt must defer RemoteFloorGranted while hangtime holds for cease"
+    );
+
+    let (carrier_num, ts) = preempt_msgs
+        .iter()
+        .find_map(|msg| match &msg.msg {
+            SapMsgInner::CmceCallControl(CallControl::FloorReleased {
+                call_id: released,
+                carrier_num,
+                ts,
+                ..
+            }) if *released == call_id => Some((*carrier_num, *ts)),
+            _ => None,
+        })
+        .expect("FloorReleased must carry carrier/ts");
+
+    // UL quiet → complete Ready (same path LST/Brew use after TrafficUlActivity).
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Umac,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::TrafficUlActivity {
+            carrier_num,
+            ts,
+            active: false,
+        }),
+    });
+    test.run_stack(Some(1));
+    let ready_msgs = test.dump_sinks();
+    assert!(
+        ready_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
+                brew_uuid: ready_uuid,
+                call_id: ready_call,
+                ..
+            }) if *ready_uuid == brew_uuid && *ready_call == call_id
+        )),
+        "LST/Brew must receive NetworkCallReady after UL quiet"
+    );
+    assert!(
+        ready_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::RemoteFloorGranted {
+                call_id: granted_call,
+                ..
+            }) if *granted_call == call_id
+        )),
+        "UMAC must see RemoteFloorGranted once Ready is allowed"
     );
 }
 

@@ -146,6 +146,14 @@ pub enum CallControl {
     /// UL inactivity detected on a traffic timeslot: no voice frames received
     /// for the timeout period. Sent by UMAC to CMCE.
     UlInactivityTimeout { carrier_num: u16, ts: u8 },
+    /// UL voice presence on a traffic slot while hangtime is held (e.g. after
+    /// network hard-preempt). Sent by UMAC to CMCE so Ready/talk-permit can wait
+    /// for the local MS to actually drop UL.
+    TrafficUlActivity {
+        carrier_num: u16,
+        ts: u8,
+        active: bool,
+    },
     /// Circuit-call setup request over Brew (individual/PBX/phone)
     NetworkCircuitSetupRequest { brew_uuid: uuid::Uuid, call: NetworkCircuitCall },
     /// Circuit-call setup accepted

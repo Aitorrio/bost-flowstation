@@ -51,8 +51,8 @@ mod state;
 mod timers;
 
 use lifecycle::{
-    BrewNotification, CallTimeslot, GroupFloorGrant, PreemptCeaseWatch, PREEMPT_CEASE_DURATION_TS,
-    PREEMPT_CEASE_INTERVAL_TS,
+    BrewNotification, CallTimeslot, GroupFloorGrant, PreemptPendingReady, PREEMPT_CEASE_INTERVAL_TS,
+    PREEMPT_POST_CEASE_TS, PREEMPT_READY_DEADLINE_TS,
 };
 use pdu::is_emergency_priority;
 use procedures::{GroupTransitionError, IndividualTransitionError};
@@ -76,9 +76,8 @@ pub struct CcBsSubentity {
     subscriber_groups: HashMap<u32, HashSet<u32>>,
     /// Listener counts per GSSI
     group_listeners: HashMap<u32, usize>,
-    /// After hard-preempt of a local MS, keep re-sending D-TX CEASED / GrantedToOtherUser
-    /// for a short window so the walkie stops UL without tearing the traffic circuit down.
-    preempt_cease_watches: HashMap<u16, PreemptCeaseWatch>,
+    /// After hard-preempt of a local MS by LST/Brew: hold hangtime, cease, defer Ready.
+    preempt_pending: HashMap<u16, PreemptPendingReady>,
     /// Dashboard telemetry sink (call-lifecycle events). `None` when telemetry is disabled.
     telemetry: Option<crate::net_telemetry::TelemetrySink>,
 }

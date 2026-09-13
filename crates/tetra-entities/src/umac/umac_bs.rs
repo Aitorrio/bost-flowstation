@@ -63,6 +63,9 @@ pub struct UmacBs {
     /// Timestamp of last received UL voice frame per carrier/timeslot.
     /// Used to detect UL inactivity when a radio disappears mid-transmission.
     last_ul_voice: HashMap<(u16, u8), TdmaTime>,
+    /// After FloorReleased (e.g. network hard-preempt), report UL presence to CMCE until
+    /// RemoteFloorGranted / FloorGranted / CallEnded clears the watch.
+    hangtime_ul_watch: HashMap<(u16, u8), HangtimeUlWatch>,
     /// Local floor owner per traffic carrier/timeslot, used to attribute MAC-U-SIGNAL
     /// uplink signalling that does not carry an address field.
     ul_signal_owner: HashMap<(u16, u8), u32>,
@@ -71,6 +74,17 @@ pub struct UmacBs {
     pending_circuit_closes: HashMap<(u16, u8), PendingCircuitClose>,
     telemetry: Option<TelemetrySink>,
 }
+
+/// Watch UL while hangtime is held so CMCE can defer network talk-permit.
+#[derive(Clone, Copy, Debug)]
+struct HangtimeUlWatch {
+    since: TdmaTime,
+    seen_ul: bool,
+    last_reported_active: Option<bool>,
+}
+
+/// Slots without UL voice before declaring quiet to CMCE (~160 ms).
+const HANGTIME_UL_QUIET_TS: i32 = 12;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PendingCircuitClose {
@@ -111,6 +125,7 @@ impl UmacBs {
             channel_scheduler: BsChannelScheduler::new(scrambling_code, precomps),
             secondary_channel_schedulers,
             last_ul_voice: HashMap::new(),
+            hangtime_ul_watch: HashMap::new(),
             ul_signal_owner: HashMap::new(),
             pending_circuit_closes: HashMap::new(),
             telemetry,
@@ -1663,6 +1678,22 @@ impl UmacBs {
                 // Track last UL voice frame time for inactivity detection
                 if (1..=4).contains(&ts) {
                     self.last_ul_voice.insert((carrier_num, ts), self.dltime);
+                    if let Some(watch) = self.hangtime_ul_watch.get_mut(&(carrier_num, ts)) {
+                        watch.seen_ul = true;
+                        if watch.last_reported_active != Some(true) {
+                            watch.last_reported_active = Some(true);
+                            queue.push_back(SapMsg {
+                                sap: Sap::Control,
+                                src: TetraEntity::Umac,
+                                dest: TetraEntity::Cmce,
+                                msg: SapMsgInner::CmceCallControl(CallControl::TrafficUlActivity {
+                                    carrier_num,
+                                    ts,
+                                    active: true,
+                                }),
+                            });
+                        }
+                    }
                 }
                 if let Some(sink) = &self.telemetry {
                     sink.send(TelemetryEvent::TsVoiceActivity {
@@ -2074,6 +2105,48 @@ impl UmacBs {
         }
     }
 
+    /// During hangtime watches (network hard-preempt), tell CMCE when UL has gone quiet so
+    /// NetworkCallReady / talk-permit can proceed without lying about air state.
+    fn check_hangtime_ul_activity(&mut self, queue: &mut MessageQueue) {
+        let now = self.dltime;
+        let keys: Vec<(u16, u8)> = self.hangtime_ul_watch.keys().copied().collect();
+        for key in keys {
+            let Some(watch) = self.hangtime_ul_watch.get(&key).copied() else {
+                continue;
+            };
+            let quiet = if watch.seen_ul {
+                self.last_ul_voice
+                    .get(&key)
+                    .map(|t| t.age(now) >= HANGTIME_UL_QUIET_TS)
+                    .unwrap_or(true)
+            } else {
+                watch.since.age(now) >= HANGTIME_UL_QUIET_TS
+            };
+            if !quiet || watch.last_reported_active == Some(false) {
+                continue;
+            }
+            if let Some(w) = self.hangtime_ul_watch.get_mut(&key) {
+                w.last_reported_active = Some(false);
+            }
+            let (carrier_num, ts) = key;
+            tracing::debug!(
+                "UMAC: hangtime UL quiet C{}TS{} → TrafficUlActivity(false)",
+                carrier_num,
+                ts
+            );
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Umac,
+                dest: TetraEntity::Cmce,
+                msg: SapMsgInner::CmceCallControl(CallControl::TrafficUlActivity {
+                    carrier_num,
+                    ts,
+                    active: false,
+                }),
+            });
+        }
+    }
+
     fn rx_control(&mut self, queue: &mut MessageQueue, message: SapMsg) {
         tracing::trace!("rx_control");
         let SapMsgInner::CmceCallControl(prim) = message.msg else {
@@ -2108,6 +2181,14 @@ impl UmacBs {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, true);
                 self.last_ul_voice.remove(&(carrier_num, ts));
                 self.ul_signal_owner.remove(&(carrier_num, ts));
+                self.hangtime_ul_watch.insert(
+                    (carrier_num, ts),
+                    HangtimeUlWatch {
+                        since: self.dltime,
+                        seen_ul: false,
+                        last_reported_active: None,
+                    },
+                );
             }
             CallControl::FloorGranted {
                 carrier_num,
@@ -2118,20 +2199,23 @@ impl UmacBs {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, false);
                 self.last_ul_voice.insert((carrier_num, ts), self.dltime);
                 self.ul_signal_owner.insert((carrier_num, ts), source_issi);
+                self.hangtime_ul_watch.remove(&(carrier_num, ts));
             }
             CallControl::RemoteFloorGranted { carrier_num, ts, .. } => {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, false);
                 self.last_ul_voice.remove(&(carrier_num, ts));
                 self.ul_signal_owner.remove(&(carrier_num, ts));
+                self.hangtime_ul_watch.remove(&(carrier_num, ts));
             }
             CallControl::CallEnded { carrier_num, ts, .. } => {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, false);
                 self.last_ul_voice.remove(&(carrier_num, ts));
                 self.ul_signal_owner.remove(&(carrier_num, ts));
+                self.hangtime_ul_watch.remove(&(carrier_num, ts));
             }
 
-            // UlInactivityTimeout is UMAC→CMCE only, UMAC won't receive it back
-            CallControl::UlInactivityTimeout { .. } => {}
+            // UlInactivityTimeout / TrafficUlActivity are UMAC→CMCE only
+            CallControl::UlInactivityTimeout { .. } | CallControl::TrafficUlActivity { .. } => {}
 
             // NetworkCall* and NetworkCircuit* are for CMCE ↔ Brew, not UMAC
             CallControl::NetworkCallStart { .. }
@@ -2219,6 +2303,8 @@ impl TetraEntityTrait for UmacBs {
 
         // Check for UL inactivity (stuck transmitter detection)
         self.check_ul_inactivity(queue);
+        // While hangtime is held after FloorReleased, report UL quiet to CMCE for preempt Ready.
+        self.check_hangtime_ul_activity(queue);
 
         // Feed the health monitor's Congestion domain: current downlink scheduling backlog.
         crate::health::registry().set_dl_queue_depth(self.channel_scheduler.dl_queue_depth());
