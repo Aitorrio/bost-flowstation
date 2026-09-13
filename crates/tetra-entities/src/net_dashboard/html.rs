@@ -2700,6 +2700,31 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 }
 .cfg-sheet-name-row .form-label{display:block;margin-bottom:6px;}
 
+/* Config field help («?» popover) — TETRA / Brew live + profile sheets */
+.cfg-help{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:16px;height:16px;margin-left:6px;padding:0;vertical-align:middle;
+  border-radius:50%;border:1px solid color-mix(in srgb,var(--text3) 55%, transparent);
+  background:color-mix(in srgb,var(--bg3) 70%, transparent);color:var(--text3);
+  font:700 11px/1 var(--font,system-ui,sans-serif);cursor:help;
+  flex-shrink:0;
+}
+.cfg-help:hover,.cfg-help:focus-visible,.cfg-help.is-open{
+  color:var(--accent2);border-color:var(--accent2);outline:none;
+  background:color-mix(in srgb,var(--accent2) 14%, transparent);
+}
+.cfg-help-pop{
+  position:fixed;z-index:12000;max-width:min(320px,calc(100vw - 24px));
+  padding:10px 12px;border-radius:8px;
+  background:var(--bg2);color:var(--text);border:1px solid var(--border);
+  box-shadow:0 8px 28px rgba(0,0,0,0.28);
+  font-size:12px;font-weight:500;line-height:1.45;text-transform:none;letter-spacing:0;
+  white-space:pre-wrap;pointer-events:auto;
+}
+.group-list .field > .cfg-help{
+  margin-left:6px;align-self:center;
+}
+
 /* ── Phase 5 mobile: Config fields, profile rows, sheets (PC unchanged) ── */
 @media (max-width:700px){
   /* Primary Save / Apply & Restart: footer of the card (not under the title) */
@@ -6784,7 +6809,41 @@ const LANGS={
     cfg_raw_apply_confirm:'Save raw config.toml and restart?',
     cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
-    cfg_timers_hint:'Timers: empty or reset = engine default (shown in the field). 0 is only special where noted (call timeout unlimited, T351 off) — it is not the default for hangtime/UL.',
+    cfg_timers_hint:'Timers: empty/reset = engine default. Tap «?» on each field for details. Call timeout 0 = unlimited; T351 0 = off.',
+    cfg_help_tx:'BS downlink (TX) frequency in MHz. Must match radios’ RX. Use Auto RX + carrier after setting TX when possible.',
+    cfg_help_rx:'BS uplink (RX) frequency in MHz. Usually TX minus duplex. Auto RX + carrier can fill this from TX.',
+    cfg_help_colour:'TETRA colour code 0–63. All radios on this cell must use the same value.',
+    cfg_help_main_carrier:'TETRA carrier number for the main control channel. Prefer Auto RX + carrier unless you know the value.',
+    cfg_help_freq_band:'Frequency band id (ETSI). Default 4 is typical for 400 MHz amateur cells — change only if you know your band plan.',
+    cfg_help_duplex_id:'Duplex spacing table id. Leave default unless you use a non-standard duplex; prefer Custom duplex (MHz) when needed.',
+    cfg_help_custom_duplex:'Optional duplex spacing in MHz (e.g. 7.6). Empty = use duplex spacing id. Overrides the table id when set.',
+    cfg_help_freq_offset:'Fine carrier offset in Hz (±6250 / ±12500). Usually 0.',
+    cfg_help_reverse:'Swap UL/DL sense of the duplex. Rare; leave off unless your plan requires reverse operation.',
+    cfg_help_hw_device:'SoapySDR device string from Setup. Change device in Setup, not here.',
+    cfg_help_ppm:'Frequency correction in PPM (comma or dot). Empty/reset not used — typically 0.',
+    cfg_help_rx_ant:'RX antenna port for this SDR driver. Empty = device default.',
+    cfg_help_tx_ant:'TX antenna port for this SDR driver. Empty = device default.',
+    cfg_help_gain:'Soapy gain stage in dB. Empty omits the key (device default). Range is hardware-specific.',
+    cfg_help_mcc:'Mobile Country Code (TETRA network identity). Must match radio programming.',
+    cfg_help_mnc:'Mobile Network Code. Must match radio programming.',
+    cfg_help_la:'Location Area (LA). Radios use this for cell selection/registration.',
+    cfg_help_tz:'IANA timezone for station clock display (e.g. Europe/Madrid). Does not change RF timing.',
+    cfg_help_hangtime:'Seconds the group call stays open with no speaker (“group in use”). PTT again within hangtime = same call. Default 5.',
+    cfg_help_call_timeout:'Maximum duration of one group call (ETSI T310-style), not each PTT. Hangtime keeps the same call alive across quick turn-taking (LST/Brew), so a long QSO can hit this ceiling (~120 s default) and radios may show PTT denied. Empty/reset = 120. 0 = unlimited. Raise or set 0 for long dispatch QSOs.',
+    cfg_help_ul_inact:'If the current speaker sends no UL voice for this many seconds, the BS forces TX ceased and enters hangtime. Default 3 (tolerate short fades/DTX).',
+    cfg_help_t351:'Periodic registration interval (T351-like). 0 = never expire. Default 3600. Affects how often radios must re-register.',
+    cfg_help_syswide:'Advertise system-wide services in SYSINFO. Leave on unless you know you need fallback-mode behaviour.',
+    cfg_help_voice:'Advertise voice service. Leave on for normal voice cells.',
+    cfg_help_local_ssi:'SSI ranges treated as local (e.g. 0-90, 100-120). Advanced — leave default unless your numbering plan needs it.',
+    cfg_help_brew_enable:'Enable Brew backhaul. Off = offline cell (or use LST Dispatch profile instead).',
+    cfg_help_brew_host:'Brew server hostname or IP.',
+    cfg_help_brew_port:'Brew WebSocket/TCP port (often 3003).',
+    cfg_help_brew_tls:'Use TLS for Brew. Match what the Brew server expects.',
+    cfg_help_brew_user:'Brew username / SSID (numeric ISSI-style id for this BTS on the core).',
+    cfg_help_brew_pass:'Brew password. Leave masked (••••) to keep the current secret when saving.',
+    cfg_help_brew_reconnect:'Seconds to wait before reconnecting after Brew drops. Default 15.',
+    cfg_help_brew_sds:'Forward SDS between air and Brew when enabled.',
+    cfg_help_brew_rssi:'Export RSSI telemetry toward Brew (extra traffic). Off unless you need it.',
     cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',cfg_advanced_warn:'Advanced users only',
     cfg_sec_advanced:'Advanced',
@@ -7266,7 +7325,41 @@ const LANGS={
     svc_need_running:'“{action}” necesita el servicio completo en marcha. Pulsa Iniciar en Sistema → Control primero.',
     svc_standby_will_start:'El servicio está en espera. “{action}” lo iniciará de nuevo. ¿Continuar?',
     saved:'✓ Guardado — reinicia para aplicar.',save_fail:'✗ Error al guardar',conn_error:'Error de conexión.',
-    cfg_timers_hint:'Temporizadores: vacío o reset = default del motor (se muestra en el campo). El 0 solo es especial donde se indica (call timeout ilimitado, T351 off); no es el default de hangtime/UL.',
+    cfg_timers_hint:'Temporizadores: vacío/reset = default del motor. Pulsa «?» en cada campo para detalles. Call timeout 0 = ilimitado; T351 0 = off.',
+    cfg_help_tx:'Frecuencia de bajada (TX) de la BTS en MHz. Debe coincidir con el RX de las radios. Tras fijar TX, usa Auto RX + carrier si puedes.',
+    cfg_help_rx:'Frecuencia de subida (RX) de la BTS en MHz. Suele ser TX menos el dúplex. Auto RX + carrier puede calcularla.',
+    cfg_help_colour:'Colour code TETRA 0–63. Todas las radios de la celda deben usar el mismo.',
+    cfg_help_main_carrier:'Número de portadora del canal de control principal. Prefiere Auto RX + carrier salvo que sepas el valor.',
+    cfg_help_freq_band:'Id de banda (ETSI). El 4 es habitual en 400 MHz amateur — cámbialo solo si conoces tu plan.',
+    cfg_help_duplex_id:'Id de tabla de dúplex. Déjalo por defecto salvo dúplex no estándar; si hace falta usa Dúplex personalizado (MHz).',
+    cfg_help_custom_duplex:'Separación de dúplex en MHz (p. ej. 7,6). Vacío = usar el id de tabla. Si lo rellenas, manda sobre el id.',
+    cfg_help_freq_offset:'Offset fino de portadora en Hz (±6250 / ±12500). Normalmente 0.',
+    cfg_help_reverse:'Invierte el sentido UL/DL del dúplex. Raro; déjalo apagado salvo que tu plan lo exija.',
+    cfg_help_hw_device:'Cadena SoapySDR del dispositivo (viene de Setup). Cambia el SDR en Setup, no aquí.',
+    cfg_help_ppm:'Corrección de frecuencia en PPM (coma o punto). Suele ser 0.',
+    cfg_help_rx_ant:'Puerto de antena RX del driver. Vacío = default del dispositivo.',
+    cfg_help_tx_ant:'Puerto de antena TX del driver. Vacío = default del dispositivo.',
+    cfg_help_gain:'Etapa de ganancia Soapy en dB. Vacío omite la clave (default del hardware). El rango depende del SDR.',
+    cfg_help_mcc:'Mobile Country Code (identidad de red TETRA). Debe coincidir con la programación de las radios.',
+    cfg_help_mnc:'Mobile Network Code. Debe coincidir con la programación de las radios.',
+    cfg_help_la:'Location Area (LA). Las radios la usan para selección/registro en celda.',
+    cfg_help_tz:'Zona horaria IANA para el reloj de la estación (p. ej. Europe/Madrid). No cambia el timing RF.',
+    cfg_help_hangtime:'Segundos que la llamada de grupo sigue abierta sin speaker («grupo en uso»). Otro PTT dentro del hangtime = misma llamada. Default 5.',
+    cfg_help_call_timeout:'Duración máxima de una llamada de grupo (estilo T310 ETSI), no de cada PTT. El hangtime mantiene la misma llamada entre turnos rápidos (LST/Brew), así que un QSO largo puede chocar con este techo (~120 s por defecto) y el walkie mostrar PTT denegado. Vacío/reset = 120. 0 = ilimitado. Súbelo o pon 0 en QSO largos con despacho.',
+    cfg_help_ul_inact:'Si el speaker no envía voz UL durante estos segundos, la BTS fuerza TX ceased y entra en hangtime. Default 3 (tolera fades/DTX cortos).',
+    cfg_help_t351:'Intervalo de registro periódico (tipo T351). 0 = no caduca. Default 3600.',
+    cfg_help_syswide:'Anuncia system-wide services en SYSINFO. Déjalo activo salvo que sepas que necesitas otro modo.',
+    cfg_help_voice:'Anuncia servicio de voz. Déjalo activo en celdas de voz normales.',
+    cfg_help_local_ssi:'Rangos SSI locales (p. ej. 0-90, 100-120). Avanzado — no lo toques sin plan de numeración.',
+    cfg_help_brew_enable:'Activa el backhaul Brew. Off = celda offline (o usa el perfil Despacho LST).',
+    cfg_help_brew_host:'Hostname o IP del servidor Brew.',
+    cfg_help_brew_port:'Puerto Brew (a menudo 3003).',
+    cfg_help_brew_tls:'Usar TLS con Brew. Debe coincidir con el servidor.',
+    cfg_help_brew_user:'Usuario / SSID Brew (id numérico de esta BTS en el core).',
+    cfg_help_brew_pass:'Contraseña Brew. Deja la máscara (••••) para no cambiar la actual al guardar.',
+    cfg_help_brew_reconnect:'Segundos de espera antes de reconectar tras una caída de Brew. Default 15.',
+    cfg_help_brew_sds:'Reenvía SDS entre aire y Brew si está activo.',
+    cfg_help_brew_rssi:'Exporta telemetría RSSI hacia Brew (más tráfico). Off salvo que lo necesites.',
     update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
     update_confirm:'¿Obtener lo último del canal {channel} (rama {branch}) y recompilar?\nEl servicio se reiniciará automáticamente si hace falta una build nueva.',
     ota_channel_title:'Canal OTA',
@@ -7525,6 +7618,7 @@ function applyLang(){
   try{if(typeof updateHwRfUi==='function')updateHwRfUi();}catch{}
   try{syncPowerMenuUi();}catch{}
   try{syncPrefsMenuUi();}catch{}
+  try{installCfgHelp();}catch{}
 }
 function setLang(l,btn){
   currentLang=l;localStorage.setItem('fs_lang',l);
@@ -10900,6 +10994,101 @@ function updateHwRfUi(rxAnt,txAnt){
   fillHwAntSelect('vc-tx-ant',cat.txAnt,tx);
   refreshHwRfPlaceholders();
 }
+
+/** Map visual-config control ids → i18n help keys (TETRA + Brew; live + profile sheets). */
+const CFG_HELP_BY_ID={
+  'vc-tx-freq':'cfg_help_tx','vc-rx-freq':'cfg_help_rx','vc-colour':'cfg_help_colour',
+  'vc-main-carrier':'cfg_help_main_carrier','vc-freq-band':'cfg_help_freq_band','vc-duplex-id':'cfg_help_duplex_id',
+  'vc-custom-duplex':'cfg_help_custom_duplex','vc-freq-offset':'cfg_help_freq_offset','vc-reverse':'cfg_help_reverse',
+  'vc-device':'cfg_help_hw_device','vc-ppm':'cfg_help_ppm','vc-rx-ant':'cfg_help_rx_ant','vc-tx-ant':'cfg_help_tx_ant',
+  'vc-rx-lna':'cfg_help_gain','vc-rx-tia':'cfg_help_gain','vc-rx-pga':'cfg_help_gain',
+  'vc-tx-pad':'cfg_help_gain','vc-tx-iamp':'cfg_help_gain','vc-tx-dac':'cfg_help_gain','vc-tx-mixer':'cfg_help_gain','vc-tx-pga':'cfg_help_gain',
+  'vc-mcc':'cfg_help_mcc','vc-mnc':'cfg_help_mnc','vc-la':'cfg_help_la','vc-tz':'cfg_help_tz',
+  'vc-hangtime':'cfg_help_hangtime','vc-call-timeout':'cfg_help_call_timeout','vc-ul-inact':'cfg_help_ul_inact','vc-t351':'cfg_help_t351',
+  'vc-syswide':'cfg_help_syswide','vc-voice':'cfg_help_voice','vc-local-ssi':'cfg_help_local_ssi',
+  'vc-brew-enabled':'cfg_help_brew_enable','vc-brew-host':'cfg_help_brew_host','vc-brew-port':'cfg_help_brew_port',
+  'vc-brew-tls':'cfg_help_brew_tls','vc-brew-user':'cfg_help_brew_user','vc-brew-pass':'cfg_help_brew_pass',
+  'vc-brew-reconnect':'cfg_help_brew_reconnect','vc-brew-sds':'cfg_help_brew_sds','vc-brew-rssi':'cfg_help_brew_rssi',
+};
+let cfgHelpPop=null,cfgHelpBtn=null;
+function closeCfgHelp(){
+  if(cfgHelpPop){cfgHelpPop.remove();cfgHelpPop=null;}
+  if(cfgHelpBtn){cfgHelpBtn.classList.remove('is-open');cfgHelpBtn=null;}
+}
+function positionCfgHelpPop(btn,pop){
+  const r=btn.getBoundingClientRect();
+  const pad=10;
+  pop.style.left='0px';pop.style.top='0px';
+  const pw=pop.offsetWidth,ph=pop.offsetHeight;
+  let left=r.left, top=r.bottom+6;
+  if(left+pw>window.innerWidth-pad)left=Math.max(pad,window.innerWidth-pw-pad);
+  if(left<pad)left=pad;
+  if(top+ph>window.innerHeight-pad)top=Math.max(pad,r.top-ph-6);
+  pop.style.left=left+'px';pop.style.top=top+'px';
+}
+function openCfgHelp(btn){
+  const key=btn.getAttribute('data-help');
+  if(!key)return;
+  if(cfgHelpBtn===btn){closeCfgHelp();return;}
+  closeCfgHelp();
+  cfgHelpBtn=btn;
+  btn.classList.add('is-open');
+  const pop=document.createElement('div');
+  pop.className='cfg-help-pop';
+  pop.setAttribute('role','tooltip');
+  pop.textContent=t(key);
+  document.body.appendChild(pop);
+  cfgHelpPop=pop;
+  positionCfgHelpPop(btn,pop);
+}
+function cfgHelpLabelHost(field,el){
+  if(!field)return null;
+  if(el&&(el.type==='checkbox'||el.getAttribute('type')==='checkbox')){
+    const spans=[...field.querySelectorAll(':scope > span')].filter(s=>!s.classList.contains('field-control')&&!s.classList.contains('sw'));
+    return spans[0]||null;
+  }
+  const direct=[...field.children].find(c=>c.tagName==='SPAN'&&!c.classList.contains('field-control')&&!c.classList.contains('sw'));
+  if(direct)return direct;
+  return field.querySelector('.field-label');
+}
+function installCfgHelp(){
+  Object.keys(CFG_HELP_BY_ID).forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el)return;
+    const field=el.closest('.field');
+    if(!field)return;
+    const host=cfgHelpLabelHost(field,el);
+    if(!host)return;
+    let btn=field.querySelector('.cfg-help');
+    if(!btn){
+      btn=document.createElement('button');
+      btn.type='button';
+      btn.className='cfg-help';
+      btn.textContent='?';
+      btn.setAttribute('aria-label','Help');
+      // Sibling after the label span so applyLang data-i18n textContent cannot wipe the button.
+      host.insertAdjacentElement('afterend',btn);
+    }
+    btn.setAttribute('data-help',CFG_HELP_BY_ID[id]);
+  });
+}
+if(!window.__cfgHelpBound){
+  window.__cfgHelpBound=true;
+  document.addEventListener('click',e=>{
+    const btn=e.target.closest&&e.target.closest('.cfg-help');
+    if(btn){
+      e.preventDefault();
+      e.stopPropagation();
+      openCfgHelp(btn);
+      return;
+    }
+    if(cfgHelpPop&&!(e.target.closest&&e.target.closest('.cfg-help-pop')))closeCfgHelp();
+  },true);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeCfgHelp();});
+  window.addEventListener('scroll',closeCfgHelp,true);
+  window.addEventListener('resize',closeCfgHelp);
+}
+
 function collectVisualConfig(){
   const device=vcStr('vc-device');
   const fam=hwRfFamily(device);
@@ -11222,6 +11411,7 @@ async function openCellProfileSheet(mode){
   }
   updateWhitelistBanner();
   setSheetOpen('cfg-cell-sheet',true);
+  try{installCfgHelp();}catch{}
 }
 function closeCellProfileSheet(){
   if(cfgSheetKind!=='cell')return;
@@ -11283,6 +11473,7 @@ async function openBrewProfileSheet(mode){
     vcSet('vc-brew-enabled',true);toggleBrewFields();
   }
   setSheetOpen('cfg-brew-sheet',true);
+  try{installCfgHelp();}catch{}
 }
 function closeBrewProfileSheet(){
   if(cfgSheetKind!=='brew')return;
@@ -14625,6 +14816,7 @@ async function boot(){
   refreshProfileSelects(); // Home quick Cell × Brew selectors
   wifiProbeAvailable(); // toggles the WiFi nav item
   loadOtaChannel();
+  try{installCfgHelp();}catch{}
   // Defer GitHub OTA check — multi-request, used to stall a dashboard thread on every reload.
   setTimeout(()=>{ checkUpdate(); }, 12000);
   maybeShowSetupWizard();

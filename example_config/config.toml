@@ -161,7 +161,8 @@ voice_service = true
 # Group call hangtime in seconds.
 # How long the circuit of an inactive group call stays open after the last speaker
 # releases the floor, before the call is disconnected.
-# During hangtime, any MS can resume the floor without a new D-SETUP/D-CONNECT cycle.
+# During hangtime, any MS can resume the floor without a new D-SETUP/D-CONNECT cycle
+# (radio may show “group in use”) — that is still the SAME call for T310 / call_timeout.
 # Default: 5 seconds. Valid range: 0–300.
 # hangtime_secs = 5
 
@@ -190,6 +191,10 @@ voice_service = true
 # dgna_attachment_mode = 0
 
 # Maximum active call duration in seconds — ETSI EN 300 392-2 §14.9.1 T310 equivalent (FlowStation).
+# Absolute ceiling for ONE group call (same call_id), measured from call establishment — NOT per PTT.
+# Hangtime (and quick LST/Brew turn-taking) keeps that call alive, so a long QSO can hit this limit
+# and terminals may show “PTT denied” when the BS sends D-RELEASE. Raise the value or set 0 for
+# unlimited if you run long dispatch QSOs. Dashboard: Config → Network → Advanced timers (help «?»).
 # After this time the BS sends D-RELEASE regardless of call activity.
 # 0 = no limit (infinite — call runs until U-DISCONNECT or hangtime).
 # Default: 120. Valid range: 30–86400, or 0 for no limit.

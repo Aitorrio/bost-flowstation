@@ -220,6 +220,10 @@ The OTA dialog is a three-step flow (channel → what's new → progress). Expan
 
 Compiles on a Pi can take several minutes — leave the window open until it finishes.
 
+### Group call timers (Hangtime / Call timeout)
+
+Under **Config → Advanced network / timers**, **Call timeout** is the maximum length of one group call (ETSI T310-style), not each PTT. Hangtime keeps the same call open between quick turn-taking (including LST / Brew), so a long QSO can hit the default ~120 s ceiling and radios may show PTT denied — raise the value or set **0** (unlimited). Field help (**?**) explains each timer; see [Docs/config-timers.md](Docs/config-timers.md).
+
 ### Panel account (login)
 
 Under **System → Account** you manage the single dashboard login (the same `[dashboard]` username/password in `config.toml`) without editing TOML by hand. Station-wide — like U-STATUS, **not** part of Cell/Brew profiles.
