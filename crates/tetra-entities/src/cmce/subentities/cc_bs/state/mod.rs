@@ -172,6 +172,11 @@ pub(super) struct ActiveCall {
     /// Brew session UUID — set when a network speaker is active on this call,
     /// regardless of call origin. Cleared when the network speaker ends.
     pub(super) brew_uuid: Option<uuid::Uuid>,
+    /// True while the floor is held by a local MS rather than a network speaker. A network-origin
+    /// call whose floor a local radio has taken over stops seeing backhaul media (the audio now
+    /// flows the other way), so `last_activity_at` goes stale and the network-media watchdog would
+    /// release the call mid-transmission. UMAC's UL-inactivity timer owns the stuck-floor case here.
+    pub(super) local_floor: bool,
 }
 
 impl ActiveCall {
@@ -207,6 +212,7 @@ impl ActiveCall {
             hangtime_start: None,
             queued_tx_demand: None,
             brew_uuid: None,
+            local_floor: true,
         }
     }
 
@@ -242,6 +248,7 @@ impl ActiveCall {
             hangtime_start: None,
             queued_tx_demand: None,
             brew_uuid: Some(brew_uuid),
+            local_floor: false,
         }
     }
 
@@ -297,6 +304,7 @@ impl ActiveCall {
         self.tx_active = true;
         self.hangtime_start = None;
         self.queued_tx_demand = None;
+        self.local_floor = speaker_addr.is_some();
 
         if let (CallOrigin::Local { caller_addr }, Some(addr)) = (&mut self.origin, speaker_addr) {
             *caller_addr = addr;
@@ -590,7 +598,13 @@ impl IndividualCall {
 
 #[cfg(test)]
 mod tests {
-    use super::{CcFormalEvent, CcFormalState};
+    use super::{ActiveCall, CcFormalEvent, CcFormalState};
+    use tetra_core::{SsiType, TdmaTime, TetraAddress};
+    use tetra_pdus::cmce::enums::call_timeout::CallTimeout;
+
+    fn issi(ssi: u32) -> TetraAddress {
+        TetraAddress::new(ssi, SsiType::Issi)
+    }
 
     #[test]
     fn formal_cc_setup_active_release_flow() {
@@ -629,5 +643,53 @@ mod tests {
         assert!(CcFormalState::Idle.transition(CcFormalEvent::SetupComplete).is_err());
         assert!(CcFormalState::Setup.transition(CcFormalEvent::RestoreRequest).is_err());
         assert!(CcFormalState::Release.transition(CcFormalEvent::RestoreComplete).is_err());
+    }
+
+    #[test]
+    fn local_call_starts_with_local_floor() {
+        let call = ActiveCall::new_local(issi(1001), 214, 1001, 1, 1, 0, TdmaTime::default(), CallTimeout::T2m, 0);
+        assert!(call.local_floor);
+        assert!(call.tx_active);
+    }
+
+    #[test]
+    fn network_call_starts_without_local_floor() {
+        let call = ActiveCall::new_network(
+            uuid::Uuid::nil(),
+            214,
+            2001,
+            1,
+            1,
+            0,
+            TdmaTime::default(),
+            CallTimeout::T2m,
+            0,
+        );
+        assert!(!call.local_floor);
+        assert!(call.tx_active);
+    }
+
+    #[test]
+    fn grant_floor_tracks_local_vs_network_speaker() {
+        let mut call = ActiveCall::new_network(
+            uuid::Uuid::nil(),
+            214,
+            2001,
+            1,
+            1,
+            0,
+            TdmaTime::default(),
+            CallTimeout::T2m,
+            0,
+        );
+        assert!(!call.local_floor);
+
+        call.grant_floor(1001, Some(issi(1001)));
+        assert!(call.local_floor);
+        assert_eq!(call.source_issi, 1001);
+
+        call.grant_floor(2001, None);
+        assert!(!call.local_floor);
+        assert_eq!(call.source_issi, 2001);
     }
 }
