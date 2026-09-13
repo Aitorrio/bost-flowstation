@@ -575,18 +575,23 @@ body{
   display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;
 }
 .lst-ptt .lst-ptt-ico svg{width:20px;height:20px;display:block;}
-.lst-ptt-space{
+.lst-ptt-space,.lst-ptt-sub{
   font-size:clamp(10px,2.8vw,11px);font-weight:500;letter-spacing:0.01em;text-transform:none;
-  color:var(--text3);line-height:1.2;text-align:center;white-space:nowrap;
+  color:var(--text3);line-height:1.25;text-align:center;white-space:normal;
   max-width:100%;overflow:visible;
 }
+.lst-ptt.is-busy{
+  border-color:#f59e0b;background:linear-gradient(180deg,rgba(245,158,11,0.18),rgba(245,158,11,0.06));
+}
+.lst-ptt.is-busy .lst-ptt-sub{color:#b45309;font-weight:700;}
+.lst-ptt.is-wait .lst-ptt-sub{color:var(--accent);font-weight:600;}
 .lst-ptt:hover:not(:disabled){border-color:var(--accent);background:rgba(255,255,255,0.06);}
 .lst-ptt:active,.lst-ptt.is-tx{
   background:linear-gradient(180deg,#ef4444,#dc2626);color:#fff;border-color:#b91c1c;
   box-shadow:0 0 0 3px rgba(220,38,38,0.28),inset 0 1px 0 rgba(255,255,255,0.12);
   transform:translateY(1px);
 }
-.lst-ptt.is-tx .lst-ptt-space,.lst-ptt:active .lst-ptt-space{color:rgba(255,255,255,0.78);}
+.lst-ptt.is-tx .lst-ptt-space,.lst-ptt.is-tx .lst-ptt-sub,.lst-ptt:active .lst-ptt-space,.lst-ptt:active .lst-ptt-sub{color:rgba(255,255,255,0.78);}
 .lst-ptt:disabled{opacity:0.45;cursor:not-allowed;}
 .lst-av-bar{margin-top:auto;padding-top:14px;display:flex;justify-content:flex-start;}
 .lst-av-pill{
@@ -5781,7 +5786,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                   <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
                   <span data-i18n="lst_ptt">PTT</span>
                 </span>
-                <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar</span>
+                <span class="lst-ptt-sub" id="lst-ptt-sub" data-i18n="lst_ptt_space">Spacebar</span>
               </button>
               <span id="lst-call-state" class="help-text" style="display:none">—</span>
             </div>
@@ -6323,7 +6328,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <span class="lst-ptt-ico" data-icon="mic" aria-hidden="true"></span>
               <span data-i18n="lst_ptt">PTT</span>
             </span>
-            <span class="lst-ptt-space" data-i18n="lst_ptt_space">Spacebar</span>
+            <span class="lst-ptt-sub" id="lst-call-ptt-sub" data-i18n="lst_ptt_space">Spacebar</span>
           </button>
         </div>
       </div>
@@ -6827,8 +6832,8 @@ const LANGS={
     lst_scan_empty:'No TGs selected',
     lst_scan_hint:'Mark one TG as TX (primary). Other TGs are listened with lower priority.',
     lst_ptt_space:'Spacebar',
-    lst_ptt_busy:'Channel busy — press PTT again within 3 s to interrupt',
-    lst_ptt_wait:'Waiting for talk permit…',
+    lst_ptt_busy:'Press again to interrupt (3s)',
+    lst_ptt_wait:'Waiting for TX…',
     lst_phase_ptt_wait:'Waiting for TX…',
     lst_activity:'Activity',lst_sds_inbox:'SDS received',lst_open_full:'Full log',
     lst_sds_filter_private:'Private',lst_sds_filter_group:'Group',
@@ -7253,8 +7258,8 @@ const LANGS={
     lst_scan_empty:'Sin TGs seleccionados',
     lst_scan_hint:'Marca un TG como TX (principal). El resto se escucha con menor prioridad.',
     lst_ptt_space:'Barra espaciadora',
-    lst_ptt_busy:'Canal ocupado — pulsa PTT otra vez en 3 s para interrumpir',
-    lst_ptt_wait:'Esperando permiso de transmisión…',
+    lst_ptt_busy:'Pulsa otra vez para interrumpir (3s)',
+    lst_ptt_wait:'Esperando TX…',
     lst_phase_ptt_wait:'Esperando TX…',
     lst_activity:'Actividad',lst_sds_inbox:'SDS recibidos',lst_open_full:'Log completo',
     lst_sds_filter_private:'Privado',lst_sds_filter_group:'Grupo',
@@ -8103,13 +8108,10 @@ function lstApplyStatusPayload(j){
     if(relBtn)relBtn.style.display=iOwn?'':'none';
     lstSetOwned(iOwn);
   }
-  // PTT deny / talk-permit hints beat the generic clear.
+  // PTT deny / talk-permit live on the PTT button subtitle (not the audio-hint line).
+  lstSyncPttButtonHint(j);
   if(!window.isSecureContext&&!lstAudioReady){
     lstSetAudioHint(t('lst_https_need'),true);
-  }else if(j.ptt_offer_preempt){
-    lstSetAudioHint(t('lst_ptt_busy'),true);
-  }else if(j.ptt_pending||phase==='ptt_wait'){
-    lstSetAudioHint(t('lst_ptt_wait'),true);
   }else if(iOwn&&lstAudioReady){
     lstSetAudioHint('',false);
   }else if(!iOwn){
@@ -8119,6 +8121,20 @@ function lstApplyStatusPayload(j){
   lstUpdateCallUi(j);
   lstSyncPttUi();
   lstRefreshAvBar();
+}
+function lstSyncPttButtonHint(j){
+  const busy=!!(j&&j.ptt_offer_preempt);
+  const wait=!!(j&&(j.ptt_pending||j.call_phase==='ptt_wait'))&&!busy;
+  const label=busy?t('lst_ptt_busy'):(wait?t('lst_ptt_wait'):t('lst_ptt_space'));
+  [['lst-ptt-btn','lst-ptt-sub'],['lst-call-ptt-btn','lst-call-ptt-sub']].forEach(([bid,sid])=>{
+    const btn=document.getElementById(bid);
+    const sub=document.getElementById(sid);
+    if(sub)sub.textContent=label;
+    if(btn){
+      btn.classList.toggle('is-busy',busy);
+      btn.classList.toggle('is-wait',wait);
+    }
+  });
 }
 function lstPhaseLabel(phase){
   const key='lst_phase_'+(phase||'idle');

@@ -361,6 +361,30 @@ impl CcBsSubentity {
             call.origin = CallOrigin::Network { brew_uuid };
         }
 
+        // Network speaker owns DL: stop LocalLoopback so walkie UL cannot steal the downlink
+        // from Brew/LST TmdCircuitDataReq (root cause of "dispatch TX lost" on preempt).
+        let swmi_circuit = CmceCircuit {
+            ts_created: self.dltime,
+            direction: Direction::Both,
+            ts,
+            carrier_num,
+            call_id,
+            usage,
+            circuit_mode: CircuitModeType::TchS,
+            comm_type: CommunicationType::P2Mp,
+            simplex_duplex: false,
+            speech_service: Some(0),
+            etee_encrypted: false,
+        };
+        Self::signal_umac_circuit_open(
+            queue,
+            &swmi_circuit,
+            self.dltime,
+            None,
+            None,
+            CircuitDlMediaSource::SwMI,
+        );
+
         self.send_d_tx_granted_facch(queue, call_id, source_issi, dest_gssi, carrier_num, ts);
 
         self.notify_remote_floor_granted(queue, CallTimeslot { call_id, carrier_num, ts });

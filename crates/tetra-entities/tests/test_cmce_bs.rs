@@ -1238,6 +1238,15 @@ fn test_network_preempts_local_group_speaker() {
         )),
         "UMAC must see RemoteFloorGranted for the network speaker"
     );
+    assert!(
+        preempt_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::Open(circuit))
+                if circuit.dl_media_source
+                    == tetra_saps::control::call_control::CircuitDlMediaSource::SwMI
+        )),
+        "preempt must re-open the group circuit as SwMI so walkie UL is not looped over LST DL"
+    );
 }
 
 /// Build a CfgBrew suitable for the network-call timeout tests.
