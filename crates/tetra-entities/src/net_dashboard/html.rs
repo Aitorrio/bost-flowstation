@@ -2703,11 +2703,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 /* Config field help («?» popover) — TETRA / Brew live + profile sheets */
 .cfg-help{
   display:inline-flex;align-items:center;justify-content:center;
-  width:16px;height:16px;margin-left:6px;padding:0;vertical-align:middle;
+  box-sizing:border-box;
+  width:16px;height:16px;min-width:16px;min-height:16px;max-width:16px;max-height:16px;
+  margin-left:6px;padding:0;vertical-align:middle;
   border-radius:50%;border:1px solid color-mix(in srgb,var(--text3) 55%, transparent);
   background:color-mix(in srgb,var(--bg3) 70%, transparent);color:var(--text3);
   font:700 11px/1 var(--font,system-ui,sans-serif);cursor:help;
-  flex-shrink:0;
+  flex:0 0 16px;
 }
 .cfg-help:hover,.cfg-help:focus-visible,.cfg-help.is-open{
   color:var(--accent2);border-color:var(--accent2);outline:none;
@@ -2720,6 +2722,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   box-shadow:0 8px 28px rgba(0,0,0,0.28);
   font-size:12px;font-weight:500;line-height:1.45;text-transform:none;letter-spacing:0;
   white-space:pre-wrap;pointer-events:auto;
+}
+/* Label + «?» stay on one row (PC and mobile stacked fields) */
+.field-label-row{
+  display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap;
+  max-width:100%;min-width:0;
+}
+.field-label-row > span,
+.field-label-row > .field-label{
+  min-width:0;
+}
+.field-label-row .cfg-help{
+  margin-left:0;
 }
 .group-list .field > .cfg-help{
   margin-left:6px;align-self:center;
@@ -2801,13 +2815,28 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     flex-direction:column;align-items:stretch;gap:6px;
     min-height:0;padding:12px 14px;
   }
-  #page-config .group-list .field > span:not(.field-control):not(.sw),
+  #page-config .group-list .field > span:not(.field-control):not(.sw):not(.field-label-row),
   #page-config .group-list .field .field-label,
-  #cfg-cell-sheet .group-list .field > span:not(.field-control):not(.sw),
+  #cfg-cell-sheet .group-list .field > span:not(.field-control):not(.sw):not(.field-label-row),
   #cfg-cell-sheet .group-list .field .field-label,
-  #cfg-brew-sheet .group-list .field > span:not(.field-control):not(.sw),
+  #cfg-brew-sheet .group-list .field > span:not(.field-control):not(.sw):not(.field-label-row),
   #cfg-brew-sheet .group-list .field .field-label{
     flex:none;width:100%;
+  }
+  #page-config .group-list .field > .field-label-row,
+  #cfg-cell-sheet .group-list .field > .field-label-row,
+  #cfg-brew-sheet .group-list .field > .field-label-row{
+    flex:none;width:100%;max-width:100%;
+  }
+  /* Never stretch the «?» in column layouts (was becoming a wide oval). */
+  #page-config .group-list .field > .cfg-help,
+  #cfg-cell-sheet .group-list .field > .cfg-help,
+  #cfg-brew-sheet .group-list .field > .cfg-help,
+  #page-config .group-list .field .field-label-row .cfg-help,
+  #cfg-cell-sheet .group-list .field .field-label-row .cfg-help,
+  #cfg-brew-sheet .group-list .field .field-label-row .cfg-help{
+    width:16px;height:16px;min-width:16px;min-height:16px;max-width:16px;max-height:16px;
+    flex:0 0 16px;align-self:center;margin-left:0;
   }
   #page-config .group-list .field .form-input,
   #page-config .group-list .field select.form-input,
@@ -11059,15 +11088,23 @@ function installCfgHelp(){
     if(!field)return;
     const host=cfgHelpLabelHost(field,el);
     if(!host)return;
-    let btn=field.querySelector('.cfg-help');
+    // Wrap label + «?» so mobile column layout keeps them on one row (same 16px size as PC).
+    let row=host.closest('.field-label-row');
+    if(!row){
+      row=document.createElement('span');
+      row.className='field-label-row';
+      host.parentNode.insertBefore(row,host);
+      row.appendChild(host);
+    }
+    let btn=row.querySelector(':scope > .cfg-help')||field.querySelector(':scope > .cfg-help');
+    if(btn&&btn.parentNode!==row)row.appendChild(btn);
     if(!btn){
       btn=document.createElement('button');
       btn.type='button';
       btn.className='cfg-help';
       btn.textContent='?';
       btn.setAttribute('aria-label','Help');
-      // Sibling after the label span so applyLang data-i18n textContent cannot wipe the button.
-      host.insertAdjacentElement('afterend',btn);
+      row.appendChild(btn);
     }
     btn.setAttribute('data-help',CFG_HELP_BY_ID[id]);
   });
