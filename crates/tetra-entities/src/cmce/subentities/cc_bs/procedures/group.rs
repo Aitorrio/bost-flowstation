@@ -63,7 +63,7 @@ impl CcBsSubentity {
         }
     }
 
-    pub(super) fn fsm_send_d_tx_granted_individual(
+    pub(in crate::cmce::subentities::cc_bs) fn fsm_send_d_tx_granted_individual(
         &self,
         queue: &mut MessageQueue,
         call_id: u16,

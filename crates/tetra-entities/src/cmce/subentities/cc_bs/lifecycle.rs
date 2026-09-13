@@ -18,7 +18,8 @@ pub(super) struct CallTimeslot {
 }
 
 /// Persistent cease after network hard-preempt of a local group speaker.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `PartialEq` only: `TdmaTime` does not implement `Eq`.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct PreemptCeaseWatch {
     pub(super) call_id: u16,
     pub(super) dest_gssi: u32,
