@@ -7907,7 +7907,7 @@ async function wifiRefresh(){
 
 /* ── LST Dispatch console ───────────────────────────────────────────── */
 let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
-let lstPttDown=false,lstPttHeld=false,lstTalkPermit=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
+let lstPttDown=false,lstPttHeld=false,lstTalkPermit=false,lstHadTalkPermit=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
 let lstMicDenied=false,lstRxUntil=0,lstAvBarTimer=null;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
 let lstCallPeer=0,lstCallTab='sx';
@@ -8080,6 +8080,8 @@ function lstApplyStatusPayload(j){
   }
   lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
   lstTalkPermit=!!(j.ptt&&j.media_ready)||(!!lstDuplexLive&&!!j.ptt);
+  if(lstTalkPermit&&!lstHadTalkPermit)lstPlayGrantBeep();
+  lstHadTalkPermit=!!lstTalkPermit;
   // Hold-to-talk local state is independent of talk-permit (no optimistic TX).
   if(!lstPttHeld&&!lstSpaceDown)lstPttDown=false;
   else lstPttDown=!!lstTalkPermit;
@@ -8478,6 +8480,26 @@ function lstSyncPttUi(){
   lstRenderScan();
   lstRefreshAvBar();
 }
+function lstPlayGrantBeep(){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    const ctx=lstAudioCtx||new Ctx();
+    if(ctx.state==='suspended'){try{ctx.resume();}catch(_){}}
+    const o=ctx.createOscillator();
+    const g=ctx.createGain();
+    o.type='sine';
+    o.frequency.value=880;
+    g.gain.value=0.07;
+    o.connect(g);g.connect(ctx.destination);
+    const t0=ctx.currentTime;
+    g.gain.setValueAtTime(0.07,t0);
+    g.gain.exponentialRampToValueAtTime(0.001,t0+0.08);
+    o.start(t0);
+    o.stop(t0+0.09);
+    if(!lstAudioCtx){setTimeout(()=>{try{ctx.close();}catch(_){}},120);}
+  }catch(_){}
+}
 function lstAvIcoState(el,state){
   if(!el)return;
   el.classList.remove('is-idle','is-ok','is-bad');
@@ -8670,7 +8692,7 @@ async function lstStartAudio(){
   }
 }
 function lstStopAudio(){
-  lstPttDown=false;lstPttHeld=false;lstTalkPermit=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
+  lstPttDown=false;lstPttHeld=false;lstTalkPermit=false;lstHadTalkPermit=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
   lstMicDenied=false;lstRxUntil=0;
   lstUlAcc=null;lstDlQueue=null;
   if(lstAvBarTimer){clearTimeout(lstAvBarTimer);lstAvBarTimer=null;}

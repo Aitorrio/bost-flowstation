@@ -91,6 +91,13 @@ pub enum CallControl {
     Close(Direction, u8),
     /// Carrier-aware close for exact resource release.
     CloseSlot { direction: Direction, carrier_num: u16, ts: u8 },
+    /// Switch DL media source on an existing circuit without teardown (no close/reopen).
+    /// Used when a network speaker (LST/Brew) takes the floor over a LocalLoopback circuit.
+    SetDlMediaSource {
+        carrier_num: u16,
+        ts: u8,
+        source: CircuitDlMediaSource,
+    },
     /// Floor granted: a speaker has been given transmission permission.
     /// Sent to UMAC to exit hangtime (resume traffic mode) and to Brew to start forwarding voice.
     FloorGranted {

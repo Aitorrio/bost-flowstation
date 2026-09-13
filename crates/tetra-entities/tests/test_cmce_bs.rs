@@ -1241,11 +1241,19 @@ fn test_network_preempts_local_group_speaker() {
     assert!(
         preempt_msgs.iter().any(|msg| matches!(
             &msg.msg,
-            SapMsgInner::CmceCallControl(CallControl::Open(circuit))
-                if circuit.dl_media_source
-                    == tetra_saps::control::call_control::CircuitDlMediaSource::SwMI
+            SapMsgInner::CmceCallControl(CallControl::SetDlMediaSource {
+                source,
+                ..
+            }) if *source == tetra_saps::control::call_control::CircuitDlMediaSource::SwMI
         )),
-        "preempt must re-open the group circuit as SwMI so walkie UL is not looped over LST DL"
+        "preempt must SetDlMediaSource(SwMI) in-place so walkie UL is not looped over LST DL"
+    );
+    assert!(
+        !preempt_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::Open(_))
+        )),
+        "preempt must NOT Open/teardown the existing group circuit"
     );
 }
 

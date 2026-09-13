@@ -2088,6 +2088,21 @@ impl UmacBs {
             CallControl::Close(_, _) | CallControl::CloseSlot { .. } => {
                 self.rx_control_circuit_close(queue, prim);
             }
+            CallControl::SetDlMediaSource {
+                carrier_num,
+                ts,
+                source,
+            } => {
+                let ok = self.scheduler_for_mut(carrier_num).set_dl_media_source(ts, source);
+                if ok {
+                    tracing::debug!(
+                        "rx_control: SetDlMediaSource C{}TS{} -> {:?}",
+                        carrier_num,
+                        ts,
+                        source
+                    );
+                }
+            }
             // Floor-control signals drive traffic↔signalling transitions during hangtime.
             CallControl::FloorReleased { carrier_num, ts, .. } => {
                 self.scheduler_for_mut(carrier_num).set_hangtime(ts, true);

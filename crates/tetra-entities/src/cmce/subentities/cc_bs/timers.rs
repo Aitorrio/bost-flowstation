@@ -33,6 +33,8 @@ impl CcBsSubentity {
         self.check_hangtime_expiry(queue);
         // Reclaim a network group-call timeslot whose backhaul media died without a GROUP_IDLE.
         self.check_network_media_inactivity(queue);
+        // Keep pushing cease to a preempted walkie that may still be on UL.
+        self.check_preempt_cease_retry(queue);
 
         // Energy-economy group-call announce batching: re-emit the group D-SETUP across the
         // union of affiliated EE members' wake frames so members on a different sleep phase
@@ -517,6 +519,60 @@ impl CcBsSubentity {
         for call_id in expired {
             tracing::info!("Hangtime expired for call_id={}, releasing", call_id);
             self.release_group_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
+        }
+    }
+
+    /// After hard-preempt, keep FACCH cease / GrantedToOtherUser flowing briefly so a walkie
+    /// that missed the first steal still drops UL — without AssignedControl hangtime (which
+    /// would also block LST DL) and without circuit Open teardown.
+    pub(super) fn check_preempt_cease_retry(&mut self, queue: &mut MessageQueue) {
+        let now = self.dltime;
+        let due: Vec<PreemptCeaseWatch> = self
+            .preempt_cease_watches
+            .values()
+            .copied()
+            .filter(|w| w.next_at.age(now) >= 0)
+            .collect();
+
+        for mut watch in due {
+            let still_network = self
+                .active_calls
+                .get(&watch.call_id)
+                .is_some_and(|c| c.tx_active && !c.local_floor && c.source_issi == watch.network_speaker);
+
+            if !still_network || watch.until.age(now) >= 0 {
+                self.preempt_cease_watches.remove(&watch.call_id);
+                continue;
+            }
+
+            tracing::debug!(
+                "CMCE: preempt cease retry call_id={} preempted_issi={} network_issi={}",
+                watch.call_id,
+                watch.preempted_issi,
+                watch.network_speaker
+            );
+            let prev_addr = TetraAddress::new(watch.preempted_issi, SsiType::Issi);
+            self.fsm_send_d_tx_granted_individual(
+                queue,
+                watch.call_id,
+                prev_addr,
+                watch.carrier_num,
+                watch.ts,
+                TransmissionGrant::NotGranted,
+                Some(watch.network_speaker),
+            );
+            self.send_d_tx_ceased_facch(queue, watch.call_id, watch.dest_gssi, watch.carrier_num, watch.ts);
+            self.send_d_tx_granted_facch(
+                queue,
+                watch.call_id,
+                watch.network_speaker,
+                watch.dest_gssi,
+                watch.carrier_num,
+                watch.ts,
+            );
+
+            watch.next_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+            self.preempt_cease_watches.insert(watch.call_id, watch);
         }
     }
 

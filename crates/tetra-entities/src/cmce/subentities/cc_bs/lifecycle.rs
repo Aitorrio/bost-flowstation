@@ -17,6 +17,24 @@ pub(super) struct CallTimeslot {
     pub(super) ts: u8,
 }
 
+/// Persistent cease after network hard-preempt of a local group speaker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PreemptCeaseWatch {
+    pub(super) call_id: u16,
+    pub(super) dest_gssi: u32,
+    pub(super) carrier_num: u16,
+    pub(super) ts: u8,
+    pub(super) network_speaker: u32,
+    pub(super) preempted_issi: u32,
+    pub(super) next_at: TdmaTime,
+    pub(super) until: TdmaTime,
+}
+
+/// Re-send D-TX CEASED / GrantedToOtherUser after hard preempt (~300 ms).
+pub(super) const PREEMPT_CEASE_INTERVAL_TS: i32 = 22;
+/// Stop re-sending cease after hard preempt (~2.5 s).
+pub(super) const PREEMPT_CEASE_DURATION_TS: i32 = 180;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BrewNotification {
     Never,

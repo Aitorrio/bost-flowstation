@@ -11,6 +11,7 @@ impl CcBsSubentity {
             individual_calls: HashMap::new(),
             subscriber_groups: HashMap::new(),
             group_listeners: HashMap::new(),
+            preempt_cease_watches: HashMap::new(),
             telemetry: None,
         }
     }
@@ -774,6 +775,26 @@ impl CcBsSubentity {
         queue.push_back(cmd);
     }
 
+    /// Switch DL media source in-place (no circuit close/reopen).
+    pub(super) fn signal_umac_set_dl_media_source(
+        queue: &mut MessageQueue,
+        carrier_num: u16,
+        ts: u8,
+        source: CircuitDlMediaSource,
+    ) {
+        let cmd = SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Umac,
+            msg: SapMsgInner::CmceCallControl(CallControl::SetDlMediaSource {
+                carrier_num,
+                ts,
+                source,
+            }),
+        };
+        queue.push_back(cmd);
+    }
+
     pub(super) fn signal_umac_circuit_close(queue: &mut MessageQueue, circuit: CmceCircuit, _dltime: TdmaTime) {
         let cmd = SapMsg {
             sap: Sap::Control,
@@ -921,6 +942,7 @@ impl CcBsSubentity {
             let is_local = matches!(call.origin, CallOrigin::Local { .. });
 
             let carrier_num = call.carrier_num;
+            self.preempt_cease_watches.remove(&call_id);
             if let Ok(circuit) = self.circuits.close_circuit_slot(Direction::Both, carrier_num, ts) {
                 Self::signal_umac_circuit_close(queue, circuit, self.dltime);
             }

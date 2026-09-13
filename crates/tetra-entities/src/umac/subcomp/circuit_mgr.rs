@@ -78,6 +78,32 @@ impl CircuitMgr {
         self.dl.get(&Self::key(carrier_num, ts)).map(|c| c.dl_media_source)
     }
 
+    /// Change DL media source without closing/recreating the circuit (preserves traffic path).
+    pub fn set_dl_media_source(&mut self, carrier_num: u16, ts: u8, source: CircuitDlMediaSource) -> bool {
+        let key = Self::key(carrier_num, ts);
+        if let Some(circuit) = self.dl.get_mut(&key) {
+            if circuit.dl_media_source != source {
+                tracing::info!(
+                    "CircuitMgr: DL media source C{}TS{} {:?} -> {:?}",
+                    carrier_num,
+                    ts,
+                    circuit.dl_media_source,
+                    source
+                );
+                circuit.dl_media_source = source;
+            }
+            true
+        } else {
+            tracing::warn!(
+                "CircuitMgr::set_dl_media_source: no DL circuit on C{}TS{} (source={:?})",
+                carrier_num,
+                ts,
+                source
+            );
+            false
+        }
+    }
+
     /// Closes an active circuit, and return the Circuit to the caller.
     pub fn close_circuit(&mut self, dir: Direction, carrier_num: u16, ts: u8) -> Option<Circuit> {
         let key = Self::key(carrier_num, ts);

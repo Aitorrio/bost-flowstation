@@ -439,6 +439,32 @@ impl LstDispatchEntity {
                     self.clear_preempt_offer();
                 }
 
+                // Idempotent: do not thrash NetworkCallStart while already pending or granted.
+                if let Some(g) = self.group.as_ref() {
+                    if g.ptt && g.call_id.is_some() {
+                        tracing::debug!("LST: PTT down ignored — talk-permit already granted");
+                        self.handle.set_status(|s| {
+                            s.ptt = true;
+                            s.ptt_pending = false;
+                            s.media_ready = true;
+                            s.call_phase = "established".into();
+                            s.last_error = None;
+                        });
+                        return;
+                    }
+                    if g.ptt && g.call_id.is_none() {
+                        tracing::debug!("LST: PTT down ignored — NetworkCallStart already pending");
+                        self.handle.set_status(|s| {
+                            s.ptt = false;
+                            s.ptt_pending = true;
+                            s.media_ready = false;
+                            s.call_phase = "ptt_wait".into();
+                            s.last_error = None;
+                        });
+                        return;
+                    }
+                }
+
                 let (uuid, gssi, need_new_uuid) = {
                     let g = self.group.as_ref().unwrap();
                     // Fresh UUID if previous call already ended / never got ready.
@@ -846,7 +872,16 @@ impl LstDispatchEntity {
             g.ts = Some(ts);
             g.last_activity = Instant::now();
             let talk = g.ptt;
-            tracing::debug!("LST: group ready call_id={} ts={} talk_permit={}", call_id, ts, talk);
+            if talk {
+                tracing::info!(
+                    "LST: talk_permit granted call_id={} C{}TS{}",
+                    call_id,
+                    carrier_num,
+                    ts
+                );
+            } else {
+                tracing::debug!("LST: group ready call_id={} ts={} talk_permit={}", call_id, ts, talk);
+            }
             self.clear_rx();
             self.handle.set_status(|s| {
                 s.ptt_pending = false;

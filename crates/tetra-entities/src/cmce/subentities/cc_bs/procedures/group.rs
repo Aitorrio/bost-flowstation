@@ -63,7 +63,7 @@ impl CcBsSubentity {
         }
     }
 
-    fn fsm_send_d_tx_granted_individual(
+    pub(super) fn fsm_send_d_tx_granted_individual(
         &self,
         queue: &mut MessageQueue,
         call_id: u16,
@@ -317,7 +317,8 @@ impl CcBsSubentity {
 
         // Hard preempt: a local MS still thinks it owns the floor. Soft grant alone leaves the
         // walkie transmitting while NetworkCallReady makes the console believe it is on air.
-        if was_tx && was_local_floor && prev_speaker != source_issi {
+        let hard_preempt = was_tx && was_local_floor && prev_speaker != source_issi;
+        if hard_preempt {
             let prev_addr = TetraAddress::new(prev_speaker, SsiType::Issi);
             tracing::info!(
                 "CMCE: network preempt of local speaker ISSI {} on call_id={} → ISSI {}",
@@ -361,33 +362,33 @@ impl CcBsSubentity {
             call.origin = CallOrigin::Network { brew_uuid };
         }
 
-        // Network speaker owns DL: stop LocalLoopback so walkie UL cannot steal the downlink
-        // from Brew/LST TmdCircuitDataReq (root cause of "dispatch TX lost" on preempt).
-        let swmi_circuit = CmceCircuit {
-            ts_created: self.dltime,
-            direction: Direction::Both,
-            ts,
-            carrier_num,
-            call_id,
-            usage,
-            circuit_mode: CircuitModeType::TchS,
-            comm_type: CommunicationType::P2Mp,
-            simplex_duplex: false,
-            speech_service: Some(0),
-            etee_encrypted: false,
-        };
-        Self::signal_umac_circuit_open(
-            queue,
-            &swmi_circuit,
-            self.dltime,
-            None,
-            None,
-            CircuitDlMediaSource::SwMI,
-        );
+        // Network speaker owns DL: flip media source in-place (never Open — that closes/reopens
+        // and destroys the traffic path / LST downlink).
+        Self::signal_umac_set_dl_media_source(queue, carrier_num, ts, CircuitDlMediaSource::SwMI);
 
         self.send_d_tx_granted_facch(queue, call_id, source_issi, dest_gssi, carrier_num, ts);
 
         self.notify_remote_floor_granted(queue, CallTimeslot { call_id, carrier_num, ts });
+
+        if hard_preempt {
+            // Keep pushing cease / GrantedToOtherUser while the walkie may still be on UL.
+            // ~300 ms interval for ~2.5 s; no hangtime thrash and no circuit teardown.
+            let next_at = self.dltime.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+            let until = self.dltime.add_timeslots(PREEMPT_CEASE_DURATION_TS);
+            self.preempt_cease_watches.insert(
+                call_id,
+                PreemptCeaseWatch {
+                    call_id,
+                    dest_gssi,
+                    carrier_num,
+                    ts,
+                    network_speaker: source_issi,
+                    preempted_issi: prev_speaker,
+                    next_at,
+                    until,
+                },
+            );
+        }
 
         queue.push_back(SapMsg {
             sap: Sap::Control,
@@ -416,6 +417,8 @@ impl CcBsSubentity {
 
         let state = call.state();
         Self::validate_group_transition(call_id, state, call.formal_state, GroupEvent::NetworkCallEnd)?;
+
+        self.preempt_cease_watches.remove(&call_id);
 
         if matches!(state, GroupCallState::Transmitting) {
             if let Some(active_call) = self.active_calls.get_mut(&call_id) {

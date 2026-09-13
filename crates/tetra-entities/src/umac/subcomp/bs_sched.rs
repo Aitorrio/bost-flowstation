@@ -867,6 +867,10 @@ impl BsChannelScheduler {
         self.circuits.get_dl_media_source(self.carrier_num, ts)
     }
 
+    pub fn set_dl_media_source(&mut self, ts: u8, source: CircuitDlMediaSource) -> bool {
+        self.circuits.set_dl_media_source(self.carrier_num, ts, source)
+    }
+
     pub fn close_circuit(&mut self, dir: Direction, ts: u8) -> Option<Circuit> {
         // Clearing hangtime here is safe: if the circuit is gone, this timeslot is no longer in use.
         if (1..=4).contains(&ts) {
