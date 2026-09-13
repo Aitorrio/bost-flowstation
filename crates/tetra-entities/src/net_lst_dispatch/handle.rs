@@ -37,7 +37,14 @@ pub struct LstRuntimeStatus {
     pub active_gssi: Option<u32>,
     /// Talkgroup currently received (radio floor on a monitored GSSI).
     pub rx_gssi: Option<u32>,
+    /// Talk-permit: true only when the operator actually holds the floor (UL may go on air).
     pub ptt: bool,
+    /// PTT held / NetworkCallStart in flight, waiting for NetworkCallReady.
+    pub ptt_pending: bool,
+    /// First PTT denied because TX TG is busy; second PTT within the window preempts.
+    pub ptt_offer_preempt: bool,
+    /// Epoch ms when the preempt offer expires (UI countdown).
+    pub ptt_offer_until_ms: Option<u64>,
     pub call_kind: Option<String>,
     pub call_peer: Option<u32>,
     /// True when the radio dialed the dispatcher (inbound private).
@@ -45,7 +52,7 @@ pub struct LstRuntimeStatus {
     pub media_ready: bool,
     pub codec_available: bool,
     pub last_error: Option<String>,
-    /// idle | dialing | ringing | answering | established | ended | failed
+    /// idle | dialing | ringing | answering | established | ended | failed | ptt_wait
     pub call_phase: String,
     pub disconnect_cause: Option<u8>,
     /// Unix epoch ms when media became ready (UI timer).
@@ -59,6 +66,14 @@ impl LstRuntimeStatus {
         self.call_started_ms = None;
         self.media_ready = false;
         self.call_inbound = false;
+        self.ptt = false;
+        self.ptt_pending = false;
+        self.clear_preempt_offer();
+    }
+
+    pub fn clear_preempt_offer(&mut self) {
+        self.ptt_offer_preempt = false;
+        self.ptt_offer_until_ms = None;
     }
 }
 
@@ -333,6 +348,9 @@ impl LstSharedInner {
             "active_gssi": s.active_gssi,
             "rx_gssi": s.rx_gssi,
             "ptt": s.ptt,
+            "ptt_pending": s.ptt_pending,
+            "ptt_offer_preempt": s.ptt_offer_preempt,
+            "ptt_offer_until_ms": s.ptt_offer_until_ms,
             "call_kind": s.call_kind,
             "call_peer": s.call_peer,
             "call_inbound": s.call_inbound,

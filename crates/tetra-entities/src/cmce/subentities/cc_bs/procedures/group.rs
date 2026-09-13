@@ -307,6 +307,50 @@ impl CcBsSubentity {
         let formal_state = call.formal_state;
         Self::validate_group_transition(call_id, state, formal_state, GroupEvent::NetworkCallStart)?;
 
+        let ts = call.ts;
+        let carrier_num = call.carrier_num;
+        let usage = call.usage;
+        let dest_gssi = call.dest_gssi;
+        let prev_speaker = call.source_issi;
+        let was_local_floor = call.local_floor;
+        let was_tx = call.tx_active;
+
+        // Hard preempt: a local MS still thinks it owns the floor. Soft grant alone leaves the
+        // walkie transmitting while NetworkCallReady makes the console believe it is on air.
+        if was_tx && was_local_floor && prev_speaker != source_issi {
+            let prev_addr = TetraAddress::new(prev_speaker, SsiType::Issi);
+            tracing::info!(
+                "CMCE: network preempt of local speaker ISSI {} on call_id={} → ISSI {}",
+                prev_speaker,
+                call_id,
+                source_issi
+            );
+            self.fsm_send_d_tx_granted_individual(
+                queue,
+                call_id,
+                prev_addr,
+                carrier_num,
+                ts,
+                TransmissionGrant::NotGranted,
+                Some(source_issi),
+            );
+            self.send_d_tx_ceased_facch(queue, call_id, dest_gssi, carrier_num, ts);
+            self.notify_floor_released(
+                queue,
+                CallTimeslot {
+                    call_id,
+                    carrier_num,
+                    ts,
+                },
+                true,
+                BrewNotification::IfGroupRoutable(dest_gssi),
+            );
+        }
+
+        let Some(call) = self.active_calls.get_mut(&call_id) else {
+            return Err(GroupTransitionError::UnknownCall(call_id));
+        };
+
         call.grant_floor(source_issi, None);
         call.touch_activity(self.dltime);
         call.brew_uuid = Some(brew_uuid);
@@ -316,11 +360,6 @@ impl CcBsSubentity {
             tracing::warn!("CMCE FSM: network call start changed brew_uuid call_id={}", call_id);
             call.origin = CallOrigin::Network { brew_uuid };
         }
-
-        let ts = call.ts;
-        let carrier_num = call.carrier_num;
-        let usage = call.usage;
-        let dest_gssi = call.dest_gssi;
 
         self.send_d_tx_granted_facch(queue, call_id, source_issi, dest_gssi, carrier_num, ts);
 

@@ -557,6 +557,9 @@ body{
   background:rgba(220,38,38,0.30);border-color:#f87171;color:#fef2f2;
 }
 .lst-ptt-wrap{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin:12px 0 16px;}
+#lst-ptt-btn.is-held,#lst-call-ptt-btn.is-held{
+  outline:2px solid #f59e0b;outline-offset:2px;
+}
 .lst-ptt{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
   width:100%;min-height:64px;padding:12px 16px;border-radius:14px;
@@ -6822,8 +6825,11 @@ const LANGS={
     lst_cause_error:'Connection error',lst_cause_finished:'Finished',
     lst_scan_list:'Scan list (TGs)',lst_scan_add:'Add',lst_scan_tx:'TX',lst_scan_remove:'Remove',
     lst_scan_empty:'No TGs selected',
-    lst_scan_hint:'Mark one TG as TX (transmit). Multi-TG listen comes in a later update.',
+    lst_scan_hint:'Mark one TG as TX (primary). Other TGs are listened with lower priority.',
     lst_ptt_space:'Spacebar',
+    lst_ptt_busy:'Channel busy — press PTT again within 3 s to interrupt',
+    lst_ptt_wait:'Waiting for talk permit…',
+    lst_phase_ptt_wait:'Waiting for TX…',
     lst_activity:'Activity',lst_sds_inbox:'SDS received',lst_open_full:'Full log',
     lst_sds_filter_private:'Private',lst_sds_filter_group:'Group',
     lst_live:'Live',lst_groups_expand:'Show affiliated groups',lst_groups_collapse:'Hide affiliated groups',
@@ -7245,8 +7251,11 @@ const LANGS={
     lst_cause_error:'Error de conexión',lst_cause_finished:'Finalizada',
     lst_scan_list:'Lista de escaneo (TGs)',lst_scan_add:'Añadir',lst_scan_tx:'TX',lst_scan_remove:'Quitar',
     lst_scan_empty:'Sin TGs seleccionados',
-    lst_scan_hint:'Marca un TG como TX (transmitir). La escucha multi-TG llega en una actualización posterior.',
+    lst_scan_hint:'Marca un TG como TX (principal). El resto se escucha con menor prioridad.',
     lst_ptt_space:'Barra espaciadora',
+    lst_ptt_busy:'Canal ocupado — pulsa PTT otra vez en 3 s para interrumpir',
+    lst_ptt_wait:'Esperando permiso de transmisión…',
+    lst_phase_ptt_wait:'Esperando TX…',
     lst_activity:'Actividad',lst_sds_inbox:'SDS recibidos',lst_open_full:'Log completo',
     lst_sds_filter_private:'Privado',lst_sds_filter_group:'Grupo',
     lst_live:'En curso',lst_groups_expand:'Mostrar grupos afiliados',lst_groups_collapse:'Ocultar grupos afiliados',
@@ -7893,7 +7902,7 @@ async function wifiRefresh(){
 
 /* ── LST Dispatch console ───────────────────────────────────────────── */
 let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
-let lstPttDown=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
+let lstPttDown=false,lstPttHeld=false,lstTalkPermit=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
 let lstMicDenied=false,lstRxUntil=0,lstAvBarTimer=null;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
 let lstCallPeer=0,lstCallTab='sx';
@@ -7928,7 +7937,7 @@ function lstRenderScan(){
   el.innerHTML=lstScanList.map(g=>{
     const isTx=g===lstScanTx;
     const isRx=!!lstRxGssi&&g===lstRxGssi;
-    const isTxLive=isTx&&!!lstPttDown;
+    const isTxLive=isTx&&!!lstTalkPermit;
     let cls='lst-scan-chip';
     if(isTxLive)cls+=' is-tx-live';
     else if(isRx)cls+=' is-rx';
@@ -8065,10 +8074,13 @@ function lstApplyStatusPayload(j){
     if(needHttps&&!lstAudioReady)lstSetAudioHint(t('lst_https_need'),true);
   }
   lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
-  if(!j.ptt&&!lstSpaceDown)lstPttDown=false;
+  lstTalkPermit=!!(j.ptt&&j.media_ready)||(!!lstDuplexLive&&!!j.ptt);
+  // Hold-to-talk local state is independent of talk-permit (no optimistic TX).
+  if(!lstPttHeld&&!lstSpaceDown)lstPttDown=false;
+  else lstPttDown=!!lstTalkPermit;
   const phase=j.call_phase||'idle';
   const privateActive=phase!=='idle';
-  if(lstToken)lstSetFastPoll(privateActive);
+  if(lstToken)lstSetFastPoll(privateActive||!!j.ptt_pending||!!j.ptt_offer_preempt||!!lstPttHeld);
   // Keep local TX selection authoritative; only adopt server TX if we have none yet.
   if(j.active_gssi&&j.call_kind==='group'&&!lstScanTx){
     if(!lstScanList.includes(j.active_gssi)){lstScanList.push(j.active_gssi);}
@@ -8091,9 +8103,18 @@ function lstApplyStatusPayload(j){
     if(relBtn)relBtn.style.display=iOwn?'':'none';
     lstSetOwned(iOwn);
   }
-  // Ready / claim prompts live in the AV status pill — hide the old text line unless error/HTTPS.
-  if(iOwn&&lstAudioReady)lstSetAudioHint('',false);
-  else if(!iOwn)lstSetAudioHint('',false);
+  // PTT deny / talk-permit hints beat the generic clear.
+  if(!window.isSecureContext&&!lstAudioReady){
+    lstSetAudioHint(t('lst_https_need'),true);
+  }else if(j.ptt_offer_preempt){
+    lstSetAudioHint(t('lst_ptt_busy'),true);
+  }else if(j.ptt_pending||phase==='ptt_wait'){
+    lstSetAudioHint(t('lst_ptt_wait'),true);
+  }else if(iOwn&&lstAudioReady){
+    lstSetAudioHint('',false);
+  }else if(!iOwn){
+    lstSetAudioHint('',false);
+  }
   lstLastStatus=j;
   lstUpdateCallUi(j);
   lstSyncPttUi();
@@ -8376,13 +8397,21 @@ function lstSendSds(){
 function lstPttDownEvt(e){
   if(e){e.preventDefault();if(e.button!=null&&e.button!==0)return;}
   if(!lstToken)return;
-  lstPttDown=true;lstSyncPttUi();
+  lstPttHeld=true;
+  // No optimistic TX — wait for talk-permit from status.
+  lstPttDown=!!lstTalkPermit;
+  lstSyncPttUi();
   wsSend({type:'lst_ptt',token:lstToken,down:true});
+  lstSetFastPoll(true);
+  lstRefreshStatus();
 }
 function lstPttUpEvt(e){
   if(e)e.preventDefault();
   if(!lstToken)return;
-  lstPttDown=false;lstSpaceDown=false;lstSyncPttUi();
+  lstPttHeld=false;
+  lstPttDown=false;
+  lstSpaceDown=false;
+  lstSyncPttUi();
   wsSend({type:'lst_ptt',token:lstToken,down:false});
 }
 function lstBindPttButton(btn){
@@ -8425,7 +8454,10 @@ function lstBindPtt(){
 function lstSyncPttUi(){
   ['lst-ptt-btn','lst-call-ptt-btn'].forEach(id=>{
     const el=document.getElementById(id);
-    if(el)el.classList.toggle('is-tx',!!lstPttDown);
+    if(el){
+      el.classList.toggle('is-tx',!!lstTalkPermit);
+      el.classList.toggle('is-held',!!lstPttHeld&&!lstTalkPermit);
+    }
   });
   lstRenderScan();
   lstRefreshAvBar();
@@ -8461,8 +8493,8 @@ function lstRefreshAvBar(){
   const rxOn=!!lstRxGssi||Date.now()<lstRxUntil||(lstDlQueue&&lstDlQueue.length>160);
   rx.classList.toggle('is-rx-on',!!rxOn);
   rx.classList.toggle('is-idle',!rxOn);
-  tx.classList.toggle('is-tx-on',!!lstPttDown);
-  tx.classList.toggle('is-idle',!lstPttDown);
+  tx.classList.toggle('is-tx-on',!!lstTalkPermit);
+  tx.classList.toggle('is-idle',!lstTalkPermit);
   if(rxOn){
     if(lstAvBarTimer)clearTimeout(lstAvBarTimer);
     lstAvBarTimer=setTimeout(()=>{lstAvBarTimer=null;lstRefreshAvBar();},720);
@@ -8495,7 +8527,7 @@ function lstBindSpacePtt(){
   });
   window.addEventListener('keyup',e=>{
     if(e.code!=='Space'&&e.key!==' ')return;
-    if(!lstSpaceDown&&!lstPttDown)return;
+    if(!lstSpaceDown&&!lstPttHeld&&!lstPttDown)return;
     e.preventDefault();
     lstPttUpEvt(e);
   });
@@ -8580,7 +8612,7 @@ async function lstStartAudio(){
     const nativeRate=lstAudioCtx.sampleRate||48000;
     proc.onaudioprocess=ev=>{
       if(!lstToken)return;
-      if(!(lstPttDown||lstDuplexLive))return;
+      if(!(lstTalkPermit||lstDuplexLive))return;
       const input=ev.inputBuffer.getChannelData(0);
       const pcm=lstResampleTo8k(input,nativeRate);
       lstEnqueueUl(pcm);
@@ -8622,7 +8654,7 @@ async function lstStartAudio(){
   }
 }
 function lstStopAudio(){
-  lstPttDown=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
+  lstPttDown=false;lstPttHeld=false;lstTalkPermit=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
   lstMicDenied=false;lstRxUntil=0;
   lstUlAcc=null;lstDlQueue=null;
   if(lstAvBarTimer){clearTimeout(lstAvBarTimer);lstAvBarTimer=null;}

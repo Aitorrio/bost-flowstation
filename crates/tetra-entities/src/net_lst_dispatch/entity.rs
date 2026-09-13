@@ -27,6 +27,8 @@ const MAX_UL_PCM_PER_TICK: usize = 32;
 const MAX_UL_BLOCKS_PER_TICK: usize = 6;
 const PENDING_UL_CAP: usize = 12;
 const TERMINAL_HOLD: Duration = Duration::from_secs(5);
+/// After a denied PTT on a busy TX TG, a second PTT within this window preempts.
+const PREEMPT_OFFER: Duration = Duration::from_secs(3);
 
 struct ActiveGroup {
     uuid: Uuid,
@@ -76,6 +78,8 @@ pub struct LstDispatchEntity {
     dltime: TdmaTime,
     /// After ended/failed, keep peer+phase visible until this instant.
     terminal_clear_at: Option<Instant>,
+    /// Until this instant, a second PTT on a busy TX TG preempts the walkie.
+    preempt_until: Option<Instant>,
 }
 
 impl LstDispatchEntity {
@@ -109,6 +113,7 @@ impl LstDispatchEntity {
             pending_ul: VecDeque::with_capacity(8),
             dltime: TdmaTime::default(),
             terminal_clear_at: None,
+            preempt_until: None,
         }
     }
 
@@ -133,6 +138,45 @@ impl LstDispatchEntity {
     fn clear_rx(&mut self) {
         self.rx = None;
         self.handle.set_status(|s| s.rx_gssi = None);
+    }
+
+    fn tx_gssi_busy(&self) -> bool {
+        let Some(g) = self.group.as_ref() else {
+            return false;
+        };
+        self.rx.as_ref().is_some_and(|r| r.gssi == g.gssi)
+    }
+
+    fn preempt_offer_active(&self) -> bool {
+        self.preempt_until
+            .is_some_and(|until| Instant::now() < until)
+    }
+
+    fn start_preempt_offer(&mut self) {
+        let until = Instant::now() + PREEMPT_OFFER;
+        self.preempt_until = Some(until);
+        let until_ms = epoch_ms() + PREEMPT_OFFER.as_millis() as u64;
+        self.handle.set_status(|s| {
+            s.ptt = false;
+            s.ptt_pending = false;
+            s.media_ready = false;
+            s.ptt_offer_preempt = true;
+            s.ptt_offer_until_ms = Some(until_ms);
+            s.last_error = None;
+        });
+    }
+
+    fn clear_preempt_offer(&mut self) {
+        self.preempt_until = None;
+        self.handle.set_status(|s| s.clear_preempt_offer());
+    }
+
+    fn expire_preempt_offer_if_needed(&mut self) {
+        if let Some(until) = self.preempt_until {
+            if Instant::now() >= until {
+                self.clear_preempt_offer();
+            }
+        }
     }
 
     /// Diff-sync CMCE affiliations for multi-TG listen.
@@ -341,8 +385,15 @@ impl LstDispatchEntity {
                             },
                         );
                     }
+                    // Talk-permit for simplex private: granted immediately by CMCE path above;
+                    // duplex uses always-on UL once circuit is up (media_ready).
                     self.handle.set_status(|s| {
                         s.ptt = true;
+                        s.ptt_pending = false;
+                        if !duplex {
+                            s.media_ready = true;
+                        }
+                        s.clear_preempt_offer();
                         s.last_error = None;
                     });
                 } else {
@@ -360,7 +411,13 @@ impl LstDispatchEntity {
                         c.reset_ul();
                     }
                     self.pending_ul.clear();
-                    self.handle.set_status(|s| s.ptt = false);
+                    self.handle.set_status(|s| {
+                        s.ptt = false;
+                        s.ptt_pending = false;
+                        if !duplex {
+                            s.media_ready = false;
+                        }
+                    });
                 }
             }
             return;
@@ -369,6 +426,19 @@ impl LstDispatchEntity {
         // Group: PTT down starts NetworkCallStart; PTT up ends the call (no hangtime yet).
         if self.group.is_some() {
             if down {
+                // Busy TX TG: first PTT opens a 3s preempt offer; second within window preempts.
+                if self.tx_gssi_busy() {
+                    if !self.preempt_offer_active() {
+                        tracing::info!("LST: PTT denied — TX TG busy, offer preempt for 3s");
+                        self.start_preempt_offer();
+                        return;
+                    }
+                    tracing::info!("LST: PTT preempt — interrupting busy TX TG");
+                    self.clear_preempt_offer();
+                } else {
+                    self.clear_preempt_offer();
+                }
+
                 let (uuid, gssi, need_new_uuid) = {
                     let g = self.group.as_ref().unwrap();
                     // Fresh UUID if previous call already ended / never got ready.
@@ -401,11 +471,24 @@ impl LstDispatchEntity {
                         priority: 0,
                     },
                 );
+                // Talk-permit only after NetworkCallReady — show pending, not TX.
                 self.handle.set_status(|s| {
-                    s.ptt = true;
+                    s.ptt = false;
+                    s.ptt_pending = true;
+                    s.media_ready = false;
+                    s.call_phase = "ptt_wait".into();
                     s.last_error = None;
                 });
             } else {
+                // Deny-only press (never started): keep the 3s preempt window; no NetworkCallEnd.
+                let had_session = self.group.as_ref().is_some_and(|g| g.ptt || g.call_id.is_some());
+                if !had_session {
+                    self.handle.set_status(|s| {
+                        s.ptt = false;
+                        s.ptt_pending = false;
+                    });
+                    return;
+                }
                 let uuid = self.group.as_ref().map(|g| g.uuid);
                 if let Some(g) = self.group.as_mut() {
                     g.ptt = false;
@@ -424,7 +507,14 @@ impl LstDispatchEntity {
                     c.reset_ul();
                 }
                 self.pending_ul.clear();
-                self.handle.set_status(|s| s.ptt = false);
+                self.handle.set_status(|s| {
+                    s.ptt = false;
+                    s.ptt_pending = false;
+                    s.media_ready = false;
+                    if s.call_phase == "ptt_wait" {
+                        s.call_phase = "idle".into();
+                    }
+                });
             }
             return;
         }
@@ -755,7 +845,19 @@ impl LstDispatchEntity {
             g.carrier_num = Some(carrier_num);
             g.ts = Some(ts);
             g.last_activity = Instant::now();
-            tracing::debug!("LST: group ready call_id={} ts={}", call_id, ts);
+            let talk = g.ptt;
+            tracing::debug!("LST: group ready call_id={} ts={} talk_permit={}", call_id, ts, talk);
+            self.clear_rx();
+            self.handle.set_status(|s| {
+                s.ptt_pending = false;
+                s.clear_preempt_offer();
+                if talk {
+                    s.ptt = true;
+                    s.media_ready = true;
+                    s.call_phase = "established".into();
+                    s.last_error = None;
+                }
+            });
         }
         if let Some(ref mut p) = self.private
             && p.uuid == brew_uuid
@@ -807,6 +909,23 @@ impl LstDispatchEntity {
         if !self.listen_gssis.contains(&dest_gssi) {
             return;
         }
+        // While we hold / wait for group TX, ignore foreign floors on the TX TG (preempt path
+        // clears RX explicitly). Secondary TGs still follow last-wins when TX TG is quiet.
+        if self.group.as_ref().is_some_and(|g| g.ptt && g.gssi == dest_gssi) {
+            return;
+        }
+
+        let tx_gssi = self.group.as_ref().map(|g| g.gssi);
+        let is_tx_tg = tx_gssi == Some(dest_gssi);
+        if !is_tx_tg {
+            if let Some(rx) = self.rx.as_ref() {
+                if tx_gssi == Some(rx.gssi) {
+                    // TX TG is currently the audio source — secondary floors do not steal it.
+                    return;
+                }
+            }
+        }
+
         self.rx = Some(ActiveRx {
             gssi: dest_gssi,
             call_id,
@@ -815,10 +934,11 @@ impl LstDispatchEntity {
         });
         self.handle.set_status(|s| s.rx_gssi = Some(dest_gssi));
         tracing::debug!(
-            "LST: RX floor gssi={} from issi={} ts={}",
+            "LST: RX floor gssi={} from issi={} ts={} (tx_priority={})",
             dest_gssi,
             source_issi,
-            ts
+            ts,
+            is_tx_tg
         );
     }
 
@@ -997,6 +1117,7 @@ impl TetraEntityTrait for LstDispatchEntity {
                 self.clear_terminal_hold();
             }
         }
+        self.expire_preempt_offer_if_needed();
         self.flush_ul(queue);
         // Keep CMCE group call alive while PTT is held (~2.5 Hz keepalive).
         let keepalive_uuid = self.group.as_mut().and_then(|g| {
@@ -1048,11 +1169,16 @@ impl LstDispatchEntity {
             }
             self.handle.set_status(|s| {
                 s.ptt = false;
+                s.ptt_pending = false;
+                s.media_ready = false;
                 if still_ptt && !had_ready {
                     s.last_error = Some(
                         "group call rejected — check radios are affiliated to this GSSI"
                             .into(),
                     );
+                }
+                if s.call_phase == "ptt_wait" {
+                    s.call_phase = "idle".into();
                 }
             });
         }

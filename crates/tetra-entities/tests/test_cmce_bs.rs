@@ -1158,6 +1158,88 @@ fn test_network_group_speaker_change_uses_remote_floor_grant() {
     );
 }
 
+/// Local MS holds the group floor; NetworkCallStart (LST/Brew) must hard-preempt: cease/deny
+/// the MS, FloorReleased to UMAC/Brew, then NetworkCallReady for the network speaker.
+#[test]
+fn test_network_preempts_local_group_speaker() {
+    debug::setup_logging_verbose();
+
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let setup_msgs = test.dump_sinks();
+    let call_id = first_d_setup_call_id(&setup_msgs, TEST_GSSI);
+
+    assert!(
+        setup_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::FloorGranted { source_issi, .. })
+                if *source_issi == TEST_ISSI
+        )),
+        "local setup should grant floor to the MS"
+    );
+
+    let brew_uuid = uuid::Uuid::parse_str("b7e5c03c-0489-4106-a246-5ccddf75e657").unwrap();
+    let lst_issi = 9_990_001u32;
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid,
+            source_issi: lst_issi,
+            dest_gssi: TEST_GSSI,
+            priority: 0,
+        }),
+    });
+    test.run_stack(Some(1));
+    let preempt_msgs = test.dump_sinks();
+
+    assert!(
+        preempt_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::FloorReleased {
+                call_id: released,
+                ..
+            }) if *released == call_id
+        )),
+        "preempt must FloorReleased so LST/UMAC clear the local speaker"
+    );
+    assert!(
+        find_lcmc_req(&preempt_msgs, TEST_ISSI, CmcePduTypeDl::DTxGranted).is_some()
+            || find_lcmc_req(&preempt_msgs, TEST_GSSI, CmcePduTypeDl::DTxCeased).is_some(),
+        "preempt must signal NotGranted to MS and/or D-TX CEASED on the GSSI"
+    );
+    assert!(
+        preempt_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
+                brew_uuid: ready_uuid,
+                call_id: ready_call,
+                ..
+            }) if *ready_uuid == brew_uuid && *ready_call == call_id
+        )),
+        "LST/Brew must receive NetworkCallReady after hard preempt"
+    );
+    assert!(
+        preempt_msgs.iter().any(|msg| matches!(
+            &msg.msg,
+            SapMsgInner::CmceCallControl(CallControl::RemoteFloorGranted {
+                call_id: granted_call,
+                ..
+            }) if *granted_call == call_id
+        )),
+        "UMAC must see RemoteFloorGranted for the network speaker"
+    );
+}
+
 /// Build a CfgBrew suitable for the network-call timeout tests.
 fn test_brew_cfg() -> CfgBrew {
     CfgBrew {
