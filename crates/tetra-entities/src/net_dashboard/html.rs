@@ -615,23 +615,8 @@ body{
 .lst-av-tag.is-idle{color:var(--text3);opacity:0.45;}
 .lst-av-tag.is-rx-on{color:#16a34a;opacity:1;}
 .lst-av-tag.is-tx-on{color:#dc2626;opacity:1;}
-#lst-roster-table .row-actions{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end;}
-#lst-roster-table .lst-act-btn{
-  width:34px;height:34px;min-width:34px;min-height:34px;padding:0;margin:0;
-  display:inline-flex;align-items:center;justify-content:center;
-  box-sizing:border-box;line-height:1;
-}
-#lst-roster-table .lst-act-btn .btn-icon,
-#lst-roster-table .lst-act-btn [data-icon]{
-  width:16px;height:16px;margin:0!important;padding:0;
-  display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
-  vertical-align:middle;
-}
-#lst-roster-table .lst-act-btn svg{width:16px;height:16px;display:block;margin:0;}
-body.touch-mode #lst-roster-table .lst-act-btn,
-body:not(.no-touch-mode) #lst-roster-table .lst-act-btn{
-  min-height:34px;min-width:34px;padding:0;font-size:inherit;
-}
+#lst-roster-table td:last-child .btn{margin:0 0 0 4px;}
+#lst-roster-table td:last-child .btn:first-child{margin-left:0;}
 .lst-g-cell{display:inline-flex;align-items:center;gap:4px;max-width:100%;position:relative;}
 .lst-g-row{display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;max-width:100%;}
 .lst-g-expand{
@@ -1914,6 +1899,7 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
     max-width:none;
     padding:0;
     margin:0 0 2px;
+    text-align:center;
   }
   table.table-stack tbody td:last-child:has(.btn) > .stack-val{
     flex:1 1 100%;
@@ -1929,6 +1915,23 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   table.table-stack .gauge{
     display:inline-flex;align-items:center;gap:8px;
     justify-content:flex-end;margin:0;
+  }
+  /* LST: SDS message — label above, full-width readable body (Inicio-like card rhythm). */
+  #page-lst_dispatch #lst-sds-table.table-stack tbody td.sds-msg{
+    flex-direction:column;align-items:stretch;gap:6px;
+  }
+  #page-lst_dispatch #lst-sds-table.table-stack tbody td.sds-msg::before{
+    flex:0 0 auto;max-width:none;padding-top:0;
+  }
+  #page-lst_dispatch #lst-sds-table.table-stack tbody td.sds-msg > .stack-val{
+    justify-content:flex-start;text-align:left;width:100%;
+  }
+  #page-lst_dispatch .lst-bottom .sds-msg{
+    max-width:none;white-space:normal;overflow:visible;text-overflow:unset;
+    word-break:break-word;line-height:1.4;
+  }
+  #page-lst_dispatch .lst-controls .form-input{
+    min-height:40px;
   }
 }
 
@@ -6755,7 +6758,7 @@ const LANGS={
     lst_audio_mic_fail:'Could not open the microphone: ',
     lst_audio_ok:'Mic/speakers ready.',
     lst_call_simplex:'Private simplex',lst_call_duplex:'Private duplex',lst_hangup:'Hang up',lst_pos_none:'—',
-    lst_roster_sds:'Send SDS',lst_roster_call:'Private call',
+    lst_roster_sds:'Send SDS',lst_roster_call:'Private call',lst_roster_call_btn:'Call',
     lst_call_modal_title:'Private call',lst_tab_simplex:'Simplex',lst_tab_duplex:'Duplex',
     lst_call_dial:'Call',lst_call_answer:'Answer',lst_duplex_hint:'Duplex: mic stays open while media is ready (no PTT).',
     lst_phase_idle:'Idle',lst_phase_dialing:'Calling…',lst_phase_ringing:'Ringing…',
@@ -7144,7 +7147,7 @@ const LANGS={
     lst_audio_mic_fail:'No se pudo abrir el micrófono: ',
     lst_audio_ok:'Micro/altavoz listos.',
     lst_call_simplex:'Privada simplex',lst_call_duplex:'Privada dúplex',lst_hangup:'Colgar',lst_pos_none:'—',
-    lst_roster_sds:'Enviar SDS',lst_roster_call:'Llamada privada',
+    lst_roster_sds:'Enviar SDS',lst_roster_call:'Llamada privada',lst_roster_call_btn:'Llamar',
     lst_call_modal_title:'Llamada privada',lst_tab_simplex:'Simplex',lst_tab_duplex:'Dúplex',
     lst_call_dial:'Llamar',lst_call_answer:'Contestar',lst_duplex_hint:'Dúplex: el micro queda abierto mientras hay media (sin PTT).',
     lst_phase_idle:'En espera',lst_phase_dialing:'Llamando…',lst_phase_ringing:'Timbrando…',
@@ -8633,6 +8636,9 @@ function lstRenderRoster(){
   const sdsTitle=t('lst_roster_sds')||t('sds');
   const callTitle=t('lst_roster_call');
   const dgnaTitle=t('dgna_title')||t('dgna');
+  const sdsLbl=t('sds');
+  const callLbl=t('lst_roster_call_btn')||t('calls');
+  const dgnaLbl=t('dgna');
   rows.sort((a,b)=>a.issi-b.issi).forEach(m=>{
     const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
     const emg=!!(state.emergencies&&state.emergencies[m.issi]);
@@ -8643,10 +8649,10 @@ function lstRenderRoster(){
       `<td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${typeof idCell==='function'?idCell(m.issi):('<code>'+m.issi+'</code>')}</td>`+
       `<td>${lstGroupsCell(m)}</td>`+
       `<td class="col-mobile-hide" data-lst-seen>${typeof lastSeenLabel==='function'?lastSeenLabel(ls):'—'}</td>`+
-      `<td class="row-actions">`+
-        `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="sds" title="${sdsTitle}" aria-label="${sdsTitle}"><span class="btn-icon" data-icon="sdslog"></span></button>`+
-        `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="dgna" title="${dgnaTitle}" aria-label="${dgnaTitle}"><span class="btn-icon" data-icon="dgna"></span></button>`+
-        `<button type="button" class="btn btn-sm lst-act-btn" data-issi="${m.issi}" data-act="call" title="${callTitle}" aria-label="${callTitle}"><span class="btn-icon" data-icon="calls"></span></button>`+
+      `<td>`+
+        `<button type="button" class="btn btn-sm" data-issi="${m.issi}" data-act="sds" title="${sdsTitle}">${sdsLbl}</button> `+
+        `<button type="button" class="btn btn-sm" data-issi="${m.issi}" data-act="dgna" title="${dgnaTitle}">${dgnaLbl}</button> `+
+        `<button type="button" class="btn btn-sm" data-issi="${m.issi}" data-act="call" title="${callTitle}">${callLbl}</button>`+
       `</td>`;
     tb.appendChild(tr);
   });
