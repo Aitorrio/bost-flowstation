@@ -553,15 +553,19 @@ impl CcBsSubentity {
                             call_id,
                             watch.network_speaker
                         );
-                    } else {
-                        tracing::warn!(
-                            "CMCE: preempt timeout → talk_permit call_id={} (UL may still be up)",
-                            call_id
-                        );
+                        self.complete_preempt_pending_ready(queue, &watch);
+                        // Stop cease spam immediately — post-Ready NotGranted/CEASED flicker the MS display.
+                        self.preempt_pending.remove(&call_id);
+                        continue;
                     }
+                    tracing::warn!(
+                        "CMCE: preempt timeout → talk_permit call_id={} (UL may still be up)",
+                        call_id
+                    );
                     self.complete_preempt_pending_ready(queue, &watch);
                     watch.ready_sent = true;
                     watch.next_cease_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
+                    watch.post_cease_until = now.add_timeslots(PREEMPT_POST_CEASE_TS);
                     self.preempt_pending.insert(call_id, watch);
                     continue;
                 }
@@ -582,26 +586,21 @@ impl CcBsSubentity {
                 watch.ready_sent,
                 watch.preempted_issi
             );
-            let prev_addr = TetraAddress::new(watch.preempted_issi, SsiType::Issi);
-            self.fsm_send_d_tx_granted_individual(
-                queue,
-                watch.call_id,
-                prev_addr,
-                watch.carrier_num,
-                watch.ts,
-                TransmissionGrant::NotGranted,
-                Some(watch.network_speaker),
-            );
-            self.send_d_tx_ceased_facch(queue, watch.call_id, watch.dest_gssi, watch.carrier_num, watch.ts);
-            if watch.ready_sent {
-                self.send_d_tx_granted_facch(
+            if !watch.ready_sent {
+                let prev_addr = TetraAddress::new(watch.preempted_issi, SsiType::Issi);
+                self.fsm_send_d_tx_granted_individual(
                     queue,
                     watch.call_id,
-                    watch.network_speaker,
-                    watch.dest_gssi,
+                    prev_addr,
                     watch.carrier_num,
                     watch.ts,
+                    TransmissionGrant::NotGranted,
+                    Some(watch.network_speaker),
                 );
+                self.send_d_tx_ceased_facch(queue, watch.call_id, watch.dest_gssi, watch.carrier_num, watch.ts);
+            } else {
+                // Timeout path only: nudge MS without individual NotGranted (avoids ID flicker).
+                self.send_d_tx_ceased_facch(queue, watch.call_id, watch.dest_gssi, watch.carrier_num, watch.ts);
             }
             watch.next_cease_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
             self.preempt_pending.insert(call_id, watch);
@@ -675,10 +674,9 @@ impl CcBsSubentity {
         }
         for mut watch in complete {
             self.complete_preempt_pending_ready(queue, &watch);
-            watch.ready_sent = true;
-            watch.ul_active = false;
-            watch.next_cease_at = now.add_timeslots(PREEMPT_CEASE_INTERVAL_TS);
-            self.preempt_pending.insert(watch.call_id, watch);
+            // Quiet path: drop watch so we do not keep FACCH-spamming the MS display.
+            self.preempt_pending.remove(&watch.call_id);
+            let _ = watch;
         }
     }
 

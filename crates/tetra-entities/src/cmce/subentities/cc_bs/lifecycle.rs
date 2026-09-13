@@ -49,8 +49,8 @@ pub(super) const PREEMPT_CEASE_INTERVAL_TS: i32 = 22;
 pub(super) const PREEMPT_MIN_HOLD_TS: i32 = 30;
 /// Defer NetworkCallReady at most ~1.25 s waiting for UL quiet.
 pub(super) const PREEMPT_READY_DEADLINE_TS: i32 = 90;
-/// Continue cease FACCH briefly after Ready (~2.5 s from preempt start).
-pub(super) const PREEMPT_POST_CEASE_TS: i32 = 180;
+/// Continue cease briefly after Ready-by-timeout only (~600 ms), not after UL quiet.
+pub(super) const PREEMPT_POST_CEASE_TS: i32 = 45;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BrewNotification {
