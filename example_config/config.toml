@@ -533,7 +533,7 @@ voice_service = true
 
 ###############################################################################
 
-# OPTIONAL: Web dashboard — accessible at https://<BTS-IP>/ (HTTP :80 redirects; legacy :8080/:8443 also redirect after OTA)
+# OPTIONAL: Web dashboard — accessible at https://<BTS-IP>/ (HTTP :80 redirects to HTTPS)
 #
 # Live view of terminals, active calls, log, config editor, kick and SDS.
 # HTTPS is the canonical UI (self-signed cert; accept the browser warning once).

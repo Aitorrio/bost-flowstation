@@ -66,7 +66,7 @@ sudo systemctl reload NetworkManager
 
 ## First login
 
-1. Open `https://<pi-ip>/` (or `http://<pi-ip>/` — redirects to HTTPS; old `:8080` / `:8443` bookmarks also redirect)
+1. Open `https://<pi-ip>/` (or `http://<pi-ip>/` — redirects to HTTPS)
 2. Log in with `admin` / `1234` (change password in Config when convenient)
 3. The **Setup** wizard appears if `setup.json` has `setup_complete=false`
 4. Steps: welcome → SDR scan / install driver (SXceiver or Lime) → RF/net/Brew (or defaults) → enable RF + restart → ensure systemd autostart → finish
@@ -97,3 +97,10 @@ sudo BOST_SKIP_BUILD=0 ./contrib/install/install-bost.sh
 ```
 
 The script **does not overwrite** an existing `/etc/flowstation/config.toml`. To force wizard again, set `"setup_complete": false` in `/etc/flowstation/setup.json`.
+
+## Upgrading from v0.2.x to v0.3.0
+
+1. Prefer **System → Update** on the dashboard (channel **Estable**), or re-run `install-bost.sh` on the Pi.
+2. After restart, open **`https://<pi-ip>/`**. Boot migrates legacy `[dashboard] port = 8080` → `80` and ensures `https_port = 443`.
+3. LST voice needs the tetra-codec linked build; if missing, OTA offers a codec rebuild.
+4. Existing Cell/Brew profiles and whitelist entries are kept (config.toml is not wiped by the installer).

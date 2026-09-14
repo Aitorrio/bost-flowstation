@@ -4802,7 +4802,7 @@ fn enrich_update_check_for_voice(body: String) -> String {
             .to_string();
         if notes.is_empty() {
             v["release_notes"] = serde_json::json!(
-                "- Install TETRA voice codec (libtetra-codec) and rebuild for LST Dispatch audio.\n- Confirm this update — no SSH required.\n- After restart, open https://IP (port 443) so the browser allows the microphone. Old bookmarks to :8080 / :8443 redirect automatically."
+                "- Install TETRA voice codec (libtetra-codec) and rebuild for LST Dispatch audio.\n- Confirm this update — no SSH required.\n- After restart, open https://IP/ so the browser allows the microphone."
             );
             v["notes_source"] = serde_json::json!("changelog");
         }

@@ -372,7 +372,7 @@ IP="${IP:-<pi-ip>}"
 echo
 echo "────────────────────────────────────────────────────────"
 echo " Bost FlowStation installed"
-echo " Dashboard:  https://${IP}/  (HTTP :80 and legacy :8080/:8443 redirect here)"
+echo " Dashboard:  https://${IP}/  (HTTP :80 redirects to HTTPS)"
 echo " Login:      admin / 1234"
 echo " Config:     ${CFG_PATH}"
 echo " Setup:      open the Setup tab / first-run wizard"

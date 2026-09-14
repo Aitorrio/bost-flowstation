@@ -5797,7 +5797,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <p class="help-text" id="lst-codec-hint" style="display:none" data-i18n="lst_no_codec">Voice codec not available in this build — signalling only.</p>
             <button type="button" class="btn btn-sm" id="lst-install-voice-btn" style="display:none;margin-top:8px" onclick="lstInstallVoice()" data-i18n="lst_install_voice">Install voice codec (OTA)</button>
             <p class="help-text" id="lst-audio-hint" style="display:none"></p>
-            <button type="button" class="btn btn-primary" id="lst-https-btn" style="display:none;margin-top:8px" onclick="lstOpenHttps()" data-i18n="lst_open_https">Open secure console (HTTPS) for microphone</button>
             <div class="lst-av-bar" id="lst-av-bar" aria-hidden="true">
               <div class="lst-av-pill">
                 <span class="lst-av-sess is-off" id="lst-av-sess"></span>
@@ -6813,9 +6812,7 @@ const LANGS={
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Send',lst_roster:'Radios online',lst_col_groups:'Groups',lst_col_pos:'Position',
     lst_no_codec:'Voice codec not available in this build — signalling only. Use “Install voice codec (OTA)” below (no SSH).',
     lst_install_voice:'Install voice codec (OTA)',
-    lst_open_https:'Open secure console (HTTPS) for microphone',
-    lst_https_need:'Microphone needs HTTPS. Click the button to open https://this-host/ (accept the certificate warning once).',
-    lst_audio_insecure:'Browser blocks the microphone on http://IP. Open the secure console (HTTPS) — accept the certificate once.',
+    lst_audio_insecure:'Microphone needs a secure page (https://…). Open https://this-host/ and accept the certificate once.',
     lst_audio_need_claim:'Press “Take dispatch” first — that gesture opens the mic/speakers prompt.',
     lst_audio_mic_fail:'Could not open the microphone: ',
     lst_audio_ok:'Mic/speakers ready.',
@@ -7239,9 +7236,7 @@ const LANGS={
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Enviar',lst_roster:'Radios online',lst_col_groups:'Grupos',lst_col_pos:'Ubicación',
     lst_no_codec:'Codec de voz no disponible en este build — solo señalización. Usa “Instalar codec de voz (OTA)” abajo (sin SSH).',
     lst_install_voice:'Instalar codec de voz (OTA)',
-    lst_open_https:'Abrir consola segura (HTTPS) para el micrófono',
-    lst_https_need:'El micrófono necesita HTTPS. Pulsa el botón para abrir https://este-equipo/ (acepta el aviso del certificado una vez).',
-    lst_audio_insecure:'El navegador bloquea el micrófono en http://IP. Abre la consola segura (HTTPS) y acepta el certificado una vez.',
+    lst_audio_insecure:'El micrófono necesita una página segura (https://…). Abre https://este-equipo/ y acepta el certificado una vez.',
     lst_audio_need_claim:'Pulsa primero “Tomar despacho”: ese gesto abre el permiso de micro/altavoz.',
     lst_audio_mic_fail:'No se pudo abrir el micrófono: ',
     lst_audio_ok:'Micro/altavoz listos.',
@@ -8016,27 +8011,13 @@ async function lstPageEnter(){
   lstRenderRoster();
   lstRenderBottomPanels();
   if(typeof loadSdsLog==='function')loadSdsLog();
-  if(!window.isSecureContext){
-    const httpsBtn=document.getElementById('lst-https-btn');
-    if(httpsBtn)httpsBtn.style.display='inline-block';
-    lstSetAudioHint(t('lst_https_need'),true);
-  }else{
-    lstSetAudioHint('',false);
-  }
+  if(!window.isSecureContext)lstSetAudioHint(t('lst_audio_insecure'),true);
+  else lstSetAudioHint('',false);
 }
 async function lstInstallVoice(){
   // Opens the OTA modal — server marks voice rebuild as an available update.
   if(typeof startUpdate==='function')await startUpdate({fromBanner:true});
   else await dashAlert(t('notice'),t('lst_install_voice'));
-}
-async function lstOpenHttps(){
-  let port=443;
-  try{
-    const r=await fetch('/api/dashboard/tls',{credentials:'same-origin',cache:'no-store'});
-    if(r.ok){const j=await r.json();if(j&&j.https_port)port=j.https_port;}
-  }catch(_){}
-  const base=port===443?('https://'+location.hostname):('https://'+location.hostname+':'+port);
-  location.assign(base+location.pathname+location.search+location.hash);
 }
 async function lstRefreshStatus(){
   try{
@@ -8072,12 +8053,6 @@ function lstApplyStatusPayload(j){
   if(codecHint)codecHint.style.display=j.codec_available?'none':'';
   const installBtn=document.getElementById('lst-install-voice-btn');
   if(installBtn)installBtn.style.display=j.codec_available?'none':'inline-block';
-  const httpsBtn=document.getElementById('lst-https-btn');
-  if(httpsBtn){
-    const needHttps=!window.isSecureContext;
-    httpsBtn.style.display=needHttps?'inline-block':'none';
-    if(needHttps&&!lstAudioReady)lstSetAudioHint(t('lst_https_need'),true);
-  }
   lstDuplexLive=j.call_kind==='duplex'&&!!j.media_ready&&!!lstToken;
   lstTalkPermit=!!(j.ptt&&j.media_ready)||(!!lstDuplexLive&&!!j.ptt);
   if(lstTalkPermit&&!lstHadTalkPermit)lstPlayGrantBeep();
@@ -8113,7 +8088,7 @@ function lstApplyStatusPayload(j){
   // PTT deny / talk-permit live on the PTT button subtitle (not the audio-hint line).
   lstSyncPttButtonHint(j);
   if(!window.isSecureContext&&!lstAudioReady){
-    lstSetAudioHint(t('lst_https_need'),true);
+    lstSetAudioHint(t('lst_audio_insecure'),true);
   }else if(iOwn&&lstAudioReady){
     lstSetAudioHint('',false);
   }else if(!iOwn){

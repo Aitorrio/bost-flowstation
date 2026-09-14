@@ -1,7 +1,8 @@
 //! Migrate legacy dashboard ports (HTTP 8080 / HTTPS 8443) → 80 / 443.
 //!
 //! Line-oriented edit of `config.toml` (same style as `ota_channel`): preserves comments.
-//! Safe for OTA: bookmarks to `:8080` / `:8443` still work via runtime redirect listeners.
+//! New installs advertise only `:80` / `:443`. Runtime listeners on the old ports remain
+//! so pre-0.3 bookmarks still redirect after OTA (not shown in installer/docs).
 
 /// Previous HTTP default before HTTPS-canonical dashboard.
 pub const LEGACY_HTTP_PORT: u16 = 8080;

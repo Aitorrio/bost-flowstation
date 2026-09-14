@@ -586,7 +586,7 @@ fn main() {
             // start() must be called before Arc::new() because it takes &mut self
             dashboard.start(&dash_cfg.bind, dash_cfg.port, dash_cfg.https_port);
             eprintln!(
-                " -> Dashboard HTTPS on https://{}:{} (HTTP :{} redirects; legacy :8080/:8443 redirect when free)",
+                " -> Dashboard HTTPS on https://{}:{} (HTTP :{} redirects to HTTPS)",
                 dash_cfg.bind, dash_cfg.https_port, dash_cfg.port
             );
 

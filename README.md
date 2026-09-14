@@ -31,6 +31,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | One-command Pi install | Boots with RF off so the dashboard is always reachable |
 | First-run **Setup** wizard | Install SDR drivers and finish RF / net / Brew from the browser |
 | Visual **Config** (Cell × Brew profiles) | Switch networks without hand-editing TOML |
+| **LST Dispatch** console | Local group/private voice + SDS from the browser (HTTPS) |
 | Access control & U-STATUS remote control in GUI | Whitelist + walkie commands (`ip` / `temp` / `info` / `restart`…) without SSH |
 | **System** control panel | Restart, suspend, full power-off, **OTA**, and **panel account** from the dashboard |
 | Sidebar update badge | Glance notice when a newer commit is available on the **active OTA channel** |
@@ -54,7 +55,7 @@ When it finishes you should see something like:
 
 | | |
 |---|---|
-| Dashboard | `https://<pi-ip>/` (HTTP `:80` redirects; legacy `:8080` / `:8443` also redirect after OTA) |
+| Dashboard | `https://<pi-ip>/` (HTTP `:80` redirects to HTTPS) |
 | Default login | `admin` / `1234` |
 | Config on disk | `/etc/flowstation/config.toml` (+ `.fallback` reserve) |
 | Sources | `/opt/bost-flowstation` (branch `bost`) |
