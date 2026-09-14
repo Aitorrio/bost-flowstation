@@ -8086,7 +8086,7 @@ function lstApplyStatusPayload(j){
   if(!lstPttHeld&&!lstSpaceDown)lstPttDown=false;
   else lstPttDown=!!lstTalkPermit;
   const phase=j.call_phase||'idle';
-  const privateActive=phase!=='idle';
+  const privateActive=phase!=='idle'&&(j.call_kind==='simplex'||j.call_kind==='duplex');
   if(lstToken)lstSetFastPoll(privateActive||!!j.ptt_pending||!!j.ptt_offer_preempt||!!lstPttHeld);
   // Keep local TX selection authoritative; only adopt server TX if we have none yet.
   if(j.active_gssi&&j.call_kind==='group'&&!lstScanTx){
@@ -8189,20 +8189,24 @@ function lstUpdateCallUi(j){
   const phase=j.call_phase||'idle';
   const kind=j.call_kind||'';
   const peer=j.call_peer!=null?j.call_peer:null;
-  const isPrivatePhase=phase!=='idle'&&(kind==='simplex'||kind==='duplex'||phase==='ended'||phase==='failed');
+  const isPrivateKind=kind==='simplex'||kind==='duplex';
+  const isPrivatePhase=phase!=='idle'&&(isPrivateKind||phase==='ended'||phase==='failed');
   const phaseTxt=(j.call_inbound&&phase==='ringing')
     ?(t('lst_phase_incoming')||lstPhaseLabel(phase))
     :lstPhaseLabel(phase);
   const causeTxt=(phase==='failed'||phase==='ended')?lstCauseLabel(j.disconnect_cause):'';
   const sub=causeTxt||(j.ptt?'TX':'')||(j.last_error&&phase==='failed'?j.last_error:'');
   const timerTxt=lstFormatTimer(lstCallElapsedSecs(j));
-  const active=!(phase==='idle'||phase==='ended'||phase==='failed');
+  // Group PTT must not block private dial (call_phase/ptt_wait/idle on kind=group).
+  const active=isPrivateKind&&!(phase==='idle'||phase==='ended'||phase==='failed');
   const canDial=!!lstToken&&!!lstCallPeer&&!active;
   const canHang=!!lstToken&&active;
+  // Call chrome (strip + inbound modal) only for the browser that claimed dispatch.
+  const showCallChrome=!!lstToken&&!!isPrivatePhase;
 
   const strip=document.getElementById('lst-call-strip');
   if(strip){
-    strip.classList.toggle('is-open',!!isPrivatePhase);
+    strip.classList.toggle('is-open',!!showCallChrome);
     const sp=document.getElementById('lst-strip-peer');
     const sph=document.getElementById('lst-strip-phase');
     const st=document.getElementById('lst-strip-timer');
@@ -8242,7 +8246,9 @@ function lstUpdateCallUi(j){
   const dialBtn=document.getElementById('lst-phone-dial');
   const hangBtn=document.getElementById('lst-phone-hang');
   const inbound=!!j.call_inbound&&phase==='ringing';
-  if(inbound&&peer!=null){
+  // Auto-popup only for the active dispatcher — other dashboard sessions still
+  // receive lst_status over WS but must not be interrupted by the ringing modal.
+  if(inbound&&peer!=null&&lstToken){
     lstCallPeer=peer;
     const modal=document.getElementById('lst-call-modal');
     if(modal&&!modal.classList.contains('open'))openLstCallModal(peer);

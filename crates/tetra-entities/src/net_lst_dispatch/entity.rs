@@ -320,7 +320,11 @@ impl LstDispatchEntity {
         self.handle.set_status(|s| {
             s.active_gssi = Some(gssi);
             s.call_kind = Some("group".into());
-            s.call_peer = Some(gssi);
+            // call_peer is for private ISSI only — do not put GSSI here or the call modal
+            // shows "Establecida" on the talkgroup and blocks dialing a radio.
+            if s.call_phase == "idle" || matches!(s.call_phase.as_str(), "ended" | "failed" | "ptt_wait") {
+                s.call_peer = None;
+            }
             s.ptt = false;
             s.last_error = None;
             // Don't clobber an active/recent private phase display.
@@ -447,7 +451,10 @@ impl LstDispatchEntity {
                             s.ptt = true;
                             s.ptt_pending = false;
                             s.media_ready = true;
-                            s.call_phase = "established".into();
+                            // Group TX uses ptt/media_ready — never private "established".
+                            if s.call_kind.as_deref() == Some("group") {
+                                s.call_phase = "idle".into();
+                            }
                             s.last_error = None;
                         });
                         return;
@@ -537,7 +544,11 @@ impl LstDispatchEntity {
                     s.ptt = false;
                     s.ptt_pending = false;
                     s.media_ready = false;
-                    if s.call_phase == "ptt_wait" {
+                    // Clear group PTT phases so private dial is not blocked as "Establecida".
+                    if matches!(s.call_phase.as_str(), "ptt_wait" | "established")
+                        && s.call_kind.as_deref() != Some("simplex")
+                        && s.call_kind.as_deref() != Some("duplex")
+                    {
                         s.call_phase = "idle".into();
                     }
                 });
@@ -776,7 +787,7 @@ impl LstDispatchEntity {
             if let Some(g) = gssi {
                 s.active_gssi = Some(g);
                 s.call_kind = Some("group".into());
-                s.call_peer = Some(g);
+                s.call_peer = None;
             } else {
                 s.call_kind = None;
                 s.call_peer = None;
@@ -889,7 +900,8 @@ impl LstDispatchEntity {
                 if talk {
                     s.ptt = true;
                     s.media_ready = true;
-                    s.call_phase = "established".into();
+                    // Group talk-permit must not use private "established" (blocks SX/DX dial).
+                    s.call_phase = "idle".into();
                     s.last_error = None;
                 }
             });
@@ -1212,7 +1224,10 @@ impl LstDispatchEntity {
                             .into(),
                     );
                 }
-                if s.call_phase == "ptt_wait" {
+                if matches!(s.call_phase.as_str(), "ptt_wait" | "established")
+                    && s.call_kind.as_deref() != Some("simplex")
+                    && s.call_kind.as_deref() != Some("duplex")
+                {
                     s.call_phase = "idle".into();
                 }
             });
