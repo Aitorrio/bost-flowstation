@@ -67,12 +67,34 @@ fn format_array(list: &[u32]) -> String {
     format!("[{}]", items.join(", "))
 }
 
+/// Lines that belong to a pretty-printed (or leftover corrupt) array body after
+/// `issi_whitelist = …`, e.g. `    100,` / `]`.
+fn is_array_value_continuation(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() {
+        return false;
+    }
+    // Next TOML key or section — stop skipping.
+    if t.starts_with('[') && t.ends_with(']') && t.contains(|c: char| c.is_ascii_alphabetic()) {
+        return false;
+    }
+    if t.contains('=') {
+        return false;
+    }
+    if t == "]" || t == "]," {
+        return true;
+    }
+    t.trim_end_matches(',').trim().parse::<u64>().is_ok()
+}
+
 /// Rewrite (or insert) the `[security] issi_whitelist = [...]` line in the TOML file at
 /// `config_path`, preserving everything else. Returns Ok(()) on success.
 ///
 /// Strategy:
-///   - If a `[security]` section exists, replace its `issi_whitelist = ...` line (or add
-///     one right after the header if absent).
+///   - If a `[security]` section exists, replace its `issi_whitelist = ...` value (or add
+///     one right after the header if absent). A pretty-printed multiline array is removed
+///     in full — replacing only the first line would leave orphan `  n,` / `]` rows and
+///     break TOML parse (fallback boot). Always rewrite as a single inline array line.
 ///   - If no `[security]` section exists, append one at the end of the file.
 pub fn write_whitelist_to_toml(config_path: &str, list: &[u32]) -> std::io::Result<()> {
     let original = std::fs::read_to_string(config_path)?;
@@ -85,8 +107,10 @@ pub fn write_whitelist_to_toml(config_path: &str, list: &[u32]) -> std::io::Resu
     let mut in_security = false;
     let mut wrote_line = false;
     let mut security_seen = false;
+    let mut i = 0usize;
 
-    for &line in &lines {
+    while i < lines.len() {
+        let line = lines[i];
         let trimmed = line.trim_start();
 
         // Detect section headers.
@@ -101,22 +125,33 @@ pub fn write_whitelist_to_toml(config_path: &str, list: &[u32]) -> std::io::Resu
                 security_seen = true;
             }
             out.push(line.to_string());
+            i += 1;
             continue;
         }
 
-        // Within [security], replace an existing issi_whitelist line (skip comments).
+        // Within [security], replace an existing issi_whitelist value (skip comments).
         if in_security && !wrote_line {
-            let is_whitelist_line = trimmed.trim_start_matches('#').trim_start().starts_with("issi_whitelist");
+            let is_whitelist_line = trimmed
+                .trim_start_matches('#')
+                .trim_start()
+                .starts_with("issi_whitelist");
             // Only replace an *active* (uncommented) assignment. A commented example is
             // left in place and we add the active line just after it.
             if is_whitelist_line && !trimmed.starts_with('#') {
                 out.push(new_line.clone());
                 wrote_line = true;
+                i += 1;
+                // Drop pretty-print body and any corrupt leftover rows after a prior
+                // half-rewrite (inline assignment + orphan `n,` / `]` lines).
+                while i < lines.len() && is_array_value_continuation(lines[i]) {
+                    i += 1;
+                }
                 continue;
             }
         }
 
         out.push(line.to_string());
+        i += 1;
     }
 
     // File ended while still inside [security] without writing the line.
@@ -211,6 +246,43 @@ mod tests {
         let out = std::fs::read_to_string(&path).unwrap();
         assert!(out.contains("[security]"));
         assert!(out.contains("issi_whitelist = [7]"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn replace_multiline_pretty_array() {
+        // toml::to_string_pretty uses this form once there are 2+ entries.
+        let cfg = "[cell]\nfoo = 1\n\n[security]\nissi_whitelist = [\n    100,\n    2144485,\n]\nother = true\n";
+        let dir = std::env::temp_dir();
+        let path = dir.join("fs_wl_test_multiline.toml");
+        std::fs::write(&path, cfg).unwrap();
+        write_whitelist_to_toml(path.to_str().unwrap(), &[9, 8]).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("issi_whitelist = [8, 9]"), "out={out}");
+        assert!(!out.contains("    100,"), "leftover body must be removed: {out}");
+        assert!(!out.contains("2144485"), "out={out}");
+        assert!(out.contains("other = true"));
+        toml::from_str::<toml::Table>(&out).expect("result must parse as TOML");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn repairs_corrupt_inline_plus_leftover_body() {
+        // Bug shape after half-rewriting a pretty array (profile apply → live whitelist sync).
+        let cfg = "[security]\nissi_whitelist = [100, 2144485]\n    100,\n    2144485,\n]\n";
+        let dir = std::env::temp_dir();
+        let path = dir.join("fs_wl_test_corrupt.toml");
+        std::fs::write(&path, cfg).unwrap();
+        write_whitelist_to_toml(path.to_str().unwrap(), &[100, 2144485]).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            out.matches("issi_whitelist").count(),
+            1,
+            "out={out}"
+        );
+        assert!(out.contains("issi_whitelist = [100, 2144485]"), "out={out}");
+        assert!(!out.contains("    100,"), "out={out}");
+        toml::from_str::<toml::Table>(&out).expect("repaired TOML must parse");
         let _ = std::fs::remove_file(&path);
     }
 
