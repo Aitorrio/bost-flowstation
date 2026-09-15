@@ -1040,10 +1040,8 @@ impl BrewEntity {
         );
 
         let jitter = self.dl_jitter.remove(&uuid);
-        if let (Some(call_id), Some(carrier_num), Some(ts), Some(usage), Some(jitter)) =
-            (call.call_id, call.carrier_num, call.ts, call.usage, jitter)
-        {
-            if !jitter.is_empty() {
+        match (call.call_id, call.carrier_num, call.ts, call.usage, jitter) {
+            (Some(call_id), Some(carrier_num), Some(ts), Some(usage), Some(jitter)) if !jitter.is_empty() => {
                 tracing::info!(
                     "BrewEntity: GROUP_IDLE uuid={} pending tail {} frames (defer NetworkCallEnd)",
                     uuid,
@@ -1065,16 +1063,18 @@ impl BrewEntity {
                 );
                 return;
             }
-        } else if let Some(jitter) = jitter {
-            if !jitter.is_empty() {
+            (_, _, _, _, Some(jitter)) if !jitter.is_empty() => {
                 tracing::debug!(
                     "BrewEntity: GROUP_IDLE uuid={} dropping {} buffered frames (no carrier/ts)",
                     uuid,
                     jitter.len()
                 );
+                self.pending_tails.remove(&uuid);
+            }
+            _ => {
+                self.pending_tails.remove(&uuid);
             }
         }
-        self.pending_tails.remove(&uuid);
 
         queue.push_back(SapMsg {
             sap: Sap::Control,
