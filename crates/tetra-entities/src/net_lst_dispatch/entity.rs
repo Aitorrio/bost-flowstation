@@ -30,6 +30,10 @@ const TERMINAL_HOLD: Duration = Duration::from_secs(5);
 /// After a denied PTT on a busy TX TG, a second PTT within this window preempts.
 const PREEMPT_OFFER: Duration = Duration::from_secs(3);
 
+/// After FloorReleased, keep accepting residual TCH on the same slot briefly so the
+/// console PCM queue can finish (does not change CMCE hangtime / MS–MS air).
+const RX_DRAIN_GRACE: Duration = Duration::from_millis(500);
+
 struct ActiveGroup {
     uuid: Uuid,
     gssi: u32,
@@ -61,6 +65,8 @@ struct ActiveRx {
     call_id: u16,
     carrier_num: u16,
     ts: u8,
+    /// When set, FloorReleased already fired; accept DL until this Instant then clear.
+    draining_until: Option<Instant>,
 }
 
 pub struct LstDispatchEntity {
@@ -137,7 +143,20 @@ impl LstDispatchEntity {
 
     fn clear_rx(&mut self) {
         self.rx = None;
-        self.handle.set_status(|s| s.rx_gssi = None);
+        self.handle.set_status(|s| {
+            s.rx_gssi = None;
+            s.rx_draining = false;
+        });
+    }
+
+    fn expire_rx_drain_if_needed(&mut self) {
+        let done = self.rx.as_ref().is_some_and(|r| {
+            r.draining_until.is_some_and(|until| Instant::now() >= until)
+        });
+        if done {
+            tracing::debug!("LST: RX drain grace expired — clear_rx");
+            self.clear_rx();
+        }
     }
 
     fn tx_gssi_busy(&self) -> bool {
@@ -921,7 +940,10 @@ impl LstDispatchEntity {
             p.carrier_num == Some(carrier_num) && p.ts == Some(ts)
         });
         let group_rx = self.rx.as_ref().is_some_and(|r| {
-            r.carrier_num == carrier_num && r.ts == ts && self.listen_gssis.contains(&r.gssi)
+            r.carrier_num == carrier_num
+                && r.ts == ts
+                && self.listen_gssis.contains(&r.gssi)
+                && r.draining_until.is_none_or(|until| Instant::now() < until)
         });
         // Fallback: while we hold group PTT media on our own circuit is UL; DL from radios on
         // monitored TGs should arrive with FloorGranted. If FloorGranted is missing, still accept
@@ -978,8 +1000,12 @@ impl LstDispatchEntity {
             call_id,
             carrier_num,
             ts,
+            draining_until: None,
         });
-        self.handle.set_status(|s| s.rx_gssi = Some(dest_gssi));
+        self.handle.set_status(|s| {
+            s.rx_gssi = Some(dest_gssi);
+            s.rx_draining = false;
+        });
         tracing::debug!(
             "LST: RX floor gssi={} from issi={} ts={} (tx_priority={})",
             dest_gssi,
@@ -990,11 +1016,28 @@ impl LstDispatchEntity {
     }
 
     fn on_floor_released(&mut self, call_id: u16, carrier_num: u16, ts: u8) {
-        if self.rx.as_ref().is_some_and(|r| {
-            r.call_id == call_id || (r.carrier_num == carrier_num && r.ts == ts)
-        }) {
-            self.clear_rx();
+        let Some(rx) = self.rx.as_mut() else {
+            return;
+        };
+        if !(rx.call_id == call_id || (rx.carrier_num == carrier_num && rx.ts == ts)) {
+            return;
         }
+        // Keep accepting residual TCH into dl_pcm for a short grace — hangtime may still
+        // deliver a few frames; clearing rx immediately dropped the console tail.
+        let until = Instant::now() + RX_DRAIN_GRACE;
+        rx.draining_until = Some(until);
+        let gssi = rx.gssi;
+        self.handle.set_status(|s| {
+            s.rx_gssi = Some(gssi);
+            s.rx_draining = true;
+        });
+        tracing::debug!(
+            "LST: RX floor released call_id={} C{}TS{} — drain grace {:.0}ms",
+            call_id,
+            carrier_num,
+            ts,
+            RX_DRAIN_GRACE.as_millis()
+        );
     }
 }
 
@@ -1165,6 +1208,7 @@ impl TetraEntityTrait for LstDispatchEntity {
             }
         }
         self.expire_preempt_offer_if_needed();
+        self.expire_rx_drain_if_needed();
         self.flush_ul(queue);
         // Keep CMCE group call alive while PTT is held (~2.5 Hz keepalive).
         let keepalive_uuid = self.group.as_mut().and_then(|g| {

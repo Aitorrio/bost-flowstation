@@ -79,6 +79,21 @@ struct ActiveCall {
     last_network_activity: Instant,
 }
 
+/// Post-GROUP_IDLE jitter still playing out. NetworkCallEnd is deferred until empty so
+/// D-TX CEASED / hangtime do not cut MS TCH decode before the tail is on the air.
+#[derive(Debug)]
+struct PendingTail {
+    carrier_num: u16,
+    ts: u8,
+    dest_gssi: u32,
+    call_id: u16,
+    usage: u8,
+    source_issi: u32,
+    frame_count: u64,
+    jitter: VoiceJitterBuffer,
+    started: Instant,
+}
+
 /// Group call in hangtime with circuit still allocated.
 #[derive(Debug)]
 struct HangingCall {
@@ -149,12 +164,8 @@ pub struct BrewEntity {
     active_calls: HashMap<Uuid, ActiveCall>,
     /// Per-call jitter/playout buffer for downlink voice from Brew.
     dl_jitter: HashMap<Uuid, VoiceJitterBuffer>,
-    /// Jitter buffers that are draining after GROUP_IDLE — kept alive until empty so the
-    /// last frames of a transmission are played out instead of being silently discarded.
-    /// The Instant records when draining started, so a buffer whose timeslot stops being
-    /// scheduled (and therefore never finishes draining naturally) can be reaped instead
-    /// of leaking across repeated PTT cycles.
-    draining_jitter: HashMap<Uuid, (u16, u8, VoiceJitterBuffer, Instant)>,
+    /// Pending tails after GROUP_IDLE — media first, then NetworkCallEnd / hangtime.
+    pending_tails: HashMap<Uuid, PendingTail>,
 
     /// DL calls in hangtime keyed by dest_gssi — circuit stays open, waiting for
     /// new speaker or timeout. Only one hanging call per GSSI.
@@ -222,7 +233,7 @@ impl BrewEntity {
             command_sender,
             active_calls: HashMap::new(),
             dl_jitter: HashMap::new(),
-            draining_jitter: HashMap::new(),
+            pending_tails: HashMap::new(),
             hanging_calls: HashMap::new(),
             ul_forwarded: HashMap::new(),
             subscriber_groups: HashMap::new(),
@@ -754,6 +765,76 @@ impl BrewEntity {
         }
     }
 
+    /// Finish a deferred GROUP_IDLE: NetworkCallEnd + hanging_calls.
+    fn finalize_pending_tail(&mut self, queue: &mut MessageQueue, uuid: Uuid, tail: PendingTail, reason: &str) {
+        let left = tail.jitter.len();
+        if left > 0 {
+            tracing::info!(
+                "BrewEntity: pending tail {} uuid={} ({} frames discarded) — NetworkCallEnd",
+                reason,
+                uuid,
+                left
+            );
+        } else {
+            tracing::info!(
+                "BrewEntity: pending tail {} uuid={} — NetworkCallEnd",
+                reason,
+                uuid
+            );
+        }
+
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Brew,
+            dest: TetraEntity::Cmce,
+            msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid: uuid }),
+        });
+
+        if let Some(stale) = self.hanging_calls.remove(&tail.dest_gssi) {
+            if stale.uuid != uuid {
+                self.dl_jitter.remove(&stale.uuid);
+                self.pending_tails.remove(&stale.uuid);
+            }
+        }
+        self.hanging_calls.insert(
+            tail.dest_gssi,
+            HangingCall {
+                uuid,
+                call_id: tail.call_id,
+                carrier_num: tail.carrier_num,
+                ts: tail.ts,
+                usage: tail.usage,
+                source_issi: tail.source_issi,
+                dest_gssi: tail.dest_gssi,
+                frame_count: tail.frame_count,
+                since: Instant::now(),
+            },
+        );
+    }
+
+    fn abort_pending_tails_on_slot(&mut self, queue: &mut MessageQueue, carrier_num: u16, ts: u8, reason: &str) {
+        let doomed: Vec<Uuid> = self
+            .pending_tails
+            .iter()
+            .filter(|(_, t)| t.carrier_num == carrier_num && t.ts == ts)
+            .map(|(uuid, _)| *uuid)
+            .collect();
+        for uuid in doomed {
+            if let Some(t) = self.pending_tails.remove(&uuid) {
+                self.finalize_pending_tail(queue, uuid, t, reason);
+            }
+        }
+    }
+
+    fn take_pending_tail_for_gssi(&mut self, dest_gssi: u32) -> Option<(Uuid, PendingTail)> {
+        let uuid = self
+            .pending_tails
+            .iter()
+            .find(|(_, t)| t.dest_gssi == dest_gssi)
+            .map(|(uuid, _)| *uuid)?;
+        self.pending_tails.remove(&uuid).map(|t| (uuid, t))
+    }
+
     /// Handle new group call from Brew, reusing hanging call circuits if available.
     fn handle_group_call_start(&mut self, queue: &mut MessageQueue, uuid: Uuid, source_issi: u32, dest_gssi: u32, priority: u8) {
         // Check if this call is already active (speaker change or repeated GROUP_TX)
@@ -800,6 +881,46 @@ impl BrewEntity {
                 // Repeated GROUP_TX with same speaker - this is normal, just log at trace level
                 tracing::trace!("BrewEntity: repeated GROUP_TX on uuid={} speaker={}", uuid, source_issi);
             }
+            return;
+        }
+
+        // Reclaim a circuit still Transmitting in CMCE while we play the previous tail.
+        if let Some((old_uuid, tail)) = self.take_pending_tail_for_gssi(dest_gssi) {
+            let left = tail.jitter.len();
+            tracing::info!(
+                "BrewEntity: reclaiming pending tail gssi={} old_uuid={} → uuid={} ({} frames dropped)",
+                dest_gssi,
+                old_uuid,
+                uuid,
+                left
+            );
+            let call = ActiveCall {
+                uuid,
+                call_id: Some(tail.call_id),
+                ts: Some(tail.ts),
+                carrier_num: Some(tail.carrier_num),
+                usage: Some(tail.usage),
+                source_issi,
+                dest_gssi,
+                frame_count: tail.frame_count,
+                last_media_activity_signal: None,
+                last_network_activity: Instant::now(),
+            };
+            self.active_calls.insert(uuid, call);
+            self.dl_jitter
+                .entry(uuid)
+                .or_insert_with(|| VoiceJitterBuffer::with_initial_latency(self.brew_config.jitter_initial_latency_frames as usize));
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Brew,
+                dest: TetraEntity::Cmce,
+                msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+                    brew_uuid: uuid,
+                    source_issi,
+                    dest_gssi,
+                    priority,
+                }),
+            });
             return;
         }
 
@@ -903,26 +1024,12 @@ impl BrewEntity {
         });
     }
 
-    /// Handle GROUP_IDLE by forwarding to CMCE and tracking for hangtime reuse
+    /// Handle GROUP_IDLE: play remaining jitter first, then NetworkCallEnd / hangtime.
     fn handle_group_call_end(&mut self, queue: &mut MessageQueue, uuid: Uuid, _cause: u8) {
         let Some(call) = self.active_calls.remove(&uuid) else {
             tracing::debug!("BrewEntity: GROUP_IDLE for unknown uuid={}", uuid);
             return;
         };
-
-        // GROUP_IDLE is followed immediately by a CMCE release of the traffic slot. Keeping
-        // buffered DL audio alive after this point only feeds UMAC with frames for a circuit that
-        // is already being torn down, which produces repeated "inactive circuit" drops.
-        if let Some(jitter) = self.dl_jitter.remove(&uuid)
-            && !jitter.is_empty()
-        {
-            tracing::debug!(
-                "BrewEntity: GROUP_IDLE uuid={} dropping {} buffered frames before call release",
-                uuid,
-                jitter.len()
-            );
-        }
-        self.draining_jitter.remove(&uuid);
 
         tracing::info!(
             "BrewEntity: group call ended uuid={} call_id={:?} gssi={} frames={}",
@@ -932,7 +1039,43 @@ impl BrewEntity {
             call.frame_count
         );
 
-        // Request CMCE to end the call
+        let jitter = self.dl_jitter.remove(&uuid);
+        if let (Some(call_id), Some(carrier_num), Some(ts), Some(usage), Some(jitter)) =
+            (call.call_id, call.carrier_num, call.ts, call.usage, jitter)
+        {
+            if !jitter.is_empty() {
+                tracing::info!(
+                    "BrewEntity: GROUP_IDLE uuid={} pending tail {} frames (defer NetworkCallEnd)",
+                    uuid,
+                    jitter.len()
+                );
+                self.pending_tails.insert(
+                    uuid,
+                    PendingTail {
+                        carrier_num,
+                        ts,
+                        dest_gssi: call.dest_gssi,
+                        call_id,
+                        usage,
+                        source_issi: call.source_issi,
+                        frame_count: call.frame_count,
+                        jitter,
+                        started: Instant::now(),
+                    },
+                );
+                return;
+            }
+        } else if let Some(jitter) = jitter {
+            if !jitter.is_empty() {
+                tracing::debug!(
+                    "BrewEntity: GROUP_IDLE uuid={} dropping {} buffered frames (no carrier/ts)",
+                    uuid,
+                    jitter.len()
+                );
+            }
+        }
+        self.pending_tails.remove(&uuid);
+
         queue.push_back(SapMsg {
             sap: Sap::Control,
             src: TetraEntity::Brew,
@@ -940,12 +1083,7 @@ impl BrewEntity {
             msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid: uuid }),
         });
 
-        // Track as hanging for potential reuse (only if resources were allocated)
         if let (Some(call_id), Some(carrier_num), Some(ts), Some(usage)) = (call.call_id, call.carrier_num, call.ts, call.usage) {
-            // If a hanging call already exists for this GSSI (e.g. rapid PTT cycling on
-            // the same group), the previous hanging entry's UUID would be silently
-            // overwritten and leak — its jitter/active state never cleaned and TetraPack
-            // left with a dangling session reference. Drop the stale one explicitly first.
             if let Some(stale) = self.hanging_calls.remove(&call.dest_gssi) {
                 if stale.uuid != uuid {
                     tracing::debug!(
@@ -955,7 +1093,7 @@ impl BrewEntity {
                         uuid
                     );
                     self.dl_jitter.remove(&stale.uuid);
-                    self.draining_jitter.remove(&stale.uuid);
+                    self.pending_tails.remove(&stale.uuid);
                 }
             }
             self.hanging_calls.insert(
@@ -1081,35 +1219,31 @@ impl BrewEntity {
             }
         }
 
-        // Also drain buffers from calls that ended (GROUP_IDLE) but still have frames buffered.
-        // A buffer is removed when it empties naturally, OR when it has been draining for
-        // far longer than any reasonable playout (its timeslot stopped being scheduled) —
-        // the latter guards against slow leaks under repeated PTT cycling.
-        const DRAIN_REAP_AFTER: Duration = Duration::from_secs(5);
+        // Pending tails: CMCE still Transmitting — play media then NetworkCallEnd.
+        const TAIL_REAP_AFTER: Duration = Duration::from_secs(2);
         let finished: Vec<Uuid> = self
-            .draining_jitter
+            .pending_tails
             .iter_mut()
-            .filter_map(|(uuid, (carrier_num, ts, jitter, started))| {
-                if started.elapsed() >= DRAIN_REAP_AFTER {
-                    // Stale: never finished draining within a sane window — reap it.
+            .filter_map(|(uuid, tail)| {
+                if tail.started.elapsed() >= TAIL_REAP_AFTER {
                     return Some(*uuid);
                 }
-                if *ts != self.dltime.t {
+                if tail.ts != self.dltime.t {
                     return None;
                 }
-                match jitter.pop_drain() {
+                match tail.jitter.pop_drain() {
                     Some(frame) => {
-                        to_send.push((*carrier_num, *ts, *uuid, 0, frame));
-                        None
+                        to_send.push((tail.carrier_num, tail.ts, *uuid, 0, frame));
+                        if tail.jitter.is_empty() {
+                            Some(*uuid)
+                        } else {
+                            None
+                        }
                     }
                     None => Some(*uuid),
                 }
             })
             .collect();
-        for uuid in finished {
-            tracing::debug!("BrewEntity: drain complete (or reaped) for uuid={}", uuid);
-            self.draining_jitter.remove(&uuid);
-        }
 
         for (carrier_num, ts, uuid, target_frames, frame) in to_send {
             tracing::trace!(
@@ -1132,11 +1266,15 @@ impl BrewEntity {
                 }),
             });
         }
+        for uuid in finished {
+            if let Some(t) = self.pending_tails.remove(&uuid) {
+                self.finalize_pending_tail(queue, uuid, t, "complete");
+            }
+        }
     }
 
     /// Release all active calls (on disconnect)
     fn release_all_calls(&mut self, queue: &mut MessageQueue) {
-        // Request CMCE to end all active network calls
         let calls: Vec<(Uuid, ActiveCall)> = self.active_calls.drain().collect();
         for (uuid, _) in calls {
             self.dl_jitter.remove(&uuid);
@@ -1148,16 +1286,19 @@ impl BrewEntity {
             });
         }
 
-        // Clear hanging call tracking
+        let tails: Vec<(Uuid, PendingTail)> = self.pending_tails.drain().collect();
+        for (uuid, _) in tails {
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Brew,
+                dest: TetraEntity::Cmce,
+                msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid: uuid }),
+            });
+        }
+
         self.hanging_calls.clear();
         self.dl_jitter.clear();
-        self.draining_jitter.clear();
 
-        // Also clear uplink forwarding state. Without this, an MS that was transmitting
-        // (PTT held) at the moment the backhaul dropped would leave a stale ul_forwarded
-        // entry referencing a UUID the server has forgotten; after reconnect its UL voice
-        // frames would be sent against that dead UUID. A fresh PTT will re-create the
-        // entry cleanly via handle_local_call_start.
         if !self.ul_forwarded.is_empty() {
             tracing::debug!(
                 "BrewEntity: clearing {} stale ul_forwarded entries on release",
@@ -1184,6 +1325,18 @@ impl BrewEntity {
             call.carrier_num = Some(carrier_num);
             call.ts = Some(ts);
             call.usage = Some(usage);
+        } else if let Some(tail) = self.pending_tails.get_mut(&brew_uuid) {
+            // GROUP_IDLE raced ahead of Ready — keep playing the tail on the allocated slot.
+            tail.call_id = call_id;
+            tail.carrier_num = carrier_num;
+            tail.ts = ts;
+            tail.usage = usage;
+            tracing::info!(
+                "BrewEntity: NetworkCallReady applied to pending tail uuid={} call_id={} ts={}",
+                brew_uuid,
+                call_id,
+                ts
+            );
         } else {
             // Race: CMCE finished allocating a circuit (call_id/ts/usage) for a call that
             // Brew has already torn down — e.g. a GROUP_IDLE or disconnect arrived between
@@ -1213,7 +1366,7 @@ impl BrewEntity {
         // Flush and remove jitter buffer immediately — prevents DL voice frames
         // from being sent to UMAC after the circuit is already closed.
         let had_jitter = self.dl_jitter.remove(&brew_uuid).is_some();
-        self.draining_jitter.remove(&brew_uuid);
+        self.pending_tails.remove(&brew_uuid);
         let slots_to_remove: Vec<(u16, u8)> = self
             .ul_forwarded
             .iter()
@@ -1248,10 +1401,8 @@ impl BrewEntity {
                 call.dest_gssi
             );
             self.dl_jitter.remove(&brew_uuid);
-            // Also drop any draining buffer for this call. Once CMCE has torn the network
-            // call down, its timeslot is being closed; continuing to drain frames into a
-            // dead timeslot triggers "playout on inactive circuit" UMAC warnings.
-            self.draining_jitter.remove(&brew_uuid);
+            // Drop pending tail — CMCE already tore the call down.
+            self.pending_tails.remove(&brew_uuid);
             self.hanging_calls.remove(&call.dest_gssi);
             return;
         }
@@ -1263,9 +1414,13 @@ impl BrewEntity {
         if let Some(gssi) = hanging_gssi {
             tracing::info!("BrewEntity: dropping hanging call uuid={} gssi={} (CMCE request)", brew_uuid, gssi);
             self.hanging_calls.remove(&gssi);
-        } else {
-            tracing::debug!("BrewEntity: drop requested for unknown uuid={}", brew_uuid);
+            return;
         }
+        if self.pending_tails.remove(&brew_uuid).is_some() {
+            tracing::info!("BrewEntity: dropping pending tail uuid={} (CMCE request)", brew_uuid);
+            return;
+        }
+        tracing::debug!("BrewEntity: drop requested for unknown uuid={}", brew_uuid);
     }
 }
 
@@ -1306,7 +1461,7 @@ impl TetraEntityTrait for BrewEntity {
                 carrier_num,
                 ts,
             }) => {
-                self.handle_local_call_start(call_id, source_issi, dest_gssi, carrier_num, ts);
+                self.handle_local_call_start(queue, call_id, source_issi, dest_gssi, carrier_num, ts);
             }
             SapMsgInner::CmceCallControl(CallControl::FloorReleased { call_id, carrier_num, ts }) => {
                 self.handle_local_call_tx_stopped(call_id, carrier_num, ts);
@@ -1545,7 +1700,17 @@ impl BrewEntity {
 
     /// Handle notification that a local UL group call has started.
     /// If the group is subscribed (in config.groups), start forwarding to TetraPack.
-    fn handle_local_call_start(&mut self, call_id: u16, source_issi: u32, dest_gssi: u32, carrier_num: u16, ts: u8) {
+    fn handle_local_call_start(
+        &mut self,
+        queue: &mut MessageQueue,
+        call_id: u16,
+        source_issi: u32,
+        dest_gssi: u32,
+        carrier_num: u16,
+        ts: u8,
+    ) {
+        self.abort_pending_tails_on_slot(queue, carrier_num, ts, "local FloorGranted");
+
         if !self.connected {
             tracing::trace!("BrewEntity: not connected, ignoring local call start");
             return;

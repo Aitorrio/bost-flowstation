@@ -37,6 +37,8 @@ pub struct LstRuntimeStatus {
     pub active_gssi: Option<u32>,
     /// Talkgroup currently received (radio floor on a monitored GSSI).
     pub rx_gssi: Option<u32>,
+    /// True while FloorReleased grace is draining residual DL into the console PCM queue.
+    pub rx_draining: bool,
     /// Talk-permit: true only when the operator actually holds the floor (UL may go on air).
     pub ptt: bool,
     /// PTT held / NetworkCallStart in flight, waiting for NetworkCallReady.
@@ -347,6 +349,7 @@ impl LstSharedInner {
             "operator_issi": s.operator_issi,
             "active_gssi": s.active_gssi,
             "rx_gssi": s.rx_gssi,
+            "rx_draining": s.rx_draining,
             "ptt": s.ptt,
             "ptt_pending": s.ptt_pending,
             "ptt_offer_preempt": s.ptt_offer_preempt,

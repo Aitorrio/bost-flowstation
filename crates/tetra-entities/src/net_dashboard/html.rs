@@ -8084,6 +8084,7 @@ function lstApplyStatusPayload(j){
   }
   const nextRx=Number(j.rx_gssi)||0;
   if(nextRx!==lstRxGssi){lstRxGssi=nextRx;}
+  if(j.rx_draining){lstRxUntil=Date.now()+900;}
   lstRenderScan();
   const iOwn=!!lstToken;
   const claimBtn=document.getElementById('lst-claim-btn');
