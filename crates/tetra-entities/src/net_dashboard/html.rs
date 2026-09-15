@@ -634,13 +634,25 @@ body{
 }
 .lst-g-expand:hover{color:var(--accent);background:rgba(255,255,255,0.04);}
 .lst-g-pop{
-  position:fixed;z-index:600;display:none;flex-wrap:wrap;gap:5px;align-items:center;
+  position:fixed;z-index:600;display:none;flex-direction:column;gap:8px;align-items:stretch;
   max-width:min(320px,calc(100vw - 24px));padding:10px 12px;
   background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r);
   box-shadow:0 12px 32px rgba(0,0,0,0.45);
 }
 .lst-g-pop.is-open{display:flex;}
+.lst-g-pop-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font-size:11px;font-weight:600;color:var(--text2);letter-spacing:0.02em;
+}
+.lst-g-pop-x{
+  border:none;background:transparent;color:var(--text3);cursor:pointer;
+  width:28px;height:28px;border-radius:50%;font-size:18px;line-height:1;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.lst-g-pop-x:hover{color:var(--text);background:rgba(255,255,255,0.06);}
+.lst-g-pop-body{display:flex;flex-wrap:wrap;gap:5px;align-items:center;}
 .lst-g-pop .badge{font-size:9px;}
+.lst-g-expand.is-open{color:var(--accent);background:rgba(255,255,255,0.06);}
 #lst-call-modal .modal{position:relative;padding-top:28px;}
 #lst-call-modal .lst-modal-x{
   position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;
@@ -6337,7 +6349,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     </div>
   </div>
 </div>
-<div id="lst-groups-pop" class="lst-g-pop" role="dialog" aria-label="Groups" hidden></div>
+<div id="lst-groups-pop" class="lst-g-pop" role="dialog" aria-modal="false" hidden></div>
 
 <!-- ── DGNA Modal (Dynamic Group Number Assignment) ── -->
 <div class="modal-overlay" id="dgna-modal">
@@ -6835,6 +6847,7 @@ const LANGS={
     lst_activity:'Activity',lst_sds_inbox:'SDS received',lst_open_full:'Full log',
     lst_sds_filter_private:'Private',lst_sds_filter_group:'Group',
     lst_live:'Live',lst_groups_expand:'Show affiliated groups',lst_groups_collapse:'Hide affiliated groups',
+    lst_groups_pop_title:'Affiliated talkgroups',
     lst_incoming_todo:'Incoming private calls to the dispatcher ISSI are next (CMCE→LST routing).',
     cfg_need_select_brew:'Select a Brew profile first (not Offline).',
     cfg_sheet_busy:'Close the open profile sheet first.',
@@ -7259,6 +7272,7 @@ const LANGS={
     lst_activity:'Actividad',lst_sds_inbox:'SDS recibidos',lst_open_full:'Log completo',
     lst_sds_filter_private:'Privado',lst_sds_filter_group:'Grupo',
     lst_live:'En curso',lst_groups_expand:'Mostrar grupos afiliados',lst_groups_collapse:'Ocultar grupos afiliados',
+    lst_groups_pop_title:'Grupos afiliados',
     lst_incoming_todo:'Las llamadas privadas entrantes al ISSI del despachador son el siguiente paso (enrutado CMCE→LST).',
     cfg_need_select_brew:'Selecciona primero un perfil Brew (no Offline).',
     cfg_sheet_busy:'Cierra primero la hoja de perfil abierta.',
@@ -8716,12 +8730,42 @@ async function lstPollDl(){
   }catch(_){}
   finally{lstDlBusy=false;}
 }
-const lstGroupsPop={issi:null,timer:null,bound:false};
+const lstGroupsPop={issi:null,bound:false};
 function lstCloseGroupsPop(){
   const pop=document.getElementById('lst-groups-pop');
   if(pop){pop.classList.remove('is-open');pop.hidden=true;pop.innerHTML='';}
-  if(lstGroupsPop.timer){clearTimeout(lstGroupsPop.timer);lstGroupsPop.timer=null;}
+  document.querySelectorAll('button.lst-g-expand.is-open').forEach(b=>{
+    b.classList.remove('is-open');
+    b.setAttribute('aria-expanded','false');
+  });
   lstGroupsPop.issi=null;
+}
+function lstGroupsPopAnchor(){
+  if(lstGroupsPop.issi==null)return null;
+  return document.querySelector('button.lst-g-expand[data-issi="'+lstGroupsPop.issi+'"]');
+}
+function lstPositionGroupsPop(anchor){
+  const pop=document.getElementById('lst-groups-pop');
+  if(!pop||!anchor||!pop.classList.contains('is-open'))return;
+  const r=anchor.getBoundingClientRect();
+  const pad=8;
+  const pw=pop.offsetWidth||220,ph=pop.offsetHeight||48;
+  let left=Math.min(Math.max(pad,r.left),window.innerWidth-pw-pad);
+  let top=r.bottom+6;
+  if(top+ph>window.innerHeight-pad)top=Math.max(pad,r.top-ph-6);
+  pop.style.left=left+'px';
+  pop.style.top=top+'px';
+}
+/** Keep the popover open across roster/Home re-renders (WS updates used to wipe it instantly). */
+function lstSyncGroupsPopAfterRender(){
+  if(lstGroupsPop.issi==null)return;
+  const pop=document.getElementById('lst-groups-pop');
+  if(!pop||!pop.classList.contains('is-open')){lstGroupsPop.issi=null;return;}
+  const anchor=lstGroupsPopAnchor();
+  if(!anchor){lstCloseGroupsPop();return;}
+  anchor.classList.add('is-open');
+  anchor.setAttribute('aria-expanded','true');
+  lstPositionGroupsPop(anchor);
 }
 function lstBindGroupsPopOnce(){
   if(lstGroupsPop.bound)return;
@@ -8734,8 +8778,17 @@ function lstBindGroupsPopOnce(){
     lstCloseGroupsPop();
   },true);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')lstCloseGroupsPop();});
-  window.addEventListener('resize',()=>{if(lstGroupsPop.issi!=null)lstCloseGroupsPop();},{passive:true});
-  window.addEventListener('scroll',()=>{if(lstGroupsPop.issi!=null)lstCloseGroupsPop();},true);
+  // Reposition instead of closing — mobile scroll/resize used to dismiss before anyone could read.
+  window.addEventListener('resize',()=>{
+    if(lstGroupsPop.issi==null)return;
+    const a=lstGroupsPopAnchor();
+    if(a)lstPositionGroupsPop(a);else lstCloseGroupsPop();
+  },{passive:true});
+  window.addEventListener('scroll',()=>{
+    if(lstGroupsPop.issi==null)return;
+    const a=lstGroupsPopAnchor();
+    if(a)lstPositionGroupsPop(a);
+  },true);
 }
 function lstOpenGroupsPop(anchor,issi,groups){
   lstBindGroupsPopOnce();
@@ -8744,21 +8797,18 @@ function lstOpenGroupsPop(anchor,issi,groups){
   if(lstGroupsPop.issi===issi&&pop.classList.contains('is-open')){lstCloseGroupsPop();return;}
   lstCloseGroupsPop();
   const list=(groups||[]).slice().sort((a,b)=>a-b);
-  pop.innerHTML=list.map(g=>`<span class="badge badge-dim">${g}</span>`).join('')||'<span class="badge badge-dim">—</span>';
+  const title=t('lst_groups_pop_title')||t('lst_groups_expand')||'Groups';
+  const badges=list.map(g=>`<span class="badge badge-dim">${g}</span>`).join('')||'<span class="badge badge-dim">—</span>';
+  pop.innerHTML=
+    '<div class="lst-g-pop-head"><span>'+title+'</span>'+
+    '<button type="button" class="lst-g-pop-x" aria-label="'+(t('cancel')||'Close')+'" onclick="lstCloseGroupsPop()">×</button></div>'+
+    '<div class="lst-g-pop-body">'+badges+'</div>';
   pop.hidden=false;
   pop.classList.add('is-open');
   lstGroupsPop.issi=issi;
-  const r=anchor.getBoundingClientRect();
-  const pad=8;
-  // Measure after show
-  const pw=pop.offsetWidth||220,ph=pop.offsetHeight||48;
-  let left=Math.min(Math.max(pad,r.left),window.innerWidth-pw-pad);
-  let top=r.bottom+6;
-  if(top+ph>window.innerHeight-pad)top=Math.max(pad,r.top-ph-6);
-  pop.style.left=left+'px';
-  pop.style.top=top+'px';
-  if(lstGroupsPop.timer)clearTimeout(lstGroupsPop.timer);
-  lstGroupsPop.timer=setTimeout(lstCloseGroupsPop,3500);
+  anchor.classList.add('is-open');
+  anchor.setAttribute('aria-expanded','true');
+  lstPositionGroupsPop(anchor);
 }
 function lstBindGroupsExpand(root){
   if(!root)return;
@@ -8791,20 +8841,21 @@ function lstGroupsCell(m){
   }else{
     primaryHtml=`<span class="badge badge-dim" style="font-size:9px">${primary}</span>`;
   }
+  const open=lstGroupsPop.issi===m.issi;
   const chev=canExpand
-    ?`<button type="button" class="lst-g-expand" data-issi="${m.issi}" data-act="gexpand" aria-expanded="false" title="${t('lst_groups_expand')||'Expand'}">›</button>`
+    ?`<button type="button" class="lst-g-expand${open?' is-open':''}" data-issi="${m.issi}" data-act="gexpand" aria-expanded="${open?'true':'false'}" aria-label="${t('lst_groups_expand')||'Expand'}">›</button>`
     :'';
   return `<div class="lst-g-cell"><div class="lst-g-row">${primaryHtml}${chev}</div></div>`;
 }
 function lstRenderRoster(){
   const tb=document.getElementById('lst-roster-body');
   if(!tb)return;
-  lstCloseGroupsPop();
   const ms=(typeof state!=='undefined'&&state.ms)?state.ms:{};
   const rows=Object.values(ms).filter(m=>m&&m.issi);
   tb.innerHTML='';
   if(!rows.length){
     tb.innerHTML='<tr><td colspan="4"><div class="empty-state"><span class="empty-ico">'+(typeof svgIcon==='function'?svgIcon('radios'):'')+'</span><div class="empty-msg">'+(t('no_terminals')||'—')+'</div></div></td></tr>';
+    lstSyncGroupsPopAfterRender();
     return;
   }
   const sdsTitle=t('lst_roster_sds')||t('sds');
@@ -8833,6 +8884,7 @@ function lstRenderRoster(){
   if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
   if(typeof paintIcons==='function')paintIcons(tb);
   lstBindGroupsExpand(tb);
+  lstSyncGroupsPopAfterRender();
   tb.querySelectorAll('button[data-act]').forEach(btn=>{
     if(btn.dataset.act==='gexpand')return;
     btn.onclick=(ev)=>{
@@ -10131,10 +10183,10 @@ function renderStations(){
   const bc=document.getElementById('badge-calls');
   if(bc){bc.textContent=callCount;bc.style.display=callCount?'flex':'none';}
   const tb=document.getElementById('ms-tbody');
-  if(typeof lstCloseGroupsPop==='function')lstCloseGroupsPop();
   if(!ms.length){
     tb.innerHTML=`<tr><td colspan="7"><div class="empty-state"><span class="empty-ico">${svgIcon('radios')}</span><div class="empty-msg">${t('no_terminals')}</div></div></td></tr>`;
     if(document.getElementById('page-lst_dispatch')?.classList.contains('active')&&typeof lstRenderRoster==='function')lstRenderRoster();
+    else if(typeof lstSyncGroupsPopAfterRender==='function')lstSyncGroupsPopAfterRender();
     return;
   }
   tb.innerHTML=ms.sort((a,b)=>a.issi-b.issi).map(m=>{
@@ -10155,6 +10207,7 @@ function renderStations(){
   applyTableStackLabels(tb);
   lstBindGroupsExpand(tb);
   if(document.getElementById('page-lst_dispatch')?.classList.contains('active')&&typeof lstRenderRoster==='function')lstRenderRoster();
+  else if(typeof lstSyncGroupsPopAfterRender==='function')lstSyncGroupsPopAfterRender();
 }
 
 function renderCalls(){
