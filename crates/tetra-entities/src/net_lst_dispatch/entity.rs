@@ -33,6 +33,8 @@ const PREEMPT_OFFER: Duration = Duration::from_secs(3);
 /// After FloorReleased, keep accepting residual TCH on the same slot briefly so the
 /// console PCM queue can finish (does not change CMCE hangtime / MS–MS air).
 const RX_DRAIN_GRACE: Duration = Duration::from_millis(500);
+/// After console PTT up, keep flushing pending_ul before NetworkCallEnd so walkies hear the tail.
+const UL_DRAIN_REAP: Duration = Duration::from_millis(600);
 
 struct ActiveGroup {
     uuid: Uuid,
@@ -69,6 +71,14 @@ struct ActiveRx {
     draining_until: Option<Instant>,
 }
 
+/// Group TX: console PTT released but `pending_ul` still being aired before NetworkCallEnd.
+struct UlDraining {
+    uuid: Uuid,
+    carrier_num: u16,
+    ts: u8,
+    started: Instant,
+}
+
 pub struct LstDispatchEntity {
     #[allow(dead_code)]
     config: SharedConfig,
@@ -81,6 +91,8 @@ pub struct LstDispatchEntity {
     listen_gssis: HashSet<u32>,
     rx: Option<ActiveRx>,
     pending_ul: VecDeque<Vec<u8>>,
+    /// When set, flush UL then NetworkCallEnd (media before signalling).
+    ul_draining: Option<UlDraining>,
     dltime: TdmaTime,
     /// After ended/failed, keep peer+phase visible until this instant.
     terminal_clear_at: Option<Instant>,
@@ -117,6 +129,7 @@ impl LstDispatchEntity {
             listen_gssis: HashSet::new(),
             rx: None,
             pending_ul: VecDeque::with_capacity(8),
+            ul_draining: None,
             dltime: TdmaTime::default(),
             terminal_clear_at: None,
             preempt_until: None,
@@ -156,6 +169,79 @@ impl LstDispatchEntity {
         if done {
             tracing::debug!("LST: RX drain grace expired — clear_rx");
             self.clear_rx();
+        }
+    }
+
+    /// Finish deferred group PTT-up: NetworkCallEnd after pending_ul has been flushed (or reaped).
+    fn finalize_ul_drain(&mut self, queue: &mut MessageQueue, reason: &str) {
+        let Some(d) = self.ul_draining.take() else {
+            return;
+        };
+        let left = self.pending_ul.len();
+        // Push any remaining blocks in this tick so End trails the last media on the SAP queue.
+        while let Some(data) = self.pending_ul.pop_front() {
+            queue.push_back(SapMsg {
+                sap: Sap::TmdSap,
+                src: TetraEntity::Brew,
+                dest: TetraEntity::Umac,
+                msg: SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
+                    carrier_num: d.carrier_num,
+                    ts: d.ts,
+                    data,
+                }),
+            });
+        }
+        tracing::info!(
+            "LST: UL drain {} uuid={} ({} blocks flushed at end) — NetworkCallEnd",
+            reason,
+            d.uuid,
+            left
+        );
+        self.push_cc(
+            queue,
+            CallControl::NetworkCallEnd {
+                brew_uuid: d.uuid,
+            },
+        );
+        if let Some(g) = self.group.as_mut() {
+            if g.uuid == d.uuid {
+                g.ptt = false;
+                g.call_id = None;
+                g.carrier_num = None;
+                g.ts = None;
+            }
+        }
+        if let Some(ref mut c) = self.codec {
+            c.reset_ul();
+        }
+        self.pending_ul.clear();
+        self.handle.set_status(|s| {
+            s.ptt = false;
+            s.ptt_pending = false;
+            s.media_ready = false;
+            if matches!(s.call_phase.as_str(), "ptt_wait" | "established")
+                && s.call_kind.as_deref() != Some("simplex")
+                && s.call_kind.as_deref() != Some("duplex")
+            {
+                s.call_phase = "idle".into();
+            }
+        });
+    }
+
+    fn expire_ul_drain_if_needed(&mut self, queue: &mut MessageQueue) {
+        let Some(ref d) = self.ul_draining else {
+            return;
+        };
+        let reaped = d.started.elapsed() >= UL_DRAIN_REAP;
+        // Brief quiet window so late browser PCM after PTT-up can still enqueue.
+        let quiet = self.pending_ul.is_empty() && d.started.elapsed() >= Duration::from_millis(150);
+        if reaped || quiet {
+            let reason = if reaped && !self.pending_ul.is_empty() {
+                "reaped"
+            } else {
+                "complete"
+            };
+            self.finalize_ul_drain(queue, reason);
         }
     }
 
@@ -358,6 +444,9 @@ impl LstDispatchEntity {
     }
 
     fn leave_group(&mut self, queue: &mut MessageQueue) {
+        if self.ul_draining.is_some() {
+            self.finalize_ul_drain(queue, "leave_group");
+        }
         if let Some(g) = self.group.take() {
             if g.call_id.is_some() || g.ptt {
                 self.push_cc(
@@ -446,9 +535,13 @@ impl LstDispatchEntity {
             return;
         }
 
-        // Group: PTT down starts NetworkCallStart; PTT up ends the call (no hangtime yet).
+        // Group: PTT down starts NetworkCallStart; PTT up drains UL then NetworkCallEnd.
         if self.group.is_some() {
             if down {
+                // Finish any deferred End before starting a new TX burst.
+                if self.ul_draining.is_some() {
+                    self.finalize_ul_drain(queue, "re-PTT");
+                }
                 // Busy TX TG: first PTT opens a 3s preempt offer; second within window preempts.
                 if self.tx_gssi_busy() {
                     if !self.preempt_offer_active() {
@@ -541,6 +634,60 @@ impl LstDispatchEntity {
                     });
                     return;
                 }
+                // Already draining this release — ignore duplicate PTT up.
+                if self.ul_draining.is_some() {
+                    self.handle.set_status(|s| {
+                        s.ptt = false;
+                        s.ptt_pending = false;
+                        s.media_ready = false;
+                    });
+                    return;
+                }
+
+                let drain_snap = self.group.as_ref().and_then(|g| {
+                    if g.ptt {
+                        Some((g.uuid, g.call_id, g.carrier_num, g.ts, self.pending_ul.len()))
+                    } else {
+                        None
+                    }
+                });
+
+                // Active talk-permit with a traffic slot: defer End until pending_ul is aired.
+                if let Some((uuid, Some(_cid), Some(carrier_num), Some(ts), queued)) = drain_snap {
+                    tracing::info!(
+                        "LST: PTT up — UL drain uuid={} queued={} (defer NetworkCallEnd)",
+                        uuid,
+                        queued
+                    );
+                    if let Some(g) = self.group.as_mut() {
+                        g.ptt = false;
+                        g.last_activity = Instant::now();
+                        // Keep call_id/carrier/ts until finalize so CMCE stays Transmitting.
+                    }
+                    self.ul_draining = Some(UlDraining {
+                        uuid,
+                        carrier_num,
+                        ts,
+                        started: Instant::now(),
+                    });
+                    self.handle.set_status(|s| {
+                        s.ptt = false;
+                        s.ptt_pending = false;
+                        s.media_ready = false;
+                        if matches!(s.call_phase.as_str(), "ptt_wait" | "established")
+                            && s.call_kind.as_deref() != Some("simplex")
+                            && s.call_kind.as_deref() != Some("duplex")
+                        {
+                            s.call_phase = "idle".into();
+                        }
+                    });
+                    // Kick an immediate flush this tick; finalize when empty/reaped in tick_end.
+                    self.flush_ul(queue);
+                    self.expire_ul_drain_if_needed(queue);
+                    return;
+                }
+
+                // No allocated slot (setup pending / never Ready): End immediately.
                 let uuid = self.group.as_ref().map(|g| g.uuid);
                 if let Some(g) = self.group.as_mut() {
                     g.ptt = false;
@@ -563,7 +710,6 @@ impl LstDispatchEntity {
                     s.ptt = false;
                     s.ptt_pending = false;
                     s.media_ready = false;
-                    // Clear group PTT phases so private dial is not blocked as "Establecida".
                     if matches!(s.call_phase.as_str(), "ptt_wait" | "established")
                         && s.call_kind.as_deref() != Some("simplex")
                         && s.call_kind.as_deref() != Some("duplex")
@@ -822,6 +968,9 @@ impl LstDispatchEntity {
             } else {
                 p.ptt
             }
+        } else if self.ul_draining.is_some() {
+            // Late browser PCM after PTT up — still enqueue while draining.
+            true
         } else if let Some(g) = self.group.as_ref() {
             g.ptt
         } else {
@@ -842,7 +991,9 @@ impl LstDispatchEntity {
     }
 
     fn flush_ul(&mut self, queue: &mut MessageQueue) {
-        let (carrier_num, ts) = if let Some(ref p) = self.private {
+        let (carrier_num, ts) = if let Some(ref d) = self.ul_draining {
+            (d.carrier_num, d.ts)
+        } else if let Some(ref p) = self.private {
             if p.duplex {
                 match (p.carrier_num, p.ts) {
                     (Some(car), Some(t)) => (car, t),
@@ -1210,7 +1361,9 @@ impl TetraEntityTrait for LstDispatchEntity {
         self.expire_preempt_offer_if_needed();
         self.expire_rx_drain_if_needed();
         self.flush_ul(queue);
+        self.expire_ul_drain_if_needed(queue);
         // Keep CMCE group call alive while PTT is held (~2.5 Hz keepalive).
+        // Do not keepalive during UL drain (ptt already false; End coming).
         let keepalive_uuid = self.group.as_mut().and_then(|g| {
             if g.ptt && g.call_id.is_some() && g.last_keepalive.elapsed() >= Duration::from_millis(400)
             {
@@ -1252,6 +1405,13 @@ impl LstDispatchEntity {
         if self.group.as_ref().is_some_and(|g| g.uuid == brew_uuid) {
             let had_ready = self.group.as_ref().is_some_and(|g| g.call_id.is_some());
             let still_ptt = self.group.as_ref().is_some_and(|g| g.ptt);
+            if self.ul_draining.as_ref().is_some_and(|d| d.uuid == brew_uuid) {
+                self.ul_draining = None;
+                self.pending_ul.clear();
+                if let Some(ref mut c) = self.codec {
+                    c.reset_ul();
+                }
+            }
             if let Some(g) = self.group.as_mut() {
                 g.ptt = false;
                 g.call_id = None;
