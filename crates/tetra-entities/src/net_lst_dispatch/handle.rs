@@ -337,30 +337,10 @@ impl LstDispatchHandle {
         while g.dl_pcm.len() >= DL_PCM_CAP {
             g.dl_pcm.pop_front();
         }
-        // Fan-out a copy for WS clients (HTTP /api/lst/dl remains as fallback).
-        let ws_msg = Self::lst_dl_msg(&pcm);
+        // Keep PCM in the bounded queue only. Do NOT base64/JSON/fanout on the TDMA
+        // tick — that path ran under voice load and could starve the dashboard.
+        // Console pulls via GET /api/lst/dl (or a future off-tick WS flush).
         g.dl_pcm.push_back(pcm);
-        let clients = g.ws_clients.clone();
-        drop(g);
-        if let Some(msg) = ws_msg {
-            Self::fanout_status(clients, msg);
-        }
-    }
-
-    fn lst_dl_msg(pcm: &[i16]) -> Option<String> {
-        if pcm.is_empty() {
-            return None;
-        }
-        let mut bytes = Vec::with_capacity(pcm.len() * 2);
-        for s in pcm {
-            bytes.extend_from_slice(&s.to_le_bytes());
-        }
-        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
-        serde_json::to_string(&serde_json::json!({
-            "type": "lst_dl",
-            "pcm": b64,
-        }))
-        .ok()
     }
 
     pub fn take_dl_pcm(&self, token: Uuid, max: usize) -> Vec<Vec<i16>> {

@@ -8786,11 +8786,9 @@ async function lstStartAudio(){
 
     if(lstDlTimer)clearInterval(lstDlTimer);
     lstDlTimer=null;
-    // Prefer WS lst_dl; fall back to HTTP poll if no WS media arrives.
-    setTimeout(()=>{
-      if(!lstAudioReady||lstDlViaWs)return;
-      if(!lstDlTimer)lstDlTimer=setInterval(lstPollDl,80);
-    },500);
+    lstDlViaWs=false;
+    // HTTP poll is the reliable path; WS lst_dl (if ever re-enabled off hot path) can still stop the timer.
+    lstDlTimer=setInterval(lstPollDl,80);
     lstAudioReady=true;
     lstSetAudioHint('',false);
     lstRefreshAvBar();
