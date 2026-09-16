@@ -4123,6 +4123,8 @@ fn handle_ws(
         let last_sys_health = s.last_sys_health.clone();
         let last_health = s.last_health.clone();
         let dgna_log: Vec<_> = s.dgna_log.iter().rev().cloned().collect();
+        let boot_id = s.boot_id.clone();
+        let uptime_secs = s.started_at.elapsed().as_secs();
         drop(s);
         let (dgna_default_attachment_mode, dgna_attachment_mode_picker_enabled) = shared_config
             .as_ref()
@@ -4149,18 +4151,42 @@ fn handle_ws(
             "dgna_log": dgna_log,
             "dgna_default_attachment_mode": dgna_default_attachment_mode,
             "dgna_attachment_mode_picker_enabled": dgna_attachment_mode_picker_enabled,
+            "boot_id": boot_id,
+            "uptime_secs": uptime_secs,
+            "stack_version": tetra_core::STACK_VERSION,
         })) {
             let _ = ws.send(Message::Text(json));
         }
     }
 
     let _ = ws.get_ref().set_read_timeout(Some(std::time::Duration::from_millis(20)));
+    let mut last_hello = std::time::Instant::now();
 
     loop {
         // Drain outbound broadcast messages first
         while let Ok(msg) = broadcast_rx.try_recv() {
             if ws.send(Message::Text(msg)).is_err() {
                 return;
+            }
+        }
+
+        // Application-layer heartbeat so the browser can detect a dead/zombie link
+        // and a process restart (boot_id change) without waiting for a failed POST.
+        if last_hello.elapsed() >= std::time::Duration::from_secs(5) {
+            last_hello = std::time::Instant::now();
+            let (boot_id, uptime_secs) = {
+                let s = state.read().unwrap();
+                (s.boot_id.clone(), s.started_at.elapsed().as_secs())
+            };
+            if let Ok(json) = serde_json::to_string(&serde_json::json!({
+                "type": "hello",
+                "boot_id": boot_id,
+                "uptime_secs": uptime_secs,
+                "stack_version": tetra_core::STACK_VERSION,
+            })) {
+                if ws.send(Message::Text(json)).is_err() {
+                    return;
+                }
             }
         }
 

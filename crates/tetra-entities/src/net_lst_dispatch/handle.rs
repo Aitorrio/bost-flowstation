@@ -106,6 +106,8 @@ struct LstSharedInner {
     positions: HashMap<u32, LstPosition>,
     /// Dashboard WS fan-out (same list as DashboardServer::clients).
     ws_clients: Option<Arc<Mutex<Vec<Sender<String>>>>>,
+    /// Coalesce lst_status pushes — flush once per TDMA tick_end (or immediately on claim/release).
+    status_dirty: bool,
 }
 
 #[derive(Clone)]
@@ -134,6 +136,7 @@ impl LstDispatchHandle {
                 dl_pcm: VecDeque::with_capacity(DL_PCM_CAP),
                 positions: HashMap::new(),
                 ws_clients: None,
+                status_dirty: false,
             })),
         }
     }
@@ -147,6 +150,7 @@ impl LstDispatchHandle {
         let mut g = self.inner.lock().unwrap();
         let r = g.session.claim(client_label);
         g.refresh_busy();
+        g.status_dirty = false;
         let push = g.status_push_msg();
         let clients = g.ws_clients.clone();
         drop(g);
@@ -158,6 +162,7 @@ impl LstDispatchHandle {
         let mut g = self.inner.lock().unwrap();
         let ok = g.session.heartbeat(token);
         g.refresh_busy();
+        g.status_dirty = false;
         let push = g.status_push_msg();
         let clients = g.ws_clients.clone();
         drop(g);
@@ -179,6 +184,7 @@ impl LstDispatchHandle {
             while g.ul_pcm_rx.try_recv().is_ok() {}
         }
         g.refresh_busy();
+        g.status_dirty = false;
         let push = g.status_push_msg();
         let clients = g.ws_clients.clone();
         drop(g);
@@ -307,6 +313,16 @@ impl LstDispatchHandle {
         let mut g = self.inner.lock().unwrap();
         f(&mut g.status);
         g.refresh_busy();
+        g.status_dirty = true;
+    }
+
+    /// Push coalesced `lst_status` once per tick (call from entity tick_end).
+    pub fn flush_status_if_dirty(&self) {
+        let mut g = self.inner.lock().unwrap();
+        if !g.status_dirty {
+            return;
+        }
+        g.status_dirty = false;
         let push = g.status_push_msg();
         let clients = g.ws_clients.clone();
         drop(g);
@@ -321,7 +337,30 @@ impl LstDispatchHandle {
         while g.dl_pcm.len() >= DL_PCM_CAP {
             g.dl_pcm.pop_front();
         }
+        // Fan-out a copy for WS clients (HTTP /api/lst/dl remains as fallback).
+        let ws_msg = Self::lst_dl_msg(&pcm);
         g.dl_pcm.push_back(pcm);
+        let clients = g.ws_clients.clone();
+        drop(g);
+        if let Some(msg) = ws_msg {
+            Self::fanout_status(clients, msg);
+        }
+    }
+
+    fn lst_dl_msg(pcm: &[i16]) -> Option<String> {
+        if pcm.is_empty() {
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(pcm.len() * 2);
+        for s in pcm {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+        serde_json::to_string(&serde_json::json!({
+            "type": "lst_dl",
+            "pcm": b64,
+        }))
+        .ok()
     }
 
     pub fn take_dl_pcm(&self, token: Uuid, max: usize) -> Vec<Vec<i16>> {

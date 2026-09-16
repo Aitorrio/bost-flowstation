@@ -672,11 +672,10 @@ impl CcBsSubentity {
                 }
             }
         }
-        for mut watch in complete {
+        for watch in complete {
             self.complete_preempt_pending_ready(queue, &watch);
             // Quiet path: drop watch so we do not keep FACCH-spamming the MS display.
             self.preempt_pending.remove(&watch.call_id);
-            let _ = watch;
         }
     }
 

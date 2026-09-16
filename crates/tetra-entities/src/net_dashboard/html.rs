@@ -401,6 +401,7 @@ body{
 }
 .conn-led{width:7px;height:7px;border-radius:50%;background:var(--danger);flex-shrink:0;transition:all 0.4s;}
 .conn-led.on{background:var(--accent);box-shadow:0 0 6px rgba(0,212,168,0.5);animation:pulse 2.5s ease-in-out infinite;}
+.conn-led.warn{background:var(--warn);box-shadow:0 0 6px rgba(245,166,35,0.45);animation:pulse 1.2s ease-in-out infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.6;}}
 .conn-info{overflow:hidden;flex:1;}
 .conn-info-label{font-size:9px;color:var(--text3);letter-spacing:0.1em;font-family:var(--mono);white-space:nowrap;}
@@ -6686,7 +6687,7 @@ function paintIcons(root){
 // ── i18n ─────────────────────────────────────────────────────────────────
 const LANGS={
   en:{
-    bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
+    bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',reconnecting:'RECONNECTING',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Home',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
     home_quick_title:'Quick profiles',home_more_settings:'More settings',
@@ -7211,7 +7212,7 @@ const LANGS={
     sys_bts:'BTS-Verbindung',
   },
   es:{
-    bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',
+    bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',reconnecting:'RECONECTANDO',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
     stations:'Inicio',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
     home_quick_title:'Perfiles rápidos',home_more_settings:'Más ajustes',
@@ -7883,6 +7884,7 @@ function showPage(name,el){
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
   if(name==='wifi')wifiRefresh();
   if(name==='lst_dispatch')lstPageEnter();
+  else if(lstToken)lstSetFastPoll(false);
   if(window.innerWidth<=700)closeMobileSidebar();
 }
 
@@ -7919,6 +7921,7 @@ let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCt
 let lstPttDown=false,lstPttHeld=false,lstTalkPermit=false,lstHadTalkPermit=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
 let lstMicDenied=false,lstRxUntil=0,lstAvBarTimer=null;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
+let lstDlViaWs=false,lstUlNode=null,lstDlNode=null,lstUlSrc=null,lstDlGain=null;
 let lstCallPeer=0,lstCallTab='sx';
 let lstLastStatus=null,lstTimerFrozenSecs=null,lstTimerTick=null;
 let lstScanList=[],lstScanTx=0,lstRxGssi=0,lstSpaceBound=false,lstSpaceDown=false;
@@ -8007,6 +8010,12 @@ function lstSetAudioHint(msg,show){
 function lstSetFastPoll(on){
   if(!lstToken)return;
   if(lstStatusTimer)clearInterval(lstStatusTimer);
+  const onLst=!!document.getElementById('page-lst_dispatch')?.classList.contains('active');
+  // Off LST page: slow poll only (status still arrives via WS lst_status).
+  if(!onLst){
+    lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},8000);
+    return;
+  }
   lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},on?1000:4000);
 }
 function lstOptimisticStatus(patch){
@@ -8027,6 +8036,7 @@ async function lstPageEnter(){
   if(typeof loadSdsLog==='function')loadSdsLog();
   if(!window.isSecureContext)lstSetAudioHint(t('lst_audio_insecure'),true);
   else lstSetAudioHint('',false);
+  lstSetFastPoll(false);
 }
 async function lstInstallVoice(){
   // Opens the OTA modal — server marks voice rebuild as an available update.
@@ -8039,12 +8049,13 @@ async function lstRefreshStatus(){
     if(!r.ok){lstSetAudioHint('BS sin respuesta ('+r.status+')',true);return;}
     const j=await r.json();
     lstApplyStatusPayload(j);
+    if(!document.getElementById('page-lst_dispatch')?.classList.contains('active'))return;
     try{
       const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
       const arr=await pr.json();
       lstPositions={};
       (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
-      if(document.getElementById('page-lst_dispatch')?.classList.contains('active'))lstRenderRoster();
+      lstRenderRoster();
     }catch(_){}
   }catch(e){console.warn('lst status',e);lstSetAudioHint('Sin conexión con BS',true);}
 }
@@ -8611,6 +8622,13 @@ function lstEnqueueUl(pcm8k){
   lstUlAcc=off<merged.length?merged.subarray(off):new Int16Array(0);
 }
 function lstPushDlSamples(f32){
+  if(lstDlNode&&lstDlNode.port){
+    try{
+      const copy=f32.slice?f32.slice():new Float32Array(f32);
+      lstDlNode.port.postMessage({type:'dl',samples:copy},[copy.buffer]);
+      return;
+    }catch(_){}
+  }
   if(!lstDlQueue)lstDlQueue=new Float32Array(0);
   const merged=new Float32Array(lstDlQueue.length+f32.length);
   merged.set(lstDlQueue,0);merged.set(f32,lstDlQueue.length);
@@ -8618,10 +8636,65 @@ function lstPushDlSamples(f32){
   const maxKeep=Math.floor((lstAudioCtx&&lstAudioCtx.sampleRate?lstAudioCtx.sampleRate:48000)*1.5);
   lstDlQueue=merged.length>maxKeep?merged.subarray(merged.length-maxKeep):merged;
 }
+function lstB64ToInt16(b64){
+  try{
+    const bin=atob(b64);
+    const bytes=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
+    return new Int16Array(bytes.buffer,bytes.byteOffset,bytes.byteLength>>1);
+  }catch(_){return null;}
+}
+function lstIngestPcm16(pcm){
+  if(!pcm||!pcm.length||!lstAudioCtx)return;
+  const f32=new Float32Array(pcm.length);
+  for(let i=0;i<pcm.length;i++)f32[i]=pcm[i]/32768;
+  const ctxRate=lstAudioCtx.sampleRate||8000;
+  if(Math.abs(ctxRate-8000)<1){
+    lstPushDlSamples(f32);
+  }else{
+    const ratio=ctxRate/8000;
+    const outLen=Math.max(1,Math.floor(f32.length*ratio));
+    const out=new Float32Array(outLen);
+    for(let i=0;i<outLen;i++){
+      const srcIdx=i/ratio;
+      const i0=Math.floor(srcIdx);
+      const frac=srcIdx-i0;
+      const s0=f32[i0]||0;
+      const s1=f32[Math.min(i0+1,f32.length-1)]||0;
+      out[i]=s0+(s1-s0)*frac;
+    }
+    lstPushDlSamples(out);
+  }
+  lstMarkRx();
+}
+function lstOnWsDl(msg){
+  if(!msg||!msg.pcm||!lstToken)return;
+  lstDlViaWs=true;
+  if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
+  const pcm=lstB64ToInt16(msg.pcm);
+  if(pcm)lstIngestPcm16(pcm);
+}
+const LST_UL_WORKLET_SRC=`class LstUlProcessor extends AudioWorkletProcessor{process(inputs){const input=inputs[0]&&inputs[0][0];if(input&&input.length){const copy=new Float32Array(input.length);copy.set(input);this.port.postMessage({type:'ul',samples:copy},[copy.buffer]);}return true;}}registerProcessor('lst-ul',LstUlProcessor);`;
+const LST_DL_WORKLET_SRC=`class LstDlProcessor extends AudioWorkletProcessor{constructor(){super();this.q=new Float32Array(0);this.port.onmessage=(e)=>{if(e.data&&e.data.type==='dl'&&e.data.samples){const s=e.data.samples;const m=new Float32Array(this.q.length+s.length);m.set(this.q,0);m.set(s,this.q.length);const max=sampleRate*1.5;this.q=m.length>max?m.subarray(m.length-max):m;}};}process(_i,outputs){const out=outputs[0][0];out.fill(0);if(this.q.length){const n=Math.min(out.length,this.q.length);out.set(this.q.subarray(0,n));this.q=this.q.subarray(n);}return true;}}registerProcessor('lst-dl',LstDlProcessor);`;
+async function lstLoadWorklet(ctx,src,name){
+  const blob=new Blob([src],{type:'application/javascript'});
+  const url=URL.createObjectURL(blob);
+  try{
+    await ctx.audioWorklet.addModule(url);
+    return true;
+  }catch(e){
+    console.warn('lst worklet',name,e);
+    return false;
+  }finally{
+    try{URL.revokeObjectURL(url);}catch(_){}
+  }
+}
 async function lstStartAudio(){
   lstAudioReady=false;
   lstMicDenied=false;
   lstUlAcc=null;lstDlQueue=null;lstDlRead=0;
+  lstDlViaWs=false;
+  lstUlNode=null;lstDlNode=null;lstUlSrc=null;lstDlGain=null;
   lstRefreshAvBar();
   try{
     const insecure=!window.isSecureContext;
@@ -8640,41 +8713,84 @@ async function lstStartAudio(){
     }
     lstMicStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true},video:false});
     lstMicDenied=false;
-    const src=lstAudioCtx.createMediaStreamSource(lstMicStream);
-    const proc=lstAudioCtx.createScriptProcessor(2048,1,1);
-    lstUlProc=proc;
     const nativeRate=lstAudioCtx.sampleRate||48000;
-    proc.onaudioprocess=ev=>{
-      if(!lstToken)return;
-      if(!(lstTalkPermit||lstDuplexLive))return;
-      const input=ev.inputBuffer.getChannelData(0);
-      const pcm=lstResampleTo8k(input,nativeRate);
-      lstEnqueueUl(pcm);
-    };
-    src.connect(proc);
-    const mute=lstAudioCtx.createGain();
-    mute.gain.value=0;
-    proc.connect(mute);
-    mute.connect(lstAudioCtx.destination);
+    const canWorklet=!!(lstAudioCtx.audioWorklet&&typeof AudioWorkletNode!=='undefined');
+    let usedWorklet=false;
+    if(canWorklet){
+      const ulOk=await lstLoadWorklet(lstAudioCtx,LST_UL_WORKLET_SRC,'lst-ul');
+      const dlOk=await lstLoadWorklet(lstAudioCtx,LST_DL_WORKLET_SRC,'lst-dl');
+      if(ulOk&&dlOk){
+        try{
+          lstUlSrc=lstAudioCtx.createMediaStreamSource(lstMicStream);
+          lstUlNode=new AudioWorkletNode(lstAudioCtx,'lst-ul');
+          lstUlNode.port.onmessage=ev=>{
+            if(!lstToken)return;
+            if(!(lstTalkPermit||lstDuplexLive))return;
+            const samples=ev.data&&ev.data.samples;
+            if(!samples||!samples.length)return;
+            const pcm=lstResampleTo8k(samples,nativeRate);
+            lstEnqueueUl(pcm);
+          };
+          lstUlSrc.connect(lstUlNode);
+          const mute=lstAudioCtx.createGain();
+          mute.gain.value=0;
+          lstUlNode.connect(mute);
+          mute.connect(lstAudioCtx.destination);
 
-    // Continuous DL playout (avoids BufferSource storms / tab crashes).
-    const dlProc=lstAudioCtx.createScriptProcessor(2048,1,1);
-    lstDlProc=dlProc;
-    dlProc.onaudioprocess=ev=>{
-      const out=ev.outputBuffer.getChannelData(0);
-      out.fill(0);
-      if(!lstDlQueue||!lstDlQueue.length)return;
-      const n=Math.min(out.length,lstDlQueue.length);
-      out.set(lstDlQueue.subarray(0,n));
-      lstDlQueue=lstDlQueue.subarray(n);
-    };
-    const dlGain=lstAudioCtx.createGain();
-    dlGain.gain.value=1;
-    dlProc.connect(dlGain);
-    dlGain.connect(lstAudioCtx.destination);
+          lstDlNode=new AudioWorkletNode(lstAudioCtx,'lst-dl');
+          lstDlGain=lstAudioCtx.createGain();
+          lstDlGain.gain.value=1;
+          lstDlNode.connect(lstDlGain);
+          lstDlGain.connect(lstAudioCtx.destination);
+          usedWorklet=true;
+        }catch(e){
+          console.warn('lst worklet nodes',e);
+          usedWorklet=false;
+        }
+      }
+    }
+    if(!usedWorklet){
+      // Fallback: ScriptProcessor (same path as before).
+      const src=lstAudioCtx.createMediaStreamSource(lstMicStream);
+      lstUlSrc=src;
+      const proc=lstAudioCtx.createScriptProcessor(2048,1,1);
+      lstUlProc=proc;
+      proc.onaudioprocess=ev=>{
+        if(!lstToken)return;
+        if(!(lstTalkPermit||lstDuplexLive))return;
+        const input=ev.inputBuffer.getChannelData(0);
+        const pcm=lstResampleTo8k(input,nativeRate);
+        lstEnqueueUl(pcm);
+      };
+      src.connect(proc);
+      const mute=lstAudioCtx.createGain();
+      mute.gain.value=0;
+      proc.connect(mute);
+      mute.connect(lstAudioCtx.destination);
+
+      const dlProc=lstAudioCtx.createScriptProcessor(2048,1,1);
+      lstDlProc=dlProc;
+      dlProc.onaudioprocess=ev=>{
+        const out=ev.outputBuffer.getChannelData(0);
+        out.fill(0);
+        if(!lstDlQueue||!lstDlQueue.length)return;
+        const n=Math.min(out.length,lstDlQueue.length);
+        out.set(lstDlQueue.subarray(0,n));
+        lstDlQueue=lstDlQueue.subarray(n);
+      };
+      lstDlGain=lstAudioCtx.createGain();
+      lstDlGain.gain.value=1;
+      dlProc.connect(lstDlGain);
+      lstDlGain.connect(lstAudioCtx.destination);
+    }
 
     if(lstDlTimer)clearInterval(lstDlTimer);
-    lstDlTimer=setInterval(lstPollDl,80);
+    lstDlTimer=null;
+    // Prefer WS lst_dl; fall back to HTTP poll if no WS media arrives.
+    setTimeout(()=>{
+      if(!lstAudioReady||lstDlViaWs)return;
+      if(!lstDlTimer)lstDlTimer=setInterval(lstPollDl,80);
+    },500);
     lstAudioReady=true;
     lstSetAudioHint('',false);
     lstRefreshAvBar();
@@ -8689,45 +8805,29 @@ async function lstStartAudio(){
 }
 function lstStopAudio(){
   lstPttDown=false;lstPttHeld=false;lstTalkPermit=false;lstHadTalkPermit=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
-  lstMicDenied=false;lstRxUntil=0;
+  lstMicDenied=false;lstRxUntil=0;lstDlViaWs=false;
   lstUlAcc=null;lstDlQueue=null;
   if(lstAvBarTimer){clearTimeout(lstAvBarTimer);lstAvBarTimer=null;}
   if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
   if(lstUlProc){try{lstUlProc.disconnect();}catch(_){}lstUlProc=null;}
   if(lstDlProc){try{lstDlProc.disconnect();}catch(_){}lstDlProc=null;}
+  if(lstUlNode){try{lstUlNode.disconnect();}catch(_){}lstUlNode=null;}
+  if(lstDlNode){try{lstDlNode.disconnect();}catch(_){}lstDlNode=null;}
+  if(lstUlSrc){try{lstUlSrc.disconnect();}catch(_){}lstUlSrc=null;}
+  if(lstDlGain){try{lstDlGain.disconnect();}catch(_){}lstDlGain=null;}
   if(lstMicStream){lstMicStream.getTracks().forEach(t=>t.stop());lstMicStream=null;}
   if(lstAudioCtx){try{lstAudioCtx.close();}catch(_){}lstAudioCtx=null;}
   lstRefreshAvBar();
 }
 async function lstPollDl(){
-  if(!lstToken||!lstAudioCtx||lstDlBusy)return;
+  if(!lstToken||!lstAudioCtx||lstDlBusy||lstDlViaWs)return;
   lstDlBusy=true;
   try{
     const r=await fetch('/api/lst/dl?token='+encodeURIComponent(lstToken),{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)return;
     const buf=await r.arrayBuffer();
     if(buf.byteLength<4)return;
-    const pcm=new Int16Array(buf);
-    const f32=new Float32Array(pcm.length);
-    for(let i=0;i<pcm.length;i++)f32[i]=pcm[i]/32768;
-    const ctxRate=lstAudioCtx.sampleRate||8000;
-    if(Math.abs(ctxRate-8000)<1){
-      lstPushDlSamples(f32);
-    }else{
-      const ratio=ctxRate/8000;
-      const outLen=Math.max(1,Math.floor(f32.length*ratio));
-      const out=new Float32Array(outLen);
-      for(let i=0;i<outLen;i++){
-        const srcIdx=i/ratio;
-        const i0=Math.floor(srcIdx);
-        const frac=srcIdx-i0;
-        const s0=f32[i0]||0;
-        const s1=f32[Math.min(i0+1,f32.length-1)]||0;
-        out[i]=s0+(s1-s0)*frac;
-      }
-      lstPushDlSamples(out);
-    }
-    lstMarkRx();
+    lstIngestPcm16(new Int16Array(buf));
   }catch(_){}
   finally{lstDlBusy=false;}
 }
@@ -9444,20 +9544,20 @@ function connect(){
   const proto=location.protocol==='https:'?'wss:':'ws:';
   ws=new WebSocket(`${proto}//${location.host}/ws`);
   ws.onopen=()=>{
+    dashLastMsgAt=Date.now();
     if(serviceStandby){
       paintStandbyConnectivity();
       try{ws.send(JSON.stringify({type:'subscribe'}));}catch{}
       return;
     }
-    document.getElementById('connLed').classList.add('on');
-    const ct=document.getElementById('connText');ct.textContent=t('online');ct.style.color='var(--accent)';
+    setDashLinkState('online');
     updateSysBtsPanel(true,state.brewOnline,state.brewVer);
     syncTopbarChips();
     ws.send(JSON.stringify({type:'subscribe'}));
+    startDashWatchdog();
   };
   ws.onclose=()=>{
-    document.getElementById('connLed').classList.remove('on');
-    const ct=document.getElementById('connText');ct.textContent=t('offline');ct.style.color='var(--danger)';
+    setDashLinkState('reconnecting');
     setBrewStatus(false,0);
     updateSysBtsPanel(false,false,0);
     syncTopbarChips();
@@ -9465,12 +9565,67 @@ function connect(){
   };
   ws.onmessage=(e)=>{
     if(serviceStandby)return; // stack frozen — ignore stale live telemetry
-    try{handleMsg(JSON.parse(e.data));}catch{}
+    try{
+      const msg=JSON.parse(e.data);
+      if(!noteDashLive(msg))return;
+      handleMsg(msg);
+    }catch{}
   };
+}
+
+let dashBootId=null,dashLastMsgAt=0,dashWatchTimer=null,dashLinkState='offline',dashResyncing=false;
+function setDashLinkState(s){
+  dashLinkState=s;
+  const led=document.getElementById('connLed');
+  const ct=document.getElementById('connText');
+  if(!led||!ct)return;
+  led.classList.remove('on','warn');
+  if(s==='online'){
+    led.classList.add('on');
+    ct.textContent=t('online');ct.style.color='var(--accent)';
+  }else if(s==='reconnecting'){
+    led.classList.add('warn');
+    ct.textContent=t('reconnecting');ct.style.color='var(--warn)';
+  }else{
+    ct.textContent=t('offline');ct.style.color='var(--danger)';
+  }
+}
+function noteDashLive(msg){
+  dashLastMsgAt=Date.now();
+  if(msg&&msg.boot_id){
+    if(dashBootId&&dashBootId!==msg.boot_id){
+      handleBootIdChange();
+      return false;
+    }
+    dashBootId=msg.boot_id;
+  }
+  if(dashLinkState!=='online')setDashLinkState('online');
+  return true;
+}
+function handleBootIdChange(){
+  if(dashResyncing)return;
+  dashResyncing=true;
+  setDashLinkState('reconnecting');
+  // Process restarted: in-memory sessions are gone; reload so UI matches the new stack.
+  try{sessionStorage.setItem('fs_boot_resync','1');}catch(_){}
+  location.reload();
+}
+function startDashWatchdog(){
+  if(dashWatchTimer)return;
+  dashWatchTimer=setInterval(()=>{
+    if(serviceStandby)return;
+    if(!ws||ws.readyState!==WebSocket.OPEN)return;
+    if(Date.now()-dashLastMsgAt>12000){
+      setDashLinkState('reconnecting');
+      try{ws.close();}catch(_){}
+    }
+  },2000);
 }
 
 function handleMsg(msg){
   switch(msg.type){
+    case 'hello':
+      break;
     case 'snapshot':
       state.ms={};state.calls={};state.emergencies={};state.lastHeard=msg.last_heard||[];
       state.dgnaDefaultAttachmentMode=Number.isFinite(msg.dgna_default_attachment_mode)?msg.dgna_default_attachment_mode:0;
@@ -9622,6 +9777,9 @@ function handleMsg(msg){
     case 'health':handleHealth(msg);break;
     case 'lst_status':
       lstApplyStatusPayload(msg);
+      break;
+    case 'lst_dl':
+      lstOnWsDl(msg);
       break;
   }
 }
@@ -12116,7 +12274,7 @@ let serviceStandby=false;
 let serviceStatusTimer=null;
 function paintStandbyConnectivity(){
   const led=document.getElementById('connLed');
-  if(led)led.classList.remove('on');
+  if(led)led.classList.remove('on','warn');
   const ct=document.getElementById('connText');
   if(ct){ct.textContent=t('svc_standby_short');ct.style.color='var(--warn)';}
   state.brewOnline=false;

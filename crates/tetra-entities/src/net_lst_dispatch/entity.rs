@@ -1419,6 +1419,7 @@ impl TetraEntityTrait for LstDispatchEntity {
                 ));
             });
         }
+        self.handle.flush_status_if_dirty();
         false
     }
 }

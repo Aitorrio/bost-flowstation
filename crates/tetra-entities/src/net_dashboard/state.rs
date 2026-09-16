@@ -113,7 +113,7 @@ pub struct DgnaLogEntry {
 }
 
 /// Shared mutable state for the dashboard, protected by RwLock
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct DashboardStateInner {
     pub ms_map: HashMap<u32, MsEntry>,
     pub calls: HashMap<u16, CallEntry>,
@@ -153,6 +153,10 @@ pub struct DashboardStateInner {
     /// Most recent lite stack-health roll-up (Service/Backhaul/Radios/Congestion). Sent on init
     /// so the System Health tile paints immediately on connect.
     pub last_health: Option<crate::health::HealthSnapshot>,
+    /// Process-lifetime id — changes on every stack restart so the browser can detect stale UI.
+    pub boot_id: String,
+    /// Wall-clock start of this dashboard process (for uptime in hello).
+    pub started_at: Instant,
 }
 
 /// Fast-path visual snapshot — spectrum + IQ + RMS/peak. Refreshed several times
@@ -301,6 +305,8 @@ impl DashboardStateInner {
             last_sdr_health: None,
             last_sys_health: None,
             last_health: None,
+            boot_id: uuid::Uuid::new_v4().to_string(),
+            started_at: Instant::now(),
         }
     }
 
