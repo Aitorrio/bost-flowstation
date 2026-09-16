@@ -25,7 +25,7 @@ use super::media::LstCodec;
 const MAX_CMDS_PER_TICK: usize = 16;
 const MAX_UL_PCM_PER_TICK: usize = 32;
 const MAX_UL_BLOCKS_PER_TICK: usize = 6;
-const PENDING_UL_CAP: usize = 12;
+const PENDING_UL_CAP: usize = 16;
 const TERMINAL_HOLD: Duration = Duration::from_secs(5);
 /// After a denied PTT on a busy TX TG, a second PTT within this window preempts.
 const PREEMPT_OFFER: Duration = Duration::from_secs(3);
@@ -34,7 +34,9 @@ const PREEMPT_OFFER: Duration = Duration::from_secs(3);
 /// console PCM queue can finish (does not change CMCE hangtime / MS–MS air).
 const RX_DRAIN_GRACE: Duration = Duration::from_millis(500);
 /// After console PTT up, keep flushing pending_ul before NetworkCallEnd so walkies hear the tail.
-const UL_DRAIN_REAP: Duration = Duration::from_millis(600);
+const UL_DRAIN_REAP: Duration = Duration::from_millis(1200);
+/// Queue empty AND no new UL enqueue for this long → safe to End (late browser PCM).
+const UL_DRAIN_QUIET: Duration = Duration::from_millis(300);
 
 struct ActiveGroup {
     uuid: Uuid,
@@ -77,6 +79,8 @@ struct UlDraining {
     carrier_num: u16,
     ts: u8,
     started: Instant,
+    /// Last time a UL block was enqueued (incl. late browser PCM after PTT up).
+    last_ul_activity: Instant,
 }
 
 pub struct LstDispatchEntity {
@@ -232,15 +236,25 @@ impl LstDispatchEntity {
         let Some(ref d) = self.ul_draining else {
             return;
         };
+        let since_start_ms = d.started.elapsed().as_millis();
+        let since_ul_ms = d.last_ul_activity.elapsed().as_millis();
+        let queued = self.pending_ul.len();
         let reaped = d.started.elapsed() >= UL_DRAIN_REAP;
-        // Brief quiet window so late browser PCM after PTT-up can still enqueue.
-        let quiet = self.pending_ul.is_empty() && d.started.elapsed() >= Duration::from_millis(150);
+        // Quiet from last enqueue (not PTT-up) so prolonged trailing PCM can still arrive.
+        let quiet = queued == 0 && d.last_ul_activity.elapsed() >= UL_DRAIN_QUIET;
         if reaped || quiet {
-            let reason = if reaped && !self.pending_ul.is_empty() {
+            let reason = if reaped && queued > 0 {
                 "reaped"
             } else {
                 "complete"
             };
+            tracing::info!(
+                "LST: UL drain expire reason={} queued={} since_start_ms={} since_ul_ms={}",
+                reason,
+                queued,
+                since_start_ms,
+                since_ul_ms
+            );
             self.finalize_ul_drain(queue, reason);
         }
     }
@@ -664,11 +678,13 @@ impl LstDispatchEntity {
                         g.last_activity = Instant::now();
                         // Keep call_id/carrier/ts until finalize so CMCE stays Transmitting.
                     }
+                    let now = Instant::now();
                     self.ul_draining = Some(UlDraining {
                         uuid,
                         carrier_num,
                         ts,
-                        started: Instant::now(),
+                        started: now,
+                        last_ul_activity: now,
                     });
                     self.handle.set_status(|s| {
                         s.ptt = false;
@@ -982,11 +998,18 @@ impl LstDispatchEntity {
         let Some(ref mut codec) = self.codec else {
             return;
         };
+        let mut enqueued = false;
         for block in codec.encode_pcm(&pcm) {
             while self.pending_ul.len() >= PENDING_UL_CAP {
                 self.pending_ul.pop_front();
             }
             self.pending_ul.push_back(block);
+            enqueued = true;
+        }
+        if enqueued {
+            if let Some(ref mut d) = self.ul_draining {
+                d.last_ul_activity = Instant::now();
+            }
         }
     }
 
