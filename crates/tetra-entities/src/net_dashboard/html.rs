@@ -1977,9 +1977,8 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   .dgna-grid{grid-template-columns:1fr;}
 
   /* TS visualizer: 2x2 instead of 1x4 so each block stays usable */
-  .ts-grid{gap:10px;margin:0 12px 12px;padding:10px 0 0;}
+  .ts-grid{gap:10px;margin:0 12px 12px;padding:0;}
   .ts-row{grid-template-columns:1fr 1fr;gap:8px;}
-  .ts-carrier-head{flex-direction:column;align-items:flex-start;gap:4px;}
 
   /* System info: vertical layout per row, full-width values */
   .info-row{flex-direction:column;align-items:flex-start;gap:4px;padding:10px 14px;}
@@ -2014,23 +2013,10 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 
 /* ── TS Visualizer (nested inside TETRA BTS Details) ─────────────── */
 .ts-grid{
-  display:flex;flex-direction:column;gap:12px;
-  margin:0 18px 14px;padding:12px 0 0;
-  border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:10px;
+  margin:0 18px 14px;padding:0;
 }
 .ts-carrier-group{display:flex;flex-direction:column;gap:8px;}
-.ts-carrier-head{
-  display:flex;align-items:baseline;justify-content:space-between;gap:10px;
-  padding:0 2px;
-}
-.ts-carrier-title{
-  font-family:var(--mono);font-size:10px;font-weight:700;
-  letter-spacing:0.10em;color:var(--text2);text-transform:uppercase;
-}
-.ts-carrier-meta{
-  font-family:var(--mono);font-size:10px;color:var(--text3);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
 .ts-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
 .ts-block{
   border:1px solid var(--border);border-radius:8px;
@@ -3505,7 +3491,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   .bts-access-bar{margin:0 16px 13px;padding:11px 14px;}
   .bts-access-title{font-size:calc(13px * var(--ts));}
 
-  .ts-grid{margin:0 16px 12px;padding:10px 0 0;gap:9px;}
+  .ts-grid{margin:0 16px 12px;padding:0;gap:9px;}
 
   .info-key{font-size:calc(12px * var(--ts));font-weight:var(--wt-quiet);}
   .info-val{font-size:calc(13px * var(--ts));}
@@ -10010,12 +9996,6 @@ function tsEnsureCarrierInfo(carrierNum,txFreqHz,rxFreqHz){
   if(rxFreqHz!=null&&isFinite(rxFreqHz))info.rx_freq_hz=rxFreqHz;
   tsCarrierInfo[key]=info;
 }
-function tsCarrierMeta(info){
-  const parts=[];
-  if(info&&info.tx_freq_hz!=null)parts.push('DL '+fmtMhz(info.tx_freq_hz));
-  if(info&&info.rx_freq_hz!=null)parts.push('UL '+fmtMhz(info.rx_freq_hz));
-  return parts.join(' | ')||'Waiting for RF info';
-}
 function tsCarrierBlockHtml(carrierNum,ts){
   const idleHeights=(carrierNum===state.mainCarrierNum&&ts===1)?[8,14,10,16,8,12,6]:[3,3,3,3,3,3,3];
   return `<div class="ts-block${carrierNum===state.mainCarrierNum&&ts===1?' mcch':''}" id="ts-block-${carrierNum}-${ts}">
@@ -10036,12 +10016,7 @@ function renderTsGridCarrier(){
   if(!carriers.length&&state.mainCarrierNum!=null)carriers=[state.mainCarrierNum];
   if(!carriers.length)return;
   grid.innerHTML=carriers.map(carrierNum=>{
-    const info=tsCarrierInfo[String(carrierNum)]||{carrier_num:carrierNum};
     return `<div class="ts-carrier-group" data-carrier="${carrierNum}">
-      <div class="ts-carrier-head">
-        <div class="ts-carrier-title">Carrier #${carrierNum}${carrierNum===state.mainCarrierNum?' | Main':''}</div>
-        <div class="ts-carrier-meta">${tsCarrierMeta(info)}</div>
-      </div>
       <div class="ts-row">${[1,2,3,4].map(ts=>tsCarrierBlockHtml(carrierNum,ts)).join('')}</div>
     </div>`;
   }).join('');
