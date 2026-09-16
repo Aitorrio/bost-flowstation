@@ -92,6 +92,8 @@ struct PendingTail {
     frame_count: u64,
     jitter: VoiceJitterBuffer,
     started: Instant,
+    /// Last playout or late Brew frame while draining (quiet before CallEnd).
+    last_media: Instant,
 }
 
 /// Group call in hangtime with circuit still allocated.
@@ -1059,6 +1061,7 @@ impl BrewEntity {
                         frame_count: call.frame_count,
                         jitter,
                         started: Instant::now(),
+                        last_media: Instant::now(),
                     },
                 );
                 return;
@@ -1134,7 +1137,22 @@ impl BrewEntity {
     /// Handle a voice frame from Brew — inject into the downlink
     fn handle_voice_frame(&mut self, queue: &mut MessageQueue, uuid: Uuid, _length_bits: u16, data: Vec<u8>) {
         let Some(call) = self.active_calls.get_mut(&uuid) else {
-            // Voice frame for unknown call — might arrive before GROUP_TX or after GROUP_IDLE
+            // GROUP_IDLE may race ahead of the last STE frames — keep feeding the pending tail.
+            if let Some(tail) = self.pending_tails.get_mut(&uuid) {
+                if data.len() < 36 {
+                    tracing::warn!(
+                        "BrewEntity: late tail voice too short ({} bytes) uuid={}",
+                        data.len(),
+                        uuid
+                    );
+                    return;
+                }
+                tail.jitter.push(data[1..].to_vec());
+                tail.last_media = Instant::now();
+                tail.frame_count = tail.frame_count.saturating_add(1);
+                tracing::trace!("BrewEntity: late voice into pending tail uuid={}", uuid);
+                return;
+            }
             tracing::trace!("BrewEntity: voice frame for unknown uuid={} ({} bytes)", uuid, data.len());
             return;
         };
@@ -1219,8 +1237,9 @@ impl BrewEntity {
             }
         }
 
-        // Pending tails: CMCE still Transmitting — play media then NetworkCallEnd.
-        const TAIL_REAP_AFTER: Duration = Duration::from_secs(2);
+        // Pending tails: CMCE still Transmitting — play media, then brief quiet, then NetworkCallEnd.
+        const TAIL_REAP_AFTER: Duration = Duration::from_millis(2500);
+        const TAIL_QUIET_AFTER: Duration = Duration::from_millis(150);
         let finished: Vec<Uuid> = self
             .pending_tails
             .iter_mut()
@@ -1228,19 +1247,26 @@ impl BrewEntity {
                 if tail.started.elapsed() >= TAIL_REAP_AFTER {
                     return Some(*uuid);
                 }
+                let empty = tail.jitter.is_empty();
+                if empty && tail.last_media.elapsed() >= TAIL_QUIET_AFTER {
+                    return Some(*uuid);
+                }
                 if tail.ts != self.dltime.t {
                     return None;
                 }
                 match tail.jitter.pop_drain() {
                     Some(frame) => {
+                        tail.last_media = Instant::now();
                         to_send.push((tail.carrier_num, tail.ts, *uuid, 0, frame));
-                        if tail.jitter.is_empty() {
+                        None
+                    }
+                    None => {
+                        if tail.last_media.elapsed() >= TAIL_QUIET_AFTER {
                             Some(*uuid)
                         } else {
                             None
                         }
                     }
-                    None => Some(*uuid),
                 }
             })
             .collect();
