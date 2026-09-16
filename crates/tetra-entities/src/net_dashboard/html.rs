@@ -1977,7 +1977,7 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   .dgna-grid{grid-template-columns:1fr;}
 
   /* TS visualizer: 2x2 instead of 1x4 so each block stays usable */
-  .ts-grid{gap:10px;padding:10px 12px;}
+  .ts-grid{gap:10px;margin:0 12px 12px;padding:10px 0 0;}
   .ts-row{grid-template-columns:1fr 1fr;gap:8px;}
   .ts-carrier-head{flex-direction:column;align-items:flex-start;gap:4px;}
 
@@ -2012,8 +2012,12 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   #sidebar-toggle-btn{display:none!important;}
 }
 
-/* ── TS Visualizer ───────────────────────────────────────────────── */
-.ts-grid{display:flex;flex-direction:column;gap:12px;padding:16px 18px;}
+/* ── TS Visualizer (nested inside TETRA BTS Details) ─────────────── */
+.ts-grid{
+  display:flex;flex-direction:column;gap:12px;
+  margin:0 18px 14px;padding:12px 0 0;
+  border-top:1px solid var(--border);
+}
 .ts-carrier-group{display:flex;flex-direction:column;gap:8px;}
 .ts-carrier-head{
   display:flex;align-items:baseline;justify-content:space-between;gap:10px;
@@ -3295,7 +3299,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 /* ════ TETRA BTS Details card ════ */
 .bts-grid{
   display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
-  gap:10px;padding:16px 18px;
+  gap:10px;padding:16px 18px 10px;
 }
 .bts-tile{
   background:linear-gradient(180deg, var(--bg), color-mix(in srgb,var(--bg) 82%, #000));
@@ -3501,7 +3505,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   .bts-access-bar{margin:0 16px 13px;padding:11px 14px;}
   .bts-access-title{font-size:calc(13px * var(--ts));}
 
-  .ts-grid{padding:13px 16px;gap:9px;}
+  .ts-grid{margin:0 16px 12px;padding:10px 0 0;gap:9px;}
 
   .info-key{font-size:calc(12px * var(--ts));font-weight:var(--wt-quiet);}
   .info-val{font-size:calc(13px * var(--ts));}
@@ -4243,6 +4247,82 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="bts-tile"><div class="bts-tile-label">MNC</div><div class="bts-tile-value" id="bts-mnc">—</div></div>
           <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_carrier">Main Carrier</div><div class="bts-tile-value" id="bts-carrier">—</div></div>
         </div>
+        <!-- Timeslots live inside BTS Details (between RF identity tiles and access bars) -->
+        <div class="ts-grid" id="ts-grid">
+          <div class="ts-row">
+            <div class="ts-block mcch" id="ts-block-1">
+              <div class="ts-num">TS 1</div>
+              <div class="ts-led"></div>
+              <div class="ts-wave">
+                <div class="ts-wave-bar" style="height:8px"></div>
+                <div class="ts-wave-bar" style="height:14px"></div>
+                <div class="ts-wave-bar" style="height:10px"></div>
+                <div class="ts-wave-bar" style="height:16px"></div>
+                <div class="ts-wave-bar" style="height:8px"></div>
+                <div class="ts-wave-bar" style="height:12px"></div>
+                <div class="ts-wave-bar" style="height:6px"></div>
+              </div>
+              <div class="ts-label">MCCH</div>
+              <div class="ts-sub">ACTIVE</div>
+              <div class="ts-flash"></div>
+              <div class="ts-duration-bar"></div>
+            </div>
+            <div class="ts-block" id="ts-block-2">
+              <div class="ts-num">TS 2</div>
+              <div class="ts-timer"></div>
+              <div class="ts-led"></div>
+              <div class="ts-wave">
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+              </div>
+              <div class="ts-label">—</div>
+              <div class="ts-sub">Idle</div>
+              <div class="ts-flash"></div>
+              <div class="ts-duration-bar"></div>
+            </div>
+            <div class="ts-block" id="ts-block-3">
+              <div class="ts-num">TS 3</div>
+              <div class="ts-timer"></div>
+              <div class="ts-led"></div>
+              <div class="ts-wave">
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+              </div>
+              <div class="ts-label">—</div>
+              <div class="ts-sub">Idle</div>
+              <div class="ts-flash"></div>
+              <div class="ts-duration-bar"></div>
+            </div>
+            <div class="ts-block" id="ts-block-4">
+              <div class="ts-num">TS 4</div>
+              <div class="ts-timer"></div>
+              <div class="ts-led"></div>
+              <div class="ts-wave">
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+                <div class="ts-wave-bar" style="height:3px"></div>
+              </div>
+              <div class="ts-label">—</div>
+              <div class="ts-sub">Idle</div>
+              <div class="ts-flash"></div>
+              <div class="ts-duration-bar"></div>
+            </div>
+          </div>
+        </div>
         <div class="bts-access-bar">
           <div class="bts-access-info">
             <span class="bts-access-icon">
@@ -4267,86 +4347,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </div>
           </div>
           <span class="sw"><input type="checkbox" id="dc-toggle" onchange="onDualCarrierToggle(this)"><i></i></span>
-        </div>
-      </div>
-
-      <!-- TS Visualizer -->
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">RF Channel — Timeslots</div>
-        </div>
-        <div class="ts-grid" id="ts-grid">
-          <div class="ts-block mcch" id="ts-block-1">
-            <div class="ts-num">TS 1</div>
-            <div class="ts-led"></div>
-            <div class="ts-wave">
-              <div class="ts-wave-bar" style="height:8px"></div>
-              <div class="ts-wave-bar" style="height:14px"></div>
-              <div class="ts-wave-bar" style="height:10px"></div>
-              <div class="ts-wave-bar" style="height:16px"></div>
-              <div class="ts-wave-bar" style="height:8px"></div>
-              <div class="ts-wave-bar" style="height:12px"></div>
-              <div class="ts-wave-bar" style="height:6px"></div>
-            </div>
-            <div class="ts-label">MCCH</div>
-            <div class="ts-sub">ACTIVE</div>
-            <div class="ts-flash"></div>
-            <div class="ts-duration-bar"></div>
-          </div>
-          <div class="ts-block" id="ts-block-2">
-            <div class="ts-num">TS 2</div>
-            <div class="ts-timer"></div>
-            <div class="ts-led"></div>
-            <div class="ts-wave">
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-            </div>
-            <div class="ts-label">—</div>
-            <div class="ts-sub">Idle</div>
-            <div class="ts-flash"></div>
-            <div class="ts-duration-bar"></div>
-          </div>
-          <div class="ts-block" id="ts-block-3">
-            <div class="ts-num">TS 3</div>
-            <div class="ts-timer"></div>
-            <div class="ts-led"></div>
-            <div class="ts-wave">
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-            </div>
-            <div class="ts-label">—</div>
-            <div class="ts-sub">Idle</div>
-            <div class="ts-flash"></div>
-            <div class="ts-duration-bar"></div>
-          </div>
-          <div class="ts-block" id="ts-block-4">
-            <div class="ts-num">TS 4</div>
-            <div class="ts-timer"></div>
-            <div class="ts-led"></div>
-            <div class="ts-wave">
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-              <div class="ts-wave-bar" style="height:3px"></div>
-            </div>
-            <div class="ts-label">—</div>
-            <div class="ts-sub">Idle</div>
-            <div class="ts-flash"></div>
-            <div class="ts-duration-bar"></div>
-          </div>
         </div>
       </div>
 
