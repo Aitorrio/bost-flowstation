@@ -486,6 +486,41 @@ body{
 .lst-roster-scroll::-webkit-scrollbar{width:6px;height:6px;}
 .lst-roster-scroll::-webkit-scrollbar-track{background:transparent;}
 .lst-roster-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;}
+/* LST inactive — centered empty state (not a top banner) */
+#page-lst_dispatch.is-lst-off > .section-label{display:none;}
+.lst-inactive{
+  display:none;
+  flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;text-align:center;
+  min-height:min(68vh,560px);padding:48px 28px 64px;
+}
+#page-lst_dispatch.is-lst-off .lst-inactive{display:flex;}
+.lst-inactive-ico{
+  position:relative;width:76px;height:76px;margin-bottom:4px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:20px;color:var(--text3);
+  background:color-mix(in srgb,var(--text3) 9%, transparent);
+  border:1px solid var(--border);box-shadow:var(--hair);
+}
+.lst-inactive-ico svg{width:38px;height:38px;opacity:.5;}
+.lst-inactive-ico::after{
+  content:'';position:absolute;left:50%;top:50%;
+  width:78%;height:2.5px;border-radius:2px;
+  background:var(--warn);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--bg) 88%, transparent);
+  transform:translate(-50%,-50%) rotate(-42deg);
+  pointer-events:none;
+}
+.lst-inactive-title{
+  font-size:18px;font-weight:700;letter-spacing:-0.01em;color:var(--text);
+  margin:0;max-width:28rem;
+}
+.lst-inactive-sub{
+  font-size:13.5px;line-height:1.45;color:var(--text2);
+  margin:0;max-width:26rem;
+}
+.lst-inactive .btn{margin-top:8px;min-width:11rem;}
+
 #page-lst_dispatch .lst-controls{
   padding:16px 18px;display:flex;flex-direction:column;min-height:0;
 }
@@ -5740,9 +5775,11 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <!-- ── LST DISPATCH ── -->
     <div class="page" id="page-lst_dispatch">
       <div class="section-label" data-i18n="integrations">Integrations</div>
-      <div class="banner banner-warn" id="lst-inactive-banner" style="display:none">
-        <span class="banner-ico" data-icon="alert"></span>
-        <div class="banner-body" data-i18n="lst_need_profile">Apply the “LST Dispatch” Brew profile (Home/Config) and restart to enable this console.</div>
+      <div class="lst-inactive" id="lst-inactive-banner" style="display:none" role="status">
+        <div class="lst-inactive-ico" aria-hidden="true"><span data-icon="lst"></span></div>
+        <h2 class="lst-inactive-title" data-i18n="lst_need_title">Console unavailable</h2>
+        <p class="lst-inactive-sub" data-i18n="lst_need_profile">Apply the “LST Dispatch” Brew profile in Config and restart to enable this console.</p>
+        <button type="button" class="btn" onclick="showPage('config',document.getElementById('nav-config'))" data-i18n="lst_go_config">Go to Config</button>
       </div>
       <div class="banner banner-warn" id="lst-busy-banner" style="display:none">
         <span class="banner-ico" data-icon="alert"></span>
@@ -6805,7 +6842,9 @@ const LANGS={
     cfg_del_cell_confirm:'Delete Cell profile “{name}”?',cfg_del_brew_confirm:'Delete Brew profile “{name}”?',
     cfg_brew_offline:'Offline (no Brew)',cfg_brew_offline_nodel:'Offline cannot be deleted.',
     cfg_brew_lst:'LST Dispatch',cfg_brew_lst_nodel:'LST Dispatch cannot be deleted.',
-    lst_dispatch:'LST Dispatch',lst_need_profile:'Apply the “LST Dispatch” Brew profile (Home/Config) and restart to enable this console.',
+    lst_dispatch:'LST Dispatch',lst_need_title:'Console unavailable',
+    lst_need_profile:'Apply the “LST Dispatch” Brew profile in Config and restart to enable this console.',
+    lst_go_config:'Go to Config',
     lst_busy:'Dispatch in use by',lst_console:'Dispatch console',lst_claim:'Take dispatch',lst_release:'Close dispatch',
     lst_operator_issi:'Dispatcher ISSI',lst_apply_issi:'Apply',lst_gssi:'Talkgroup GSSI',lst_join:'Join',lst_leave:'Leave',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Send',lst_roster:'Radios online',lst_col_groups:'Groups',lst_col_pos:'Position',
@@ -7230,7 +7269,9 @@ const LANGS={
     cfg_del_cell_confirm:'¿Eliminar el perfil Cell “{name}”?',cfg_del_brew_confirm:'¿Eliminar el perfil Brew “{name}”?',
     cfg_brew_offline:'Offline (sin Brew)',cfg_brew_offline_nodel:'Offline no se puede eliminar.',
     cfg_brew_lst:'Despacho LST',cfg_brew_lst_nodel:'Despacho LST no se puede eliminar.',
-    lst_dispatch:'Despacho LST',lst_need_profile:'Aplica el perfil Brew “Despacho LST” (Inicio/Config) y reinicia para activar esta consola.',
+    lst_dispatch:'Despacho LST',lst_need_title:'Consola no disponible',
+    lst_need_profile:'Aplica el perfil Brew “Despacho LST” en Configuración y reinicia para activar esta consola.',
+    lst_go_config:'Ir a Configuración',
     lst_busy:'Despacho en uso por',lst_console:'Consola de despacho',lst_claim:'Tomar despacho',lst_release:'Cerrar despacho',
     lst_operator_issi:'ISSI despachador',lst_apply_issi:'Aplicar',lst_gssi:'GSSI / TG',lst_join:'Unirse',lst_leave:'Salir',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Enviar',lst_roster:'Radios online',lst_col_groups:'Grupos',lst_col_pos:'Ubicación',
@@ -8047,15 +8088,19 @@ async function lstRefreshStatus(){
 }
 function lstApplyStatusPayload(j){
   if(!j||typeof j!=='object')return;
+  const page=document.getElementById('page-lst_dispatch');
   const inactive=document.getElementById('lst-inactive-banner');
   const busy=document.getElementById('lst-busy-banner');
   const cons=document.getElementById('lst-console');
   if(j.enabled===false){
-    if(inactive)inactive.style.display='';
+    if(page)page.classList.add('is-lst-off');
+    if(inactive)inactive.style.display='flex';
     if(busy)busy.style.display='none';
     if(cons)cons.style.display='none';
+    if(inactive&&typeof paintIcons==='function')paintIcons(inactive);
     return;
   }
+  if(page)page.classList.remove('is-lst-off');
   if(inactive)inactive.style.display='none';
   if(cons)cons.style.display='';
   const op=document.getElementById('lst-op-issi');
