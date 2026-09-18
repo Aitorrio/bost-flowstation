@@ -3950,6 +3950,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <span class="nav-icon" data-icon="lst"></span>
       <span class="nav-label" data-i18n="lst_dispatch">LST Dispatch</span>
     </div>
+
+    <!-- SYSTEM — configure / operate the station. -->
+    <div class="nav-section-label" data-i18n-section="system_sec">SYSTEM</div>
     <!-- WiFi tab is hidden until we confirm NetworkManager is available on
          the host. The probe runs once at dashboard boot via /api/wifi/available
          and toggles this element's display. -->
@@ -3957,9 +3960,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <span class="nav-icon" data-icon="wifi"></span>
       <span class="nav-label" data-i18n="wifi">WIFI</span>
     </div>
-
-    <!-- SYSTEM — configure / operate the station. -->
-    <div class="nav-section-label" data-i18n-section="system_sec">SYSTEM</div>
     <div class="nav-item" onclick="showPage('setup',this);refreshSetupPage()" id="nav-setup">
       <span class="nav-icon" data-icon="config"></span>
       <span class="nav-label" data-i18n="setup">SETUP</span>
