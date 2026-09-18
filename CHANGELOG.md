@@ -1,6 +1,16 @@
-# Changelog — Bost FlowStation
+# Changelog — Bost FlowStation → PTBS
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
+
+## v0.3.12 — Puente OTA hacia PTBS
+
+**Haz OTA una vez** (canal Estable o Beta). Esta versión prepara la migración al producto **PTBS** (*Personal Tetra Base Station*).
+
+- Canal **Estable** pasa a seguir la rama git **`main`** (antes `bost`). La rama `bost` sigue recibiendo este puente para que las instalaciones actuales puedan actualizar.
+- OTA reconoce checkout `/opt/ptbs` (preferente) y `/opt/bost-flowstation` (legacy).
+- Al instalar el binario se refresca también `/usr/local/bin/ptbs` junto a `bluestation-bs`.
+- Anuncio de rebrand en README y mensajes OTA. La marca en UI sigue siendo Bost FlowStation hasta el corte **0.4.0**.
+- Ventana de migración: mantén el equipo actualizado; en unos días el repo/ramas/binario completarán el rename a PTBS.
 
 ## v0.3.1
 

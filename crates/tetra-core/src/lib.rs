@@ -12,8 +12,14 @@ pub const GIT_HASH: &str = git_version::git_version!(
 /// Product branding for this fork (UI / banners).
 pub const PRODUCT_NAME: &str = "Bost FlowStation";
 
+/// Next product name after the rebrand (announced in OTA bridge / README).
+pub const PRODUCT_NAME_NEXT: &str = "PTBS";
+
+/// Long form of [`PRODUCT_NAME_NEXT`].
+pub const PRODUCT_NAME_NEXT_LONG: &str = "Personal Tetra Base Station";
+
 /// Our release line (independent of upstream crate package version).
-pub const BOST_VERSION: &str = "0.3.11";
+pub const BOST_VERSION: &str = "0.3.12";
 
 /// Upstream project this fork is based on.
 pub const UPSTREAM_NAME: &str = "FlowStation";
@@ -31,20 +37,38 @@ pub const STACK_VERSION: &str = const_format::formatcp!("v{}-{}", BOST_VERSION, 
 pub const VERSION_BASED_ON: &str =
     const_format::formatcp!("based on {} v{}", UPSTREAM_NAME, UPSTREAM_VERSION);
 
-/// Public source repository for this fork.
+/// Public source repository for this fork (still `bost-flowstation` during the OTA bridge;
+/// GitHub will rename to `ptbs` after the dwell window — see [`is_product_repo_url`]).
 pub const PRODUCT_REPO_URL: &str = "https://github.com/Aitorrio/bost-flowstation";
 pub const PRODUCT_REPO_LABEL: &str = "github.com/Aitorrio/bost-flowstation";
 
 /// Git clone URL used by OTA (`git remote set-url origin …`).
 pub const PRODUCT_REPO_GIT: &str = "https://github.com/Aitorrio/bost-flowstation.git";
 
-/// Stable OTA channel → git branch `bost` (day-to-day production).
-pub const PRODUCT_OTA_BRANCH_STABLE: &str = "bost";
+/// Future canonical repo slug after rebrand (accepted by OTA allowlist today).
+pub const PRODUCT_REPO_SLUG_NEXT: &str = "Aitorrio/ptbs";
+
+/// Stable OTA channel → git branch `main` (day-to-day production).
+/// Bridge release: field units still on branch `bost` OTA once into this build, then track `main`.
+pub const PRODUCT_OTA_BRANCH_STABLE: &str = "main";
 /// Beta OTA channel → git branch `beta` (previews / experiments).
 pub const PRODUCT_OTA_BRANCH_BETA: &str = "beta";
 
+/// Legacy stable branch name (pre-bridge). Kept for docs / install scripts during dwell.
+pub const PRODUCT_OTA_BRANCH_STABLE_LEGACY: &str = "bost";
+
 /// Default OTA branch (stable). Prefer [`ota_branch_for_channel`].
 pub const PRODUCT_OTA_BRANCH: &str = PRODUCT_OTA_BRANCH_STABLE;
+
+/// Canonical install checkout after rebrand (preferred by OTA path resolution).
+pub const PRODUCT_SRC_DIR: &str = "/opt/ptbs";
+/// Legacy install checkout (Bost). Still resolved if present.
+pub const PRODUCT_SRC_DIR_LEGACY: &str = "/opt/bost-flowstation";
+
+/// Canonical binary name after rebrand (installed as symlink/copy alongside the legacy name).
+pub const PRODUCT_BIN_NAME: &str = "ptbs";
+/// Legacy binary / cargo package name during the bridge.
+pub const PRODUCT_BIN_NAME_LEGACY: &str = "bluestation-bs";
 
 /// Normalize a dashboard channel id to `"stable"` or `"beta"`.
 pub fn normalize_ota_channel(channel: &str) -> &'static str {
@@ -54,13 +78,20 @@ pub fn normalize_ota_channel(channel: &str) -> &'static str {
     }
 }
 
-/// Git branch for an OTA channel (`stable` → `bost`, `beta` → `beta`).
+/// Git branch for an OTA channel (`stable` → `main`, `beta` → `beta`).
 pub fn ota_branch_for_channel(channel: &str) -> &'static str {
     match normalize_ota_channel(channel) {
         "beta" => PRODUCT_OTA_BRANCH_BETA,
         _ => PRODUCT_OTA_BRANCH_STABLE,
     }
 }
+
+/// True if `url` points at this product's GitHub repo (current or post-rebrand slug).
+pub fn is_product_repo_url(url: &str) -> bool {
+    let u = url.to_ascii_lowercase();
+    u.contains("aitorrio/bost-flowstation") || u.contains("aitorrio/ptbs")
+}
+
 pub mod address;
 pub mod bitbuffer;
 pub mod debug;

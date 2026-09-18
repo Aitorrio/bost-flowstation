@@ -419,14 +419,14 @@ fn parse_session_cookie(headers: &str) -> Option<String> {
     None
 }
 
-/// Resolve the Bost FlowStation git source directory for OTA updates.
+/// Resolve the product git source directory for OTA updates.
 ///
 /// Resolution order (first match wins):
 ///   1. `override_dir` from config ([dashboard].source_dir) — explicit user choice.
 ///   2. Walk up from `current_exe()` looking for a `.git` directory. This handles
 ///      the development case where the binary lives at `<src>/target/release/...`.
-///   3. Well-known install paths: `/opt/bost-flowstation`, then legacy FlowStation
-///      paths (`/opt/tetra-bluestation`, `/opt/flowstation`, …).
+///   3. Well-known install paths: `/opt/ptbs`, then `/opt/bost-flowstation`, then
+///      legacy FlowStation paths (`/opt/tetra-bluestation`, `/opt/flowstation`, …).
 ///   4. `current_dir()` if it contains a `.git` directory.
 ///
 /// Returns `Ok(path)` on success, or `Err(message)` listing all paths tried.
@@ -474,9 +474,10 @@ fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, 
         }
     }
 
-    // 3. Well-known install paths (Bost first, then legacy).
+    // 3. Well-known install paths (PTBS first, then Bost legacy, then FlowStation).
     for candidate in &[
-        "/opt/bost-flowstation",
+        tetra_core::PRODUCT_SRC_DIR,
+        tetra_core::PRODUCT_SRC_DIR_LEGACY,
         "/opt/tetra-bluestation",
         "/opt/flowstation",
         "/opt/tetra-bs",
@@ -500,21 +501,26 @@ fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, 
     }
 
     Err(format!(
-        "OTA update needs the Bost FlowStation git source tree to be present on this machine, \
+        "OTA update needs the {} git source tree to be present on this machine, \
          but none was found. You have two options:\n\
          \n\
          1) Clone the sources next to your binary:\n\
-            git clone {} -b {} /opt/bost-flowstation\n\
+            git clone {} -b {} {}\n\
+            (legacy path {} also works during the PTBS migration)\n\
             Then either move the binary into that tree, or set source_dir in config:\n\
             [dashboard]\n\
-            source_dir = \"/opt/bost-flowstation\"\n\
+            source_dir = \"{}\"\n\
          \n\
          2) If your platform can't compile (e.g. Pi Zero), update manually by downloading \
          the latest release binary from GitHub.\n\
          \n\
          Paths tried: {}",
+        tetra_core::PRODUCT_NAME_NEXT,
         tetra_core::PRODUCT_REPO_GIT,
         tetra_core::PRODUCT_OTA_BRANCH,
+        tetra_core::PRODUCT_SRC_DIR,
+        tetra_core::PRODUCT_SRC_DIR_LEGACY,
+        tetra_core::PRODUCT_SRC_DIR,
         if tried.is_empty() { "(none)".to_string() } else { tried.join("; ") }
     ))
 }
@@ -1103,8 +1109,11 @@ fn find_cargo(src_dir: &std::path::Path) -> std::path::PathBuf {
 /// Install the freshly built release binary over the running ExecStart path (typically
 /// `/usr/local/bin/bluestation-bs`). Without this, `cargo build` updates `target/release/` but the
 /// systemd unit keeps running the old installed copy after restart.
+///
+/// Bridge (PTBS): also refreshes `/usr/local/bin/ptbs` (copy or symlink) so future units can
+/// ExecStart the new name while legacy `bluestation-bs` keeps working.
 fn install_built_binary(src_dir: &std::path::Path, update: &SharedUpdateState) -> bool {
-    let built = src_dir.join("target/release/bluestation-bs");
+    let built = src_dir.join("target/release").join(tetra_core::PRODUCT_BIN_NAME_LEGACY);
     if !built.is_file() {
         update.lock().unwrap().append(&format!(
             "ERROR: built binary not found at {}",
@@ -1125,14 +1134,27 @@ fn install_built_binary(src_dir: &std::path::Path, update: &SharedUpdateState) -
 
     // Prefer the well-known install path when the running exe is already that path, or when
     // current_exe points inside target/ (dev runs). Always refresh /usr/local/bin when present.
-    let install_path = std::path::PathBuf::from("/usr/local/bin/bluestation-bs");
-    let targets: Vec<std::path::PathBuf> = if dest == install_path {
-        vec![dest]
-    } else if install_path.exists() {
-        vec![install_path, dest]
+    let legacy_install = std::path::PathBuf::from(format!(
+        "/usr/local/bin/{}",
+        tetra_core::PRODUCT_BIN_NAME_LEGACY
+    ));
+    let next_install =
+        std::path::PathBuf::from(format!("/usr/local/bin/{}", tetra_core::PRODUCT_BIN_NAME));
+    let mut targets: Vec<std::path::PathBuf> = if dest == legacy_install || dest == next_install {
+        vec![dest.clone()]
+    } else if legacy_install.exists() {
+        vec![legacy_install.clone(), dest.clone()]
     } else {
-        vec![dest]
+        vec![dest.clone()]
     };
+    // Always stage the future binary name alongside the legacy one when we can write /usr/local/bin.
+    if !targets.iter().any(|p| p == &next_install)
+        && (next_install.exists()
+            || legacy_install.exists()
+            || next_install.parent().is_some_and(|d| d.is_dir()))
+    {
+        targets.push(next_install.clone());
+    }
 
     for dest in targets {
         let tmp = dest.with_extension("ota-new");
@@ -1178,11 +1200,11 @@ fn binary_built_from(binary_git_hash: &str, repo_head: &str) -> Option<bool> {
 /// Steps:
 ///   1. Resolve source dir (config override -> walk-up -> well-known paths -> CWD)
 ///   2. Validate it is a git repository
-///   3. Read OTA channel from config → branch (`stable`/`bost`, `beta`/`beta`)
+///   3. Read OTA channel from config → branch (`stable`/`main`, `beta`/`beta`)
 ///   4. git fetch + `checkout -B` + `reset --hard origin/<branch>` (preserves `target/`)
 ///   5. Skip rebuild/install/restart when the running binary already matches HEAD
 ///   6. cargo build --release (incremental; never `cargo clean`)
-///   7. install binary + systemctl restart
+///   7. install binary (+ future `ptbs` name) + systemctl restart
 fn run_update(update: SharedUpdateState, config_path: String, source_dir_override: Option<String>) {
     macro_rules! log {
         ($update:expr, $($arg:tt)*) => {{
@@ -1192,7 +1214,14 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         }};
     }
 
-    log!(update, "=== Bost FlowStation OTA Update ===");
+    log!(update, "=== {} OTA Update ===", tetra_core::PRODUCT_NAME);
+    log!(
+        update,
+        "Migration notice: {} ({}) is coming. This bridge tracks stable→git branch `main` \
+         (legacy `bost` still receives this bridge so field units can update once).",
+        tetra_core::PRODUCT_NAME_NEXT,
+        tetra_core::PRODUCT_NAME_NEXT_LONG
+    );
 
     // Step 1: resolve source directory. Bail out cleanly if we can't find a git repo.
     let src_dir = match resolve_source_dir(source_dir_override.as_deref()) {
@@ -1302,10 +1331,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         {
             return;
         }
-    } else if current_origin != ota_url
-        && !current_origin.contains("Aitorrio/bost-flowstation")
-        && !current_origin.contains("aitorrio/bost-flowstation")
-    {
+    } else if current_origin != ota_url && !tetra_core::is_product_repo_url(&current_origin) {
         log!(
             update,
             "origin was '{}' — switching to {}",
@@ -1323,7 +1349,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             return;
         }
     } else if current_origin != ota_url {
-        // Same repo, different URL form (ssh vs https) — normalize to the canonical HTTPS clone URL.
+        // Same product repo (bost-flowstation or future ptbs), different URL form — normalize.
         let _ = run_cmd_output(
             &update,
             "git",

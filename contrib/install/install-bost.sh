@@ -11,7 +11,9 @@
 # Env:
 #   BOST_SRC            existing checkout (default: /opt/bost-flowstation)
 #   BOST_BRANCH         git branch (default: bost). Use `beta` for the preview channel.
-#                       Dashboard OTA channel is set to match (stable↔bost, beta↔beta).
+#                       Dashboard OTA channel is set to match (stable↔main after v0.3.12 bridge,
+#                       legacy stable↔bost still used by this installer default; `main` for new trunks).
+#                       Product rebrand to PTBS is underway — prefer keeping OTA current.
 #   BOST_REPO           git URL (default: https://github.com/Aitorrio/bost-flowstation.git)
 #   BOST_FORCE_CLEAN=1  delete source tree and re-clone (keeps /etc/flowstation)
 #   BOST_USE_DEB=1      prefer .deb asset if available (optional)

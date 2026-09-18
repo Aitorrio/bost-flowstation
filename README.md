@@ -10,6 +10,11 @@
 
 </div>
 
+> **Coming soon: PTBS (Personal Tetra Base Station)**  
+> Bost FlowStation evolves into **PTBS** — open source for radio amateurs and professional/commercial use.  
+> **Please run dashboard OTA once** on this bridge release (**v0.3.12+**). Stable now tracks git branch **`main`** (legacy branch `bost` still carries the bridge so existing Pis can update). Full rebrand (repo name, binary, UI) lands as **v0.4.0** after a short migration window.  
+> ES: *Pronto PTBS. Haz OTA una vez (v0.3.12+). Estable → rama `main`. El rename completo llega en 0.4.0.*
+
 ---
 
 ## What is Bost FlowStation?

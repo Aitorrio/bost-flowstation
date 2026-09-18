@@ -6465,10 +6465,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="ota-channel-field">
         <label for="ota-channel-select" data-i18n="ota_channel_title">OTA channel</label>
         <select id="ota-channel-select" onchange="saveOtaChannel()">
-          <option value="stable" data-i18n="ota_channel_stable">Stable (bost)</option>
+          <option value="stable" data-i18n="ota_channel_stable">Stable (main)</option>
           <option value="beta" data-i18n="ota_channel_beta">Beta</option>
         </select>
-        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = day-to-day. Beta = previews. Checking and updating use this channel.</span>
+        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = main (day-to-day). Beta = previews. This release bridges to PTBS — please OTA once.</span>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" onclick="closeUpdateModal()" data-i18n="cancel">Cancel</button>
@@ -6929,9 +6929,9 @@ const LANGS={
     update:'Update',update_available:'Update available',update_title:'OTA Update — github.com/Aitorrio/bost-flowstation',
     update_confirm:'Pull latest from the {channel} channel (branch {branch}) and rebuild?\nThe service will restart automatically if a new build is needed.',
     ota_channel_title:'OTA channel',
-    ota_channel_stable:'Stable (bost)',
+    ota_channel_stable:'Stable (main)',
     ota_channel_beta:'Beta',
-    ota_channel_help:'Stable = day-to-day. Beta = previews. Checking and updating use this channel.',
+    ota_channel_help:'Stable tracks git branch main (was bost). Beta = previews. Coming soon: rebrand to PTBS (Personal Tetra Base Station) — please run OTA once on this bridge release.',
     ota_channel_saved:'✓ Channel saved — checks use {channel} ({branch}).',
     ota_channel_save_fail:'✗ Could not save OTA channel',
     ota_check:'Check for updates',
@@ -7443,9 +7443,9 @@ const LANGS={
     update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
     update_confirm:'¿Obtener lo último del canal {channel} (rama {branch}) y recompilar?\nEl servicio se reiniciará automáticamente si hace falta una build nueva.',
     ota_channel_title:'Canal OTA',
-    ota_channel_stable:'Estable (bost)',
+    ota_channel_stable:'Estable (main)',
     ota_channel_beta:'Beta',
-    ota_channel_help:'Estable = día a día. Beta = novedades. Comprobar y actualizar usan este canal.',
+    ota_channel_help:'Estable sigue la rama git main (antes bost). Beta = novedades. Próximo rebrand a PTBS (Personal Tetra Base Station) — haz OTA una vez con esta versión puente.',
     ota_channel_saved:'✓ Canal guardado — las comprobaciones usan {channel} ({branch}).',
     ota_channel_save_fail:'✗ No se pudo guardar el canal OTA',
     ota_check:'Comprobar actualizaciones',

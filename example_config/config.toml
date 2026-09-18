@@ -564,17 +564,21 @@ voice_service = true
 # false, the dashboard uses [cell_info].dgna_attachment_mode silently.
 # show_dgna_attachment_mode_picker = true
 #
-# OPTIONAL: OTA release channel. "stable" tracks git branch `bost` (day-to-day).
+# OPTIONAL: OTA release channel. "stable" tracks git branch `main` (day-to-day).
 # "beta" tracks branch `beta` (previews). Can also be changed in System → OTA channel.
+# Bridge note: pre-0.3.12 units used branch `bost` for stable; that branch still
+# receives the migration bridge so field installs can OTA once, then follow `main`.
+# Product rebrand to PTBS (Personal Tetra Base Station) is underway — keep OTA current.
 # ota_channel = "stable"
 #
-# OPTIONAL: explicit path to the FlowStation git source directory used by the
+# OPTIONAL: explicit path to the git source directory used by the
 # "Update" button. By default the dashboard auto-detects by walking up from the
-# binary path looking for a .git directory, then trying /opt/tetra-bluestation,
-# /opt/flowstation, /opt/tetra-bs, /opt/tetra. Set this if your binary lives
-# outside the git clone (e.g. binary copied to /usr/local/bin/, sources in /opt/...)
-# or if auto-detection finds the wrong directory.
-# source_dir = "/opt/tetra-bluestation"
+# binary path looking for a .git directory, then trying /opt/ptbs,
+# /opt/bost-flowstation, /opt/tetra-bluestation, /opt/flowstation, …
+# Set this if your binary lives outside the git clone (e.g. binary copied to
+# /usr/local/bin/, sources in /opt/...) or if auto-detection finds the wrong directory.
+# source_dir = "/opt/bost-flowstation"
+# # After rebrand, prefer: source_dir = "/opt/ptbs"
 
 ###############################################################################
 
