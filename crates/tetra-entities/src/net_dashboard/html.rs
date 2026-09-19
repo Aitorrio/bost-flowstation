@@ -697,16 +697,29 @@ body{
   font-size:18px;line-height:1;padding:0;z-index:2;
 }
 #lst-call-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
-#lst-geo-modal .modal.lst-geo-modal{width:min(920px,96vw);max-height:92vh;overflow:auto;position:relative;padding-top:28px;}
+#lst-geo-modal .modal.lst-geo-modal{width:min(920px,96vw);max-height:92vh;overflow:auto;position:relative;}
+#lst-geo-modal .lst-geo-head{
+  display:flex;align-items:flex-start;gap:10px;
+  margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);
+}
+#lst-geo-modal .lst-geo-head .modal-title{
+  flex:1;min-width:0;margin:0;padding:0;border:none;padding-right:4px;
+}
 #lst-geo-modal .lst-modal-x{
-  position:absolute;top:10px;right:10px;z-index:2;width:32px;height:32px;border-radius:8px;
-  border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;
+  position:static;flex:0 0 auto;width:32px;height:32px;border-radius:8px;
+  border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;
+  font-size:18px;line-height:1;display:inline-flex;align-items:center;justify-content:center;
 }
 #lst-geo-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
 .lst-geo-map{height:min(360px,42vh);width:100%;border-radius:8px;border:1px solid var(--border);background:var(--bg-2);margin:8px 0 10px;}
 .lst-geo-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;}
+.lst-geo-fit-m{display:none;}
 .lst-geo-table-wrap{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
 .lst-geo-table-wrap .data-table{margin:0;}
+#lst-geo-table th.lst-geo-actions-th{text-align:right;white-space:nowrap;vertical-align:middle;}
+#lst-geo-table th.lst-geo-actions-th .btn{
+  text-transform:none;letter-spacing:0;font-weight:600;font-size:11px;padding:4px 10px;
+}
 .lst-geo-empty{text-align:center;padding:18px;color:var(--muted);}
 .lst-geo-pin{
   width:28px;height:28px;margin-left:-14px;margin-top:-28px;
@@ -2053,6 +2066,9 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   /* Modal dialogs: near full screen on phone, scrollable content */
   .modal{width:95vw!important;max-height:90vh!important;padding:14px!important;overflow-y:auto;}
   .modal-title{font-size:11px;margin-bottom:12px;padding-bottom:8px;}
+  #lst-geo-modal .lst-geo-head{margin-bottom:10px;padding-bottom:8px;}
+  #lst-geo-modal .lst-geo-head .modal-title{margin:0;padding:0;border:none;font-size:11px;}
+  #lst-geo-modal .lst-geo-fit-m{display:inline-flex;}
   #update-modal .modal{width:95vw!important;}
   .update-terminal{height:200px!important;font-size:10px!important;}
 
@@ -3427,6 +3443,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 #page-sdslog table th, #page-sdslog table td{ text-align:left; vertical-align:top; }
 #page-sdslog .sds-time{ white-space:nowrap; color:var(--text2); font-variant-numeric:tabular-nums; }
 #page-sdslog .sds-msg{ word-break:break-word; max-width:560px; }
+#page-sdslog .card-actions .log-filter{width:auto;min-width:110px;}
 .sds-empty{ color:var(--text3); font-style:italic; }
 .sds-map-link{ color:var(--accent2); font-weight:700; text-decoration:none; }
 .sds-map-link:hover{ text-decoration:underline; }
@@ -4630,7 +4647,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-head">
           <div class="card-title" data-i18n="sdslog">SDS Log</div>
           <div class="card-actions">
-            <button class="btn btn-sm" onclick="loadSdsLog()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="sds_refresh">Refresh</span></button>
+            <select id="sds-type-filter" class="log-filter" onchange="sdsLogPageIndex=0;renderSdsLog()" title="Type">
+              <option value="all" data-i18n="filter_all">All</option>
+              <option value="lip" data-i18n="sds_filter_lip">LIP</option>
+              <option value="text" data-i18n="sds_filter_text">Text</option>
+              <option value="status" data-i18n="sds_filter_status">Status</option>
+              <option value="concat" data-i18n="sds_filter_concat">Concat</option>
+              <option value="home" data-i18n="sds_filter_home">Home display</option>
+              <option value="other" data-i18n="sds_filter_other">Other</option>
+            </select>
             <button class="btn btn-sm" onclick="exportSdsLog()"><span class="btn-icon" data-icon="export"></span><span data-i18n="export">Export</span></button>
             <button class="btn btn-sm btn-danger" onclick="clearSdsLog()"><span class="btn-icon" data-icon="delete"></span><span data-i18n="clear">Clear</span></button>
           </div>
@@ -6364,21 +6389,24 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 <!-- ── LST Geo LIP modal ── -->
 <div class="modal-overlay" id="lst-geo-modal" onclick="if(event.target===this)lstCloseGeo()">
   <div class="modal lst-geo-modal" role="dialog" aria-modal="true" aria-labelledby="lst-geo-title">
-    <button type="button" class="lst-modal-x" onclick="lstCloseGeo()" title="Close" aria-label="Close">×</button>
-    <div class="modal-title" id="lst-geo-title" data-i18n="lst_geo_title">Geo LIP</div>
+    <div class="lst-geo-head">
+      <div class="modal-title" id="lst-geo-title" data-i18n="lst_geo_title">Ubicación LIP</div>
+      <button type="button" class="lst-modal-x" onclick="lstCloseGeo()" title="Close" aria-label="Close">×</button>
+    </div>
     <div class="lst-geo-map" id="lst-geo-map" aria-label="Map"></div>
     <div class="lst-geo-toolbar">
-      <button type="button" class="btn btn-sm" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
-      <button type="button" class="btn btn-sm" onclick="lstGeoRefresh()" data-i18n="refresh">Refresh</button>
+      <button type="button" class="btn btn-sm lst-geo-fit-m" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
       <span class="help-text" id="lst-geo-status"></span>
     </div>
     <div class="lst-geo-table-wrap">
-      <table class="data-table" id="lst-geo-table">
+      <table class="data-table table-stack" id="lst-geo-table">
         <thead><tr>
           <th data-i18n="issi">ISSI</th>
           <th data-i18n="lst_col_pos">Position</th>
           <th data-i18n="lst_geo_age">Age</th>
-          <th></th>
+          <th class="lst-geo-actions-th">
+            <button type="button" class="btn btn-sm" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
+          </th>
         </tr></thead>
         <tbody id="lst-geo-tbody"></tbody>
       </table>
@@ -6775,6 +6803,7 @@ const LANGS={
     wiz_rf_title:'Enable RF',wiz_rf_help:'Sets phy_io.backend = SoapySdr, writes the device string, and restarts the service.',
     wiz_auto_title:'Autostart',wiz_auto_help:'Ensure the systemd unit is enabled so the station comes back after reboot.',
     sdslog:'SDS Log',th_dir:'Dir',th_from:'From',th_to:'To',th_message:'Message',no_sds:'No SDS messages yet',sds_refresh:'Refresh',
+    sds_filter_lip:'LIP',sds_filter_text:'Text',sds_filter_status:'Status',sds_filter_concat:'Concat',sds_filter_home:'Home display',sds_filter_other:'Other',
     rf_freq:'Center freq',rf_rate:'Sample rate',rf_rms:'RMS',rf_peak:'Peak',rf_age:'Snapshot',
     rf_waiting:'waiting…',rf_live:'live',rf_stale:'stale',
     rf_visualizers:'Visualizers',rf_spectrum:'TX DSP Spectrum (pre-PA)',rf_constellation:'TX DSP Constellation',
@@ -6894,7 +6923,7 @@ const LANGS={
     lst_need_profile:'Apply the “LST Dispatch” Brew profile in Config and restart to enable this console.',
     lst_go_config:'Go to Config',
     lst_busy:'Dispatch in use by',lst_console:'Dispatch console',lst_claim:'Take dispatch',lst_release:'Close dispatch',
-    lst_geo:'Location',lst_geo_title:'Geo LIP',lst_geo_fit:'Fit all',lst_geo_age:'Age',lst_geo_empty:'No recent LIP positions',
+    lst_geo:'Location',lst_geo_title:'Location LIP',lst_geo_fit:'Fit all',lst_geo_age:'Age',lst_geo_empty:'No recent LIP positions',
     lst_geo_loading:'Loading map…',lst_geo_map_fail:'Map unavailable — table only',lst_geo_center:'Center',
     lst_operator_issi:'Dispatcher ISSI',lst_apply_issi:'Apply',lst_gssi:'Talkgroup GSSI',lst_join:'Join',lst_leave:'Leave',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Send',lst_roster:'Radios online',lst_col_groups:'Groups',lst_col_pos:'Position',
@@ -7072,6 +7101,7 @@ const LANGS={
     stations:'Acasă',calls:'Apeluri',lastheard:'Ultima Activitate',log:'Log',rf:'RF',health:'Sănătate',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
     home_quick_title:'Profiluri rapide',home_more_settings:'Mai multe setări',
     sdslog:'Jurnal SDS',th_dir:'Dir',th_from:'De la',th_to:'Către',th_message:'Mesaj',no_sds:'Niciun mesaj SDS încă',sds_refresh:'Reîmprospătează',
+    sds_filter_lip:'LIP',sds_filter_text:'Text',sds_filter_status:'Status',sds_filter_concat:'Concat',sds_filter_home:'Home display',sds_filter_other:'Altele',
     rf_freq:'Frecvență centru',rf_rate:'Rată eșantion',rf_rms:'RMS',rf_peak:'Vârf',rf_age:'Captură',
     rf_waiting:'în așteptare…',rf_live:'live',rf_stale:'expirat',
     rf_visualizers:'Vizualizatoare',rf_spectrum:'Spectru TX DSP (pre-PA)',rf_constellation:'Constelație TX DSP',
@@ -7193,6 +7223,7 @@ const LANGS={
     stations:'Start',calls:'Anrufe',lastheard:'Zuletzt Gehört',log:'Log',rf:'RF',health:'Gesundheit',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
     home_quick_title:'Schnelle Profile',home_more_settings:'Weitere Einstellungen',
     sdslog:'SDS-Log',th_dir:'Ri.',th_from:'Von',th_to:'An',th_message:'Nachricht',no_sds:'Noch keine SDS-Nachrichten',sds_refresh:'Aktualisieren',
+    sds_filter_lip:'LIP',sds_filter_text:'Text',sds_filter_status:'Status',sds_filter_concat:'Concat',sds_filter_home:'Home-Anzeige',sds_filter_other:'Sonstige',
     rf_freq:'Mittenfrequenz',rf_rate:'Abtastrate',rf_rms:'RMS',rf_peak:'Spitze',rf_age:'Aufnahme',
     rf_waiting:'wartet…',rf_live:'live',rf_stale:'veraltet',
     rf_visualizers:'Visualisierungen',rf_spectrum:'TX-DSP-Spektrum (vor PA)',rf_constellation:'TX-DSP-Konstellation',
@@ -7323,7 +7354,7 @@ const LANGS={
     lst_need_profile:'Aplica el perfil Brew “Despacho LST” en Configuración y reinicia para activar esta consola.',
     lst_go_config:'Ir a Configuración',
     lst_busy:'Despacho en uso por',lst_console:'Consola de despacho',lst_claim:'Tomar despacho',lst_release:'Cerrar despacho',
-    lst_geo:'Ubicación',lst_geo_title:'Geo LIP',lst_geo_fit:'Centrar todos',lst_geo_age:'Antigüedad',lst_geo_empty:'Sin posiciones LIP recientes',
+    lst_geo:'Ubicación',lst_geo_title:'Ubicación LIP',lst_geo_fit:'Centrar todos',lst_geo_age:'Antigüedad',lst_geo_empty:'Sin posiciones LIP recientes',
     lst_geo_loading:'Cargando mapa…',lst_geo_map_fail:'Mapa no disponible — solo tabla',lst_geo_center:'Centrar',
     lst_operator_issi:'ISSI despachador',lst_apply_issi:'Aplicar',lst_gssi:'GSSI / TG',lst_join:'Unirse',lst_leave:'Salir',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Enviar',lst_roster:'Radios online',lst_col_groups:'Grupos',lst_col_pos:'Ubicación',
@@ -7369,6 +7400,7 @@ const LANGS={
     cfg_apply_confirm:'¿Aplicar los perfiles Cell × Brew seleccionados y reiniciar? Se hará copia de seguridad del config.toml actual.',
     cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
+    sds_filter_lip:'LIP',sds_filter_text:'Texto',sds_filter_status:'Estado',sds_filter_concat:'Concat',sds_filter_home:'Pantalla home',sds_filter_other:'Otros',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
     rf_waiting:'esperando…',rf_live:'en vivo',rf_stale:'obsoleto',
     rf_visualizers:'Visualizadores',rf_spectrum:'Espectro TX DSP (pre-PA)',rf_constellation:'Constelación TX DSP',
@@ -7562,6 +7594,7 @@ const LANGS={
     stations:'Kezdőlap',calls:'Hívások',lastheard:'Utoljára Hallott',log:'Napló',rf:'RF',health:'Állapot',echolink:'EchoLink',echolink_title:'EchoLink',config:'Konfig',
     home_quick_title:'Gyors profilok',home_more_settings:'További beállítások',
     sdslog:'SDS Napló',th_dir:'Irány',th_from:'Feladó',th_to:'Címzett',th_message:'Üzenet',no_sds:'Még nincs SDS üzenet',sds_refresh:'Frissítés',
+    sds_filter_lip:'LIP',sds_filter_text:'Szöveg',sds_filter_status:'Státusz',sds_filter_concat:'Concat',sds_filter_home:'Home kijelző',sds_filter_other:'Egyéb',
     rf_freq:'Központi frekvencia',rf_rate:'Mintavételezési ráta',rf_rms:'RMS',rf_peak:'Csúcs',rf_age:'Pillanatkép',
     rf_waiting:'várakozás…',rf_live:'élő',rf_stale:'elavult',
     rf_visualizers:'Vizualizációk',rf_spectrum:'TX DSP spektrum (PA előtt)',rf_constellation:'TX DSP konstelláció',
@@ -7642,6 +7675,7 @@ const LANGS={
     stations:'主页',calls:'通话',lastheard:'最近通话',log:'日志',rf:'RF',health:'健康',echolink:'EchoLink',echolink_title:'EchoLink',config:'配置',
     home_quick_title:'快速配置',home_more_settings:'更多设置',
     sdslog:'SDS日志',th_dir:'方向',th_from:'发件',th_to:'收件',th_message:'消息',no_sds:'暂无SDS消息',sds_refresh:'刷新',
+    sds_filter_lip:'LIP',sds_filter_text:'文本',sds_filter_status:'状态',sds_filter_concat:'Concat',sds_filter_home:'主屏',sds_filter_other:'其他',
     rf_freq:'中心频率',rf_rate:'采样率',rf_rms:'RMS',rf_peak:'峰值',rf_age:'快照',
     rf_waiting:'等待中…',rf_live:'实时',rf_stale:'已过期',
     rf_visualizers:'可视化',rf_spectrum:'TX DSP 频谱（功放前）',rf_constellation:'TX DSP 星座图',
@@ -8447,6 +8481,7 @@ function lstGeoRenderTable(){
   const rows=lstGeoRows();
   if(!rows.length){
     tb.innerHTML=`<tr><td colspan="4" class="lst-geo-empty">${escHtml(t('lst_geo_empty'))}</td></tr>`;
+    if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
     return;
   }
   tb.innerHTML=rows.map(p=>{
@@ -8461,6 +8496,7 @@ function lstGeoRenderTable(){
       <td><button type="button" class="btn btn-sm" onclick="lstGeoCenter(${p.lat},${p.lon},${p.issi})">${escHtml(t('lst_geo_center'))}</button></td>
     </tr>`;
   }).join('');
+  if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
 }
 function lstGeoRenderMap(){
   const st=document.getElementById('lst-geo-status');
@@ -10646,6 +10682,24 @@ function downloadTextFile(filename,text){
 // Human label for known SDS protocol-identifier bytes so binary payloads (no decoded text)
 // still read meaningfully. 0x02/0x09/0x82/0x89 = text; 0x0A = LIP position; 0xDC = Home Mode Display.
 function pidLabel(pid){const m={2:'text',9:'text',10:'LIP position',12:'concat',128:'text',130:'text',137:'text',218:'status',220:'home-display'};return m[pid]||('PID '+pid);}
+function sdsTypeKind(pid){
+  const p=Number(pid)|0;
+  if(p===10)return 'lip';
+  if(p===2||p===9||p===128||p===130||p===137)return 'text';
+  if(p===218)return 'status';
+  if(p===12)return 'concat';
+  if(p===220)return 'home';
+  return 'other';
+}
+function sdsTypeFilterValue(){
+  return (document.getElementById('sds-type-filter')?.value)||'all';
+}
+function filteredSdsLog(){
+  const rows=state.sdsLog||[];
+  const f=sdsTypeFilterValue();
+  if(f==='all')return rows;
+  return rows.filter(e=>sdsTypeKind(e.protocol_id)===f);
+}
 const SDS_DIR={rx:['pill-ok','RX'],net:['pill-info','NET'],tx:['pill-warn','TX']};
 function dirBadge(dir){const x=SDS_DIR[dir]||['pill-idle',(dir||'?').toUpperCase()];return `<span class="pill ${x[0]}">${x[1]}</span>`;}
 function lipPositionFromText(text){
@@ -10674,7 +10728,7 @@ function sdsRow(e){
 }
 function renderSdsLog(){
   const tb=document.getElementById('sdslog-tbody');if(!tb)return;
-  const rows=state.sdsLog||[];
+  const rows=filteredSdsLog();
   sdsLogPageIndex=clampLogPage(sdsLogPageIndex,rows.length);
   setLogPager('sdslog-page',sdsLogPageIndex,rows.length);
   if(!rows.length){tb.innerHTML=`<tr><td colspan="5" class="sds-empty" style="text-align:center;padding:24px">${t('no_sds')}</td></tr>`;}
@@ -10696,7 +10750,7 @@ async function clearSdsLog(){
   try{const r=await fetch('/api/sds-log',{method:'DELETE'});if(!r.ok)return;state.sdsLog=[];sdsLogPageIndex=0;renderSdsLog();}catch{}
 }
 function exportSdsLog(){
-  const rows=state.sdsLog||[];
+  const rows=filteredSdsLog();
   if(!rows.length)return;
   const lines=['TIME\tDIR\tFROM\tTO\tGROUP\tPID\tMESSAGE'];
   for(const e of rows){

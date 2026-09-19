@@ -2,6 +2,18 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.19 — Modal Ubicación LIP
+
+- Título **Ubicación LIP** (antes Geo LIP).
+- **Centrar todos** pasa al encabezado de la columna de acciones; en móvil se muestra encima de la tabla (el thead se apila).
+- Se elimina Refresh (el modal ya refresca cada 5 s).
+- Cierre (×) ya no se superpone con el separador del título en móvil.
+
+## v0.3.18 — Filtro por tipo en Registro SDS
+
+- Selector Todos / LIP / Texto / Estado / Concat / Home / Otros junto a Exportar.
+- Se elimina Actualizar: el log se carga al abrir la pestaña y llega en vivo por WebSocket.
+
 ## v0.3.17 — Ubicación en Inicio (sin LST)
 
 - Botón **Ubicación** en la tarjeta Radios registrados (Inicio): mismo modal Geo LIP que en LST.
