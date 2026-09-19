@@ -33,6 +33,50 @@ const WS_CLIENT_QUEUE: usize = 256;
 /// Hard cap on concurrent WS clients, so many idle/non-draining connections can't grow memory and
 /// thread count without bound. New upgrades past this are refused.
 const WS_MAX_CLIENTS: usize = 64;
+/// Cap concurrent dashboard HTTP(S) handler threads. Each request still gets its own thread; without
+/// a ceiling, aggressive browser polls (LST DL, retries while the stack is wedged) can exhaust the
+/// Pi and take down the whole process — which surfaces as ERR_CONNECTION_RESET / empty responses.
+const DASH_MAX_CONN: usize = 32;
+
+fn dash_conn_slots() -> &'static std::sync::atomic::AtomicUsize {
+    static SLOTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    &SLOTS
+}
+
+fn dash_try_acquire_conn() -> bool {
+    use std::sync::atomic::Ordering;
+    let slots = dash_conn_slots();
+    loop {
+        let cur = slots.load(Ordering::Relaxed);
+        if cur >= DASH_MAX_CONN {
+            return false;
+        }
+        if slots
+            .compare_exchange_weak(cur, cur + 1, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+        {
+            return true;
+        }
+    }
+}
+
+fn dash_release_conn() {
+    dash_conn_slots().fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+}
+
+struct DashConnGuard;
+impl Drop for DashConnGuard {
+    fn drop(&mut self) {
+        dash_release_conn();
+    }
+}
+
+fn dash_reject_busy_plain(mut stream: TcpStream) {
+    let _ = stream.set_nodelay(true);
+    let _ = stream.write_all(
+        b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 19\r\nContent-Type: text/plain\r\n\r\nDashboard busy\n",
+    );
+}
 
 /// A TETRA SSI is a 24-bit identity. The PDU serializers write it with `write_bits(ssi, 24)`
 /// (MAC-RESOURCE, D-SDS-DATA) whose range assertion aborts the calling thread on a wider value —
@@ -1822,6 +1866,13 @@ impl DashboardServer {
                         serve_https_redirect_plain(stream, https_port_for_redirect);
                         continue;
                     }
+                    if !dash_try_acquire_conn() {
+                        tracing::warn!(
+                            "Dashboard: connection cap ({DASH_MAX_CONN}) reached — rejecting HTTP"
+                        );
+                        dash_reject_busy_plain(stream);
+                        continue;
+                    }
                     let state = Arc::clone(&state);
                     let clients = Arc::clone(&clients);
                     let config_path = config_path.clone();
@@ -1834,9 +1885,10 @@ impl DashboardServer {
                     let login_throttle = Arc::clone(&login_throttle);
                     let radioid = radioid.clone();
                     let lst_handle = lst_handle.clone();
-                    std::thread::Builder::new()
+                    if std::thread::Builder::new()
                         .name("dashboard-conn".into())
                         .spawn(move || {
+                            let _guard = DashConnGuard;
                             handle_connection(
                                 ConnStream::plain(stream),
                                 state,
@@ -1854,7 +1906,10 @@ impl DashboardServer {
                                 lst_handle,
                             )
                         })
-                        .ok();
+                        .is_err()
+                    {
+                        dash_release_conn();
+                    }
                 }
             })
             .expect("failed to spawn dashboard HTTP thread");
@@ -1910,6 +1965,13 @@ impl DashboardServer {
                             .peer_addr()
                             .map(|a| a.to_string())
                             .unwrap_or_else(|_| "unknown".into());
+                        if !dash_try_acquire_conn() {
+                            tracing::warn!(
+                                "Dashboard: connection cap ({DASH_MAX_CONN}) reached — rejecting HTTPS from {peer}"
+                            );
+                            dash_reject_busy_plain(tcp);
+                            continue;
+                        }
                         let tls_config = Arc::clone(&tls_config);
                         let state = Arc::clone(&state);
                         let clients = Arc::clone(&clients);
@@ -1923,9 +1985,10 @@ impl DashboardServer {
                         let login_throttle = Arc::clone(&login_throttle);
                         let radioid = radioid.clone();
                         let lst_handle = lst_handle.clone();
-                        std::thread::Builder::new()
+                        if std::thread::Builder::new()
                             .name("dashboard-https-conn".into())
                             .spawn(move || {
+                                let _guard = DashConnGuard;
                                 let conn = match ConnStream::from_tls_handshake(tcp, tls_config) {
                                     Ok(c) => c,
                                     Err(e) => {
@@ -1950,7 +2013,10 @@ impl DashboardServer {
                                     lst_handle,
                                 )
                             })
-                            .ok();
+                            .is_err()
+                        {
+                            dash_release_conn();
+                        }
                     }
                 })
                 .expect("failed to spawn dashboard HTTPS thread");

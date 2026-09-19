@@ -712,13 +712,17 @@ body{
 }
 #lst-geo-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
 .lst-geo-map{height:min(360px,42vh);width:100%;border-radius:8px;border:1px solid var(--border);background:var(--bg-2);margin:8px 0 10px;}
-.lst-geo-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;}
-.lst-geo-fit-m{display:none;}
+.lst-geo-fit-m{display:none;flex:0 0 auto;white-space:nowrap;}
 .lst-geo-table-wrap{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
 .lst-geo-table-wrap .data-table{margin:0;}
-#lst-geo-table th.lst-geo-actions-th{text-align:right;white-space:nowrap;vertical-align:middle;}
-#lst-geo-table th.lst-geo-actions-th .btn{
+#lst-geo-table th.lst-geo-actions-th,
+#lst-geo-table td.lst-geo-actions-td{
+  text-align:center;white-space:nowrap;vertical-align:middle;
+}
+#lst-geo-table th.lst-geo-actions-th .btn,
+#lst-geo-table td.lst-geo-actions-td .btn{
   text-transform:none;letter-spacing:0;font-weight:600;font-size:11px;padding:4px 10px;
+  margin:0 auto;
 }
 .lst-geo-empty{text-align:center;padding:18px;color:var(--muted);}
 .lst-geo-pin{
@@ -2069,6 +2073,9 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   #lst-geo-modal .lst-geo-head{margin-bottom:10px;padding-bottom:8px;}
   #lst-geo-modal .lst-geo-head .modal-title{margin:0;padding:0;border:none;font-size:11px;}
   #lst-geo-modal .lst-geo-fit-m{display:inline-flex;}
+  #lst-geo-table.table-stack tbody td.lst-geo-actions-td > .stack-val{
+    justify-content:center;text-align:center;
+  }
   #update-modal .modal{width:95vw!important;}
   .update-terminal{height:200px!important;font-size:10px!important;}
 
@@ -6391,13 +6398,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   <div class="modal lst-geo-modal" role="dialog" aria-modal="true" aria-labelledby="lst-geo-title">
     <div class="lst-geo-head">
       <div class="modal-title" id="lst-geo-title" data-i18n="lst_geo_title">Ubicación LIP</div>
+      <button type="button" class="btn btn-sm lst-geo-fit-m" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
       <button type="button" class="lst-modal-x" onclick="lstCloseGeo()" title="Close" aria-label="Close">×</button>
     </div>
     <div class="lst-geo-map" id="lst-geo-map" aria-label="Map"></div>
-    <div class="lst-geo-toolbar">
-      <button type="button" class="btn btn-sm lst-geo-fit-m" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
-      <span class="help-text" id="lst-geo-status"></span>
-    </div>
     <div class="lst-geo-table-wrap">
       <table class="data-table table-stack" id="lst-geo-table">
         <thead><tr>
@@ -8127,10 +8131,16 @@ function lstSetFastPoll(on){
   const onLst=!!document.getElementById('page-lst_dispatch')?.classList.contains('active');
   // Off LST page: slow poll only (status still arrives via WS lst_status).
   if(!onLst){
-    lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},8000);
+    lstStatusTimer=setInterval(()=>{
+      if(document.hidden||dashLinkState!=='online')return;
+      if(lstToken)lstRefreshStatus();
+    },8000);
     return;
   }
-  lstStatusTimer=setInterval(()=>{if(lstToken)lstRefreshStatus();},on?1000:4000);
+  lstStatusTimer=setInterval(()=>{
+    if(document.hidden||dashLinkState!=='online')return;
+    if(lstToken)lstRefreshStatus();
+  },on?1000:4000);
 }
 function lstOptimisticStatus(patch){
   const base=Object.assign({},lstLastStatus||{enabled:true,call_phase:'idle'});
@@ -8235,6 +8245,7 @@ function lstApplyStatusPayload(j){
   lstUpdateCallUi(j);
   lstSyncPttUi();
   lstRefreshAvBar();
+  if(typeof lstArmDlPoll==='function')lstArmDlPoll();
 }
 function lstSyncPttButtonHint(j){
   const busy=!!(j&&j.ptt_offer_preempt);
@@ -8425,13 +8436,22 @@ async function lstOpenGeo(){
   await lstGeoEnsureLeaflet();
   await lstGeoRefresh();
   if(lstGeoTimer)clearInterval(lstGeoTimer);
-  lstGeoTimer=setInterval(()=>{if(lstGeoOpen)lstGeoRefresh();},5000);
+  lstGeoTimer=setInterval(()=>{
+    if(!lstGeoOpen||document.hidden||dashLinkState!=='online')return;
+    lstGeoRefresh();
+  },5000);
 }
 function lstCloseGeo(){
   lstGeoOpen=false;
   if(lstGeoTimer){clearInterval(lstGeoTimer);lstGeoTimer=null;}
   const modal=document.getElementById('lst-geo-modal');
   if(modal)modal.classList.remove('open');
+  // Tear down Leaflet so OSM tile traffic / map timers stop when the modal is closed.
+  try{
+    if(lstGeoMap){lstGeoMap.remove();lstGeoMap=null;lstGeoLayer=null;}
+  }catch(_){lstGeoMap=null;lstGeoLayer=null;}
+  const mapEl=document.getElementById('lst-geo-map');
+  if(mapEl)mapEl.innerHTML='';
 }
 function lstGeoEnsureLeaflet(){
   if(window.L)return Promise.resolve(true);
@@ -8459,12 +8479,14 @@ function lstGeoMarkerIcon(){
   });
 }
 async function lstGeoRefresh(){
+  if(!lstGeoOpen)return;
   try{
     const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
     const arr=await pr.json();
     lstPositions={};
     (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
   }catch(_){}
+  if(!lstGeoOpen)return;
   lstGeoRenderTable();
   lstGeoRenderMap();
 }
@@ -8493,12 +8515,13 @@ function lstGeoRenderTable(){
       <td><code>${p.issi}</code>${cs}</td>
       <td><a class="sds-map-link" href="${url}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a></td>
       <td class="num">${p.age_secs}s</td>
-      <td><button type="button" class="btn btn-sm" onclick="lstGeoCenter(${p.lat},${p.lon},${p.issi})">${escHtml(t('lst_geo_center'))}</button></td>
+      <td class="lst-geo-actions-td"><button type="button" class="btn btn-sm" onclick="lstGeoCenter(${p.lat},${p.lon},${p.issi})">${escHtml(t('lst_geo_center'))}</button></td>
     </tr>`;
   }).join('');
   if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
 }
 function lstGeoRenderMap(){
+  if(!lstGeoOpen)return;
   const st=document.getElementById('lst-geo-status');
   const el=document.getElementById('lst-geo-map');
   if(!el)return;
@@ -9031,8 +9054,8 @@ async function lstStartAudio(){
     if(lstDlTimer)clearInterval(lstDlTimer);
     lstDlTimer=null;
     lstDlViaWs=false;
-    // HTTP poll is the reliable path; WS lst_dl (if ever re-enabled off hot path) can still stop the timer.
-    lstDlTimer=setInterval(lstPollDl,80);
+    // Adaptive HTTP DL poll: 80ms while media is live (latency), idle/slow otherwise.
+    lstArmDlPoll();
     lstAudioReady=true;
     lstSetAudioHint('',false);
     lstRefreshAvBar();
@@ -9049,6 +9072,7 @@ function lstStopAudio(){
   lstPttDown=false;lstPttHeld=false;lstTalkPermit=false;lstHadTalkPermit=false;lstDuplexLive=false;lstNextPlay=0;lstAudioReady=false;lstDlBusy=false;
   lstMicDenied=false;lstRxUntil=0;lstDlViaWs=false;
   lstUlAcc=null;lstDlQueue=null;
+  lstDlPollMs=0;
   if(lstAvBarTimer){clearTimeout(lstAvBarTimer);lstAvBarTimer=null;}
   if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
   if(lstUlProc){try{lstUlProc.disconnect();}catch(_){}lstUlProc=null;}
@@ -9061,8 +9085,35 @@ function lstStopAudio(){
   if(lstAudioCtx){try{lstAudioCtx.close();}catch(_){}lstAudioCtx=null;}
   lstRefreshAvBar();
 }
+/** True when DL PCM should be pulled at low latency (call/media/RX active). */
+function lstDlHot(){
+  if(!lstToken||!lstAudioReady||lstDlViaWs)return false;
+  if(document.hidden||(typeof dashLinkState!=='undefined'&&dashLinkState!=='online'))return false;
+  const j=lstLastStatus||{};
+  const phase=j.call_phase||'idle';
+  return !!(j.media_ready||j.ptt||j.ptt_pending||j.rx_draining
+    ||lstDuplexLive||lstPttHeld||lstTalkPermit
+    ||(phase&&phase!=='idle')
+    ||(lstRxUntil&&lstRxUntil>Date.now()));
+}
+let lstDlPollMs=0;
+/** Arm / re-arm DL poll: 80ms hot (audio latency), 500ms idle drain, off if no claim/audio. */
+function lstArmDlPoll(){
+  if(!lstToken||!lstAudioCtx||lstDlViaWs){
+    if(lstDlTimer){clearInterval(lstDlTimer);lstDlTimer=null;}
+    lstDlPollMs=0;
+    return;
+  }
+  const ms=lstDlHot()?80:500;
+  if(lstDlTimer&&lstDlPollMs===ms)return;
+  if(lstDlTimer)clearInterval(lstDlTimer);
+  lstDlPollMs=ms;
+  lstDlTimer=setInterval(lstPollDl,ms);
+}
 async function lstPollDl(){
+  if(document.hidden||(typeof dashLinkState!=='undefined'&&dashLinkState!=='online'))return;
   if(!lstToken||!lstAudioCtx||lstDlBusy||lstDlViaWs)return;
+  // Idle path: skip most ticks via interval itself (500ms). Hot path uses 80ms.
   lstDlBusy=true;
   try{
     const r=await fetch('/api/lst/dl?token='+encodeURIComponent(lstToken),{credentials:'same-origin',cache:'no-store'});
@@ -9668,7 +9719,8 @@ function idCell(issi){const c=callsigns[issi];if(!c||!c.cs)return `<code>${issi}
 // server fetches unknowns from RadioID in the background and caches them locally; pending IDs are
 // omitted from the response and retried on the next tick. Found/absent results are cached here.
 function refreshCallsigns(){
-  if(_csInflight)return;
+  if(_csInflight||document.hidden)return;
+  if(typeof dashLinkState!=='undefined'&&dashLinkState!=='online')return;
   const ids=new Set();
   Object.values(state.ms).forEach(m=>ids.add(m.issi));
   Object.values(state.calls).forEach(c=>{if(c.caller_issi)ids.add(c.caller_issi);if(c.called_issi&&c.call_type!=='group')ids.add(c.called_issi);if(c.active_speaker)ids.add(c.active_speaker);});
@@ -9684,7 +9736,7 @@ function refreshCallsigns(){
     .catch(()=>{})
     .finally(()=>{_csInflight=false;});
 }
-setInterval(refreshCallsigns,4000);
+setInterval(refreshCallsigns,8000);
 const logFilter=()=>document.getElementById('log-filter').value;
 
 function showFallbackBanner(reason){
@@ -9914,7 +9966,7 @@ function handleMsg(msg){
       delete state.ms[msg.issi];renderStations();renderDgnaPage();break;
     case 'ms_rssi':
       if(state.ms[msg.issi]){state.ms[msg.issi].rssi_dbfs=msg.rssi_dbfs;state.ms[msg.issi]._last_seen_ts=Date.now();}
-      renderStations();renderDgnaPage();break;
+      scheduleStationsRender();break;
     case 'ms_groups':
       if(state.ms[msg.issi]){const cur=new Set(state.ms[msg.issi].groups||[]);(msg.groups||[]).forEach(g=>cur.add(g));state.ms[msg.issi].groups=[...cur];(state.ms[msg.issi].group_catalog||[]).forEach(g=>{if(cur.has(g.gssi))g.is_attached=true;});}
       if(dgnaModalIssi()===msg.issi)refreshOpenDgna();
@@ -10226,7 +10278,7 @@ function tsVoice(ts){
   }
   updateTsBlocks();
 }
-setInterval(updateTsBlocks, 150); // refresh to catch voice decay + duration tick — skipped off Home
+setInterval(updateTsBlocks, 250); // refresh to catch voice decay + duration tick — skipped off Home
 
 // Carrier-aware RF visualizer. The original strip above assumes a single carrier;
 // this overlay keeps the same look but keys everything by carrier+timeslot so a
@@ -10335,61 +10387,6 @@ function tsLinesCarrier(st){
   const talkerText=who?(`TX ${shownRole} ${who}`):'';
   return {top,bottom:[slotText,talkerText].filter(Boolean).join(' | ')};
 }
-function updateTsBlocksCarrier(){
-  const page=document.getElementById('page-stations');
-  if(!page||!page.classList.contains('active'))return;
-  const now=Date.now();
-  const carriers=tsCarrierNumbers().length?tsCarrierNumbers():(state.mainCarrierNum!=null?[state.mainCarrierNum]:[]);
-  for(const carrierNum of carriers){
-    for(let ts=1;ts<=4;ts++){
-      const block=document.getElementById(`ts-block-${carrierNum}-${ts}`);
-      if(!block)continue;
-      const label=block.querySelector('.ts-label');
-      const sub=block.querySelector('.ts-sub');
-      const dur=block.querySelector('.ts-duration-bar');
-      const timer=block.querySelector('.ts-timer');
-      const st=tsStateCarrier[tsCarrierKey(carrierNum,ts)];
-      if(ts===1&&carrierNum===state.mainCarrierNum){
-        block.className='ts-block mcch';
-        label.textContent='MCCH';
-        sub.textContent='ACTIVE';
-        if(!tsWaveHeightsCarrier[tsCarrierKey(carrierNum,ts)])tsRandWaveCarrier(carrierNum,ts);
-        tsApplyWaveCarrier(carrierNum,ts,true);
-        if(dur)dur.style.width='0%';
-        continue;
-      }
-      if(!st){
-        block.className='ts-block';
-        label.textContent=ts===1?'BCCH':'-';
-        sub.textContent=ts===1?'SECONDARY':'Idle';
-        tsApplyWaveCarrier(carrierNum,ts,false);
-        if(timer)timer.textContent='';
-        if(dur)dur.style.width='0%';
-        continue;
-      }
-      const voiceRecent=st.voice_ts&&(now-st.voice_ts)<TS_VOICE_DECAY_MS;
-      const lines=tsLinesCarrier(st);
-      label.textContent=lines.top;
-      if(voiceRecent){
-        block.className='ts-block voice';
-        sub.textContent=lines.bottom?('â–¶ '+lines.bottom):'â–¶ TX';
-      }else{
-        block.className='ts-block call';
-        sub.textContent=lines.bottom||(st.sub||'Alloc');
-      }
-      if((st.priority||0)>=15)block.classList.add('emergency');
-      if(timer){
-        const elapsed=Math.floor((now-(st.started_at||now))/1000);
-        timer.textContent=elapsed>0?formatDurCarrier(elapsed):'';
-      }
-      tsApplyWaveCarrier(carrierNum,ts,voiceRecent);
-      if(dur&&st.started_at){
-        const pct=Math.min(100,((now-st.started_at)/120000)*100);
-        dur.style.width=pct+'%';
-      }
-    }
-  }
-}
 function tsSetCallCarrier(carrierNum,ts,call){
   if(!tsCanRenderAssignedCarrier(carrierNum,ts))return;
   tsEnsureCarrierInfo(carrierNum);
@@ -10434,7 +10431,7 @@ function tsVoiceCarrier(carrierNum,ts,speakerIssi){
   }
   updateTsBlocksCarrier();
 }
-setInterval(updateTsBlocksCarrier, 150);
+setInterval(updateTsBlocksCarrier, 250);
 
 function tsCarrierBlockHtml(carrierNum,ts){
   const idleHeights=(carrierNum===state.mainCarrierNum&&ts===1)?[8,14,10,16,8,12,6]:[3,3,3,3,3,3,3];
@@ -10562,6 +10559,17 @@ function applyTableStackLabels(tb){
       td.appendChild(wrap);
     });
   });
+}
+
+let stationsRenderTimer=null;
+/** Coalesce high-rate RSSI / light updates so we don't rebuild the whole table every frame. */
+function scheduleStationsRender(){
+  if(stationsRenderTimer)return;
+  stationsRenderTimer=setTimeout(()=>{
+    stationsRenderTimer=null;
+    try{renderStations();}catch(_){}
+    try{if(document.getElementById('page-dgna')?.classList.contains('active'))renderDgnaPage();}catch(_){}
+  },250);
 }
 
 function renderStations(){
@@ -12549,6 +12557,7 @@ function paintStandbyConnectivity(){
   }catch{}
 }
 async function refreshServiceState(){
+  if(document.hidden)return;
   const was=serviceStandby;
   try{
     const r=await fetch('/api/service/status',{credentials:'same-origin',cache:'no-store'});
@@ -15358,6 +15367,10 @@ async function boot(){
   if(anonymous){ enterPublicMode(); return; }
   connect();
   startServiceStatusPolling();
+  document.addEventListener('visibilitychange',()=>{
+    if(typeof lstArmDlPoll==='function')lstArmDlPoll();
+    if(!document.hidden&&lstGeoOpen&&typeof lstGeoRefresh==='function')lstGeoRefresh();
+  });
   // Light host snapshot for SDR badge / RF banner (no SoapySDRUtil spawn).
   loadSystemInfo();
   loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Home) page

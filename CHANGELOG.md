@@ -2,6 +2,18 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.21 — Audio LST adaptativo + Geo sin fugas
+
+- **PCM DL:** solo con despacho tomado. En llamada/RX activo vuelve a **80 ms** (latencia); en idle baja a **500 ms**.
+- **Ubicación LIP:** al cerrar el modal se destruye el mapa Leaflet (deja de pedir tiles OSM) y no se vuelve a consultar `/api/lst/positions` hasta reabrir.
+- Modal Geo: se elimina la barra redundante (Centrar todos + estado ISSI); **Centrar** / **Centrar todos** centrados en la columna de acciones (en móvil, Centrar todos pasa al encabezado).
+
+## v0.3.20 — Dashboard más ligero (Pi)
+
+- Tope de **32** conexiones HTTP(S) concurrentes: evita que el poll agresivo / reintentos tumben el proceso (ERR_CONNECTION_RESET).
+- Menos re-renders por RSSI (debounce 250 ms); timers de timeslots 150→250 ms.
+- Callsigns / LST status / Geo / service: no martillean la API si la pestaña está en segundo plano o el enlace está caído.
+
 ## v0.3.19 — Modal Ubicación LIP
 
 - Título **Ubicación LIP** (antes Geo LIP).
