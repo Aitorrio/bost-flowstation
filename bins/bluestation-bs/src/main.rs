@@ -650,7 +650,6 @@ fn main() {
             let alert = alert_sink.clone();
             let snom = snom_notify_sink.clone();
             let geoalarm = geoalarm_sink.clone();
-            let lst_positions = lst_handle.clone();
             thread::Builder::new()
                 .name("telemetry-fanout".into())
                 .spawn(move || {
@@ -680,7 +679,7 @@ fn main() {
                                     _ => {}
                                 }
                                 // Feed decoded TETRA LIP positions (SDS protocol-id 10, inbound from
-                                // a radio) to GeoAlarm and LST Geo store.
+                                // a radio) to GeoAlarm and the dashboard Geo store (Home + LST).
                                 if let TelemetryEvent::SdsLog {
                                     direction,
                                     source_issi,
@@ -694,12 +693,12 @@ fn main() {
                                     if let Some(g) = &geoalarm {
                                         g.send_tetra_lip(*source_issi, text);
                                     }
-                                    if let Some(h) = &lst_positions
+                                    if let Some(d) = &dash
                                         && let Some((lat, lon)) = parse_lip_position_text(text)
                                         // Skip null-island / init handshake zeros.
                                         && !(lat.abs() < 1e-9 && lon.abs() < 1e-9)
                                     {
-                                        h.note_position(*source_issi, lat, lon);
+                                        d.note_lip_position(*source_issi, lat, lon);
                                     }
                                 }
                                 if let Some(d) = &dash {

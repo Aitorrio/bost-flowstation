@@ -4397,6 +4397,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="card">
         <div class="card-head">
           <div class="card-title" data-i18n="registered_terminals">Registered Radios</div>
+          <button class="btn btn-sm" onclick="lstOpenGeo()" id="home-geo-btn" data-i18n="lst_geo">Ubicación</button>
         </div>
         <div class="card-body">
           <div class="table-wrap">

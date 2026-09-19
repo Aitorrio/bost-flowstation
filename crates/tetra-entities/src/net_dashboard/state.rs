@@ -112,6 +112,17 @@ pub struct DgnaLogEntry {
     pub detail: String,
 }
 
+/// Last decoded TETRA LIP fix for one ISSI (in-memory only; lost on restart).
+#[derive(Debug, Clone)]
+pub struct LipPosition {
+    pub lat: f64,
+    pub lon: f64,
+    pub updated: Instant,
+}
+
+/// Cap on distinct ISSIs kept in the LIP position store.
+pub const LIP_POSITION_CAP: usize = 256;
+
 /// Shared mutable state for the dashboard, protected by RwLock
 #[derive(Debug)]
 pub struct DashboardStateInner {
@@ -134,6 +145,8 @@ pub struct DashboardStateInner {
     pub dgna_log: std::collections::VecDeque<DgnaLogEntry>,
     /// Where `dgna_log` is persisted. Empty disables persistence.
     dgna_log_path: std::path::PathBuf,
+    /// Decoded LIP positions (SDS PID 10 UL), available with or without LST Dispatch.
+    pub lip_positions: HashMap<u32, LipPosition>,
     pub config_path: String,
     pub brew_online: bool,
     pub brew_version: u8,
@@ -295,6 +308,7 @@ impl DashboardStateInner {
             dapnet_log_path,
             dgna_log,
             dgna_log_path,
+            lip_positions: HashMap::new(),
             config_path,
             brew_online: false,
             brew_version: 0,
@@ -321,6 +335,36 @@ impl DashboardStateInner {
             self.last_heard.pop_back();
         }
         self.last_heard.push_front(entry);
+    }
+
+    /// Record a decoded LIP fix. Callers should skip null-island (0,0) init handshakes.
+    pub fn note_lip_position(&mut self, issi: u32, lat: f64, lon: f64) {
+        if self.lip_positions.len() >= LIP_POSITION_CAP && !self.lip_positions.contains_key(&issi) {
+            if let Some(k) = self.lip_positions.keys().next().copied() {
+                self.lip_positions.remove(&k);
+            }
+        }
+        self.lip_positions.insert(
+            issi,
+            LipPosition {
+                lat,
+                lon,
+                updated: Instant::now(),
+            },
+        );
+    }
+
+    pub fn lip_positions_json(&self) -> serde_json::Value {
+        let mut arr = Vec::with_capacity(self.lip_positions.len());
+        for (issi, p) in &self.lip_positions {
+            arr.push(serde_json::json!({
+                "issi": issi,
+                "lat": p.lat,
+                "lon": p.lon,
+                "age_secs": p.updated.elapsed().as_secs(),
+            }));
+        }
+        serde_json::Value::Array(arr)
     }
 
     pub fn push_log(&mut self, level: &str, msg: String) {

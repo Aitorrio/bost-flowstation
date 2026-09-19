@@ -1738,6 +1738,12 @@ impl DashboardServer {
         s.fallback_config_reason = reason;
     }
 
+    /// Record a decoded LIP fix for Geo UI (Home + LST). Skip 0,0 at the call site.
+    pub fn note_lip_position(&self, issi: u32, lat: f64, lon: f64) {
+        let mut s = self.state.write().unwrap_or_else(|e| e.into_inner());
+        s.note_lip_position(issi, lat, lon);
+    }
+
     pub fn start(&mut self, bind: &str, http_port: u16, https_port: u16) {
         let state = Arc::clone(&self.state);
         let clients = Arc::clone(&self.clients);
@@ -3895,10 +3901,12 @@ fn handle_connection(
         http_json_response(stream, 200, &body);
     } else if req_line.contains("GET /api/lst/positions") {
         drain_http_headers(&mut stream);
-        let body = match &lst_handle {
-            Some(h) => h.positions_json().to_string(),
-            None => "[]".to_string(),
-        };
+        // Global LIP store on dashboard state — works with or without LST Dispatch.
+        let body = state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .lip_positions_json()
+            .to_string();
         http_json_response(stream, 200, &body);
     } else if req_line.contains("POST /api/lst/claim") {
         drain_http_headers(&mut stream);

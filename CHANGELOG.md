@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.17 — Ubicación en Inicio (sin LST)
+
+- Botón **Ubicación** en la tarjeta Radios registrados (Inicio): mismo modal Geo LIP que en LST.
+- El almacén de posiciones LIP vive en el dashboard (no depende del perfil LST Dispatch).
+
 ## v0.3.16 — Botón Ubicación en roster LST
 
 - El botón **Ubicación** pasa a la tarjeta Radios online (sustituye el Refresh manual, redundante con el poll automático).
