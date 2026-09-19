@@ -8439,11 +8439,12 @@ function lstGeoRenderTable(){
     return;
   }
   tb.innerHTML=rows.map(p=>{
-    const cs=(typeof callsigns!=='undefined'&&callsigns[p.issi])?` <span class="pill">${escHtml(callsigns[p.issi])}</span>`:'';
+    const csObj=(typeof callsigns!=='undefined')?callsigns[p.issi]:null;
+    const cs=(csObj&&csObj.cs)?` <span class="callsign">${csObj.fl?csObj.fl+' ':''}${escHtml(csObj.cs)}</span>`:'';
     const label=`${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
     const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(label)}`;
     return `<tr data-issi="${p.issi}">
-      <td>${p.issi}${cs}</td>
+      <td><code>${p.issi}</code>${cs}</td>
       <td><a class="sds-map-link" href="${url}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a></td>
       <td class="num">${p.age_secs}s</td>
       <td><button type="button" class="btn btn-sm" onclick="lstGeoCenter(${p.lat},${p.lon},${p.issi})">${escHtml(t('lst_geo_center'))}</button></td>
@@ -8480,7 +8481,8 @@ function lstGeoRenderMap(){
   rows.forEach(p=>{
     const ll=[p.lat,p.lon];
     latlngs.push(ll);
-    const cs=(typeof callsigns!=='undefined'&&callsigns[p.issi])?String(callsigns[p.issi]):'';
+    const csObj=(typeof callsigns!=='undefined')?callsigns[p.issi]:null;
+    const cs=(csObj&&csObj.cs)?String(csObj.cs):'';
     const m=L.marker(ll).bindPopup(`<b>${p.issi}</b>${cs?(' · '+escHtml(cs)):''}<br>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}<br>${p.age_secs}s`);
     m.addTo(lstGeoLayer);
   });
