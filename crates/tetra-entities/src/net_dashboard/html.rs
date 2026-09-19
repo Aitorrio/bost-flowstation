@@ -712,7 +712,8 @@ body{
 }
 #lst-geo-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
 .lst-geo-map{height:min(360px,42vh);width:100%;border-radius:8px;border:1px solid var(--border);background:var(--bg-2);margin:8px 0 10px;}
-.lst-geo-fit-m{display:none;flex:0 0 auto;white-space:nowrap;}
+.lst-geo-fit-bar{display:none;margin:0 0 10px;}
+.lst-geo-fit-bar .btn{width:100%;text-transform:none;letter-spacing:0;font-weight:600;}
 .lst-geo-table-wrap{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
 .lst-geo-table-wrap .data-table{margin:0;}
 #lst-geo-table th.lst-geo-actions-th,
@@ -2072,7 +2073,7 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   .modal-title{font-size:11px;margin-bottom:12px;padding-bottom:8px;}
   #lst-geo-modal .lst-geo-head{margin-bottom:10px;padding-bottom:8px;}
   #lst-geo-modal .lst-geo-head .modal-title{margin:0;padding:0;border:none;font-size:11px;}
-  #lst-geo-modal .lst-geo-fit-m{display:inline-flex;}
+  #lst-geo-modal .lst-geo-fit-bar{display:block;}
   #lst-geo-table.table-stack tbody td.lst-geo-actions-td > .stack-val{
     justify-content:center;text-align:center;
   }
@@ -6398,10 +6399,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   <div class="modal lst-geo-modal" role="dialog" aria-modal="true" aria-labelledby="lst-geo-title">
     <div class="lst-geo-head">
       <div class="modal-title" id="lst-geo-title" data-i18n="lst_geo_title">Ubicación LIP</div>
-      <button type="button" class="btn btn-sm lst-geo-fit-m" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
       <button type="button" class="lst-modal-x" onclick="lstCloseGeo()" title="Close" aria-label="Close">×</button>
     </div>
     <div class="lst-geo-map" id="lst-geo-map" aria-label="Map"></div>
+    <div class="lst-geo-fit-bar">
+      <button type="button" class="btn btn-sm" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
+    </div>
     <div class="lst-geo-table-wrap">
       <table class="data-table table-stack" id="lst-geo-table">
         <thead><tr>

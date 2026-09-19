@@ -2,6 +2,12 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.22 — Ubicación LIP: Centrar todos solo donde toca
+
+- Se quita **Centrar todos** del encabezado del modal.
+- En escritorio sigue en la cabecera de la columna de acciones; en móvil, entre el mapa y las tarjetas.
+- El **Centrar** por radio no cambia.
+
 ## v0.3.21 — Audio LST adaptativo + Geo sin fugas
 
 - **PCM DL:** solo con despacho tomado. En llamada/RX activo vuelve a **80 ms** (latencia); en idle baja a **500 ms**.
