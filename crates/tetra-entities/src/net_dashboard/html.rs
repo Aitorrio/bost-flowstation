@@ -5813,7 +5813,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="card-head">
             <div class="card-title" data-i18n="lst_console">Dispatch console</div>
             <div class="card-actions">
-              <button class="btn btn-sm" onclick="lstOpenGeo()" id="lst-geo-btn" data-i18n="lst_geo">Geo</button>
               <button class="btn btn-sm" onclick="lstClaim()" id="lst-claim-btn" data-i18n="lst_claim">Take dispatch</button>
               <button class="btn btn-sm btn-danger" onclick="lstRelease()" id="lst-release-btn" style="display:none" data-i18n="lst_release">Close dispatch</button>
             </div>
@@ -5870,7 +5869,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title" data-i18n="lst_roster">Radios online</div>
-            <button class="btn btn-sm" onclick="lstRenderRoster()" data-i18n="wifi_refresh">Refresh</button></div>
+            <button class="btn btn-sm" onclick="lstOpenGeo()" id="lst-geo-btn" data-i18n="lst_geo">Ubicación</button></div>
           <div class="card-body lst-roster-scroll">
             <div class="table-wrap">
               <table class="data-table table-stack" id="lst-roster-table"><thead><tr>
