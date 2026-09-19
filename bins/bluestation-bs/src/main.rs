@@ -650,10 +650,12 @@ fn main() {
             let alert = alert_sink.clone();
             let snom = snom_notify_sink.clone();
             let geoalarm = geoalarm_sink.clone();
+            let lst_positions = lst_handle.clone();
             thread::Builder::new()
                 .name("telemetry-fanout".into())
                 .spawn(move || {
                     use tetra_entities::health::registry as health_registry;
+                    use tetra_entities::net_geoalarm::parse_lip_position_text;
                     use tetra_entities::net_telemetry::TelemetryEvent;
                     // Approximate attached-radio count, maintained from registration telemetry, fed to
                     // the health registry (Radios domain). Re-registrations of an already-known radio
@@ -678,19 +680,27 @@ fn main() {
                                     _ => {}
                                 }
                                 // Feed decoded TETRA LIP positions (SDS protocol-id 10, inbound from
-                                // a radio) to the GeoAlarm worker so it can geofence them.
-                                if let Some(g) = &geoalarm
-                                    && let TelemetryEvent::SdsLog {
-                                        direction,
-                                        source_issi,
-                                        protocol_id,
-                                        text,
-                                        ..
-                                    } = &event
+                                // a radio) to GeoAlarm and LST Geo store.
+                                if let TelemetryEvent::SdsLog {
+                                    direction,
+                                    source_issi,
+                                    protocol_id,
+                                    text,
+                                    ..
+                                } = &event
                                     && *protocol_id == 10
                                     && direction == "rx"
                                 {
-                                    g.send_tetra_lip(*source_issi, text);
+                                    if let Some(g) = &geoalarm {
+                                        g.send_tetra_lip(*source_issi, text);
+                                    }
+                                    if let Some(h) = &lst_positions
+                                        && let Some((lat, lon)) = parse_lip_position_text(text)
+                                        // Skip null-island / init handshake zeros.
+                                        && !(lat.abs() < 1e-9 && lon.abs() < 1e-9)
+                                    {
+                                        h.note_position(*source_issi, lat, lon);
+                                    }
                                 }
                                 if let Some(d) = &dash {
                                     d.handle_telemetry(event.clone());

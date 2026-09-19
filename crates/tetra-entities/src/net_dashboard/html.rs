@@ -697,6 +697,17 @@ body{
   font-size:18px;line-height:1;padding:0;z-index:2;
 }
 #lst-call-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
+#lst-geo-modal .modal.lst-geo-modal{width:min(920px,96vw);max-height:92vh;overflow:auto;position:relative;padding-top:28px;}
+#lst-geo-modal .lst-modal-x{
+  position:absolute;top:10px;right:10px;z-index:2;width:32px;height:32px;border-radius:8px;
+  border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;
+}
+#lst-geo-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
+.lst-geo-map{height:min(360px,42vh);width:100%;border-radius:8px;border:1px solid var(--border);background:var(--bg-2);margin:8px 0 10px;}
+.lst-geo-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;}
+.lst-geo-table-wrap{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
+.lst-geo-table-wrap .data-table{margin:0;}
+.lst-geo-empty{text-align:center;padding:18px;color:var(--muted);}
 #lst-roster-table td{padding-top:8px;padding-bottom:8px;vertical-align:middle;}
 #lst-roster-table .data-table td,#lst-roster-table td{vertical-align:middle;}
 .lst-call-tabs{display:flex;gap:6px;margin:0 0 14px;padding-right:28px;}
@@ -5791,6 +5802,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="card-head">
             <div class="card-title" data-i18n="lst_console">Dispatch console</div>
             <div class="card-actions">
+              <button class="btn btn-sm" onclick="lstOpenGeo()" id="lst-geo-btn" data-i18n="lst_geo">Geo</button>
               <button class="btn btn-sm" onclick="lstClaim()" id="lst-claim-btn" data-i18n="lst_claim">Take dispatch</button>
               <button class="btn btn-sm btn-danger" onclick="lstRelease()" id="lst-release-btn" style="display:none" data-i18n="lst_release">Close dispatch</button>
             </div>
@@ -6338,6 +6350,31 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   </div>
 </div>
 
+<!-- ── LST Geo LIP modal ── -->
+<div class="modal-overlay" id="lst-geo-modal" onclick="if(event.target===this)lstCloseGeo()">
+  <div class="modal lst-geo-modal" role="dialog" aria-modal="true" aria-labelledby="lst-geo-title">
+    <button type="button" class="lst-modal-x" onclick="lstCloseGeo()" title="Close" aria-label="Close">×</button>
+    <div class="modal-title" id="lst-geo-title" data-i18n="lst_geo_title">Geo LIP</div>
+    <div class="lst-geo-map" id="lst-geo-map" aria-label="Map"></div>
+    <div class="lst-geo-toolbar">
+      <button type="button" class="btn btn-sm" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
+      <button type="button" class="btn btn-sm" onclick="lstGeoRefresh()" data-i18n="refresh">Refresh</button>
+      <span class="help-text" id="lst-geo-status"></span>
+    </div>
+    <div class="lst-geo-table-wrap">
+      <table class="data-table" id="lst-geo-table">
+        <thead><tr>
+          <th data-i18n="issi">ISSI</th>
+          <th data-i18n="lst_col_pos">Position</th>
+          <th data-i18n="lst_geo_age">Age</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="lst-geo-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- ── LST private call modal ── -->
 <div class="modal-overlay" id="lst-call-modal" onclick="if(event.target===this)closeLstCallModal()">
   <div class="modal" style="width:min(380px,94vw)" role="dialog" aria-modal="true" aria-labelledby="lst-call-modal-title">
@@ -6846,6 +6883,8 @@ const LANGS={
     lst_need_profile:'Apply the “LST Dispatch” Brew profile in Config and restart to enable this console.',
     lst_go_config:'Go to Config',
     lst_busy:'Dispatch in use by',lst_console:'Dispatch console',lst_claim:'Take dispatch',lst_release:'Close dispatch',
+    lst_geo:'Geo',lst_geo_title:'Geo LIP',lst_geo_fit:'Fit all',lst_geo_age:'Age',lst_geo_empty:'No recent LIP positions',
+    lst_geo_loading:'Loading map…',lst_geo_map_fail:'Map unavailable — table only',lst_geo_center:'Center',
     lst_operator_issi:'Dispatcher ISSI',lst_apply_issi:'Apply',lst_gssi:'Talkgroup GSSI',lst_join:'Join',lst_leave:'Leave',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Send',lst_roster:'Radios online',lst_col_groups:'Groups',lst_col_pos:'Position',
     lst_no_codec:'Voice codec not available in this build — signalling only. Use “Install voice codec (OTA)” below (no SSH).',
@@ -7273,6 +7312,8 @@ const LANGS={
     lst_need_profile:'Aplica el perfil Brew “Despacho LST” en Configuración y reinicia para activar esta consola.',
     lst_go_config:'Ir a Configuración',
     lst_busy:'Despacho en uso por',lst_console:'Consola de despacho',lst_claim:'Tomar despacho',lst_release:'Cerrar despacho',
+    lst_geo:'Geo',lst_geo_title:'Geo LIP',lst_geo_fit:'Centrar todos',lst_geo_age:'Antigüedad',lst_geo_empty:'Sin posiciones LIP recientes',
+    lst_geo_loading:'Cargando mapa…',lst_geo_map_fail:'Mapa no disponible — solo tabla',lst_geo_center:'Centrar',
     lst_operator_issi:'ISSI despachador',lst_apply_issi:'Aplicar',lst_gssi:'GSSI / TG',lst_join:'Unirse',lst_leave:'Salir',
     lst_ptt:'PTT',lst_sds:'SDS',lst_send_sds:'Enviar',lst_roster:'Radios online',lst_col_groups:'Grupos',lst_col_pos:'Ubicación',
     lst_no_codec:'Codec de voz no disponible en este build — solo señalización. Usa “Instalar codec de voz (OTA)” abajo (sin SSH).',
@@ -7945,6 +7986,7 @@ async function wifiRefresh(){
 
 /* ── LST Dispatch console ───────────────────────────────────────────── */
 let lstToken=null,lstHbTimer=null,lstDlTimer=null,lstStatusTimer=null,lstAudioCtx=null,lstMicStream=null,lstPositions={};
+let lstGeoOpen=false,lstGeoTimer=null,lstGeoMap=null,lstGeoLayer=null,lstGeoLeafletLoading=null;
 let lstPttDown=false,lstPttHeld=false,lstTalkPermit=false,lstHadTalkPermit=false,lstDuplexLive=false,lstNextPlay=0,lstUlProc=null,lstDlBusy=false,lstAudioReady=false;
 let lstMicDenied=false,lstRxUntil=0,lstAvBarTimer=null;
 let lstUlAcc=null,lstDlQueue=null,lstDlRead=0,lstDlProc=null;
@@ -8077,13 +8119,6 @@ async function lstRefreshStatus(){
     const j=await r.json();
     lstApplyStatusPayload(j);
     if(!document.getElementById('page-lst_dispatch')?.classList.contains('active'))return;
-    try{
-      const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
-      const arr=await pr.json();
-      lstPositions={};
-      (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
-      lstRenderRoster();
-    }catch(_){}
   }catch(e){console.warn('lst status',e);lstSetAudioHint('Sin conexión con BS',true);}
 }
 function lstApplyStatusPayload(j){
@@ -8333,6 +8368,135 @@ async function lstClaim(){
   await lstStartAudio();
   lstSyncScanToServer();
   await lstRefreshStatus();
+}
+async function lstOpenGeo(){
+  const modal=document.getElementById('lst-geo-modal');
+  if(!modal)return;
+  modal.classList.add('open');
+  lstGeoOpen=true;
+  if(typeof applyLang==='function')applyLang();
+  const st=document.getElementById('lst-geo-status');
+  if(st)st.textContent=t('lst_geo_loading');
+  await lstGeoEnsureLeaflet();
+  await lstGeoRefresh();
+  if(lstGeoTimer)clearInterval(lstGeoTimer);
+  lstGeoTimer=setInterval(()=>{if(lstGeoOpen)lstGeoRefresh();},5000);
+}
+function lstCloseGeo(){
+  lstGeoOpen=false;
+  if(lstGeoTimer){clearInterval(lstGeoTimer);lstGeoTimer=null;}
+  const modal=document.getElementById('lst-geo-modal');
+  if(modal)modal.classList.remove('open');
+}
+function lstGeoEnsureLeaflet(){
+  if(window.L)return Promise.resolve(true);
+  if(lstGeoLeafletLoading)return lstGeoLeafletLoading;
+  lstGeoLeafletLoading=new Promise(resolve=>{
+    const css=document.createElement('link');
+    css.rel='stylesheet';
+    css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+    const s=document.createElement('script');
+    s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload=()=>{
+      try{
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+          iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+          shadowUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
+        });
+      }catch(_){}
+      resolve(true);
+    };
+    s.onerror=()=>resolve(false);
+    document.head.appendChild(s);
+  });
+  return lstGeoLeafletLoading;
+}
+async function lstGeoRefresh(){
+  try{
+    const pr=await fetch('/api/lst/positions',{credentials:'same-origin',cache:'no-store'});
+    const arr=await pr.json();
+    lstPositions={};
+    (arr||[]).forEach(p=>{lstPositions[p.issi]=p;});
+  }catch(_){}
+  lstGeoRenderTable();
+  lstGeoRenderMap();
+}
+function lstGeoRows(){
+  return Object.keys(lstPositions).map(k=>{
+    const p=lstPositions[k];
+    return {issi:+k,lat:+p.lat,lon:+p.lon,age_secs:p.age_secs|0};
+  }).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon))
+    .sort((a,b)=>a.age_secs-b.age_secs);
+}
+function lstGeoRenderTable(){
+  const tb=document.getElementById('lst-geo-tbody');
+  if(!tb)return;
+  const rows=lstGeoRows();
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="4" class="lst-geo-empty">${escHtml(t('lst_geo_empty'))}</td></tr>`;
+    return;
+  }
+  tb.innerHTML=rows.map(p=>{
+    const cs=(typeof callsigns!=='undefined'&&callsigns[p.issi])?` <span class="pill">${escHtml(callsigns[p.issi])}</span>`:'';
+    const label=`${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
+    const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(label)}`;
+    return `<tr data-issi="${p.issi}">
+      <td>${p.issi}${cs}</td>
+      <td><a class="sds-map-link" href="${url}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a></td>
+      <td class="num">${p.age_secs}s</td>
+      <td><button type="button" class="btn btn-sm" onclick="lstGeoCenter(${p.lat},${p.lon},${p.issi})">${escHtml(t('lst_geo_center'))}</button></td>
+    </tr>`;
+  }).join('');
+}
+function lstGeoRenderMap(){
+  const st=document.getElementById('lst-geo-status');
+  const el=document.getElementById('lst-geo-map');
+  if(!el)return;
+  if(!window.L){
+    if(st)st.textContent=t('lst_geo_map_fail');
+    return;
+  }
+  const rows=lstGeoRows();
+  if(!lstGeoMap){
+    lstGeoMap=L.map(el,{zoomControl:true});
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      maxZoom:19,
+      attribution:'&copy; OpenStreetMap'
+    }).addTo(lstGeoMap);
+    lstGeoLayer=L.layerGroup().addTo(lstGeoMap);
+    setTimeout(()=>{try{lstGeoMap.invalidateSize();}catch(_){}},50);
+  }else{
+    setTimeout(()=>{try{lstGeoMap.invalidateSize();}catch(_){}},50);
+  }
+  lstGeoLayer.clearLayers();
+  if(!rows.length){
+    if(st)st.textContent=t('lst_geo_empty');
+    lstGeoMap.setView([40.4,-3.7],6);
+    return;
+  }
+  const latlngs=[];
+  rows.forEach(p=>{
+    const ll=[p.lat,p.lon];
+    latlngs.push(ll);
+    const cs=(typeof callsigns!=='undefined'&&callsigns[p.issi])?String(callsigns[p.issi]):'';
+    const m=L.marker(ll).bindPopup(`<b>${p.issi}</b>${cs?(' · '+escHtml(cs)):''}<br>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}<br>${p.age_secs}s`);
+    m.addTo(lstGeoLayer);
+  });
+  if(st)st.textContent=rows.length+' ISSI';
+  try{lstGeoMap.fitBounds(L.latLngBounds(latlngs).pad(0.2));}catch(_){}
+}
+function lstGeoFitAll(){
+  if(!lstGeoMap||!window.L)return;
+  const rows=lstGeoRows();
+  if(!rows.length)return;
+  try{lstGeoMap.fitBounds(L.latLngBounds(rows.map(p=>[p.lat,p.lon])).pad(0.2));}catch(_){}
+}
+function lstGeoCenter(lat,lon,issi){
+  if(lstGeoMap)lstGeoMap.setView([lat,lon],Math.max(lstGeoMap.getZoom(),14));
+  const row=document.querySelector('#lst-geo-tbody tr[data-issi="'+issi+'"]');
+  if(row){row.scrollIntoView({block:'nearest'});row.style.outline='1px solid var(--accent)';setTimeout(()=>{row.style.outline='';},1200);}
 }
 async function lstRelease(){
   if(lstToken){
