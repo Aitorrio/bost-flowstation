@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.15 — Marcador Geo LIP
+
+- Pin de mapa propio (CSS, color accent del dashboard); ya no depende de las PNG rotas de Leaflet/CDN.
+- Indicativo RadioID correcto en la tabla Geo.
+
 ## v0.3.14 — Geo LIP en despacho LST
 
 - Las posiciones LIP decodificadas (SDS PID 10, UL) alimentan el almacén LST (`note_position`).

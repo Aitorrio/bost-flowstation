@@ -708,6 +708,17 @@ body{
 .lst-geo-table-wrap{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
 .lst-geo-table-wrap .data-table{margin:0;}
 .lst-geo-empty{text-align:center;padding:18px;color:var(--muted);}
+.lst-geo-pin{
+  width:28px;height:28px;margin-left:-14px;margin-top:-28px;
+  background:var(--accent,#00d4a8);border:2px solid #0b1218;border-radius:50% 50% 50% 0;
+  transform:rotate(-45deg);box-shadow:0 2px 8px rgba(0,0,0,0.35);
+  display:flex;align-items:center;justify-content:center;
+}
+.lst-geo-pin::after{
+  content:'';width:10px;height:10px;border-radius:50%;background:#0b1218;
+  transform:rotate(45deg);
+}
+.lst-geo-pin-wrap{background:transparent!important;border:none!important;}
 #lst-roster-table td{padding-top:8px;padding-bottom:8px;vertical-align:middle;}
 #lst-roster-table .data-table td,#lst-roster-table td{vertical-align:middle;}
 .lst-call-tabs{display:flex;gap:6px;margin:0 0 14px;padding-right:28px;}
@@ -8398,20 +8409,20 @@ function lstGeoEnsureLeaflet(){
     document.head.appendChild(css);
     const s=document.createElement('script');
     s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    s.onload=()=>{
-      try{
-        L.Icon.Default.mergeOptions({
-          iconRetinaUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-          iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-          shadowUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'
-        });
-      }catch(_){}
-      resolve(true);
-    };
+    s.onload=()=>resolve(true);
     s.onerror=()=>resolve(false);
     document.head.appendChild(s);
   });
   return lstGeoLeafletLoading;
+}
+function lstGeoMarkerIcon(){
+  return L.divIcon({
+    className:'lst-geo-pin-wrap',
+    html:'<div class="lst-geo-pin" aria-hidden="true"></div>',
+    iconSize:[28,28],
+    iconAnchor:[14,28],
+    popupAnchor:[0,-24]
+  });
 }
 async function lstGeoRefresh(){
   try{
@@ -8483,7 +8494,7 @@ function lstGeoRenderMap(){
     latlngs.push(ll);
     const csObj=(typeof callsigns!=='undefined')?callsigns[p.issi]:null;
     const cs=(csObj&&csObj.cs)?String(csObj.cs):'';
-    const m=L.marker(ll).bindPopup(`<b>${p.issi}</b>${cs?(' · '+escHtml(cs)):''}<br>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}<br>${p.age_secs}s`);
+    const m=L.marker(ll,{icon:lstGeoMarkerIcon()}).bindPopup(`<b>${p.issi}</b>${cs?(' · '+escHtml(cs)):''}<br>${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}<br>${p.age_secs}s`);
     m.addTo(lstGeoLayer);
   });
   if(st)st.textContent=rows.length+' ISSI';
