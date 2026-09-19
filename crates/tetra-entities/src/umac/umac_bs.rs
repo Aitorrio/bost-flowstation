@@ -386,8 +386,11 @@ impl UmacBs {
             cell_change_flag: false,
             carrier_num,
             ext: None,
-            mon_pattern: 0,
-            frame18_mon_pattern: Some(0),
+            // Explicit MPN 1 (ETSI EN 300 392-2 clause 9.6). With mon_pattern=0 +
+            // frame18_mon_pattern=0, some MSs (Sepura SRP2000) interrupt UL sync during long
+            // continuous PTT (~8-9s+) until UL-inactivity fires. Motorola unaffected by 0.
+            mon_pattern: 1,
+            frame18_mon_pattern: None,
         })
     }
 

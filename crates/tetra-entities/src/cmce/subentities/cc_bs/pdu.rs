@@ -937,6 +937,16 @@ impl CcBsSubentity {
         let prim = Self::build_sapmsg(sdu, None, self.dltime, dest_addr, None);
         queue.push_back(prim);
 
+        // Also deliver D-RELEASE via FACCH on the call's traffic timeslot (Miura / Sepura):
+        // the MCCH copy alone can be missed while the MS still monitors the traffic channel
+        // through hangtime, causing RDC_fail + band rescan instead of a clean release.
+        if let Some(call) = self.active_calls.get(&call_id) {
+            let sdu_facch = Self::build_d_release_from_d_setup(&cached.pdu, disconnect_cause);
+            let facch_msg =
+                Self::build_sapmsg_stealing(sdu_facch, self.dltime, dest_addr, call.carrier_num, call.ts, None);
+            queue.push_back(facch_msg);
+        }
+
         // Close the circuit in CircuitMgr and notify Brew
         if let Some(call) = self.active_calls.get(&call_id) {
             let ts = call.ts;
