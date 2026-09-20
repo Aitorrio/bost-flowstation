@@ -442,6 +442,32 @@ impl SdsBsSubentity {
             return;
         }
 
+        // LIP sniff-forward: regardless of original dest (incl. 9999 / local), push a Brew copy
+        // to the configured ISSI when [brew] feature_lip_forward is on.
+        let is_lip = Self::is_lip_sds(&pdu.user_defined_data);
+        let mut lip_brew_forwarded = false;
+        if is_lip {
+            if let Some(fwd_issi) = net_brew::lip_forward_issi(&self.config) {
+                tracing::info!(
+                    "SDS: LIP sniff-forward to Brew: {} -> {} (orig dest {})",
+                    source_ssi,
+                    fwd_issi,
+                    dest_ssi
+                );
+                queue.push_back(SapMsg {
+                    sap: Sap::Control,
+                    src: TetraEntity::Cmce,
+                    dest: TetraEntity::Brew,
+                    msg: SapMsgInner::CmceSdsData(CmceSdsData {
+                        source_issi: source_ssi,
+                        dest_issi: fwd_issi,
+                        user_defined_data: pdu.user_defined_data.clone(),
+                    }),
+                });
+                lip_brew_forwarded = true;
+            }
+        }
+
         // ACKs/replies addressed to the dashboard ISSI (9999) are consumed locally.
         if dest_ssi == 9999 {
             tracing::debug!("SDS: absorbing message to dashboard ISSI 9999 from {}", source_ssi);
@@ -466,6 +492,12 @@ impl SdsBsSubentity {
                 source_issi: source_ssi,
                 dest_issi: dest_ssi,
             });
+        } else if lip_brew_forwarded {
+            // Already sent to Brew at the configured LIP dest — do not also forward the original dest.
+            tracing::debug!(
+                "SDS: LIP already Brew-forwarded; skipping original dest {}",
+                dest_ssi
+            );
         } else if net_brew::feature_sds_enabled(&self.config) {
             tracing::info!("SDS: forwarding to Brew: {} -> {}", source_ssi, dest_ssi);
             queue.push_back(SapMsg {
@@ -988,6 +1020,11 @@ impl SdsBsSubentity {
     fn is_sds_tl_report(data: &SdsUserData) -> bool {
         let bytes = data.to_arr();
         bytes.len() >= 4 && matches!(bytes.first(), Some(0x82) | Some(0x89)) && bytes[1] == 0x10
+    }
+
+    /// True when the SDS payload is a LIP short location report (protocol id 0x0A).
+    fn is_lip_sds(data: &SdsUserData) -> bool {
+        data.to_arr().first() == Some(&0x0A)
     }
 
     /// Message-reference byte (data[2]) of an SDS-TL text request — PID 0x82/0x89 that is

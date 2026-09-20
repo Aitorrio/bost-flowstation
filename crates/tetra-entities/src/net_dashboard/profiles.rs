@@ -429,6 +429,8 @@ pub fn visual_config_from_toml(config_path: &str) -> Result<JsonValue, String> {
         brew.insert("reconnect_delay_secs".into(), JsonValue::Number(15.into()));
         brew.insert("feature_sds_enabled".into(), JsonValue::Bool(true));
         brew.insert("feature_rssi_export".into(), JsonValue::Bool(false));
+        brew.insert("feature_lip_forward".into(), JsonValue::Bool(false));
+        brew.insert("lip_forward_issi".into(), JsonValue::Null);
         out.insert("brew".into(), JsonValue::Object(brew));
     }
     out.insert(
@@ -535,6 +537,10 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
             let mut brew_toml = json_to_toml(brew)?.as_table().cloned().unwrap_or_default();
             brew_toml.remove("enabled");
             brew_toml.remove("password_set");
+            // Empty LIP dest in the form omits the key — drop any prior TOML value.
+            if !brew_obj.contains_key("lip_forward_issi") {
+                brew_toml.remove("lip_forward_issi");
+            }
             rehydrate_brew_password(&mut brew_toml, table.get("brew"));
             table.insert("brew".into(), TomlValue::Table(brew_toml));
         } else {
@@ -853,6 +859,10 @@ fn json_to_toml(v: &JsonValue) -> Result<TomlValue, String> {
             for (k, v) in o {
                 // Skip UI helper flags that must not land in TOML.
                 if k == "password_set" || k == "enabled" {
+                    continue;
+                }
+                // Optional form fields (e.g. lip_forward_issi) may be JSON null — omit them.
+                if v.is_null() {
                     continue;
                 }
                 t.insert(k.clone(), json_to_toml(v)?);

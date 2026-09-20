@@ -28,6 +28,11 @@ pub struct CfgBrew {
     /// If true, RSSI measurements are exported to the Brew server as Service (0xf4) JSON messages.
     /// Disabled by default. Enable only if the Brew server supports and expects RSSI data.
     pub feature_rssi_export: bool,
+    /// If true, UL LIP SDS (PID 10) is re-forwarded to Brew at [`Self::lip_forward_issi`], regardless
+    /// of the radio's original destination (local / 9999 / other). Independent of SDS forwarding.
+    pub feature_lip_forward: bool,
+    /// Brew destination ISSI for sniffed LIP reports. Ignored when `feature_lip_forward` is false.
+    pub lip_forward_issi: Option<u32>,
     /// If present, restrict Brew call to these remote SSIs
     pub whitelisted_ssis: Option<Vec<u32>>,
     /// Optional PBX gateway ISSIs that should be routable over Brew even if they don't match
@@ -66,6 +71,14 @@ pub struct CfgBrewDto {
     #[serde(default)]
     pub feature_rssi_export: bool,
 
+    /// Re-forward UL LIP (PID 10) to Brew at `lip_forward_issi`. Default: false.
+    #[serde(default)]
+    pub feature_lip_forward: bool,
+
+    /// Destination ISSI on Brew for sniffed LIP (any original dest).
+    #[serde(default)]
+    pub lip_forward_issi: Option<u32>,
+
     /// Optional PBX gateway ISSIs that should be routable over Brew even if they don't match
     /// normal Tetrapack subscriber ISSI constraints.
     #[serde(alias = "pbx_gateway_issi")]
@@ -99,6 +112,8 @@ pub fn apply_brew_patch(src: CfgBrewDto) -> CfgBrew {
         jitter_initial_latency_frames: src.jitter_initial_latency_frames,
         feature_sds_enabled: src.feature_sds_enabled,
         feature_rssi_export: src.feature_rssi_export,
+        feature_lip_forward: src.feature_lip_forward,
+        lip_forward_issi: src.lip_forward_issi.filter(|&i| i > 0 && i <= 0xFF_FFFF),
         whitelisted_ssis: src.whitelisted_ssis,
         pbx_gateway_issis: src.pbx_gateway_issis,
     }

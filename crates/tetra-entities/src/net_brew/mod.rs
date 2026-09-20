@@ -10,6 +10,7 @@ pub mod protocol;
 pub mod worker;
 
 pub use components::brew_routable::feature_sds_enabled;
+pub use components::brew_routable::lip_forward_issi;
 /// Convenience re-export of commonly externally used functions
 pub use components::brew_routable::is_active;
 pub use components::brew_routable::is_brew_external_subscriber_allowed;

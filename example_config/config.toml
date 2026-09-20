@@ -654,6 +654,11 @@ voice_service = true
 # Format: {"issi": 2260570, "rssi_dbfs": -42.3}
 # feature_rssi_export = false
 
+# Re-forward every UL LIP SDS (PID 10) to Brew at lip_forward_issi, regardless of the
+# radio's original destination (local ISSI, 9999, group, etc.). Independent of SDS forwarding.
+# feature_lip_forward = false
+# lip_forward_issi = 2144485
+
 # OPTIONAL: restrict OUTBOUND Brew forwarding to selected SSIs.
 # This is an OUTBOUND-only filter (FH-FEAT-032 R3): only calls/SDS TO these SSIs are
 # forwarded from this cell out to Brew. INBOUND Brew traffic is NOT filtered by this

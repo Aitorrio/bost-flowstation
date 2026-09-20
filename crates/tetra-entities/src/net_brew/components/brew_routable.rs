@@ -12,6 +12,22 @@ pub fn feature_sds_enabled(config: &SharedConfig) -> bool {
     config.config().brew.as_ref().map_or(false, |brew| brew.feature_sds_enabled)
 }
 
+/// Destination ISSI for sniff-forwarding UL LIP to Brew, when that feature is enabled.
+/// `None` when Brew is off, the toggle is off, or the ISSI is unset/invalid.
+#[inline]
+pub fn lip_forward_issi(config: &SharedConfig) -> Option<u32> {
+    let brew = config.config().brew.as_ref()?;
+    if !brew.feature_lip_forward {
+        return None;
+    }
+    let issi = brew.lip_forward_issi?;
+    if (1..=0xFF_FFFF).contains(&issi) {
+        Some(issi)
+    } else {
+        None
+    }
+}
+
 /// Returns true if the configured Brew server is TetraPack (core.tetrapack.online)
 fn is_tetrapack(config: &SharedConfig) -> bool {
     if let Some(brew_config) = &config.config().brew {
@@ -193,5 +209,39 @@ password = ""
         assert!(!is_brew_external_subscriber_allowed(&cfg, 999));
         assert!(!is_brew_external_subscriber_allowed(&cfg, 9999));
         assert!(is_brew_external_subscriber_allowed(&cfg, 2632585));
+    }
+
+    #[test]
+    fn lip_forward_issi_requires_toggle_and_valid_issi() {
+        let cfg = shared_config("");
+        // Default brew from shared_config has no LIP forward.
+        assert_eq!(lip_forward_issi(&cfg), None);
+
+        let toml = r#"
+config_version = "0.6"
+stack_mode = "Bs"
+[phy_io]
+backend = "None"
+[net_info]
+mcc = 901
+mnc = 9999
+[cell_info]
+main_carrier = 1584
+freq_band = 4
+freq_offset = 0
+duplex_spacing = 4
+reverse_operation = false
+location_area = 1
+[brew]
+host = "example.invalid"
+port = 443
+tls = true
+username = 0
+password = ""
+feature_lip_forward = true
+lip_forward_issi = 2144485
+"#;
+        let cfg = SharedConfig::from_parts(from_toml_str(toml).expect("parse"), None);
+        assert_eq!(lip_forward_issi(&cfg), Some(2144485));
     }
 }

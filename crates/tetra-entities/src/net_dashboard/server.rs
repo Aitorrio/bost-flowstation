@@ -1888,7 +1888,6 @@ impl DashboardServer {
                     if std::thread::Builder::new()
                         .name("dashboard-conn".into())
                         .spawn(move || {
-                            let _guard = DashConnGuard;
                             handle_connection(
                                 ConnStream::plain(stream),
                                 state,
@@ -1904,6 +1903,7 @@ impl DashboardServer {
                                 radioid,
                                 public_overview,
                                 lst_handle,
+                                Some(DashConnGuard),
                             )
                         })
                         .is_err()
@@ -1988,7 +1988,7 @@ impl DashboardServer {
                         if std::thread::Builder::new()
                             .name("dashboard-https-conn".into())
                             .spawn(move || {
-                                let _guard = DashConnGuard;
+                                let guard = DashConnGuard;
                                 let conn = match ConnStream::from_tls_handshake(tcp, tls_config) {
                                     Ok(c) => c,
                                     Err(e) => {
@@ -2011,6 +2011,7 @@ impl DashboardServer {
                                     radioid,
                                     public_overview,
                                     lst_handle,
+                                    Some(guard),
                                 )
                             })
                             .is_err()
@@ -2769,6 +2770,9 @@ fn handle_connection(
     radioid: crate::net_dashboard::radioid::RadioIdCache,
     public_overview: bool,
     lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
+    // Held for short HTTP work; dropped before long-lived WebSocket loops so WS does not
+    // permanently occupy a DASH_MAX_CONN slot (that starved polls and wedged the Pi UI).
+    mut conn_guard: Option<DashConnGuard>,
 ) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
     // Captured before the stream is wrapped — the login throttle keys on it.
@@ -2999,6 +3003,8 @@ fn handle_connection(
     // browser running on the BTS that connects via the box's LAN IP from a remote one, so it wrongly
     // blocked operators doing DGNA/SDS from the BTS itself. Set a username/password to lock it down.
     if req_line.contains("/ws") {
+        // Release the HTTP concurrency slot before entering the WS read loop.
+        drop(conn_guard.take());
         handle_ws(stream, state, clients, cmd_tx, update_state, shared_config.clone(), lst_handle);
     } else if req_line.contains("GET /api/service/status") {
         let mut s = stream;

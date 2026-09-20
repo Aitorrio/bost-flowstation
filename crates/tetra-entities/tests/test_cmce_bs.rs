@@ -1088,6 +1088,8 @@ fn test_network_group_speaker_change_uses_remote_floor_grant() {
         feature_sds_enabled: true,
         whitelisted_ssis: None,
         feature_rssi_export: false,
+        feature_lip_forward: false,
+        lip_forward_issi: None,
         pbx_gateway_issis: None,
     });
     let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
@@ -1322,6 +1324,8 @@ fn test_brew_cfg() -> CfgBrew {
         feature_sds_enabled: true,
         whitelisted_ssis: None,
         feature_rssi_export: false,
+        feature_lip_forward: false,
+        lip_forward_issi: None,
         pbx_gateway_issis: None,
     }
 }

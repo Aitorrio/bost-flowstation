@@ -5558,8 +5558,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_brew_adv">Advanced Brew</summary>
                     <div class="group-list">
                       <label class="field"><span>Reconnect delay (s)</span><input type="number" id="vc-brew-reconnect" class="form-input" value="15"></label>
-                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-sds" checked> <span>SDS forwarding</span></label>
-                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-rssi"> <span>RSSI export</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-sds" checked> <span data-i18n="cfg_brew_sds">SDS forwarding</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-rssi"> <span data-i18n="cfg_brew_rssi">RSSI export</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-lip" onchange="toggleBrewLipFields()"> <span data-i18n="cfg_brew_lip">LIP forwarding</span></label>
+                      <label class="field"><span data-i18n="cfg_brew_lip_issi">LIP destination ISSI (via Brew)</span><input type="number" id="vc-brew-lip-issi" class="form-input" min="1" max="16777215" placeholder="e.g. 2144485"></label>
                     </div>
                   </details>
                   <div class="config-msg" id="vc-brew-msg"></div>
@@ -7006,7 +7008,10 @@ const LANGS={
     cfg_help_brew_reconnect:'Seconds to wait before reconnecting after Brew drops. Default 15.',
     cfg_help_brew_sds:'Forward SDS between air and Brew when enabled.',
     cfg_help_brew_rssi:'Export RSSI telemetry toward Brew (extra traffic). Off unless you need it.',
+    cfg_help_brew_lip:'Re-forward every UL LIP report to Brew at the ISSI below, whatever destination the radio used.',
+    cfg_help_brew_lip_issi:'Brew destination ISSI for sniffed LIP positions (1–16777215).',
     cfg_sec_brew:'Brew',cfg_brew_title:'Backhaul connection',cfg_brew_enable:'Enable Brew',cfg_brew_user:'Username (SSID)',cfg_brew_adv:'Advanced Brew',
+    cfg_brew_sds:'SDS forwarding',cfg_brew_rssi:'RSSI export',cfg_brew_lip:'LIP forwarding',cfg_brew_lip_issi:'LIP destination ISSI (via Brew)',
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',cfg_advanced_warn:'Advanced users only',
     cfg_sec_advanced:'Advanced',
     cfg_apply_confirm:'Apply selected Cell × Brew profiles and restart? Current config.toml will be backed up.',
@@ -7531,6 +7536,9 @@ const LANGS={
     cfg_help_brew_reconnect:'Segundos de espera antes de reconectar tras una caída de Brew. Default 15.',
     cfg_help_brew_sds:'Reenvía SDS entre aire y Brew si está activo.',
     cfg_help_brew_rssi:'Exporta telemetría RSSI hacia Brew (más tráfico). Off salvo que lo necesites.',
+    cfg_help_brew_lip:'Reenvía cada informe LIP UL a Brew hacia el ISSI de abajo, digan lo que digan las radios como destino.',
+    cfg_help_brew_lip_issi:'ISSI de destino en Brew para LIP capturado (1–16777215).',
+    cfg_brew_sds:'Reenvío SDS',cfg_brew_rssi:'Exportar RSSI',cfg_brew_lip:'Reenvío de LIP',cfg_brew_lip_issi:'ISSI de destino de LIP a través de Brew',
     update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
     update_confirm:'¿Obtener lo último del canal {channel} (rama {branch}) y recompilar?\nEl servicio se reiniciará automáticamente si hace falta una build nueva.',
     ota_channel_title:'Canal OTA',
@@ -11457,9 +11465,16 @@ function mhzFieldToHz(id){
 }
 function toggleBrewFields(){
   const on=document.getElementById('vc-brew-enabled')?.checked;
-  ['vc-brew-host','vc-brew-port','vc-brew-tls','vc-brew-user','vc-brew-pass','vc-brew-reconnect','vc-brew-sds','vc-brew-rssi'].forEach(id=>{
+  ['vc-brew-host','vc-brew-port','vc-brew-tls','vc-brew-user','vc-brew-pass','vc-brew-reconnect','vc-brew-sds','vc-brew-rssi','vc-brew-lip'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.disabled=!on;
   });
+  toggleBrewLipFields();
+}
+function toggleBrewLipFields(){
+  const brewOn=!!document.getElementById('vc-brew-enabled')?.checked;
+  const lipOn=!!document.getElementById('vc-brew-lip')?.checked;
+  const el=document.getElementById('vc-brew-lip-issi');
+  if(el)el.disabled=!brewOn||!lipOn;
 }
 function parseLocalSsiRanges(text){
   if(!text||!text.trim())return [[0,90]];
@@ -11561,6 +11576,7 @@ const CFG_HELP_BY_ID={
   'vc-brew-enabled':'cfg_help_brew_enable','vc-brew-host':'cfg_help_brew_host','vc-brew-port':'cfg_help_brew_port',
   'vc-brew-tls':'cfg_help_brew_tls','vc-brew-user':'cfg_help_brew_user','vc-brew-pass':'cfg_help_brew_pass',
   'vc-brew-reconnect':'cfg_help_brew_reconnect','vc-brew-sds':'cfg_help_brew_sds','vc-brew-rssi':'cfg_help_brew_rssi',
+  'vc-brew-lip':'cfg_help_brew_lip','vc-brew-lip-issi':'cfg_help_brew_lip_issi',
 };
 let cfgHelpPop=null,cfgHelpBtn=null;
 function closeCfgHelp(){
@@ -11702,7 +11718,10 @@ function collectVisualConfig(){
     reconnect_delay_secs:vcNum('vc-brew-reconnect')??15,
     feature_sds_enabled:!!document.getElementById('vc-brew-sds')?.checked,
     feature_rssi_export:!!document.getElementById('vc-brew-rssi')?.checked,
+    feature_lip_forward:!!document.getElementById('vc-brew-lip')?.checked,
   };
+  const lipIssi=vcNum('vc-brew-lip-issi');
+  if(lipIssi&&lipIssi>0)brew.lip_forward_issi=lipIssi;
   return {
     config_version:'0.6',
     stack_mode:'Bs',
@@ -11748,6 +11767,8 @@ function fillVisualConfig(d,opts){
   vcSet('vc-brew-pass',brew.password_set?'••••••••':'');
   vcSet('vc-brew-reconnect',brew.reconnect_delay_secs??15);
   vcSet('vc-brew-sds',brew.feature_sds_enabled!==false); vcSet('vc-brew-rssi',!!brew.feature_rssi_export);
+  vcSet('vc-brew-lip',!!brew.feature_lip_forward);
+  vcSet('vc-brew-lip-issi',brew.lip_forward_issi||'');
   toggleBrewFields();
   // Access control follows the payload:
   // - fromCell: always refresh (missing security = open list for that Cell)
