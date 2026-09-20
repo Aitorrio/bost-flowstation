@@ -699,11 +699,12 @@ body{
 #lst-call-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
 #lst-geo-modal .modal.lst-geo-modal{width:min(920px,96vw);max-height:92vh;overflow:auto;position:relative;}
 #lst-geo-modal .lst-geo-head{
-  display:flex;align-items:flex-start;gap:10px;
+  display:flex;align-items:center;gap:10px;
   margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border);
 }
 #lst-geo-modal .lst-geo-head .modal-title{
   flex:1;min-width:0;margin:0;padding:0;border:none;padding-right:4px;
+  line-height:1.25;display:flex;align-items:center;
 }
 #lst-geo-modal .lst-modal-x{
   position:static;flex:0 0 auto;width:32px;height:32px;border-radius:8px;
@@ -713,7 +714,10 @@ body{
 #lst-geo-modal .lst-modal-x:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,0.08);}
 .lst-geo-map{height:min(360px,42vh);width:100%;border-radius:8px;border:1px solid var(--border);background:var(--bg-2);margin:8px 0 10px;}
 .lst-geo-fit-bar{display:none;margin:0 0 10px;}
-.lst-geo-fit-bar .btn{width:100%;text-transform:none;letter-spacing:0;font-weight:600;}
+.lst-geo-fit-bar .btn{
+  width:100%;text-transform:none;letter-spacing:0;
+  font-weight:700;font-size:14px;text-align:center;justify-content:center;
+}
 .lst-geo-table-wrap{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
 .lst-geo-table-wrap .data-table{margin:0;}
 #lst-geo-table th.lst-geo-actions-th,
@@ -2071,11 +2075,17 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   /* Modal dialogs: near full screen on phone, scrollable content */
   .modal{width:95vw!important;max-height:90vh!important;padding:14px!important;overflow-y:auto;}
   .modal-title{font-size:11px;margin-bottom:12px;padding-bottom:8px;}
-  #lst-geo-modal .lst-geo-head{margin-bottom:10px;padding-bottom:8px;}
-  #lst-geo-modal .lst-geo-head .modal-title{margin:0;padding:0;border:none;font-size:11px;}
+  #lst-geo-modal .lst-geo-head{margin-bottom:10px;padding-bottom:8px;align-items:center;}
+  #lst-geo-modal .lst-geo-head .modal-title{margin:0;padding:0;border:none;font-size:13px;line-height:1.25;}
   #lst-geo-modal .lst-geo-fit-bar{display:block;}
+  #lst-geo-modal .lst-geo-fit-bar .btn{font-size:15px;font-weight:700;min-height:42px;}
+  /* Per-radio card: only the Centrar button — never echo "Centrar todos" as a stack label. */
+  #lst-geo-table.table-stack tbody td.lst-geo-actions-td::before{content:none!important;display:none!important;}
   #lst-geo-table.table-stack tbody td.lst-geo-actions-td > .stack-val{
-    justify-content:center;text-align:center;
+    justify-content:center;text-align:center;flex:1 1 100%;
+  }
+  #lst-geo-table.table-stack tbody td.lst-geo-actions-td .btn{
+    flex:1 1 auto;min-width:0;width:100%;max-width:280px;margin:0 auto;
   }
   #update-modal .modal{width:95vw!important;}
   .update-terminal{height:200px!important;font-size:10px!important;}
@@ -6413,7 +6423,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <th data-i18n="issi">ISSI</th>
           <th data-i18n="lst_col_pos">Position</th>
           <th data-i18n="lst_geo_age">Age</th>
-          <th class="lst-geo-actions-th">
+          <th class="lst-geo-actions-th" data-stack-label="">
             <button type="button" class="btn btn-sm" onclick="lstGeoFitAll()" data-i18n="lst_geo_fit">Fit all</button>
           </th>
         </tr></thead>
@@ -10545,6 +10555,7 @@ function applyTableStackLabels(tb){
   const table=tb.closest('table');
   if(!table||!table.classList.contains('table-stack'))return;
   const labels=[...table.querySelectorAll('thead th')].map(th=>{
+    if(th.hasAttribute('data-stack-label'))return th.getAttribute('data-stack-label')||'';
     const key=th.getAttribute('data-i18n');
     return (key?t(key):(th.textContent||'')).trim();
   });
@@ -10562,6 +10573,7 @@ function applyTableStackLabels(tb){
     }
     cells.forEach((td,i)=>{
       if(labels[i])td.setAttribute('data-label',labels[i]);
+      else td.removeAttribute('data-label');
       if(td.classList.contains('col-mobile-hide'))return;
       if(td.querySelector(':scope > .stack-val'))return;
       const wrap=document.createElement('div');

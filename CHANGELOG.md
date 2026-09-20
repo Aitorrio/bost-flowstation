@@ -2,6 +2,12 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.25 — Modal Ubicación LIP (móvil)
+
+- En cada radio solo queda el botón **Centrar** (se quita el texto “Centrar todos” duplicado en la tarjeta).
+- El botón superior **Centrar todos** va centrado, más grande y en negrita.
+- Título del modal alineado en vertical con el botón de cerrar (móvil y PC).
+
 ## v0.3.24 — Fix OTA: préstamo en lip_forward_issi
 
 - Corrige E0716 en `brew_routable` (temporary dropped while borrowed) que bloqueaba el build OTA de 0.3.23.
