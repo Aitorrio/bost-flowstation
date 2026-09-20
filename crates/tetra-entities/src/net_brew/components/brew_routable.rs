@@ -16,16 +16,14 @@ pub fn feature_sds_enabled(config: &SharedConfig) -> bool {
 /// `None` when Brew is off, the toggle is off, or the ISSI is unset/invalid.
 #[inline]
 pub fn lip_forward_issi(config: &SharedConfig) -> Option<u32> {
-    let brew = config.config().brew.as_ref()?;
-    if !brew.feature_lip_forward {
-        return None;
-    }
-    let issi = brew.lip_forward_issi?;
-    if (1..=0xFF_FFFF).contains(&issi) {
-        Some(issi)
-    } else {
-        None
-    }
+    // Keep `config()` in the same expression so the RwLock guard outlives the brew borrow.
+    config.config().brew.as_ref().and_then(|brew| {
+        if !brew.feature_lip_forward {
+            return None;
+        }
+        let issi = brew.lip_forward_issi?;
+        (1..=0xFF_FFFF).contains(&issi).then_some(issi)
+    })
 }
 
 /// Returns true if the configured Brew server is TetraPack (core.tetrapack.online)
