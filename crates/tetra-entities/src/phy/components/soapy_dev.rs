@@ -44,7 +44,8 @@ pub struct PhyConfig<'a> {
 }
 
 pub struct RxTxDevSoapySdr {
-    sdr: soapyio::SoapyIo,
+    /// `None` after [`Self::power_off_for_ota`] — streams/device released.
+    sdr: Option<soapyio::SoapyIo>,
     rx_dsp: Option<RxDsp>,
     tx_dsp: Option<TxDsp>,
     health: Option<SdrHealthMonitor>,
@@ -191,16 +192,32 @@ impl RxTxDevSoapySdr {
 
             health: health_telemetry.map(SdrHealthMonitor::new),
 
-            sdr,
+            sdr: Some(sdr),
         })
+    }
+
+    /// Drop Soapy streams/device so the cell leaves the air (OTA compile path).
+    fn power_off_for_ota(&mut self) {
+        if self.sdr.is_none() {
+            return;
+        }
+        tracing::warn!("PHY: shutting down SDR for OTA update");
+        self.rx_dsp = None;
+        self.tx_dsp = None;
+        self.health = None;
+        drop(self.sdr.take());
+        crate::rf_status::set_offline("RF off for OTA update");
     }
 
     /// Process a block of received signal.
     /// Return true if processing can be continued,
     /// false if a slot has been demodulated and rxtx_timeslot should return.
     fn process_rx_block(&mut self) -> Result<bool, RxTxDevError> {
+        let Some(sdr) = self.sdr.as_mut() else {
+            return Ok(false);
+        };
         if let Some(rx_dsp) = &mut self.rx_dsp {
-            rx_dsp.process_block(&mut self.sdr)
+            rx_dsp.process_block(sdr)
         } else {
             Ok(false)
         }
@@ -211,9 +228,12 @@ impl RxTxDevSoapySdr {
     /// false if more data is needed
     /// or if it wants to wait before producing more.
     fn process_tx_block(&mut self, tx_slot: &[TxSlotBits]) -> Result<bool, RxTxDevError> {
+        let Some(sdr) = self.sdr.as_mut() else {
+            return Ok(false);
+        };
         if let Some(tx_dsp) = &mut self.tx_dsp {
-            if self.sdr.tx_possible() {
-                tx_dsp.process_block(&mut self.sdr, self.rx_dsp.as_ref().map(|rx_dsp| rx_dsp.rx_block_count), tx_slot)
+            if sdr.tx_possible() {
+                tx_dsp.process_block(sdr, self.rx_dsp.as_ref().map(|rx_dsp| rx_dsp.rx_block_count), tx_slot)
             } else {
                 Ok(false)
             }
@@ -229,6 +249,15 @@ impl RxTxDev for RxTxDevSoapySdr {
         tx_slot: &[TxSlotBits],
         // TODO multiple demodulators
     ) -> Result<Vec<Option<RxSlotBits<'a>>>, RxTxDevError> {
+        if crate::rf_status::ota_rf_off_requested() {
+            self.power_off_for_ota();
+        }
+        if self.sdr.is_none() {
+            // Pace ~1 TDMA slot so the stack does not busy-spin while cargo builds.
+            std::thread::sleep(std::time::Duration::from_millis(57));
+            return Ok(Vec::new());
+        }
+
         // First generate as much TX signal as possible at the moment.
         while self.process_tx_block(tx_slot)? {}
 
@@ -242,8 +271,8 @@ impl RxTxDev for RxTxDevSoapySdr {
         // without locking. Only the temperature is read live now; gains are cached after
         // the first read because they never change and the USB readback was stalling the
         // PHY thread (FH-BUG-023). The single remaining sensor read is cheap and rare.
-        if let Some(health) = &mut self.health {
-            health.tick(&self.sdr);
+        if let (Some(health), Some(sdr)) = (self.health.as_mut(), self.sdr.as_ref()) {
+            health.tick(sdr);
         }
 
         if let Some(rx_dsp) = &mut self.rx_dsp {

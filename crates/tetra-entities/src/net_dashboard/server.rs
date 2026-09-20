@@ -1289,6 +1289,11 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
+    // Drop the cell from the air before the long compile — otherwise RF dies mid-build and
+    // radios stay "registered" while the BS registry is wiped on restart.
+    crate::rf_status::request_ota_rf_off();
+    log!(update, "RF: offline for OTA (SDR will reopen after service restart)");
+
     /// Run a command, streaming stdout+stderr into the log; return collected stdout or None.
     fn run_cmd_output(update: &SharedUpdateState, program: &str, args: &[&str], dir: &std::path::Path) -> Option<String> {
         let label = format!("$ {} {}", program, args.join(" "));
