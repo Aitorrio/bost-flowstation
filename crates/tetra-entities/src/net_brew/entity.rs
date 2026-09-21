@@ -181,12 +181,13 @@ pub struct BrewEntity {
 
     /// Whether the worker is connected
     connected: bool,
-    /// True once we've already told MM about this connection (so it re-registers local MS exactly
-    /// ONCE per connect, not on every inbound message). The server version is detected from every
-    /// GROUP_TX with a mnemonic — many per second — so without this latch the BrewReconnected
-    /// notification (and the D-LOCATION-UPDATE-COMMAND sweep it triggers) would fire continuously
-    /// and flood every radio with re-registration commands. Reset on (re)connect and disconnect.
-    brew_reconnect_announced: bool,
+    /// After a real disconnect, the next [`BrewEvent::Connected`] asks MM to re-register local MS
+    /// once (PTT-denied after backhaul blip). Must NOT be set by lazy version detection — TetraPack
+    /// omits `X-Brew-Version`, so the first mnemonic GROUP_TX would otherwise kick every radio
+    /// mid-call.
+    brew_needs_ms_reregister: bool,
+    /// One-shot log/telemetry when Brew v1 is inferred from message length (no handshake header).
+    brew_version_announced: bool,
     /// Optional telemetry sink for emitting brew status events
     telemetry_sink: Option<TelemetrySink>,
 
@@ -240,7 +241,8 @@ impl BrewEntity {
             ul_forwarded: HashMap::new(),
             subscriber_groups: HashMap::new(),
             connected: false,
-            brew_reconnect_announced: false,
+            brew_needs_ms_reregister: false,
+            brew_version_announced: false,
             telemetry_sink: None,
             rssi_last_sent: HashMap::new(),
             worker_handle: Some(handle),
@@ -262,23 +264,15 @@ impl BrewEntity {
                 BrewEvent::Connected { server_version } => {
                     tracing::debug!("BrewEntity: connected to TetraPack server (Brew v{})", server_version);
                     self.connected = true;
-                    // Re-arm the one-shot reconnect notification for this fresh connection.
-                    self.brew_reconnect_announced = false;
+                    self.brew_version_announced = false;
                     self.resync_subscribers();
                     self.set_network_connected(true, server_version);
-                }
-                BrewEvent::VersionDetected { version } => {
-                    // VersionDetected fires on EVERY inbound GROUP_TX that carries a mnemonic
-                    // (many per second). Only act on the first one of each connection, or we would
-                    // flood MM with BrewReconnected — and every radio with re-registration
-                    // D-LOCATION-UPDATE-COMMANDs — continuously.
-                    if !self.brew_reconnect_announced {
-                        self.brew_reconnect_announced = true;
-                        tracing::info!("BrewEntity: server Brew version detected from message length: v{}", version);
-                        self.emit_brew_version(version);
-                        // Notify MM (once) that Brew (re)connected so it re-registers local MS.
-                        // Without this, MS that were registered before a disconnect believe they
-                        // are still affiliated and never re-register — PTT denied until power-cycle.
+                    // Only after a prior disconnect — not on first boot connect (MS register fresh).
+                    if self.brew_needs_ms_reregister {
+                        self.brew_needs_ms_reregister = false;
+                        tracing::info!(
+                            "BrewEntity: backhaul reconnected — asking MM to re-register local MS"
+                        );
                         queue.push_back(SapMsg {
                             sap: tetra_core::Sap::Control,
                             src: TetraEntity::Brew,
@@ -287,11 +281,23 @@ impl BrewEntity {
                         });
                     }
                 }
+                BrewEvent::VersionDetected { version } => {
+                    // Fires on mnemonic GROUP_TX when handshake had no X-Brew-Version (TetraPack).
+                    // Telemetry only — never BrewReconnected here (that kicked MS mid first call).
+                    if !self.brew_version_announced {
+                        self.brew_version_announced = true;
+                        tracing::info!(
+                            "BrewEntity: server Brew version detected from message length: v{}",
+                            version
+                        );
+                        self.emit_brew_version(version);
+                    }
+                }
                 BrewEvent::Disconnected(reason) => {
                     tracing::warn!("BrewEntity: Brew backhaul disconnected: {} — releasing all active calls", reason);
                     self.connected = false;
-                    // Re-arm so the next reconnect re-registers local MS exactly once.
-                    self.brew_reconnect_announced = false;
+                    self.brew_needs_ms_reregister = true;
+                    self.brew_version_announced = false;
                     self.set_network_connected(false, 0);
                     // ETSI EN 300 392-2 §14.9.4: BS must release all circuits immediately
                     // when backhaul connection is lost. MS will receive D-RELEASE.
