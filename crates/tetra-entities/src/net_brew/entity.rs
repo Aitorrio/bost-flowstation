@@ -1390,9 +1390,9 @@ impl BrewEntity {
 
         // Pending tails: CMCE still Transmitting — play media, then quiet long enough for
         // UMAC to air the last TmdCircuitDataReq before NetworkCallEnd flips hangtime.
-        // ~1 TDMA frame is 56.67 ms; a few frames of pipeline + one missed slot ⇒ ~550 ms.
+        // ~1 TDMA frame is 56.67 ms; a few frames of pipeline + one missed slot ⇒ ~400 ms.
         const TAIL_REAP_AFTER: Duration = Duration::from_millis(2500);
-        const TAIL_QUIET_AFTER: Duration = Duration::from_millis(550);
+        const TAIL_QUIET_AFTER: Duration = Duration::from_millis(400);
         let finished: Vec<Uuid> = self
             .pending_tails
             .iter_mut()

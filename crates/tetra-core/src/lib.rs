@@ -19,7 +19,7 @@ pub const PRODUCT_NAME_NEXT: &str = "PTBS";
 pub const PRODUCT_NAME_NEXT_LONG: &str = "Personal Tetra Base Station";
 
 /// Our release line (independent of upstream crate package version).
-pub const BOST_VERSION: &str = "0.3.32";
+pub const BOST_VERSION: &str = "0.3.33";
 
 /// Upstream project this fork is based on.
 pub const UPSTREAM_NAME: &str = "FlowStation";

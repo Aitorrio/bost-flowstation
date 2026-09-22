@@ -2,10 +2,14 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.33 — Pending-tail quiet 400 ms
+
+- Ajuste fino: quiet post-drenado Brew **400 ms** (antes 550) tras `GROUP_IDLE`.
+
 ## v0.3.32 — Brew: no cortar la última sílaba al soltar PTT remoto
 
 - Tras `GROUP_IDLE` se **aplaza siempre** el `NetworkCallEnd` (aunque el jitter Brew esté vacío) para que UMAC termine de radiar los últimos TCH.
-- Quiet post-drenado ~**550 ms** (antes 150 ms); evita que el hangtime “se trague” la cola y la suelte al abrir el siguiente PTT.
+- Quiet post-drenado ~**400 ms** (ajustado en 0.3.33; era 550 / antes 150); evita que el hangtime “se trague” la cola y la suelte al abrir el siguiente PTT.
 
 ## v0.3.31 — Brew late entry: audio DL + Hold al salir del TG
 
