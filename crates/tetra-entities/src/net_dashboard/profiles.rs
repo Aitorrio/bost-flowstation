@@ -923,6 +923,7 @@ reverse_operation = false
 location_area = 2
 colour_code = 1
 system_wide_services = true
+late_entry_supported = true
 voice_service = true
 
 [brew]
@@ -995,6 +996,7 @@ password = "secret"
                 "colour_code": 1,
                 "location_area": 2,
                 "system_wide_services": true,
+                "late_entry_supported": true,
                 "voice_service": true,
                 "local_ssi_ranges": [[0, 90]]
             }
@@ -1066,6 +1068,7 @@ password = "secret"
                 "colour_code": 1,
                 "location_area": 2,
                 "system_wide_services": true,
+                "late_entry_supported": true,
                 "voice_service": true,
                 "local_ssi_ranges": [[0, 90]],
                 // hangtime / ul / t351 omitted → prune to engine defaults

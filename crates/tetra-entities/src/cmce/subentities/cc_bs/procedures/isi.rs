@@ -711,14 +711,22 @@ impl CcBsSubentity {
         }
 
         if !self.has_listener(dest_gssi) {
+            // Hold on Brew (pending inbound) instead of teardown — when the first MS
+            // affiliates we promote via GroupListenersAvailable (SS-LE / late entry).
             tracing::info!(
-                "CMCE: ignoring network call start uuid={} gssi={} (no listeners)",
+                "CMCE: holding network call start uuid={} gssi={} (no listeners yet)",
                 brew_uuid,
                 dest_gssi
             );
             self.drop_group_calls_if_unlistened(queue, dest_gssi);
-
-            self.notify_network_call_end(queue, brew_uuid);
+            Self::push_control(
+                queue,
+                TetraEntity::Brew,
+                CallControl::NetworkCallHold {
+                    brew_uuid,
+                    dest_gssi,
+                },
+            );
             return;
         }
 

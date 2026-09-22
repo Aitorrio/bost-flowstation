@@ -77,6 +77,59 @@ impl CcBsSubentity {
         });
     }
 
+    /// After Affiliate (or equivalent): immediate LE broadcast D-SETUP if a group call is
+    /// already active on `gssi`, plus OngoingGroupCall so LST console RX engages without waiting
+    /// for the next FloorGranted.
+    pub(super) fn notify_late_entry_for_gssi(&mut self, queue: &mut MessageQueue, gssi: u32) {
+        let Some((call_id, source_issi, carrier_num, ts, usage, tx_active)) = self
+            .active_calls
+            .iter()
+            .find(|(_, c)| c.dest_gssi == gssi)
+            .map(|(&id, c)| (id, c.source_issi, c.carrier_num, c.ts, c.usage, c.is_tx_active()))
+        else {
+            return;
+        };
+
+        // LST console: reuse FloorGranted semantics via OngoingGroupCall (rx_gssi green + audio).
+        Self::push_control(
+            queue,
+            TetraEntity::Brew,
+            CallControl::OngoingGroupCall {
+                gssi,
+                call_id,
+                carrier_num,
+                ts,
+                source_issi,
+                tx_active,
+            },
+        );
+
+        let Some(cached) = self.cached_setups.get_mut(&call_id) else {
+            return;
+        };
+        if !cached.resend {
+            return;
+        }
+        // Event-driven LE broadcast — do not wait for the ~5 s cadence.
+        cached.pdu.transmission_grant = if tx_active {
+            TransmissionGrant::GrantedToOtherUser
+        } else {
+            TransmissionGrant::NotGranted
+        };
+        let dest_addr = cached.dest_addr;
+        let (sdu, chan_alloc) = Self::build_d_setup_prim(&cached.pdu, usage, carrier_num, ts, UlDlAssignment::Both);
+        let reporter = TxReporter::new_unacked();
+        cached.tx_receipt = Some(reporter.clone());
+        let prim = Self::build_sapmsg(sdu, Some(chan_alloc), self.dltime, dest_addr, Some(reporter));
+        queue.push_back(prim);
+        tracing::info!(
+            "CMCE: late-entry D-SETUP immediate call_id={} gssi={} tx_active={}",
+            call_id,
+            gssi,
+            tx_active
+        );
+    }
+
     #[inline]
     pub(super) fn p2p_call_timeout(simplex_duplex: bool) -> CallTimeout {
         if simplex_duplex { CallTimeout::Infinite } else { CallTimeout::T5m }
@@ -459,7 +512,18 @@ impl CcBsSubentity {
                     }
                 }
                 for gssi in &new_groups {
+                    let first_listener = !self.has_listener(*gssi);
                     self.inc_group_listener(*gssi);
+                    // Promote Brew pending inbound once the first local ear appears.
+                    if first_listener {
+                        Self::push_control(
+                            queue,
+                            TetraEntity::Brew,
+                            CallControl::GroupListenersAvailable { gssi: *gssi },
+                        );
+                    }
+                    // SS-LE broadcast + LST console snapshot for calls already on air.
+                    self.notify_late_entry_for_gssi(queue, *gssi);
                 }
 
                 if new_groups.is_empty() {

@@ -138,6 +138,23 @@ pub enum CallControl {
     NetworkCallEnd {
         brew_uuid: uuid::Uuid, // Identifies the call to end
     },
+    /// CMCE has no local listeners yet — Brew holds the inbound call (pending) instead of teardown.
+    /// Voice/GROUP_TX keepalives continue until listeners appear or idle reap.
+    NetworkCallHold {
+        brew_uuid: uuid::Uuid,
+        dest_gssi: u32,
+    },
+    /// First local listener(s) appeared for this GSSI — Brew may promote a held inbound call.
+    GroupListenersAvailable { gssi: u32 },
+    /// Snapshot of an ongoing group call for LST console late-entry RX (reuse FloorGranted path).
+    OngoingGroupCall {
+        gssi: u32,
+        call_id: u16,
+        carrier_num: u16,
+        ts: u8,
+        source_issi: u32,
+        tx_active: bool,
+    },
     /// Notify CMCE that network media is still arriving for an active group call.
     /// Used to refresh the BS-side call timeout while the backhaul is still sending voice.
     NetworkCallMediaActivity {

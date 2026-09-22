@@ -1346,6 +1346,32 @@ impl TetraEntityTrait for LstDispatchEntity {
             }) => {
                 self.on_floor_granted(call_id, source_issi, dest_gssi, carrier_num, ts);
             }
+            SapMsgInner::CmceCallControl(CallControl::OngoingGroupCall {
+                gssi,
+                call_id,
+                carrier_num,
+                ts,
+                source_issi,
+                tx_active,
+            }) => {
+                // Late-entry snapshot: same as FloorGranted when someone is talking.
+                if tx_active {
+                    self.on_floor_granted(call_id, source_issi, gssi, carrier_num, ts);
+                } else if self.listen_gssis.contains(&gssi) {
+                    // Hangtime: mark RX so the TG shows green; audio arrives on next floor.
+                    self.rx = Some(ActiveRx {
+                        gssi,
+                        call_id,
+                        carrier_num,
+                        ts,
+                        draining_until: None,
+                    });
+                    self.handle.set_status(|s| {
+                        s.rx_gssi = Some(gssi);
+                        s.rx_draining = false;
+                    });
+                }
+            }
             SapMsgInner::CmceCallControl(CallControl::FloorReleased {
                 call_id,
                 carrier_num,

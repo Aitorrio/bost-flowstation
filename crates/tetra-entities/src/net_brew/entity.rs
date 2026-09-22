@@ -48,6 +48,9 @@ const MAX_INBOUND_ACTIVE_CALLS: usize = 8;
 /// D-LOCATION-UPDATE-COMMAND for one ISSI if a Brew-routed setup fails.
 const SOFT_RECOVERY_WINDOW_SECS: u64 = 120;
 
+/// Cap on held inbound calls waiting for the first local listener (late-entry promote).
+const MAX_PENDING_INBOUND: usize = 4;
+
 /// Release an inbound call whose media/keepalive has been silent this long.
 ///
 /// GROUP_IDLE is the normal way a call ends, but a buggy or hostile core can simply stop
@@ -74,6 +77,8 @@ struct ActiveCall {
     source_issi: u32,
     /// Destination GSSI (from Brew)
     dest_gssi: u32,
+    /// Call priority from last GROUP_TX (for promote after hold).
+    priority: u8,
     /// Number of voice frames received
     frame_count: u64,
     /// Last downlink TDMA time at which we told CMCE this call still had network media.
@@ -98,6 +103,16 @@ struct PendingTail {
     started: Instant,
     /// Last playout or late Brew frame while draining (quiet before CallEnd).
     last_media: Instant,
+}
+
+/// Inbound GROUP_TX held because CMCE had no local listeners yet (SS-LE promote path).
+/// Keyed by GSSI in `pending_inbound` — at most one held session per group.
+#[derive(Debug)]
+struct PendingInbound {
+    uuid: Uuid,
+    source_issi: u32,
+    priority: u8,
+    last_network_activity: Instant,
 }
 
 /// Group call in hangtime with circuit still allocated.
@@ -173,6 +188,9 @@ pub struct BrewEntity {
     /// Pending tails after GROUP_IDLE — media first, then NetworkCallEnd / hangtime.
     pending_tails: HashMap<Uuid, PendingTail>,
 
+    /// Inbound GROUP_TX held until the first local MS affiliates (keyed by GSSI).
+    pending_inbound: HashMap<u32, PendingInbound>,
+
     /// DL calls in hangtime keyed by dest_gssi — circuit stays open, waiting for
     /// new speaker or timeout. Only one hanging call per GSSI.
     hanging_calls: HashMap<u32, HangingCall>,
@@ -244,6 +262,7 @@ impl BrewEntity {
             active_calls: HashMap::new(),
             dl_jitter: HashMap::new(),
             pending_tails: HashMap::new(),
+            pending_inbound: HashMap::new(),
             hanging_calls: HashMap::new(),
             ul_forwarded: HashMap::new(),
             subscriber_groups: HashMap::new(),
@@ -599,6 +618,24 @@ impl BrewEntity {
                 self.handle_group_call_end(queue, uuid, 0);
             }
         }
+
+        let stale_held: Vec<u32> = self
+            .pending_inbound
+            .iter()
+            .filter(|(_, p)| p.last_network_activity.elapsed() >= INBOUND_CALL_IDLE_TIMEOUT)
+            .map(|(&gssi, _)| gssi)
+            .collect();
+        for gssi in stale_held {
+            if let Some(p) = self.pending_inbound.remove(&gssi) {
+                tracing::warn!(
+                    "BrewEntity: reaping pending-inbound gssi={} uuid={} — no network media for {}s",
+                    gssi,
+                    p.uuid,
+                    INBOUND_CALL_IDLE_TIMEOUT.as_secs()
+                );
+                self.dl_jitter.remove(&p.uuid);
+            }
+        }
     }
 
     fn queue_external_subscriber_update(
@@ -910,6 +947,7 @@ impl BrewEntity {
         if let Some(call) = self.active_calls.get_mut(&uuid) {
             // A repeated GROUP_TX is also a keepalive — it must hold off the idle reaper.
             call.last_network_activity = Instant::now();
+            call.priority = priority;
             // Only notify CMCE if the speaker actually changed
             if call.source_issi != source_issi {
                 tracing::info!(
@@ -953,6 +991,32 @@ impl BrewEntity {
             return;
         }
 
+        // Already held awaiting listeners — refresh keepalive / replace session uuid.
+        if let Some(pending) = self.pending_inbound.get_mut(&dest_gssi) {
+            if pending.uuid != uuid {
+                let old = pending.uuid;
+                self.dl_jitter.remove(&old);
+                pending.uuid = uuid;
+                pending.source_issi = source_issi;
+                pending.priority = priority;
+                self.dl_jitter.entry(uuid).or_insert_with(|| {
+                    VoiceJitterBuffer::with_initial_latency(self.brew_config.jitter_initial_latency_frames as usize)
+                });
+                tracing::info!(
+                    "BrewEntity: pending-inbound gssi={} uuid {} → {} (new GROUP_TX)",
+                    dest_gssi,
+                    old,
+                    uuid
+                );
+            } else {
+                pending.source_issi = source_issi;
+                pending.priority = priority;
+                pending.last_network_activity = Instant::now();
+                tracing::trace!("BrewEntity: pending-inbound keepalive gssi={} uuid={}", dest_gssi, uuid);
+            }
+            return;
+        }
+
         // Reclaim a circuit still Transmitting in CMCE while we play the previous tail.
         if let Some((old_uuid, tail)) = self.take_pending_tail_for_gssi(dest_gssi) {
             let left = tail.jitter.len();
@@ -971,6 +1035,7 @@ impl BrewEntity {
                 usage: Some(tail.usage),
                 source_issi,
                 dest_gssi,
+                priority,
                 frame_count: tail.frame_count,
                 last_media_activity_signal: None,
                 last_network_activity: Instant::now(),
@@ -1030,6 +1095,7 @@ impl BrewEntity {
                 usage: Some(hanging.usage),
                 source_issi,
                 dest_gssi,
+                priority,
                 frame_count: hanging.frame_count,
                 last_media_activity_signal: None,
                 last_network_activity: Instant::now(),
@@ -1071,6 +1137,7 @@ impl BrewEntity {
             usage: None, // Set by NetworkCallReady
             source_issi,
             dest_gssi,
+            priority,
             frame_count: 0,
             last_media_activity_signal: None,
             last_network_activity: Instant::now(),
@@ -1095,6 +1162,18 @@ impl BrewEntity {
 
     /// Handle GROUP_IDLE: play remaining jitter first, then NetworkCallEnd / hangtime.
     fn handle_group_call_end(&mut self, queue: &mut MessageQueue, uuid: Uuid, _cause: u8) {
+        // Clear held inbound if the core idle'd before any local listener arrived.
+        let held_gssi = self
+            .pending_inbound
+            .iter()
+            .find_map(|(gssi, p)| if p.uuid == uuid { Some(*gssi) } else { None });
+        if let Some(gssi) = held_gssi {
+            tracing::info!("BrewEntity: GROUP_IDLE for pending-inbound gssi={} uuid={}", gssi, uuid);
+            self.pending_inbound.remove(&gssi);
+            self.dl_jitter.remove(&uuid);
+            return;
+        }
+
         let Some(call) = self.active_calls.remove(&uuid) else {
             tracing::debug!("BrewEntity: GROUP_IDLE for unknown uuid={}", uuid);
             return;
@@ -1218,6 +1297,26 @@ impl BrewEntity {
                 tail.last_media = Instant::now();
                 tail.frame_count = tail.frame_count.saturating_add(1);
                 tracing::trace!("BrewEntity: late voice into pending tail uuid={}", uuid);
+                return;
+            }
+            // Held inbound (no listeners yet): buffer voice until promote allocates a circuit.
+            if let Some((gssi, pending)) = self
+                .pending_inbound
+                .iter_mut()
+                .find(|(_, p)| p.uuid == uuid)
+                .map(|(g, p)| (*g, p))
+            {
+                pending.last_network_activity = Instant::now();
+                if data.len() < 36 {
+                    return;
+                }
+                self.dl_jitter
+                    .entry(uuid)
+                    .or_insert_with(|| {
+                        VoiceJitterBuffer::with_initial_latency(self.brew_config.jitter_initial_latency_frames as usize)
+                    })
+                    .push(data[1..].to_vec());
+                tracing::trace!("BrewEntity: voice into pending-inbound gssi={} uuid={}", gssi, uuid);
                 return;
             }
             tracing::trace!("BrewEntity: voice frame for unknown uuid={} ({} bytes)", uuid, data.len());
@@ -1389,6 +1488,10 @@ impl BrewEntity {
             });
         }
 
+        for (_, pending) in self.pending_inbound.drain() {
+            self.dl_jitter.remove(&pending.uuid);
+        }
+
         self.hanging_calls.clear();
         self.dl_jitter.clear();
 
@@ -1513,7 +1616,115 @@ impl BrewEntity {
             tracing::info!("BrewEntity: dropping pending tail uuid={} (CMCE request)", brew_uuid);
             return;
         }
+        let held_gssi = self
+            .pending_inbound
+            .iter()
+            .find_map(|(gssi, p)| if p.uuid == brew_uuid { Some(*gssi) } else { None });
+        if let Some(gssi) = held_gssi {
+            tracing::info!("BrewEntity: dropping pending-inbound gssi={} uuid={}", gssi, brew_uuid);
+            self.pending_inbound.remove(&gssi);
+            self.dl_jitter.remove(&brew_uuid);
+            return;
+        }
         tracing::debug!("BrewEntity: drop requested for unknown uuid={}", brew_uuid);
+    }
+
+    /// CMCE had no listeners — hold the session until Affiliate promotes it (no circuit yet).
+    fn hold_inbound_no_listeners(&mut self, brew_uuid: Uuid, dest_gssi: u32) {
+        let Some(call) = self.active_calls.remove(&brew_uuid) else {
+            // Already moved / raced — if uuid matches an existing pending, refresh.
+            if let Some(p) = self.pending_inbound.get_mut(&dest_gssi) {
+                if p.uuid == brew_uuid {
+                    p.last_network_activity = Instant::now();
+                }
+            }
+            tracing::debug!(
+                "BrewEntity: NetworkCallHold for unknown uuid={} gssi={}",
+                brew_uuid,
+                dest_gssi
+            );
+            return;
+        };
+        // Cap: drop oldest held GSSI if full (cheap LRU by last_network_activity).
+        if !self.pending_inbound.contains_key(&dest_gssi) && self.pending_inbound.len() >= MAX_PENDING_INBOUND {
+            if let Some((&old_gssi, _)) = self
+                .pending_inbound
+                .iter()
+                .min_by_key(|(_, p)| p.last_network_activity)
+            {
+                if let Some(old) = self.pending_inbound.remove(&old_gssi) {
+                    self.dl_jitter.remove(&old.uuid);
+                    tracing::warn!(
+                        "BrewEntity: pending-inbound cap — dropped gssi={} uuid={}",
+                        old_gssi,
+                        old.uuid
+                    );
+                }
+            }
+        }
+        // Replace any prior held session on this GSSI.
+        if let Some(old) = self.pending_inbound.remove(&dest_gssi) {
+            self.dl_jitter.remove(&old.uuid);
+        }
+        tracing::info!(
+            "BrewEntity: holding inbound uuid={} gssi={} (awaiting listeners)",
+            brew_uuid,
+            dest_gssi
+        );
+        self.pending_inbound.insert(
+            dest_gssi,
+            PendingInbound {
+                uuid: brew_uuid,
+                source_issi: call.source_issi,
+                priority: call.priority,
+                last_network_activity: Instant::now(),
+            },
+        );
+        // Keep jitter buffer keyed by uuid for voice that arrives while held.
+        self.dl_jitter.entry(brew_uuid).or_insert_with(|| {
+            VoiceJitterBuffer::with_initial_latency(self.brew_config.jitter_initial_latency_frames as usize)
+        });
+    }
+
+    /// First local listener appeared — re-issue NetworkCallStart so CMCE allocates + LE D-SETUP.
+    fn promote_pending_inbound(&mut self, queue: &mut MessageQueue, gssi: u32) {
+        let Some(pending) = self.pending_inbound.remove(&gssi) else {
+            return;
+        };
+        tracing::info!(
+            "BrewEntity: promoting pending-inbound gssi={} uuid={} speaker={}",
+            gssi,
+            pending.uuid,
+            pending.source_issi
+        );
+        let call = ActiveCall {
+            uuid: pending.uuid,
+            call_id: None,
+            ts: None,
+            carrier_num: None,
+            usage: None,
+            source_issi: pending.source_issi,
+            dest_gssi: gssi,
+            priority: pending.priority,
+            frame_count: 0,
+            last_media_activity_signal: None,
+            last_network_activity: Instant::now(),
+        };
+        self.active_calls.insert(pending.uuid, call);
+        self.dl_jitter.entry(pending.uuid).or_insert_with(|| {
+            VoiceJitterBuffer::with_initial_latency(self.brew_config.jitter_initial_latency_frames as usize)
+        });
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Brew,
+            dest: TetraEntity::Cmce,
+            msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+                brew_uuid: pending.uuid,
+                source_issi: pending.source_issi,
+                dest_gssi: gssi,
+                priority: pending.priority,
+            }),
+        });
     }
 }
 
@@ -1568,6 +1779,18 @@ impl TetraEntityTrait for BrewEntity {
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }) => {
                 self.drop_network_call(brew_uuid);
+            }
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallHold {
+                brew_uuid,
+                dest_gssi,
+            }) => {
+                self.hold_inbound_no_listeners(brew_uuid, dest_gssi);
+            }
+            SapMsgInner::CmceCallControl(CallControl::GroupListenersAvailable { gssi }) => {
+                self.promote_pending_inbound(queue, gssi);
+            }
+            SapMsgInner::CmceCallControl(CallControl::OngoingGroupCall { .. }) => {
+                // LST Dispatch only — real Brew ignores.
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
                 brew_uuid,
@@ -1699,6 +1922,7 @@ impl TetraEntityTrait for BrewEntity {
                     usage: None,
                     source_issi: 0,
                     dest_gssi: 0,
+                    priority: 0,
                     frame_count: 0,
                     last_media_activity_signal: None,
                     last_network_activity: Instant::now(),

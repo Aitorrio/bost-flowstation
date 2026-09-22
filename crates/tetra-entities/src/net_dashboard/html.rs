@@ -5517,6 +5517,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                         </span>
                       </label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-syswide"> <span>System-wide services</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-late-entry" checked> <span data-i18n="cfg_late_entry">Late entry</span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-voice"> <span>Voice service</span></label>
                       <label class="field"><span>Local SSI ranges</span><input type="text" id="vc-local-ssi" class="form-input" placeholder="0-90, 100-120"></label>
                     </div>
@@ -7007,6 +7008,8 @@ const LANGS={
     cfg_help_ul_inact:'If the current speaker sends no UL voice for this many seconds, the BS forces TX ceased and enters hangtime. Default 3 (tolerate short fades/DTX).',
     cfg_help_t351:'Periodic registration interval (T351-like). 0 = never expire. Default 3600. Affects how often radios must re-register.',
     cfg_help_syswide:'Advertise system-wide services in SYSINFO. Leave on unless you know you need fallback-mode behaviour.',
+    cfg_late_entry:'Late entry',
+    cfg_help_late_entry:'Advertise Late Entry in D-MLE-SYNC so radios expect D-SETUP for ongoing group calls (recommended on).',
     cfg_help_voice:'Advertise voice service. Leave on for normal voice cells.',
     cfg_help_local_ssi:'SSI ranges treated as local (e.g. 0-90, 100-120). Advanced — leave default unless your numbering plan needs it.',
     cfg_help_brew_enable:'Enable Brew backhaul. Off = offline cell (or use LST Dispatch profile instead).',
@@ -7535,6 +7538,8 @@ const LANGS={
     cfg_help_ul_inact:'Si el speaker no envía voz UL durante estos segundos, la BTS fuerza TX ceased y entra en hangtime. Default 3 (tolera fades/DTX cortos).',
     cfg_help_t351:'Intervalo de registro periódico (tipo T351). 0 = no caduca. Default 3600.',
     cfg_help_syswide:'Anuncia system-wide services en SYSINFO. Déjalo activo salvo que sepas que necesitas otro modo.',
+    cfg_late_entry:'Late entry',
+    cfg_help_late_entry:'Anuncia Late Entry en D-MLE-SYNC para que las radios esperen D-SETUP de llamadas de grupo en curso (recomendado activo).',
     cfg_help_voice:'Anuncia servicio de voz. Déjalo activo en celdas de voz normales.',
     cfg_help_local_ssi:'Rangos SSI locales (p. ej. 0-90, 100-120). Avanzado — no lo toques sin plan de numeración.',
     cfg_help_brew_enable:'Activa el backhaul Brew. Off = celda offline (o usa el perfil Despacho LST).',
@@ -11584,7 +11589,7 @@ const CFG_HELP_BY_ID={
   'vc-tx-pad':'cfg_help_gain','vc-tx-iamp':'cfg_help_gain','vc-tx-dac':'cfg_help_gain','vc-tx-mixer':'cfg_help_gain','vc-tx-pga':'cfg_help_gain',
   'vc-mcc':'cfg_help_mcc','vc-mnc':'cfg_help_mnc','vc-la':'cfg_help_la','vc-tz':'cfg_help_tz',
   'vc-hangtime':'cfg_help_hangtime','vc-call-timeout':'cfg_help_call_timeout','vc-ul-inact':'cfg_help_ul_inact','vc-t351':'cfg_help_t351',
-  'vc-syswide':'cfg_help_syswide','vc-voice':'cfg_help_voice','vc-local-ssi':'cfg_help_local_ssi',
+  'vc-syswide':'cfg_help_syswide','vc-late-entry':'cfg_help_late_entry','vc-voice':'cfg_help_voice','vc-local-ssi':'cfg_help_local_ssi',
   'vc-brew-enabled':'cfg_help_brew_enable','vc-brew-host':'cfg_help_brew_host','vc-brew-port':'cfg_help_brew_port',
   'vc-brew-tls':'cfg_help_brew_tls','vc-brew-user':'cfg_help_brew_user','vc-brew-pass':'cfg_help_brew_pass',
   'vc-brew-reconnect':'cfg_help_brew_reconnect','vc-brew-sds':'cfg_help_brew_sds','vc-brew-rssi':'cfg_help_brew_rssi',
@@ -11709,6 +11714,7 @@ function collectVisualConfig(){
     colour_code:vcNum('vc-colour')??0,
     location_area:vcNum('vc-la'),
     system_wide_services:!!document.getElementById('vc-syswide')?.checked,
+    late_entry_supported:document.getElementById('vc-late-entry')?!!document.getElementById('vc-late-entry').checked:true,
     voice_service:!!document.getElementById('vc-voice')?.checked,
   };
   const customDuplex=mhzFieldToHz('vc-custom-duplex'); if(customDuplex!==null)cell_info.custom_duplex_spacing=customDuplex;
@@ -11766,7 +11772,7 @@ function fillVisualConfig(d,opts){
   vcSet('vc-call-timeout',cell.call_timeout_secs); vcSet('vc-ul-inact',cell.ul_inactivity_secs);
   vcSet('vc-t351',cell.periodic_registration_secs);
   syncAllVcTimerResets();
-  vcSet('vc-syswide',!!cell.system_wide_services); vcSet('vc-voice',cell.voice_service!==false);
+  vcSet('vc-syswide',!!cell.system_wide_services); vcSet('vc-late-entry',cell.late_entry_supported!==false); vcSet('vc-voice',cell.voice_service!==false);
   vcSet('vc-local-ssi',formatLocalSsiRanges(cell.local_ssi_ranges));
   const net=d?.net_info||{}; vcSet('vc-mcc',net.mcc); vcSet('vc-mnc',net.mnc);
   const brew=d?.brew||{};

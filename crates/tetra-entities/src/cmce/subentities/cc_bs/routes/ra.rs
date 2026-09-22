@@ -77,6 +77,10 @@ impl CcBsSubentity {
             CallControl::NetworkCircuitRelease { brew_uuid, cause } => {
                 self.rx_network_circuit_release(queue, brew_uuid, cause);
             }
+            // Brew/LST-bound late-entry signals — never ingress to CMCE.
+            CallControl::NetworkCallHold { .. }
+            | CallControl::GroupListenersAvailable { .. }
+            | CallControl::OngoingGroupCall { .. } => {}
             _ => {
                 tracing::warn!("Unexpected CallControl message: {:?}", call_control);
             }

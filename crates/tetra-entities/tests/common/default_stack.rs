@@ -67,7 +67,7 @@ pub fn default_cell_info(freq_info: FreqInfo) -> CfgCellInfo {
         custom_duplex_spacing: None,
         reverse_operation: freq_info.reverse_operation,
         neighbor_cell_broadcast: 0,
-        late_entry_supported: false,
+        late_entry_supported: true,
         subscriber_class: 65535, // All subscriber classes allowed
         registration: true,
         deregistration: true,

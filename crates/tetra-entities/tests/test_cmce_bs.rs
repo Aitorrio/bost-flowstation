@@ -2747,3 +2747,234 @@ fn test_second_group_setup_to_active_gssi_is_late_entry() {
         "the ongoing speaker keeps the floor"
     );
 }
+
+fn brew_test_config() -> tetra_config::bluestation::StackConfig {
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.brew = Some(CfgBrew {
+        host: "test.local".into(),
+        port: 3000,
+        tls: false,
+        username: None,
+        password: None,
+        reconnect_delay: Duration::from_secs(1),
+        jitter_initial_latency_frames: 0,
+        feature_sds_enabled: true,
+        whitelisted_ssis: None,
+        feature_rssi_export: false,
+        feature_lip_forward: false,
+        lip_forward_issi: None,
+        pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
+    });
+    config
+}
+
+/// Remote GROUP_TX with no local listeners must Hold (pending) instead of NetworkCallEnd.
+#[test]
+fn test_network_call_start_without_listeners_holds() {
+    debug::setup_logging_verbose();
+
+    let gssi = 330;
+    let brew_uuid = uuid::Uuid::parse_str("c1a1e03c-0489-4106-a246-5ccddf75e657").unwrap();
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid,
+            source_issi: 2200107,
+            dest_gssi: gssi,
+            priority: 1,
+        }),
+    });
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    assert!(
+        msgs.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallHold {
+                brew_uuid: u,
+                dest_gssi,
+            }) if *u == brew_uuid && *dest_gssi == gssi
+        )),
+        "expected NetworkCallHold when no local listeners"
+    );
+    assert!(
+        !msgs.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid: u }) if *u == brew_uuid
+        )),
+        "must not tear down with NetworkCallEnd (late-entry hold path)"
+    );
+    assert!(
+        !msgs.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { brew_uuid: u, .. }) if *u == brew_uuid
+        )),
+        "must not allocate a circuit while held"
+    );
+}
+
+/// First Affiliate after a held inbound promotes via GroupListenersAvailable.
+#[test]
+fn test_affiliate_promotes_held_inbound_with_group_listeners_available() {
+    debug::setup_logging_verbose();
+
+    let gssi = 331;
+    let brew_uuid = uuid::Uuid::parse_str("c1a1e03c-0489-4106-a246-5ccddf75e658").unwrap();
+    let local_issi = 2200700;
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    // Hold path first (no listeners).
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid,
+            source_issi: 2200107,
+            dest_gssi: gssi,
+            priority: 1,
+        }),
+    });
+    test.run_stack(Some(1));
+    let held = test.dump_sinks();
+    assert!(held.iter().any(|m| matches!(
+        &m.msg,
+        SapMsgInner::CmceCallControl(CallControl::NetworkCallHold { .. })
+    )));
+
+    // First local ear: Register + Affiliate → GroupListenersAvailable.
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Mm,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+            issi: local_issi,
+            groups: vec![],
+            action: BrewSubscriberAction::Register,
+        }),
+    });
+    test.run_stack(Some(1));
+    test.dump_sinks();
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Mm,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+            issi: local_issi,
+            groups: vec![gssi],
+            action: BrewSubscriberAction::Affiliate,
+        }),
+    });
+    test.run_stack(Some(1));
+    let after = test.dump_sinks();
+
+    assert!(
+        after.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::GroupListenersAvailable { gssi: g }) if *g == gssi
+        )),
+        "first Affiliate must signal GroupListenersAvailable for Brew promote"
+    );
+}
+
+/// Mid-QSO Affiliate on an active GSSI: event LE D-SETUP + OngoingGroupCall for LST console RX.
+#[test]
+fn test_affiliate_during_active_group_call_emits_late_entry_snapshot() {
+    debug::setup_logging_verbose();
+
+    let gssi = 332;
+    let first_issi = 2200701;
+    let joiner_issi = 2200702;
+    let brew_uuid = uuid::Uuid::parse_str("c1a1e03c-0489-4106-a246-5ccddf75e659").unwrap();
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, first_issi, gssi);
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid,
+            source_issi: 2200107,
+            dest_gssi: gssi,
+            priority: 1,
+        }),
+    });
+    test.run_stack(Some(2));
+    let mut ready = test.dump_sinks();
+    assert!(ready.iter().any(|m| matches!(
+        &m.msg,
+        SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { brew_uuid: u, .. }) if *u == brew_uuid
+    )));
+
+    // Mark initial D-SETUP transmitted so event LE is not throttled by Pending receipt.
+    for r in extract_d_setup_reporters(&mut ready) {
+        if r.get_state() == TxState::Pending {
+            r.mark_transmitted();
+        }
+    }
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Mm,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+            issi: joiner_issi,
+            groups: vec![],
+            action: BrewSubscriberAction::Register,
+        }),
+    });
+    test.run_stack(Some(1));
+    test.dump_sinks();
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Mm,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+            issi: joiner_issi,
+            groups: vec![gssi],
+            action: BrewSubscriberAction::Affiliate,
+        }),
+    });
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    assert!(
+        msgs.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::OngoingGroupCall { gssi: g, .. }) if *g == gssi
+        )),
+        "Affiliate during active QSO must emit OngoingGroupCall for LST RX"
+    );
+    assert!(
+        count_d_setups(&msgs) > 0,
+        "Affiliate during active QSO must trigger immediate late-entry D-SETUP"
+    );
+    assert!(
+        !msgs.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::GroupListenersAvailable { .. })
+        )),
+        "second listener must not re-promote (GroupListenersAvailable is first-listener only)"
+    );
+}

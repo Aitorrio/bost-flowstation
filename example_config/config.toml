@@ -236,7 +236,7 @@ voice_service = true
 # OPTIONAL: SYNC / low-level cell parameters. Defaults are fine for nearly all
 # deployments — only touch these if you understand the ETSI MAC/MLE fields.
 # neighbor_cell_broadcast = 0       # 2-bit D-MLE-SYNC neighbor-cell broadcast mode (default 0)
-# late_entry_supported    = false   # advertise late-entry support in D-MLE-SYNC (default false)
+# late_entry_supported    = true    # advertise late-entry support in D-MLE-SYNC (default true)
 # system_code             = 3       # SYNC system code; 3 = ETSI EN 300 392-2 V3.1.1 (default 3)
 # sharing_mode            = 0       # carrier sharing mode (0 = continuous transmission; default 0)
 # ts_reserved_frames      = 0       # timeshare reserved frames per multiframe (default 0)
