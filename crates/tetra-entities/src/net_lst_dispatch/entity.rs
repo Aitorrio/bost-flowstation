@@ -1389,6 +1389,10 @@ impl TetraEntityTrait for LstDispatchEntity {
             SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }) => {
                 self.on_call_end_or_release(brew_uuid, 1);
             }
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallHold { brew_uuid, .. }) => {
+                // CMCE parked the call (no local RF listeners). Console was not listening either.
+                self.on_call_end_or_release(brew_uuid, 0);
+            }
             SapMsgInner::CmceCallControl(CallControl::NetworkCircuitRelease { brew_uuid, cause }) => {
                 self.on_call_end_or_release(brew_uuid, cause);
             }

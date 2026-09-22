@@ -470,12 +470,28 @@ impl CcBsSubentity {
             .collect();
 
         for (call_id, origin) in to_drop {
-            tracing::info!("CMCE: dropping call_id={} gssi={} (no listeners)", call_id, gssi);
+            // Network (Brew/LST) calls: park on the network entity instead of End.
+            // Leaving the TG mid-QSO (or a register burst that deaffiliates then affiliates)
+            // must keep the remote session so re-Affiliate can late-enter again.
             if let CallOrigin::Network { brew_uuid } = origin {
-                if brew::is_brew_gssi_routable(&self.config, gssi) {
-                    self.notify_network_call_end(queue, brew_uuid);
-                };
-            };
+                tracing::info!(
+                    "CMCE: holding network call_id={} gssi={} uuid={} (no local listeners)",
+                    call_id,
+                    gssi,
+                    brew_uuid
+                );
+                Self::push_control(
+                    queue,
+                    TetraEntity::Brew,
+                    CallControl::NetworkCallHold {
+                        brew_uuid,
+                        dest_gssi: gssi,
+                    },
+                );
+                self.release_group_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
+                continue;
+            }
+            tracing::info!("CMCE: dropping call_id={} gssi={} (no listeners)", call_id, gssi);
             self.release_group_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
         }
     }

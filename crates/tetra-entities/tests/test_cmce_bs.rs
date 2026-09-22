@@ -2978,3 +2978,69 @@ fn test_affiliate_during_active_group_call_emits_late_entry_snapshot() {
         "second listener must not re-promote (GroupListenersAvailable is first-listener only)"
     );
 }
+
+/// Mid-QSO deaffiliate of the last listener must Hold (not End) so re-Affiliate can late-enter.
+#[test]
+fn test_deaffiliate_last_listener_holds_network_call() {
+    debug::setup_logging_verbose();
+
+    let gssi = 333;
+    let local_issi = 2200703;
+    let brew_uuid = uuid::Uuid::parse_str("c1a1e03c-0489-4106-a246-5ccddf75e65a").unwrap();
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, local_issi, gssi);
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid,
+            source_issi: 2200107,
+            dest_gssi: gssi,
+            priority: 1,
+        }),
+    });
+    test.run_stack(Some(2));
+    let ready = test.dump_sinks();
+    assert!(ready.iter().any(|m| matches!(
+        &m.msg,
+        SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { brew_uuid: u, .. }) if *u == brew_uuid
+    )));
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Mm,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+            issi: local_issi,
+            groups: vec![gssi],
+            action: BrewSubscriberAction::Deaffiliate,
+        }),
+    });
+    test.run_stack(Some(1));
+    let after = test.dump_sinks();
+
+    assert!(
+        after.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallHold {
+                brew_uuid: u,
+                dest_gssi,
+            }) if *u == brew_uuid && *dest_gssi == gssi
+        )),
+        "last listener leaving must Hold the Brew session for late entry"
+    );
+    assert!(
+        !after.iter().any(|m| matches!(
+            &m.msg,
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid: u }) if *u == brew_uuid
+        )),
+        "must not End the Brew session when the last listener leaves the TG"
+    );
+}
