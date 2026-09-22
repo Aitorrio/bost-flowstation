@@ -73,7 +73,7 @@ impl BrewNotification {
 }
 
 impl CcBsSubentity {
-    fn push_control(queue: &mut MessageQueue, dest: TetraEntity, control: CallControl) {
+    pub(super) fn push_control(queue: &mut MessageQueue, dest: TetraEntity, control: CallControl) {
         queue.push_back(SapMsg {
             sap: Sap::Control,
             src: TetraEntity::Cmce,

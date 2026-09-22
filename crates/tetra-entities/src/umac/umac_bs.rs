@@ -2241,6 +2241,9 @@ impl UmacBs {
             CallControl::NetworkCallStart { .. }
             | CallControl::NetworkCallReady { .. }
             | CallControl::NetworkCallEnd { .. }
+            | CallControl::NetworkCallHold { .. }
+            | CallControl::GroupListenersAvailable { .. }
+            | CallControl::OngoingGroupCall { .. }
             | CallControl::NetworkCallMediaActivity { .. }
             | CallControl::NetworkCircuitSetupRequest { .. }
             | CallControl::NetworkCircuitSetupAccept { .. }

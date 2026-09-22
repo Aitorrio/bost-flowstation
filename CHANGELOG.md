@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.30 — Fix OTA compile (late entry)
+
+- Visibilidad de `push_control` entre módulos CMCE + match exhaustivo en UMAC para los nuevos SAP de late entry (build release fallaba en 0.3.29).
+
 ## v0.3.29 — Late entry usable (QSO a medias)
 
 - **Brew:** si llega GROUP_TX sin walkies afiliados, la llamada se **retiene** (pending) en lugar de tirarse; al primer Affiliate se monta circuito + D-SETUP + audio.
