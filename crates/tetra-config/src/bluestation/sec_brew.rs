@@ -38,6 +38,10 @@ pub struct CfgBrew {
     /// Optional PBX gateway ISSIs that should be routable over Brew even if they don't match
     /// normal Tetrapack subscriber ISSI constraints.
     pub pbx_gateway_issis: Option<Vec<u32>>,
+    /// Seconds the transport must stay down before SYSINFO advertises site-trunking
+    /// (`system_wide_services=false`). Short 4G/5G blips do not flip the cell announcement.
+    /// Active Brew calls are still released immediately on transport loss. Clamped 0..=60; default 3.
+    pub backhaul_hysteresis_secs: u64,
 }
 
 #[derive(Default, Deserialize)]
@@ -84,6 +88,10 @@ pub struct CfgBrewDto {
     #[serde(alias = "pbx_gateway_issi")]
     pub pbx_gateway_issis: Option<Vec<u32>>,
 
+    /// Delay before announcing site-trunking after Brew transport drop. Default: 3.
+    #[serde(default = "default_brew_backhaul_hysteresis_secs")]
+    pub backhaul_hysteresis_secs: u64,
+
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -98,6 +106,10 @@ fn default_brew_reconnect_delay() -> u64 {
 
 fn default_brew_feature_sds_enabled() -> bool {
     true
+}
+
+fn default_brew_backhaul_hysteresis_secs() -> u64 {
+    3
 }
 
 /// Convert a CfgBrewDto (from TOML) into a CfgBrew (used in the stack config)
@@ -116,5 +128,38 @@ pub fn apply_brew_patch(src: CfgBrewDto) -> CfgBrew {
         lip_forward_issi: src.lip_forward_issi.filter(|&i| i > 0 && i <= 0xFF_FFFF),
         whitelisted_ssis: src.whitelisted_ssis,
         pbx_gateway_issis: src.pbx_gateway_issis,
+        backhaul_hysteresis_secs: src.backhaul_hysteresis_secs.clamp(0, 60),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backhaul_hysteresis_defaults_and_clamps() {
+        let dto: CfgBrewDto = toml::from_str(
+            r#"
+            host = "x"
+            tls = false
+            username = 1
+            password = "p"
+            "#,
+        )
+        .unwrap();
+        let c = apply_brew_patch(dto);
+        assert_eq!(c.backhaul_hysteresis_secs, 3);
+
+        let dto: CfgBrewDto = toml::from_str(
+            r#"
+            host = "x"
+            tls = false
+            username = 1
+            password = "p"
+            backhaul_hysteresis_secs = 999
+            "#,
+        )
+        .unwrap();
+        assert_eq!(apply_brew_patch(dto).backhaul_hysteresis_secs, 60);
     }
 }

@@ -33,8 +33,18 @@ impl CcBsSubentity {
     }
 
     pub(super) fn rx_network_circuit_setup_reject(&mut self, queue: &mut MessageQueue, brew_uuid: uuid::Uuid, cause: u8) {
-        let Some((call_id, _)) = self.find_brew_individual_call(brew_uuid) else {
+        let Some((call_id, call)) = self.find_brew_individual_call(brew_uuid) else {
             tracing::debug!("CMCE: Brew setup reject for unknown uuid={} cause={}", brew_uuid, cause);
+            return;
+        };
+        let local_issi = if !call.calling_over_brew {
+            call.calling_addr.ssi
+        } else if !call.called_over_brew {
+            call.called_addr.ssi
+        } else {
+            tracing::debug!("CMCE: Brew setup reject uuid={} — no local party for soft-recovery LU", brew_uuid);
+            let mapped = DisconnectCause::try_from(cause as u64).unwrap_or(DisconnectCause::RequestedServiceNotAvailable);
+            self.release_individual_call(queue, call_id, mapped);
             return;
         };
         let mapped = DisconnectCause::try_from(cause as u64).unwrap_or(DisconnectCause::RequestedServiceNotAvailable);
@@ -46,6 +56,7 @@ impl CcBsSubentity {
             mapped
         );
         self.release_individual_call(queue, call_id, mapped);
+        self.maybe_request_soft_recovery_lu(queue, local_issi);
     }
 
     pub(super) fn rx_network_circuit_alert(&mut self, queue: &mut MessageQueue, brew_uuid: uuid::Uuid) {

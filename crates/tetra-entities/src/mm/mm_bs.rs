@@ -2284,8 +2284,8 @@ impl TetraEntityTrait for MmBs {
             },
             Sap::Control => {
                 match message.msg {
-                    SapMsgInner::BrewReconnected => {
-                        self.rx_brew_reconnected(queue);
+                    SapMsgInner::MmRequestLocationUpdate { issi } => {
+                        self.rx_request_location_update(queue, issi);
                     }
                     SapMsgInner::MsRssiUpdate { issi, rssi_dbfs } => {
                         self.client_mgr.update_client_rssi(issi, rssi_dbfs);
@@ -2366,27 +2366,33 @@ impl TetraEntityTrait for MmBs {
 }
 
 impl MmBs {
-    /// Called when Brew backhaul reconnects. Sends D-LOCATION-UPDATE-COMMAND to all
-    /// locally registered MS to force them to re-affiliate. This fixes the PTT-denied
-    /// symptom where MS units registered before a Brew disconnect never re-register.
-    fn rx_brew_reconnected(&mut self, queue: &mut MessageQueue) {
-        let issis = self.client_mgr.all_known_issis();
-        if issis.is_empty() {
-            tracing::info!("mm_bs: BrewReconnected â€” no registered MS to re-register");
-            return;
+    /// Selective SwMI-initiated LU for one ISSI (ETSI EN 300 392-2 §16.4.4 / TIP interrogation).
+    /// Rate-limited with the same cooldown as reactive recovery so a burst of failed Brew setups
+    /// does not flood the MCCH. Unlike reactive recovery, the ISSI may already be known locally.
+    fn rx_request_location_update(&mut self, queue: &mut MessageQueue, issi: u32) {
+        let cfg = self.config.config();
+        let rec = &cfg.recovery;
+        let cooldown = std::time::Duration::from_secs(rec.reactive_cooldown_secs);
+        let now = std::time::Instant::now();
+        if let Some(&last) = self.reactive_recovery_cooldown.get(&issi) {
+            if now.duration_since(last) < cooldown {
+                tracing::debug!(
+                    "mm_bs: MmRequestLocationUpdate issi={} suppressed (cooldown)",
+                    issi
+                );
+                return;
+            }
         }
+        if self.reactive_recovery_cooldown.len() >= REACTIVE_RECOVERY_COOLDOWN_CAP {
+            self.reactive_recovery_cooldown.retain(|_, t| now.duration_since(*t) < cooldown);
+        }
+        self.reactive_recovery_cooldown.insert(issi, now);
+
         tracing::info!(
-            "mm_bs: BrewReconnected â€” sending D-LOCATION-UPDATE-COMMAND to {} MS unit(s)",
-            issis.len()
+            "mm_bs: selective D-LOCATION-UPDATE-COMMAND for ISSI {} (Brew soft-recovery / on-demand)",
+            issi
         );
-        for issi in issis {
-            // handle = 0: addressed by ISSI on the MCCH (the handle is inert â€” see
-            // all_known_issis). This path was previously dead because it filtered on
-            // last_handle != 0, which is never true, so no MS was ever re-registered after a
-            // Brew reconnect â€” the cause of "PTT denied after the backhaul blips".
-            tracing::debug!("mm_bs: re-registering ISSI {}", issi);
-            Self::send_d_location_update_command(queue, issi, 0);
-        }
+        Self::send_d_location_update_command(queue, issi, 0);
     }
 }
 

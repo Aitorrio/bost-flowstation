@@ -864,10 +864,10 @@ impl CcBsSubentity {
             return;
         }
 
-        // The backhaul-connected and ISSI-routability gates are Brew-specific (they check the
-        // Brew websocket state and the Brew ISSI whitelist). Asterisk-bridged calls bypass them.
+        // Brew-routed setups need the live transport (brew_link_up). SYSINFO site-trunking
+        // (`network_connected`) may still be true during backhaul hysteresis.
         // LST Dispatch answers cell-local privates without a Brew backhaul.
-        if network_entity == TetraEntity::Brew && !lst_active && !self.config.state_read().network_connected {
+        if network_entity == TetraEntity::Brew && !lst_active && !self.config.state_read().brew_link_up {
             tracing::info!(
                 "CMCE: rejecting U-SETUP over Brew src={} dst={} (backhaul disconnected)",
                 calling_party.ssi,
@@ -899,6 +899,7 @@ impl CcBsSubentity {
                 DisconnectCause::CalledPartyNotReachable,
                 "source ISSI not Brew-routable",
             );
+            self.maybe_request_soft_recovery_lu(queue, calling_party.ssi);
             return;
         }
 
@@ -921,6 +922,7 @@ impl CcBsSubentity {
                 DisconnectCause::CalledPartyNotReachable,
                 "destination ISSI not Brew-routable",
             );
+            self.maybe_request_soft_recovery_lu(queue, calling_party.ssi);
             return;
         }
 

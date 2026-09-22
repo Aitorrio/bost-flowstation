@@ -114,11 +114,12 @@ pub enum SapMsgInner {
         rssi_dbfs: f32,
     },
 
-    /// Sent by BrewEntity to MM when the Brew backhaul reconnects.
-    /// MM responds by sending D-LOCATION-UPDATE-COMMAND to all locally registered MS,
-    /// forcing them to re-affiliate. Without this, MS units registered before a
-    /// Brew disconnect do not re-register and PTT calls are denied until power-cycle.
-    BrewReconnected,
+    /// Selective SwMI-initiated location update for one ISSI (ETSI EN 300 392-2 §16.4.4).
+    /// Used after Brew soft-reconnect when a Brew-routed setup fails for that radio — not a
+    /// mass kick of the whole cell (TIP BS Fallback / commercial site-trunking behaviour).
+    MmRequestLocationUpdate {
+        issi: u32,
+    },
 
     // CMCE SDS <-> Brew SDS routing
     CmceSdsData(CmceSdsData),
@@ -184,7 +185,9 @@ impl Display for SapMsgInner {
                 )
             }
             SapMsgInner::MsRssiUpdate { issi, rssi_dbfs } => write!(f, "MsRssiUpdate(issi={}, rssi={:.1}dBFS)", issi, rssi_dbfs),
-            SapMsgInner::BrewReconnected => write!(f, "BrewReconnected"),
+            SapMsgInner::MmRequestLocationUpdate { issi } => {
+                write!(f, "MmRequestLocationUpdate(issi={})", issi)
+            }
             SapMsgInner::CmceSdsData(_) => write!(f, "CmceSdsData"),
             SapMsgInner::CmceCallControl(_) => write!(f, "CmceCallControl"),
             SapMsgInner::TmdCircuitDataReq(_) => write!(f, "TmdCircuitDataReq"),

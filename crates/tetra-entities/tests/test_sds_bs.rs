@@ -205,6 +205,7 @@ fn test_sds_brew_forward() {
         lip_forward_issi: None,
         whitelisted_ssis: None,
         pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
 
@@ -400,6 +401,7 @@ fn test_brew_inbound_allowed_bypasses_whitelist_but_honors_local_ranges() {
         lip_forward_issi: None,
         whitelisted_ssis: Some(vec![91]), // only GSSI 91 is whitelisted for OUTBOUND forwarding
         pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
     });
     let test = ComponentTest::from_config(config, None);
 
@@ -507,6 +509,7 @@ fn test_u_status_brew_forward() {
         lip_forward_issi: None,
         whitelisted_ssis: None,
         pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
 
@@ -1163,6 +1166,7 @@ fn brew_test_config() -> tetra_config::bluestation::StackConfig {
         lip_forward_issi: None,
         whitelisted_ssis: None,
         pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
     });
     config
 }

@@ -55,6 +55,28 @@ impl CcBsSubentity {
         self.config.state_read().subscribers.all_registered_issis().collect()
     }
 
+    /// During the post-Brew-reconnect soft-recovery window, ask MM for a selective
+    /// D-LOCATION-UPDATE-COMMAND for this ISSI (ETSI interrogation — not a cell-wide kick).
+    pub(super) fn maybe_request_soft_recovery_lu(&self, queue: &mut MessageQueue, issi: u32) {
+        let until = match self.config.state_read().brew_soft_recovery_until {
+            Some(t) => t,
+            None => return,
+        };
+        if std::time::Instant::now() >= until {
+            return;
+        }
+        tracing::info!(
+            "CMCE: soft-recovery — requesting selective LU for ISSI {} after Brew-routed failure",
+            issi
+        );
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Mm,
+            msg: SapMsgInner::MmRequestLocationUpdate { issi },
+        });
+    }
+
     #[inline]
     pub(super) fn p2p_call_timeout(simplex_duplex: bool) -> CallTimeout {
         if simplex_duplex { CallTimeout::Infinite } else { CallTimeout::T5m }

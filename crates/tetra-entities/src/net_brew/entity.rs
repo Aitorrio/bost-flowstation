@@ -44,6 +44,10 @@ pub(crate) const MAX_EVENTS_PER_TICK: usize = 64;
 /// GROUP_TX with ever-fresh UUIDs would leak timeslots until the cell has none left.
 const MAX_INBOUND_ACTIVE_CALLS: usize = 8;
 
+/// Soft-recovery window after a real Brew reconnect: CMCE may request a selective
+/// D-LOCATION-UPDATE-COMMAND for one ISSI if a Brew-routed setup fails.
+const SOFT_RECOVERY_WINDOW_SECS: u64 = 120;
+
 /// Release an inbound call whose media/keepalive has been silent this long.
 ///
 /// GROUP_IDLE is the normal way a call ends, but a buggy or hostile core can simply stop
@@ -181,11 +185,14 @@ pub struct BrewEntity {
 
     /// Whether the worker is connected
     connected: bool,
-    /// After a real disconnect, the next [`BrewEvent::Connected`] asks MM to re-register local MS
-    /// once (PTT-denied after backhaul blip). Must NOT be set by lazy version detection — TetraPack
-    /// omits `X-Brew-Version`, so the first mnemonic GROUP_TX would otherwise kick every radio
-    /// mid-call.
-    brew_needs_ms_reregister: bool,
+    /// After a real transport disconnect, the next Connected opens the soft-recovery window
+    /// (resync Brew subscribers; selective LU only on demand). Must NOT be set by lazy version
+    /// detection — TetraPack omits `X-Brew-Version`, so the first mnemonic GROUP_TX would
+    /// otherwise look like a reconnect.
+    brew_needs_soft_recovery: bool,
+    /// When set, SYSINFO `network_connected=false` is deferred until this Instant (hysteresis).
+    /// Cleared on reconnect before it fires.
+    pending_sysinfo_disconnect_at: Option<Instant>,
     /// One-shot log/telemetry when Brew v1 is inferred from message length (no handshake header).
     brew_version_announced: bool,
     /// Optional telemetry sink for emitting brew status events
@@ -241,7 +248,8 @@ impl BrewEntity {
             ul_forwarded: HashMap::new(),
             subscriber_groups: HashMap::new(),
             connected: false,
-            brew_needs_ms_reregister: false,
+            brew_needs_soft_recovery: false,
+            pending_sysinfo_disconnect_at: None,
             brew_version_announced: false,
             telemetry_sink: None,
             rssi_last_sent: HashMap::new(),
@@ -265,25 +273,34 @@ impl BrewEntity {
                     tracing::debug!("BrewEntity: connected to TetraPack server (Brew v{})", server_version);
                     self.connected = true;
                     self.brew_version_announced = false;
+                    {
+                        let mut state = self.config.state_write();
+                        state.brew_link_up = true;
+                    }
+                    // Blip shorter than hysteresis: cancel deferred site-trunking announcement.
+                    if self.pending_sysinfo_disconnect_at.take().is_some() {
+                        tracing::info!(
+                            "BrewEntity: backhaul restored before hysteresis — keeping system_wide_services"
+                        );
+                    }
                     self.resync_subscribers();
                     self.set_network_connected(true, server_version);
-                    // Only after a prior disconnect — not on first boot connect (MS register fresh).
-                    if self.brew_needs_ms_reregister {
-                        self.brew_needs_ms_reregister = false;
+                    // Soft recovery only after a real prior disconnect (not first boot connect).
+                    // Site-trunking style: resync the core; do NOT mass-kick MS on the air.
+                    if self.brew_needs_soft_recovery {
+                        self.brew_needs_soft_recovery = false;
+                        let until = Instant::now() + Duration::from_secs(SOFT_RECOVERY_WINDOW_SECS);
+                        self.config.state_write().brew_soft_recovery_until = Some(until);
                         tracing::info!(
-                            "BrewEntity: backhaul reconnected — asking MM to re-register local MS"
+                            "BrewEntity: backhaul reconnected — Brew subscriber resync only \
+                             (no mass D-LOCATION-UPDATE-COMMAND; soft-recovery window {}s)",
+                            SOFT_RECOVERY_WINDOW_SECS
                         );
-                        queue.push_back(SapMsg {
-                            sap: tetra_core::Sap::Control,
-                            src: TetraEntity::Brew,
-                            dest: TetraEntity::Mm,
-                            msg: SapMsgInner::BrewReconnected,
-                        });
                     }
                 }
                 BrewEvent::VersionDetected { version } => {
                     // Fires on mnemonic GROUP_TX when handshake had no X-Brew-Version (TetraPack).
-                    // Telemetry only — never BrewReconnected here (that kicked MS mid first call).
+                    // Telemetry only — never soft-recovery / mass LU here (that kicked MS mid first call).
                     if !self.brew_version_announced {
                         self.brew_version_announced = true;
                         tracing::info!(
@@ -296,12 +313,33 @@ impl BrewEntity {
                 BrewEvent::Disconnected(reason) => {
                     tracing::warn!("BrewEntity: Brew backhaul disconnected: {} — releasing all active calls", reason);
                     self.connected = false;
-                    self.brew_needs_ms_reregister = true;
+                    self.brew_needs_soft_recovery = true;
                     self.brew_version_announced = false;
-                    self.set_network_connected(false, 0);
+                    {
+                        let mut state = self.config.state_write();
+                        state.brew_link_up = false;
+                    }
+                    if let Some(ref sink) = self.telemetry_sink {
+                        let _ = sink.send(TelemetryEvent::BrewConnected {
+                            connected: false,
+                            server_version: 0,
+                        });
+                    }
                     // ETSI EN 300 392-2 §14.9.4: BS must release all circuits immediately
                     // when backhaul connection is lost. MS will receive D-RELEASE.
                     self.release_all_calls(queue);
+                    let hyst = self.brew_config.backhaul_hysteresis_secs;
+                    if hyst == 0 {
+                        self.pending_sysinfo_disconnect_at = None;
+                        self.set_network_connected(false, 0);
+                    } else {
+                        let at = Instant::now() + Duration::from_secs(hyst);
+                        self.pending_sysinfo_disconnect_at = Some(at);
+                        tracing::info!(
+                            "BrewEntity: deferring site-trunking SYSINFO for {}s (hysteresis)",
+                            hyst
+                        );
+                    }
                 }
                 BrewEvent::GroupCallStart {
                     uuid,
@@ -745,12 +783,15 @@ impl BrewEntity {
     }
 
     fn set_network_connected(&mut self, connected: bool, server_version: u8) {
-        self.connected = connected;
+        // SYSINFO / site-trunking bit only — transport liveness is `self.connected` / brew_link_up.
         let changed = {
             let mut state = self.config.state_write();
             if state.network_connected != connected {
                 state.network_connected = connected;
-                tracing::info!("BrewEntity: backhaul {}", if connected { "CONNECTED" } else { "DISCONNECTED" });
+                tracing::info!(
+                    "BrewEntity: SYSINFO system_wide_services {}",
+                    if connected { "ENABLED" } else { "DISABLED (site trunking)" }
+                );
                 true
             } else {
                 false
@@ -758,9 +799,29 @@ impl BrewEntity {
         };
         if changed {
             if let Some(ref sink) = self.telemetry_sink {
-                let _ = sink.send(TelemetryEvent::BrewConnected { connected, server_version });
+                let _ = sink.send(TelemetryEvent::BrewConnected {
+                    connected: self.connected,
+                    server_version,
+                });
             }
         }
+    }
+
+    /// Apply deferred site-trunking announcement after hysteresis expires.
+    fn apply_pending_sysinfo_disconnect(&mut self) {
+        let Some(at) = self.pending_sysinfo_disconnect_at else {
+            return;
+        };
+        if self.connected {
+            self.pending_sysinfo_disconnect_at = None;
+            return;
+        }
+        if Instant::now() < at {
+            return;
+        }
+        self.pending_sysinfo_disconnect_at = None;
+        tracing::info!("BrewEntity: hysteresis elapsed — announcing site-trunking (system_wide_services=false)");
+        self.set_network_connected(false, 0);
     }
 
     /// Emit a brew version upgrade event directly without changing connection state.
@@ -1464,6 +1525,9 @@ impl TetraEntityTrait for BrewEntity {
     }
 
     fn set_config(&mut self, config: SharedConfig) {
+        if let Some(brew) = config.config().brew.clone() {
+            self.brew_config = brew;
+        }
         self.config = config;
     }
 
@@ -1471,6 +1535,7 @@ impl TetraEntityTrait for BrewEntity {
         self.dltime = ts;
         // Process all pending events from the worker thread
         self.process_events(queue);
+        self.apply_pending_sysinfo_disconnect();
         // Feed one buffered frame at each traffic playout opportunity.
         self.drain_jitter_playout(queue);
         // Expire hanging calls that have exceeded hangtime

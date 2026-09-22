@@ -512,8 +512,14 @@ pub struct SdsCommandRuntimeOverride {
 #[derive(Debug, Clone)]
 pub struct StackState {
     pub timeslot_alloc: TimeslotAllocator,
-    /// Backhaul/network connection to SwMI (e.g., Brew/TetraPack). False -> fallback mode.
+    /// Backhaul announcement for SYSINFO `system_wide_services` (may lag transport via hysteresis).
     pub network_connected: bool,
+    /// Immediate Brew transport up/down — gates Brew-routed CMCE setups. Updated without hysteresis.
+    pub brew_link_up: bool,
+    /// After a real Brew disconnect→reconnect, CMCE may request a selective SwMI-initiated
+    /// location update for an ISSI whose Brew-routed setup fails (TIP/ETSI interrogation, not
+    /// a mass kick). `None` or a past Instant means the soft-recovery window is closed.
+    pub brew_soft_recovery_until: Option<std::time::Instant>,
     /// Centralized subscriber registry for local-first routing decisions.
     pub subscribers: SubscriberRegistry,
     /// Queue of live SDS messages injected at runtime via the dashboard.
@@ -717,6 +723,8 @@ impl Default for StackState {
         Self {
             timeslot_alloc: TimeslotAllocator::default(),
             network_connected: false,
+            brew_link_up: false,
+            brew_soft_recovery_until: None,
             subscribers: SubscriberRegistry::new(),
             live_sds_queue: VecDeque::new(),
             next_live_sds_id: 1,

@@ -641,6 +641,12 @@ voice_service = true
 # Reconnect delay (seconds)
 # reconnect_delay_secs = 15
 
+# Seconds Brew transport must stay down before SYSINFO advertises site-trunking
+# (system_wide_services=false / "solo área local" on radios). Short 4G blips do not
+# flip the cell announcement. Active Brew calls are still released immediately.
+# Default: 3. Set 0 for immediate announcement (legacy).
+# backhaul_hysteresis_secs = 3
+
 # Additional initial latency in frames for inbound Brew jitter playback.
 # Default: 0. Increase if you hear audio artifacts at the start of transmissions.
 # jitter_initial_latency_frames = 0
