@@ -142,6 +142,13 @@ impl VoiceJitterBuffer {
         self.frames.pop_front()
     }
 
+    /// Allow immediate playout after migrating a pending-tail into a new call (skip fill).
+    pub fn force_started(&mut self) {
+        if !self.frames.is_empty() {
+            self.started = true;
+        }
+    }
+
     fn recompute_target(&mut self) {
         let jitter_component = ((self.jitter_us_ewma * 2.0) / BREW_EXPECTED_FRAME_INTERVAL_US).ceil() as usize;
         let target = BREW_JITTER_BASE_FRAMES + self.initial_latency_frames + jitter_component + self.underrun_boost;

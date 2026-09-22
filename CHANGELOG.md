@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.32 — Brew: no cortar la última sílaba al soltar PTT remoto
+
+- Tras `GROUP_IDLE` se **aplaza siempre** el `NetworkCallEnd` (aunque el jitter Brew esté vacío) para que UMAC termine de radiar los últimos TCH.
+- Quiet post-drenado ~**550 ms** (antes 150 ms); evita que el hangtime “se trague” la cola y la suelte al abrir el siguiente PTT.
+
 ## v0.3.31 — Brew late entry: audio DL + Hold al salir del TG
 
 - **Audio Brew:** las llamadas de red nuevas abren el circuito en **SwMI** (antes LocalLoopback, pensado para LST; el audio remoto no salía al aire).
