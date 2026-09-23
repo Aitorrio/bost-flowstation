@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.36 — Fallback SwMI attach si el MS no multipasa
+
+- Tras group report (§16.8.3), si el MXP600 vuelve a mandar >12 GSSI en un solo U-ATTACH (no hace amendment multipaso), la BTS afilia el resto y envía **D-ATTACH amend** SwMI (§16.8.1) con esos GSSI. IOP puede ignorarlo; si sigue en 12, limitar scan a ≤12.
+
 ## v0.3.35 — Afiliación multipaso ETSI (§16.8.3)
 
 - Si un U-ATTACH trae más de **12** GSSI (p. ej. scan list MXP600), tras el ACK de los 12 la BTS pide **group report** SwMI (EN 300 392-2 §16.8.3) para que el MS re-afilie en varios mensajes (detach-all + amendments).

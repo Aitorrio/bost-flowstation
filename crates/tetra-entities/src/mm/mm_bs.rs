@@ -1246,12 +1246,13 @@ impl MmBs {
             return;
         };
         let requested_n = giu.len();
-        let (giu_clamped, dropped) = if requested_n > MAX_GROUPS_PER_ATTACH {
-            let (head, _tail) = giu.split_at(MAX_GROUPS_PER_ATTACH);
-            (head.to_vec(), requested_n - MAX_GROUPS_PER_ATTACH)
+        let (giu_clamped, dropped_giu) = if requested_n > MAX_GROUPS_PER_ATTACH {
+            let (head, tail) = giu.split_at(MAX_GROUPS_PER_ATTACH);
+            (head.to_vec(), tail.to_vec())
         } else {
-            (giu, 0)
+            (giu, Vec::new())
         };
+        let dropped = dropped_giu.len();
 
         if pdu.group_identity_attach_detach_mode {
             tracing::debug!(
@@ -1331,35 +1332,44 @@ impl MmBs {
         };
         queue.push_back(msg);
 
-        // After ACK of a capped attach, request §16.8.3 multipacket re-affiliation.
-        if dropped > 0 {
-            self.maybe_request_group_report_after_overflow(queue, issi, requested_n, dropped, MAX_GROUPS_PER_ATTACH);
+        // After ACK of a capped attach: §16.8.3 group report, or SwMI amend of the
+        // remainder if the MS already failed to multipacket after a prior report.
+        if !dropped_giu.is_empty() {
+            self.handle_attach_overflow_after_ack(queue, issi, requested_n, &dropped_giu, MAX_GROUPS_PER_ATTACH);
         }
     }
 
-    /// ETSI EN 300 392-2 §16.8.3: when groups do not fit in one PDU, the SwMI may initiate a
-    /// group report so the MS re-attaches across several U-ATTACH messages. Rate-limited per
-    /// ISSI so a radio that still overstuffs the first report PDU cannot loop forever.
-    fn maybe_request_group_report_after_overflow(
+    /// After a capped U-ATTACH ACK: first overflow triggers SwMI group report (§16.8.3).
+    /// If the MS responds by stuffing >12 again (seen on MXP600), fall back to SwMI
+    /// D-ATTACH amendment of the discarded groups (§16.8.1) — IOP may ignore it, but
+    /// waiting for a multipacket amendment that never comes leaves the scan list truncated.
+    fn handle_attach_overflow_after_ack(
         &mut self,
         queue: &mut MessageQueue,
         issi: u32,
         requested_n: usize,
-        dropped: usize,
+        dropped_giu: &[GroupIdentityUplink],
         max_per_pdu: usize,
     ) {
+        let dropped = dropped_giu.len();
         let now = std::time::Instant::now();
-        if let Some(at) = self.group_report_requested_at.get(&issi).copied() {
-            if now.duration_since(at) < GROUP_REPORT_REQUEST_COOLDOWN {
-                tracing::warn!(
-                    "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) — SwMI group report already pending; awaiting MS amendment (ETSI §16.8.3)",
-                    issi,
-                    dropped,
-                    max_per_pdu,
-                    requested_n
-                );
-                return;
-            }
+        let report_pending = self
+            .group_report_requested_at
+            .get(&issi)
+            .copied()
+            .is_some_and(|at| now.duration_since(at) < GROUP_REPORT_REQUEST_COOLDOWN);
+
+        if report_pending {
+            tracing::warn!(
+                "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) — MS did not multipacket after SwMI group report; SwMI D-ATTACH of remainder (ETSI §16.8.1 fallback)",
+                issi,
+                dropped,
+                max_per_pdu,
+                requested_n
+            );
+            self.swmi_attach_overflow_remainder(queue, issi, dropped_giu);
+            self.group_report_requested_at.remove(&issi);
+            return;
         }
 
         tracing::info!(
@@ -1371,6 +1381,87 @@ impl MmBs {
         );
         self.group_report_requested_at.insert(issi, now);
         self.send_d_group_report_request(queue, issi);
+    }
+
+    /// Affiliate the overflow tail on the BS and push a SwMI-initiated D-ATTACH/DETACH
+    /// GROUP IDENTITY (amend, ack requested) so the MS can pick up groups that did not
+    /// fit in the U-ATTACH ACK. Used only after §16.8.3 multipacket failed.
+    fn swmi_attach_overflow_remainder(
+        &mut self,
+        queue: &mut MessageQueue,
+        issi: u32,
+        dropped_giu: &[GroupIdentityUplink],
+    ) {
+        let attach_tail: Vec<GroupIdentityUplink> = dropped_giu
+            .iter()
+            .filter(|g| g.class_of_usage.is_some() && g.gssi.is_some())
+            .cloned()
+            .collect();
+        if attach_tail.is_empty() {
+            tracing::debug!(
+                "ISSI {} overflow remainder has no attach IEs — nothing to SwMI-push",
+                issi
+            );
+            return;
+        }
+
+        let gssis: Vec<u32> = attach_tail.iter().filter_map(|g| g.gssi).collect();
+        tracing::info!(
+            "ISSI {} SwMI D-ATTACH remainder ({} group(s)): {:?}",
+            issi,
+            gssis.len(),
+            gssis
+        );
+
+        let accepted = self.try_attach_detach_groups(queue, issi, &attach_tail);
+        self.recovery_mark_dirty();
+        if accepted.is_empty() {
+            tracing::warn!("ISSI {} SwMI remainder attach produced no accepted groups", issi);
+            return;
+        }
+
+        let pdu = DAttachDetachGroupIdentity {
+            group_identity_report: false,
+            group_identity_acknowledgement_request: true,
+            // Amend — do not wipe the 12 already ACKed.
+            group_identity_attach_detach_mode: false,
+            proprietary: None,
+            group_report_response: None,
+            group_identity_downlink: Some(accepted),
+            group_identity_security_related_information: None,
+        };
+
+        let mut sdu = BitBuffer::new_autoexpand(32);
+        if pdu.to_bitbuf(&mut sdu).is_err() {
+            tracing::error!(
+                "MM: failed serializing SwMI D-ATTACH remainder for ISSI {}",
+                issi
+            );
+            return;
+        }
+        sdu.seek(0);
+        tracing::debug!(
+            "-> DAttachDetachGroupIdentity (SwMI remainder amend) issi={} sdu {}",
+            issi,
+            sdu.dump_bin()
+        );
+
+        queue.push_back(SapMsg {
+            sap: Sap::LmmSap,
+            src: TetraEntity::Mm,
+            dest: TetraEntity::Mle,
+            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
+                sdu,
+                handle: 0,
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
+                stealing_permission: false,
+                stealing_repeats_flag: false,
+                encryption_flag: false,
+                is_null_pdu: false,
+                tx_reporter: None,
+            }),
+        });
     }
 
     /// Build and queue a SwMI-initiated group report request (ETSI EN 300 392-2 §16.8.3):
