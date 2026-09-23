@@ -154,6 +154,30 @@ impl fmt::Display for DAttachDetachGroupIdentity {
 mod tests {
     use super::*;
     use crate::mm::fields::group_identity_attachment::GroupIdentityAttachment;
+    use tetra_core::BitBuffer;
+
+    /// SwMI-initiated group report request (EN 300 392-2 §16.8.3): report=true,
+    /// acknowledgement not requested, no downlink groups.
+    #[test]
+    fn group_report_request_round_trips() {
+        let pdu = DAttachDetachGroupIdentity {
+            group_identity_report: true,
+            group_identity_acknowledgement_request: false,
+            group_identity_attach_detach_mode: false,
+            proprietary: None,
+            group_report_response: None,
+            group_identity_downlink: None,
+            group_identity_security_related_information: None,
+        };
+        let mut buf = BitBuffer::new_autoexpand(16);
+        pdu.to_bitbuf(&mut buf).expect("serialize group report request");
+        buf.seek(0);
+        let parsed = DAttachDetachGroupIdentity::from_bitbuf(&mut buf).expect("parse");
+        assert!(parsed.group_identity_report);
+        assert!(!parsed.group_identity_acknowledgement_request);
+        assert!(parsed.group_identity_downlink.is_none());
+        assert!(parsed.group_report_response.is_none());
+    }
 
     /// A BS-initiated DGNA *attach* — one GSSI, persistent attachment (lifetime 0), ack requested,
     /// amend-mode (attach/detach_mode = false) — is exactly the shape FlowStation's DGNA send path

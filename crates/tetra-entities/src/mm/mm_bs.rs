@@ -62,11 +62,20 @@ pub struct MmBs {
     /// ghost while it re-registers (see `maybe_reactive_recovery`). Independent of `recovery`
     /// above â€” populated even when the proactive cache is disabled.
     reactive_recovery_cooldown: HashMap<u32, std::time::Instant>,
+    /// Per-ISSI timestamp of the last SwMI-initiated group report request (ETSI EN 300 392-2
+    /// §16.8.3) after a U-ATTACH overflowed the single-PDU ACK cap. Prevents re-request loops
+    /// while the MS is expected to multipacket (detach-all + amendments). Cleared on
+    /// group-report-complete or after [`GROUP_REPORT_REQUEST_COOLDOWN`].
+    group_report_requested_at: HashMap<u32, std::time::Instant>,
 }
 
 /// Safety cap on `reactive_recovery_cooldown` so a churn of distinct unknown ISSIs can't grow it
 /// without bound; lapsed entries are pruned once this many are held.
 const REACTIVE_RECOVERY_COOLDOWN_CAP: usize = 4096;
+
+/// Do not re-issue a SwMI group report request for the same ISSI within this window while a
+/// multipacket attach cycle may still be in flight.
+const GROUP_REPORT_REQUEST_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
 
 impl MmBs {
     pub fn new(config: SharedConfig, telemetry: Option<TelemetrySink>, control: Option<ControlEndpoint>) -> Self {
@@ -98,6 +107,7 @@ impl MmBs {
             recovery_attempts: HashMap::new(),
             recovery_last_frame: None,
             reactive_recovery_cooldown: HashMap::new(),
+            group_report_requested_at: HashMap::new(),
         }
     }
 
@@ -455,6 +465,7 @@ impl MmBs {
             tracing::warn!("Received UItsiDetach for unknown client with SSI: {}", ssi);
             // return;
         };
+        self.group_report_requested_at.remove(&ssi);
         self.recovery_mark_dirty();
     }
 
@@ -1207,20 +1218,25 @@ impl MmBs {
             }
         }
 
-        // ETSI EN 300 392-2 Â§16.9.2.2: the ACK PDU travels in a single TM-SDU
+        // ETSI EN 300 392-2 §16.9.2.2: the ACK PDU travels in a single TM-SDU
         // and there is no MM-level segmentation. Empirically MXP600 and MTP3550
-        // start losing the ACK around 12-15 GroupIdentityDownlink entries â€” the
-        // PDU exceeds what fits in a FACCH/SACCH burst, the MS times out, and on
+        // start losing the ACK around 12-15 GroupIdentityDownlink entries —
+        // the PDU exceeds what fits in a FACCH/SACCH burst, the MS times out, and on
         // subsequent retries it eventually de-registers ("Unit not attached").
         //
         // We have to cap the request *before* affiliating on the BS side. A previous
         // version of this code affiliated everything and then truncated only the ACK
-        // response â€” that desynced the MS and the BS: the BS thought N groups were
+        // response — that desynced the MS and the BS: the BS thought N groups were
         // active, but the MS only saw confirmations for the first 12. Inbound calls
         // on the un-confirmed groups would deliver to the BS but never notify the MS
         // (FH-BUG-022 reopened, FH-BUG-025). Now the BS only affiliates what it can
-        // confirm; the MS will keep re-requesting the remaining groups in subsequent
-        // attach cycles per ETSI clause 16.4.3.
+        // confirm.
+        //
+        // When the MS stuffs more than MAX_GROUPS_PER_ATTACH into one U-ATTACH (e.g.
+        // CPS scan list >12), it typically does *not* retry on its own. ETSI §16.8.3
+        // defines the SwMI-initiated group report: after ACK of the first PDU, we
+        // request a group report so the MS re-affiliates in multipacket form
+        // (detach-all + amendments, ACK between each, last with report complete).
         const MAX_GROUPS_PER_ATTACH: usize = 12;
         // feature_check_u_attach_detach_group_identity above guarantees this is Some,
         // but use let-else instead of .unwrap() so a future refactor that loosens that
@@ -1229,24 +1245,57 @@ impl MmBs {
             tracing::warn!("rx_u_attach_detach_group_identity: group_identity_uplink missing after feature_check; ignoring");
             return;
         };
-        let (giu_clamped, dropped) = if giu.len() > MAX_GROUPS_PER_ATTACH {
-            tracing::warn!(
-                "ISSI {} requested attach/detach for {} groups; capped at {} per ETSI PDU size limit. MS will retry remaining in next cycle.",
-                issi,
-                giu.len(),
-                MAX_GROUPS_PER_ATTACH
-            );
+        let requested_n = giu.len();
+        let (giu_clamped, dropped) = if requested_n > MAX_GROUPS_PER_ATTACH {
             let (head, _tail) = giu.split_at(MAX_GROUPS_PER_ATTACH);
-            (head.to_vec(), giu.len() - MAX_GROUPS_PER_ATTACH)
+            (head.to_vec(), requested_n - MAX_GROUPS_PER_ATTACH)
         } else {
             (giu, 0)
         };
-        let _ = dropped; // silence unused warning if logging is compiled out
+
+        if pdu.group_identity_attach_detach_mode {
+            tracing::debug!(
+                "ISSI {} U-ATTACH detach-all + {} group IE(s){}",
+                issi,
+                requested_n,
+                if dropped > 0 {
+                    format!(" (ACK will cover first {MAX_GROUPS_PER_ATTACH})")
+                } else {
+                    String::new()
+                }
+            );
+        } else if dropped > 0 || self.group_report_requested_at.contains_key(&issi) {
+            tracing::info!(
+                "ISSI {} U-ATTACH amendment: {} group IE(s){}",
+                issi,
+                requested_n,
+                if dropped > 0 {
+                    format!(", capped to {MAX_GROUPS_PER_ATTACH} for ACK")
+                } else {
+                    String::new()
+                }
+            );
+        }
+
+        if let Some(ref grr) = pdu.group_report_response {
+            // Type3 Group report response: LSB 0 = not complete, 1 = complete (ETSI Table 16.83).
+            let complete = (grr.data & 1) != 0;
+            tracing::info!(
+                "ISSI {} group report response: {} (data={:#x}, len={})",
+                issi,
+                if complete { "complete" } else { "not complete" },
+                grr.data,
+                grr.len
+            );
+            if complete {
+                self.group_report_requested_at.remove(&issi);
+            }
+        }
 
         // Try to attach to requested groups, and retrieve list of accepted GroupIdentityDownlink elements
         let accepted_gid = self.try_attach_detach_groups(queue, issi, &giu_clamped);
 
-        // Group affiliations changed â€” persist for restart recovery (debounced).
+        // Group affiliations changed — persist for restart recovery (debounced).
         self.recovery_mark_dirty();
 
         // Build reply PDU
@@ -1281,6 +1330,97 @@ impl MmBs {
             }),
         };
         queue.push_back(msg);
+
+        // After ACK of a capped attach, request §16.8.3 multipacket re-affiliation.
+        if dropped > 0 {
+            self.maybe_request_group_report_after_overflow(queue, issi, requested_n, dropped, MAX_GROUPS_PER_ATTACH);
+        }
+    }
+
+    /// ETSI EN 300 392-2 §16.8.3: when groups do not fit in one PDU, the SwMI may initiate a
+    /// group report so the MS re-attaches across several U-ATTACH messages. Rate-limited per
+    /// ISSI so a radio that still overstuffs the first report PDU cannot loop forever.
+    fn maybe_request_group_report_after_overflow(
+        &mut self,
+        queue: &mut MessageQueue,
+        issi: u32,
+        requested_n: usize,
+        dropped: usize,
+        max_per_pdu: usize,
+    ) {
+        let now = std::time::Instant::now();
+        if let Some(at) = self.group_report_requested_at.get(&issi).copied() {
+            if now.duration_since(at) < GROUP_REPORT_REQUEST_COOLDOWN {
+                tracing::warn!(
+                    "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) — SwMI group report already pending; awaiting MS amendment (ETSI §16.8.3)",
+                    issi,
+                    dropped,
+                    max_per_pdu,
+                    requested_n
+                );
+                return;
+            }
+        }
+
+        tracing::info!(
+            "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) → SwMI group report requested (ETSI §16.8.3)",
+            issi,
+            dropped,
+            max_per_pdu,
+            requested_n
+        );
+        self.group_report_requested_at.insert(issi, now);
+        self.send_d_group_report_request(queue, issi);
+    }
+
+    /// Build and queue a SwMI-initiated group report request (ETSI EN 300 392-2 §16.8.3):
+    /// D-ATTACH/DETACH GROUP IDENTITY with *group report* = requested, acknowledgement
+    /// *not* requested, and no group identity downlink. The MS shall then report/re-attach
+    /// its groups, possibly across multiple U-ATTACH PDUs.
+    fn send_d_group_report_request(&self, queue: &mut MessageQueue, issi: u32) {
+        let pdu = DAttachDetachGroupIdentity {
+            group_identity_report: true,
+            group_identity_acknowledgement_request: false,
+            // Ignored by the MS when group_identity_report is set (ETSI §16.8.3).
+            group_identity_attach_detach_mode: false,
+            proprietary: None,
+            group_report_response: None,
+            // Shall not be present for a group report request.
+            group_identity_downlink: None,
+            group_identity_security_related_information: None,
+        };
+
+        let mut sdu = BitBuffer::new_autoexpand(16);
+        if pdu.to_bitbuf(&mut sdu).is_err() {
+            tracing::error!(
+                "MM: failed serializing D-ATTACH group report request for ISSI {}",
+                issi
+            );
+            return;
+        }
+        sdu.seek(0);
+        tracing::debug!(
+            "-> DAttachDetachGroupIdentity (group report request) issi={} sdu {}",
+            issi,
+            sdu.dump_bin()
+        );
+
+        queue.push_back(SapMsg {
+            sap: Sap::LmmSap,
+            src: TetraEntity::Mm,
+            dest: TetraEntity::Mle,
+            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
+                sdu,
+                handle: 0, // unsolicited SwMI-initiated
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
+                stealing_permission: false,
+                stealing_repeats_flag: false,
+                encryption_flag: false,
+                is_null_pdu: false,
+                tx_reporter: None,
+            }),
+        });
     }
 
     fn rx_lmm_mle_unitdata_ind(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
@@ -2339,6 +2479,7 @@ impl TetraEntityTrait for MmBs {
                             self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
                             self.client_mgr.remove_client(issi);
                             self.config.state_write().subscribers.deregister(issi);
+                            self.group_report_requested_at.remove(&issi);
                             self.recovery_mark_dirty();
                         }
                     }
