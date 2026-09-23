@@ -5519,6 +5519,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-syswide"> <span>System-wide services</span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-late-entry" checked> <span data-i18n="cfg_late_entry">Late entry</span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-voice"> <span>Voice service</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-recovery"> <span data-i18n="cfg_recovery">Restart recovery (proactive)</span></label>
                       <label class="field"><span>Local SSI ranges</span><input type="text" id="vc-local-ssi" class="form-input" placeholder="0-90, 100-120"></label>
                     </div>
                     <p class="vc-timers-hint" data-i18n="cfg_timers_hint">Timers: empty or reset = engine default (shown in the field). 0 is only special where noted (call timeout unlimited, T351 off) — it is not the default for hangtime/UL.</p>
@@ -7008,6 +7009,8 @@ const LANGS={
     cfg_help_ul_inact:'If the current speaker sends no UL voice for this many seconds, the BS forces TX ceased and enters hangtime. Default 3 (tolerate short fades/DTX).',
     cfg_help_t351:'Periodic registration interval (T351-like). 0 = never expire. Default 3600. Affects how often radios must re-register.',
     cfg_help_syswide:'Advertise system-wide services in SYSINFO. Leave on unless you know you need fallback-mode behaviour.',
+    cfg_help_recovery:'After a BTS restart the registry is empty while radios may still believe they are registered. Proactive recovery (this checkbox, default OFF) caches known ISSIs and on boot sends D-LOCATION-UPDATE-COMMAND so they re-register without touching the radio. Reactive recovery stays ON always: when an unknown radio transmits (PTT/TG), it is commanded once. Enable proactive on pico cells if you want the roster back immediately after Apply & Restart.',
+    cfg_recovery:'Restart recovery (proactive)',
     cfg_late_entry:'Late entry',
     cfg_help_late_entry:'Advertise Late Entry in D-MLE-SYNC so radios expect D-SETUP for ongoing group calls (recommended on).',
     cfg_help_voice:'Advertise voice service. Leave on for normal voice cells.',
@@ -7538,6 +7541,8 @@ const LANGS={
     cfg_help_ul_inact:'Si el speaker no envía voz UL durante estos segundos, la BTS fuerza TX ceased y entra en hangtime. Default 3 (tolera fades/DTX cortos).',
     cfg_help_t351:'Intervalo de registro periódico (tipo T351). 0 = no caduca. Default 3600.',
     cfg_help_syswide:'Anuncia system-wide services en SYSINFO. Déjalo activo salvo que sepas que necesitas otro modo.',
+    cfg_help_recovery:'Tras reiniciar la BTS el registro en RAM queda vacío y el walkie puede seguir creyendo que está registrado. La recuperación proactiva (este check, OFF por defecto) guarda ISSIs conocidos y al arrancar envía D-LOCATION-UPDATE-COMMAND para que se re-registren sin tocar el radio. La reactiva sigue siempre ON: si un ISSI desconocido transmite (PTT/TG), se le ordena re-registro. Activa la proactiva en celdas pico si quieres el roster de vuelta al momento tras Aplicar y reiniciar.',
+    cfg_recovery:'Recuperación al reinicio (proactiva)',
     cfg_late_entry:'Late entry',
     cfg_help_late_entry:'Anuncia Late Entry en D-MLE-SYNC para que las radios esperen D-SETUP de llamadas de grupo en curso (recomendado activo).',
     cfg_help_voice:'Anuncia servicio de voz. Déjalo activo en celdas de voz normales.',
@@ -11589,7 +11594,7 @@ const CFG_HELP_BY_ID={
   'vc-tx-pad':'cfg_help_gain','vc-tx-iamp':'cfg_help_gain','vc-tx-dac':'cfg_help_gain','vc-tx-mixer':'cfg_help_gain','vc-tx-pga':'cfg_help_gain',
   'vc-mcc':'cfg_help_mcc','vc-mnc':'cfg_help_mnc','vc-la':'cfg_help_la','vc-tz':'cfg_help_tz',
   'vc-hangtime':'cfg_help_hangtime','vc-call-timeout':'cfg_help_call_timeout','vc-ul-inact':'cfg_help_ul_inact','vc-t351':'cfg_help_t351',
-  'vc-syswide':'cfg_help_syswide','vc-late-entry':'cfg_help_late_entry','vc-voice':'cfg_help_voice','vc-local-ssi':'cfg_help_local_ssi',
+  'vc-syswide':'cfg_help_syswide','vc-late-entry':'cfg_help_late_entry','vc-voice':'cfg_help_voice','vc-recovery':'cfg_help_recovery','vc-local-ssi':'cfg_help_local_ssi',
   'vc-brew-enabled':'cfg_help_brew_enable','vc-brew-host':'cfg_help_brew_host','vc-brew-port':'cfg_help_brew_port',
   'vc-brew-tls':'cfg_help_brew_tls','vc-brew-user':'cfg_help_brew_user','vc-brew-pass':'cfg_help_brew_pass',
   'vc-brew-reconnect':'cfg_help_brew_reconnect','vc-brew-sds':'cfg_help_brew_sds','vc-brew-rssi':'cfg_help_brew_rssi',
@@ -11749,6 +11754,8 @@ function collectVisualConfig(){
     brew,
     // Access control travels with Cell profiles and Live settings (sheet Save vs Apply live).
     security:{issi_whitelist:whitelistEntries.slice()},
+    // Proactive restart recovery (default off); reactive stays engine-default ON.
+    recovery:{enabled:!!document.getElementById('vc-recovery')?.checked},
   };
 }
 function fillVisualConfig(d,opts){
@@ -11773,6 +11780,7 @@ function fillVisualConfig(d,opts){
   vcSet('vc-t351',cell.periodic_registration_secs);
   syncAllVcTimerResets();
   vcSet('vc-syswide',!!cell.system_wide_services); vcSet('vc-late-entry',cell.late_entry_supported!==false); vcSet('vc-voice',cell.voice_service!==false);
+  vcSet('vc-recovery',!!(d&&d.recovery&&d.recovery.enabled));
   vcSet('vc-local-ssi',formatLocalSsiRanges(cell.local_ssi_ranges));
   const net=d?.net_info||{}; vcSet('vc-mcc',net.mcc); vcSet('vc-mnc',net.mnc);
   const brew=d?.brew||{};

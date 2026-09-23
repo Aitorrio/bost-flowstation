@@ -1,6 +1,7 @@
 //! Visual configurator profiles (Cell × Brew), inspired by BTS Mia `bts-web`.
 //!
-//! Cell profiles store RF + network/cell identity (`phy_io`, `net_info`, `cell_info`).
+//! Cell profiles store RF + network/cell identity (`phy_io`, `net_info`, `cell_info`),
+//! plus Cell-bound `security` (ISSI whitelist) and `recovery` (proactive restart recovery).
 //! Brew profiles store the optional `[brew]` backhaul. Apply merges a Cell × Brew
 //! selection into the live `config.toml`, preserving Station/Integration sections,
 //! then validates with the same parse+`validate()` path as the raw editor.
@@ -110,6 +111,10 @@ pub fn ensure_seeded(config_path: &str) -> Result<(), String> {
     // when they start using Cell-bound access (missing key = open network).
     if let Some(v) = table.get("security") {
         cell_json.insert("security".into(), toml_to_json(v));
+    }
+    // Restart recovery travels with the Cell (proactive D-LOCATION-UPDATE-COMMAND on boot).
+    if let Some(v) = table.get("recovery") {
+        cell_json.insert("recovery".into(), toml_to_json(v));
     }
     // Keep stack_mode / config_version for completeness when re-materialising.
     if let Some(v) = table.get("config_version") {
@@ -402,6 +407,13 @@ pub fn visual_config_from_toml(config_path: &str) -> Result<JsonValue, String> {
         sec.insert("issi_whitelist".into(), JsonValue::Array(vec![]));
         out.insert("security".into(), JsonValue::Object(sec));
     }
+    if let Some(v) = table.get("recovery") {
+        out.insert("recovery".into(), toml_to_json(v));
+    } else {
+        let mut rec = Map::new();
+        rec.insert("enabled".into(), JsonValue::Bool(false));
+        out.insert("recovery".into(), JsonValue::Object(rec));
+    }
     if let Some(brew) = table.get("brew") {
         let mut brew_json = toml_to_json(brew);
         if let Some(obj) = brew_json.as_object_mut() {
@@ -527,6 +539,10 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
     if let Some(v) = obj.get("security") {
         deep_merge_toml(&mut table, "security", json_to_toml(v)?);
     }
+    // Optional: proactive restart recovery (Cell-bound; default off).
+    if let Some(v) = obj.get("recovery") {
+        deep_merge_toml(&mut table, "recovery", json_to_toml(v)?);
+    }
 
     if let Some(brew) = obj.get("brew") {
         let brew_obj = brew
@@ -602,6 +618,15 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
         JsonValue::Object(sec)
     };
     deep_merge_toml(&mut table, "security", json_to_toml(&security_val)?);
+    // Restart recovery is part of the Cell profile. Missing key = proactive OFF for this Cell.
+    let recovery_val = if let Some(v) = cell_obj.get("recovery") {
+        v.clone()
+    } else {
+        let mut rec = Map::new();
+        rec.insert("enabled".into(), JsonValue::Bool(false));
+        JsonValue::Object(rec)
+    };
+    deep_merge_toml(&mut table, "recovery", json_to_toml(&recovery_val)?);
     if let Some(v) = cell_obj.get("stack_mode") {
         table.insert("stack_mode".into(), json_to_toml(v)?);
     }
@@ -703,6 +728,14 @@ pub fn save_cell_from_visual(config_path: &str, name: &str, visual: &JsonValue) 
         let mut sec = Map::new();
         sec.insert("issi_whitelist".into(), JsonValue::Array(vec![]));
         cell.insert("security".into(), JsonValue::Object(sec));
+    }
+    // Always persist restart recovery from the visual form (default off).
+    if let Some(v) = obj.get("recovery") {
+        cell.insert("recovery".to_string(), v.clone());
+    } else {
+        let mut rec = Map::new();
+        rec.insert("enabled".into(), JsonValue::Bool(false));
+        cell.insert("recovery".into(), JsonValue::Object(rec));
     }
     put_cell_profile(config_path, name, &JsonValue::Object(cell))
 }
