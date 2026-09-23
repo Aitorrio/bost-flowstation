@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.37 — Overflow mid-report → D-ATTACH inmediato
+
+- Si el U-ATTACH trae *group report not complete* y >12 GSSI (MXP600), tras el ACK de 12 se afilia el resto con **D-ATTACH SwMI** en el acto (no se pide otro group report).
+- Si el amendment siguiente llega truncado (`BufferEnded` al parsear), se usa el resto guardado del PDU anterior para el mismo D-ATTACH.
+
 ## v0.3.36 — Fallback SwMI attach si el MS no multipasa
 
 - Tras group report (§16.8.3), si el MXP600 vuelve a mandar >12 GSSI en un solo U-ATTACH (no hace amendment multipaso), la BTS afilia el resto y envía **D-ATTACH amend** SwMI (§16.8.1) con esos GSSI. IOP puede ignorarlo; si sigue en 12, limitar scan a ≤12.

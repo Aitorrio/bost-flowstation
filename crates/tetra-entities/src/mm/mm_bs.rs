@@ -67,6 +67,10 @@ pub struct MmBs {
     /// while the MS is expected to multipacket (detach-all + amendments). Cleared on
     /// group-report-complete or after [`GROUP_REPORT_REQUEST_COOLDOWN`].
     group_report_requested_at: HashMap<u32, std::time::Instant>,
+    /// Groups discarded by the ACK-size cap, kept until the MS finishes multipacket attach or
+    /// we fall back to a SwMI D-ATTACH of the remainder (MXP600 often re-sends the full list
+    /// in a PDU that exceeds the uplink and fails to parse).
+    attach_overflow_remainder: HashMap<u32, Vec<GroupIdentityUplink>>,
 }
 
 /// Safety cap on `reactive_recovery_cooldown` so a churn of distinct unknown ISSIs can't grow it
@@ -108,6 +112,7 @@ impl MmBs {
             recovery_last_frame: None,
             reactive_recovery_cooldown: HashMap::new(),
             group_report_requested_at: HashMap::new(),
+            attach_overflow_remainder: HashMap::new(),
         }
     }
 
@@ -466,6 +471,7 @@ impl MmBs {
             // return;
         };
         self.group_report_requested_at.remove(&ssi);
+        self.attach_overflow_remainder.remove(&ssi);
         self.recovery_mark_dirty();
     }
 
@@ -1140,7 +1146,27 @@ impl MmBs {
                 pdu
             }
             Err(e) => {
-                tracing::warn!("Failed parsing UAttachDetachGroupIdentity: {:?} {}", e, prim.sdu.dump_bin());
+                tracing::warn!(
+                    "Failed parsing UAttachDetachGroupIdentity: {:?} {}",
+                    e,
+                    prim.sdu.dump_bin()
+                );
+                // MXP600 often re-sends the full scan list in a follow-up U-ATTACH that
+                // exceeds the uplink TM-SDU and arrives truncated. If we still hold the
+                // ACK-capped remainder from the previous PDU, push it via SwMI D-ATTACH.
+                if let Some(rem) = self.attach_overflow_remainder.remove(&issi) {
+                    if !rem.is_empty() {
+                        let gssis: Vec<u32> = rem.iter().filter_map(|g| g.gssi).collect();
+                        tracing::warn!(
+                            "ISSI {} U-ATTACH parse failed with {} stashed overflow group(s) {:?} — SwMI D-ATTACH remainder",
+                            issi,
+                            gssis.len(),
+                            gssis
+                        );
+                        self.swmi_attach_overflow_remainder(queue, issi, &rem);
+                        self.group_report_requested_at.remove(&issi);
+                    }
+                }
                 return;
             }
         };
@@ -1278,9 +1304,11 @@ impl MmBs {
             );
         }
 
+        let mut report_not_complete = false;
         if let Some(ref grr) = pdu.group_report_response {
             // Type3 Group report response: LSB 0 = not complete, 1 = complete (ETSI Table 16.83).
             let complete = (grr.data & 1) != 0;
+            report_not_complete = !complete;
             tracing::info!(
                 "ISSI {} group report response: {} (data={:#x}, len={})",
                 issi,
@@ -1290,6 +1318,7 @@ impl MmBs {
             );
             if complete {
                 self.group_report_requested_at.remove(&issi);
+                self.attach_overflow_remainder.remove(&issi);
             }
         }
 
@@ -1333,16 +1362,26 @@ impl MmBs {
         queue.push_back(msg);
 
         // After ACK of a capped attach: §16.8.3 group report, or SwMI amend of the
-        // remainder if the MS already failed to multipacket after a prior report.
+        // remainder if the MS is already mid-report / failed to multipacket cleanly.
         if !dropped_giu.is_empty() {
-            self.handle_attach_overflow_after_ack(queue, issi, requested_n, &dropped_giu, MAX_GROUPS_PER_ATTACH);
+            self.handle_attach_overflow_after_ack(
+                queue,
+                issi,
+                requested_n,
+                &dropped_giu,
+                MAX_GROUPS_PER_ATTACH,
+                report_not_complete,
+            );
+        } else {
+            self.attach_overflow_remainder.remove(&issi);
         }
     }
 
-    /// After a capped U-ATTACH ACK: first overflow triggers SwMI group report (§16.8.3).
-    /// If the MS responds by stuffing >12 again (seen on MXP600), fall back to SwMI
-    /// D-ATTACH amendment of the discarded groups (§16.8.1) — IOP may ignore it, but
-    /// waiting for a multipacket amendment that never comes leaves the scan list truncated.
+    /// After a capped U-ATTACH ACK:
+    /// - Fresh overstuff → SwMI group report (§16.8.3) and stash the discarded IEs.
+    /// - MS already mid-report (`report not complete`) or still overstuffs after a report →
+    ///   SwMI D-ATTACH of the remainder (§16.8.1). Re-requesting report makes MXP600
+    ///   re-send the full scan list in a PDU that truncates on the uplink.
     fn handle_attach_overflow_after_ack(
         &mut self,
         queue: &mut MessageQueue,
@@ -1350,6 +1389,7 @@ impl MmBs {
         requested_n: usize,
         dropped_giu: &[GroupIdentityUplink],
         max_per_pdu: usize,
+        report_not_complete: bool,
     ) {
         let dropped = dropped_giu.len();
         let now = std::time::Instant::now();
@@ -1359,21 +1399,30 @@ impl MmBs {
             .copied()
             .is_some_and(|at| now.duration_since(at) < GROUP_REPORT_REQUEST_COOLDOWN);
 
-        if report_pending {
+        self.attach_overflow_remainder
+            .insert(issi, dropped_giu.to_vec());
+
+        if report_not_complete || report_pending {
             tracing::warn!(
-                "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) — MS did not multipacket after SwMI group report; SwMI D-ATTACH of remainder (ETSI §16.8.1 fallback)",
+                "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) — {} → SwMI D-ATTACH of remainder (ETSI §16.8.1 fallback)",
                 issi,
                 dropped,
                 max_per_pdu,
-                requested_n
+                requested_n,
+                if report_not_complete {
+                    "MS report not complete but PDU overstuffed"
+                } else {
+                    "MS did not multipacket after SwMI group report"
+                }
             );
             self.swmi_attach_overflow_remainder(queue, issi, dropped_giu);
+            self.attach_overflow_remainder.remove(&issi);
             self.group_report_requested_at.remove(&issi);
             return;
         }
 
         tracing::info!(
-            "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) → SwMI group report requested (ETSI §16.8.3)",
+            "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) → SwMI group report requested (ETSI §16.8.3); remainder stashed for fallback",
             issi,
             dropped,
             max_per_pdu,
@@ -2571,6 +2620,7 @@ impl TetraEntityTrait for MmBs {
                             self.client_mgr.remove_client(issi);
                             self.config.state_write().subscribers.deregister(issi);
                             self.group_report_requested_at.remove(&issi);
+                            self.attach_overflow_remainder.remove(&issi);
                             self.recovery_mark_dirty();
                         }
                     }
