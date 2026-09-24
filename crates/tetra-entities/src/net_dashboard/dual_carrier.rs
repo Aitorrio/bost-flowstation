@@ -1,14 +1,15 @@
-//! Dashboard "Dual-Carrier ON/OFF" support.
+//! Dashboard Dual-Carrier support (cell_info switch + Soapy passband helpers).
 //!
-//! Toggling dual carrier is a config-file operation applied via a controlled restart: the secondary
-//! carrier is fixed at startup (PHY/SDR tuning, UMAC schedulers and the timeslot allocator all read
-//! it once at construction), so it cannot be reconfigured live. The toggle therefore edits
-//! `[cell_info]` in the TOML and the service restarts to pick up the new carrier set.
-//!
-//! Representation: `secondary_carrier = N` is the *configured* carrier number (kept across OFF so it
-//! is remembered), and `dual_carrier_enabled = true|false` is the operational switch. The config
-//! loader (`cell_dto_to_cfg`) collapses these into the effective `CfgCellInfo::secondary_carrier`
-//! (`None` when disabled), so the rest of the stack is unchanged.
+//! Enabling dual carrier is a config-file operation applied via controlled restart. The secondary
+//! carrier number is remembered across OFF; `dual_carrier_enabled` is the operational switch.
+//! When enabling, we also persist an effective `sample_rate` (and midway TX/RX centers) so
+//! `StackConfig::validate` can prove both carriers fit the SDR passband — matching the Fs the
+//! device already uses at runtime when the key was omitted from TOML.
+
+/// Default Fs when TOML omits `sample_rate` (SXceiver / MuCell device default).
+pub const DEFAULT_SAMPLE_RATE_HZ: f64 = 600_000.0;
+/// TETRA carrier channel spacing.
+pub const CARRIER_CHANNEL_HZ: f64 = 25_000.0;
 
 /// Current dual-carrier configuration as read straight from the TOML file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,8 +28,6 @@ impl DualCarrierState {
 }
 
 /// Read the dual-carrier switch + configured secondary carrier from the TOML file.
-/// Tolerant of a missing/garbled file: defaults to enabled=true, no secondary carrier. Uses a
-/// line scan of the active `[cell_info]` keys (no extra TOML dependency, mirrors `compute_toml`).
 pub fn read_dual_carrier(config_path: &str) -> DualCarrierState {
     let txt = std::fs::read_to_string(config_path).unwrap_or_default();
     let mut in_cell = false;
@@ -69,6 +68,33 @@ fn value_token(v: &str) -> &str {
     v.split('#').next().unwrap_or(v).trim()
 }
 
+/// Max `|secondary − main|` (carrier numbers) when LO is placed midway between the two carriers.
+/// Both must fit in the SDR passband: `|f1−f2| ≤ Fs` ⇒ Δcarriers ≤ Fs / 25 kHz.
+pub fn max_carrier_delta(sample_rate_hz: f64) -> u16 {
+    if !sample_rate_hz.is_finite() || sample_rate_hz <= 0.0 {
+        return 1;
+    }
+    let d = (sample_rate_hz / CARRIER_CHANNEL_HZ).floor() as i64;
+    d.clamp(1, 3998) as u16
+}
+
+/// Clamp a requested secondary carrier into the passband around `main` for the given Fs.
+/// Never returns `main`; prefers `main+1` when the request equals main.
+pub fn clamp_secondary_carrier(main: u16, want: u16, sample_rate_hz: f64) -> u16 {
+    let max_d = max_carrier_delta(sample_rate_hz) as i32;
+    let m = main as i32;
+    let lo = (m - max_d).max(0);
+    let hi = (m + max_d).min(3999);
+    if lo >= hi {
+        return if m < 3999 { (m + 1) as u16 } else { (m - 1) as u16 };
+    }
+    let mut s = want as i32;
+    if s == m {
+        s = if m + 1 <= hi { m + 1 } else { m - 1 };
+    }
+    s.clamp(lo, hi) as u16
+}
+
 /// Produce a new TOML body with `dual_carrier_enabled` (and, when `secondary_carrier` is `Some`,
 /// the active `secondary_carrier` key) set inside `[cell_info]`, preserving everything else
 /// including comments. When `secondary_carrier` is `None`, any existing `secondary_carrier` line is
@@ -81,10 +107,8 @@ pub fn compute_toml(original: &str, enabled: bool, secondary_carrier: Option<u16
     let mut in_cell = false;
     let mut cell_seen = false;
     let mut wrote_enabled = false;
-    // Nothing to write for secondary if the caller passed None.
     let mut wrote_secondary = secondary_line.is_none();
 
-    // True if `trimmed` is an active (uncommented) `key = ...` assignment.
     let is_active_key = |trimmed: &str, key: &str| {
         !trimmed.starts_with('#') && trimmed.starts_with(key) && trimmed[key.len()..].trim_start().starts_with('=')
     };
@@ -106,7 +130,6 @@ pub fn compute_toml(original: &str, enabled: bool, secondary_carrier: Option<u16
         let trimmed = line.trim_start();
 
         if trimmed.starts_with('[') && trimmed.contains(']') {
-            // Leaving [cell_info] without having written every key: append them at section end.
             if in_cell {
                 flush_missing(&mut out, &mut wrote_enabled, &mut wrote_secondary);
             }
@@ -136,12 +159,10 @@ pub fn compute_toml(original: &str, enabled: bool, secondary_carrier: Option<u16
         out.push(line.to_string());
     }
 
-    // File ended while still inside [cell_info].
     if in_cell {
         flush_missing(&mut out, &mut wrote_enabled, &mut wrote_secondary);
     }
 
-    // No [cell_info] section at all — append one.
     if !cell_seen {
         if !out.is_empty() && !out.last().map(|l| l.is_empty()).unwrap_or(true) {
             out.push(String::new());
@@ -160,13 +181,201 @@ pub fn compute_toml(original: &str, enabled: bool, secondary_carrier: Option<u16
     new_content
 }
 
-/// Apply the toggle to the config file (backup, then write). Pair with `compute_toml`'s rules.
+/// Upsert scalar keys inside `[phy_io.soapysdr]` (create the section if missing).
+fn upsert_soapysdr_keys(original: &str, keys: &[(&str, String)]) -> String {
+    if keys.is_empty() {
+        return original.to_string();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut in_soapy = false;
+    let mut soapy_seen = false;
+    let mut wrote: Vec<bool> = keys.iter().map(|_| false).collect();
+
+    let is_active_key = |trimmed: &str, key: &str| {
+        !trimmed.starts_with('#') && trimmed.starts_with(key) && trimmed[key.len()..].trim_start().starts_with('=')
+    };
+
+    let flush = |out: &mut Vec<String>, wrote: &mut [bool]| {
+        for (i, ((k, v), done)) in keys.iter().zip(wrote.iter_mut()).enumerate() {
+            let _ = i;
+            if !*done {
+                out.push(format!("{k} = {v}"));
+                *done = true;
+            }
+        }
+    };
+
+    for line in original.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') && trimmed.contains(']') {
+            if in_soapy {
+                flush(&mut out, &mut wrote);
+            }
+            in_soapy = trimmed.starts_with("[phy_io.soapysdr]");
+            if in_soapy {
+                soapy_seen = true;
+            }
+            out.push(line.to_string());
+            continue;
+        }
+        if in_soapy {
+            let mut replaced = false;
+            for (i, (k, v)) in keys.iter().enumerate() {
+                if !wrote[i] && is_active_key(trimmed, k) {
+                    out.push(format!("{k} = {v}"));
+                    wrote[i] = true;
+                    replaced = true;
+                    break;
+                }
+            }
+            if replaced {
+                continue;
+            }
+        }
+        out.push(line.to_string());
+    }
+    if in_soapy {
+        flush(&mut out, &mut wrote);
+    }
+    if !soapy_seen {
+        if !out.is_empty() && !out.last().map(|l| l.is_empty()).unwrap_or(true) {
+            out.push(String::new());
+        }
+        out.push("[phy_io.soapysdr]".to_string());
+        flush(&mut out, &mut wrote);
+    }
+    let mut new_content = out.join("\n");
+    if original.ends_with('\n') {
+        new_content.push('\n');
+    }
+    new_content
+}
+
+/// Build TOML for enabling dual carrier: cell flags + sample_rate + midway centers.
+/// `sample_rate_hz` should be the effective Fs (config or device default).
+pub fn build_enabled_toml(
+    original: &str,
+    secondary: u16,
+    sample_rate_hz: f64,
+    main_dl_hz: f64,
+    main_ul_hz: f64,
+    sec_dl_hz: f64,
+    sec_ul_hz: f64,
+) -> String {
+    let with_cell = compute_toml(original, true, Some(secondary));
+    let tx_c = (main_dl_hz + sec_dl_hz) / 2.0;
+    let rx_c = (main_ul_hz + sec_ul_hz) / 2.0;
+    upsert_soapysdr_keys(
+        &with_cell,
+        &[
+            ("sample_rate", format!("{sample_rate_hz}")),
+            ("tx_center_freq", format!("{tx_c}")),
+            ("rx_center_freq", format!("{rx_c}")),
+        ],
+    )
+}
+
+/// Apply dual-carrier disable (flag only; secondary + RF keys kept).
 pub fn write_dual_carrier(config_path: &str, enabled: bool, secondary_carrier: Option<u16>) -> std::io::Result<()> {
     let original = std::fs::read_to_string(config_path)?;
     let new_content = compute_toml(&original, enabled, secondary_carrier);
     let backup = format!("{config_path}.dualcarrier.bak");
     let _ = std::fs::copy(config_path, &backup);
     std::fs::write(config_path, new_content)
+}
+
+/// Write a fully prepared dual-enable TOML body (already includes RF keys).
+pub fn write_toml_body(config_path: &str, new_content: &str) -> std::io::Result<()> {
+    let backup = format!("{config_path}.dualcarrier.bak");
+    let _ = std::fs::copy(config_path, &backup);
+    std::fs::write(config_path, new_content)
+}
+
+/// Effective sample rate from parsed config (TOML key or device default).
+pub fn effective_sample_rate_hz(fs_from_toml: Option<f64>) -> f64 {
+    fs_from_toml
+        .filter(|f| f.is_finite() && *f > 0.0)
+        .unwrap_or(DEFAULT_SAMPLE_RATE_HZ)
+}
+
+/// Read `sample_rate` from TOML soapysdr if present (line scan; no full parse).
+pub fn read_sample_rate_from_toml(config_path: &str) -> Option<f64> {
+    let txt = std::fs::read_to_string(config_path).ok()?;
+    let mut in_soapy = false;
+    for line in txt.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') && trimmed.contains(']') {
+            in_soapy = trimmed.starts_with("[phy_io.soapysdr]");
+            continue;
+        }
+        if !in_soapy || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(v) = active_value(trimmed, "sample_rate") {
+            return value_token(v).parse::<f64>().ok();
+        }
+    }
+    None
+}
+
+/// Sync dual-carrier + Soapy RF keys into the active Cell profile JSON (best-effort).
+pub fn sync_active_cell_profile(
+    config_path: &str,
+    enabled: bool,
+    secondary: Option<u16>,
+    sample_rate_hz: Option<f64>,
+    tx_center_hz: Option<f64>,
+    rx_center_hz: Option<f64>,
+) -> Result<(), String> {
+    use crate::net_dashboard::profiles::{profile_file_for_cell, read_active};
+    use serde_json::{json, Map, Value as JsonValue};
+
+    let active = read_active(config_path);
+    let path = profile_file_for_cell(config_path, &active.cell)?;
+    let txt = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut root: JsonValue = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
+    let obj = root
+        .as_object_mut()
+        .ok_or_else(|| "cell profile root must be an object".to_string())?;
+
+    let cell = obj
+        .entry("cell_info".to_string())
+        .or_insert_with(|| JsonValue::Object(Map::new()));
+    let cell_obj = cell
+        .as_object_mut()
+        .ok_or_else(|| "cell_info must be an object".to_string())?;
+    cell_obj.insert("dual_carrier_enabled".into(), JsonValue::Bool(enabled));
+    if let Some(s) = secondary {
+        cell_obj.insert("secondary_carrier".into(), json!(s));
+    }
+
+    if enabled {
+        let phy = obj
+            .entry("phy_io".to_string())
+            .or_insert_with(|| json!({"backend":"SoapySdr","soapysdr":{}}));
+        let phy_obj = phy
+            .as_object_mut()
+            .ok_or_else(|| "phy_io must be an object".to_string())?;
+        let soapy = phy_obj
+            .entry("soapysdr".to_string())
+            .or_insert_with(|| JsonValue::Object(Map::new()));
+        let soapy_obj = soapy
+            .as_object_mut()
+            .ok_or_else(|| "soapysdr must be an object".to_string())?;
+        if let Some(fs) = sample_rate_hz {
+            soapy_obj.insert("sample_rate".into(), json!(fs));
+        }
+        if let Some(tx) = tx_center_hz {
+            soapy_obj.insert("tx_center_freq".into(), json!(tx));
+        }
+        if let Some(rx) = rx_center_hz {
+            soapy_obj.insert("rx_center_freq".into(), json!(rx));
+        }
+    }
+
+    let rendered = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+    std::fs::write(&path, rendered).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -182,6 +391,10 @@ main_carrier = 1521                 # comment kept
 # secondary_carrier = 1522          # optional, commented by default
 duplex_spacing = 4
 
+[phy_io.soapysdr]
+tx_freq = 438025000.0
+rx_freq = 433025000.0
+
 [security]
 issi_whitelist = []
 ";
@@ -191,12 +404,9 @@ issi_whitelist = []
         let out = compute_toml(SAMPLE, true, Some(1522));
         assert!(out.contains("dual_carrier_enabled = true"));
         assert!(out.contains("secondary_carrier = 1522"));
-        // The documenting comment line is preserved.
         assert!(out.contains("# secondary_carrier = 1522          # optional, commented by default"));
-        // Untouched sections survive.
         assert!(out.contains("[security]"));
         assert!(out.contains("main_carrier = 1521"));
-        // The inserted keys land inside [cell_info], before the next section.
         let cell_idx = out.find("[cell_info]").unwrap();
         let sec_idx = out.find("[security]").unwrap();
         let enabled_idx = out.find("dual_carrier_enabled = true").unwrap();
@@ -205,9 +415,7 @@ issi_whitelist = []
 
     #[test]
     fn disable_sets_flag_and_keeps_existing_secondary() {
-        // First enable to get an active secondary_carrier line.
         let enabled = compute_toml(SAMPLE, true, Some(1522));
-        // Now disable without passing a number: flag flips, the number is remembered.
         let disabled = compute_toml(&enabled, false, None);
         assert!(disabled.contains("dual_carrier_enabled = false"));
         assert!(!disabled.contains("dual_carrier_enabled = true"));
@@ -219,7 +427,6 @@ issi_whitelist = []
         let once = compute_toml(SAMPLE, true, Some(1522));
         let twice = compute_toml(&once, true, Some(1530));
         assert_eq!(twice.matches("dual_carrier_enabled =").count(), 1);
-        // Exactly one ACTIVE secondary_carrier line (the commented example does not count).
         assert_eq!(
             twice.lines().filter(|l| l.trim_start().starts_with("secondary_carrier =")).count(),
             1
@@ -251,5 +458,37 @@ issi_whitelist = []
         assert!(out.contains("[cell_info]"));
         assert!(out.contains("dual_carrier_enabled = true"));
         assert!(out.contains("secondary_carrier = 1522"));
+    }
+
+    #[test]
+    fn max_delta_for_600k_is_24() {
+        assert_eq!(max_carrier_delta(600_000.0), 24);
+    }
+
+    #[test]
+    fn clamp_keeps_secondary_in_passband() {
+        let main = 1536u16;
+        assert_eq!(clamp_secondary_carrier(main, 1537, 600_000.0), 1537);
+        assert_eq!(clamp_secondary_carrier(main, 2000, 600_000.0), 1536 + 24);
+        assert_eq!(clamp_secondary_carrier(main, 1000, 600_000.0), 1536 - 24);
+        assert_ne!(clamp_secondary_carrier(main, main, 600_000.0), main);
+    }
+
+    #[test]
+    fn build_enabled_injects_fs_and_centers() {
+        let out = build_enabled_toml(
+            SAMPLE,
+            1522,
+            600_000.0,
+            438_025_000.0,
+            433_025_000.0,
+            438_050_000.0,
+            433_050_000.0,
+        );
+        assert!(out.contains("dual_carrier_enabled = true"));
+        assert!(out.contains("secondary_carrier = 1522"));
+        assert!(out.contains("sample_rate = 600000"));
+        assert!(out.contains("tx_center_freq = 438037500"));
+        assert!(out.contains("rx_center_freq = 433037500"));
     }
 }

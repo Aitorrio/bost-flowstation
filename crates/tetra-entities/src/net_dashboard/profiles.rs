@@ -84,6 +84,13 @@ fn profile_file(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{name}.json"))
 }
 
+/// Absolute path to a Cell profile JSON (creates dirs via [`ensure_seeded`]).
+pub fn profile_file_for_cell(config_path: &str, name: &str) -> Result<PathBuf, String> {
+    let _ = ensure_seeded(config_path);
+    let name = sanitize_name(name)?;
+    Ok(profile_file(&cell_dir(config_path), &name))
+}
+
 /// Ensure profile directories exist and seed from the live TOML on first run.
 pub fn ensure_seeded(config_path: &str) -> Result<(), String> {
     let cell = cell_dir(config_path);
@@ -466,6 +473,9 @@ const SOAPY_VISUAL_OPTIONAL: &[&str] = &[
     "tx_gain_pga",
     "rx_antenna",
     "tx_antenna",
+    "sample_rate",
+    "tx_center_freq",
+    "rx_center_freq",
 ];
 
 /// After merging `phy_io` from the visual form / Cell profile, drop optional Soapy
@@ -496,6 +506,8 @@ const CELL_VISUAL_OPTIONAL: &[&str] = &[
     "call_timeout_secs",
     "ul_inactivity_secs",
     "periodic_registration_secs",
+    "secondary_carrier",
+    "dual_carrier_enabled",
 ];
 
 fn prune_cell_info_visual_optional(table: &mut toml::Table, incoming_cell: &JsonValue) {
@@ -564,9 +576,73 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
         }
     }
 
+    ensure_dual_carrier_rf_keys(&mut table)?;
+
     let rendered = toml::to_string_pretty(&table).map_err(|e| e.to_string())?;
     validate_toml_str(&rendered)?;
     backup_and_write(config_path, &rendered)
+}
+
+/// When Dual Carrier is on, ensure `sample_rate` + midway TX/RX centers exist so validate()
+/// can prove the secondary fits the passband (Fs defaults to 600 kHz like SXceiver).
+fn ensure_dual_carrier_rf_keys(table: &mut toml::Table) -> Result<(), String> {
+    let Some(TomlValue::Table(cell)) = table.get("cell_info") else {
+        return Ok(());
+    };
+    let dual_on = cell
+        .get("dual_carrier_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let secondary = cell.get("secondary_carrier").and_then(|v| v.as_integer()).map(|n| n as u16);
+    let main = cell.get("main_carrier").and_then(|v| v.as_integer()).map(|n| n as u16);
+    if !dual_on || secondary.is_none() || main.is_none() {
+        return Ok(());
+    }
+    let secondary = secondary.unwrap();
+    let main = main.unwrap();
+
+    let rendered = toml::to_string(table).map_err(|e| e.to_string())?;
+    let cfg = tetra_config::bluestation::parsing::from_toml_str(&rendered).map_err(|e| e.to_string())?;
+    // Temporarily force secondary into cfg view: cell_dto already has it if dual_on.
+    let carriers = cfg.bs_phase_mod_carriers().map_err(|e| e)?;
+    let (main_dl, main_ul) = carriers
+        .iter()
+        .find(|(n, _, _)| *n == main)
+        .map(|(_, d, u)| (*d as f64, *u as f64))
+        .ok_or_else(|| "main carrier missing from frequency table".to_string())?;
+    let (sec_dl, sec_ul) = carriers
+        .iter()
+        .find(|(n, _, _)| *n == secondary)
+        .map(|(_, d, u)| (*d as f64, *u as f64))
+        .ok_or_else(|| "secondary carrier missing from frequency table".to_string())?;
+
+    let phy = table
+        .entry("phy_io".to_string())
+        .or_insert_with(|| TomlValue::Table(toml::Table::new()));
+    let TomlValue::Table(phy_t) = phy else {
+        return Err("phy_io must be a table".into());
+    };
+    phy_t
+        .entry("backend".to_string())
+        .or_insert_with(|| TomlValue::String("SoapySdr".into()));
+    let soapy = phy_t
+        .entry("soapysdr".to_string())
+        .or_insert_with(|| TomlValue::Table(toml::Table::new()));
+    let TomlValue::Table(soapy_t) = soapy else {
+        return Err("soapysdr must be a table".into());
+    };
+    if !soapy_t.contains_key("sample_rate") {
+        soapy_t.insert("sample_rate".into(), TomlValue::Float(600_000.0));
+    }
+    soapy_t.insert(
+        "tx_center_freq".into(),
+        TomlValue::Float((main_dl + sec_dl) / 2.0),
+    );
+    soapy_t.insert(
+        "rx_center_freq".into(),
+        TomlValue::Float((main_ul + sec_ul) / 2.0),
+    );
+    Ok(())
 }
 
 /// Apply named Cell × Brew profiles into the live config.toml.
@@ -688,6 +764,8 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
             table.remove("lst_dispatch");
         }
     }
+
+    ensure_dual_carrier_rf_keys(&mut table)?;
 
     let rendered = toml::to_string_pretty(&table).map_err(|e| e.to_string())?;
     validate_toml_str(&rendered)?;

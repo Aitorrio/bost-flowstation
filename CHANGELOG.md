@@ -2,6 +2,12 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.38 — Dual Carrier en TMO Cell (GUI)
+
+- Dual Carrier se configura en **Config → Advanced RF** (checkbox bajo Main carrier; el secondary solo aparece si está ON).
+- El secondary se **limita al passband** de la Fs real del SDR (o 600 kHz por defecto); al activar se guardan Fs + centros midway en TOML y perfil Cell.
+- En **TETRA BTS Details**: botón «Configurar…» (sin switch) y **mini-tiles** del secondary (nº, TX, RX, shift) cuando está activo.
+
 ## v0.3.37 — Overflow mid-report → D-ATTACH inmediato
 
 - Si el U-ATTACH trae *group report not complete* y >12 GSSI (MXP600), tras el ACK de 12 se afilia el resto con **D-ATTACH SwMI** en el acto (no se pide otro group report).

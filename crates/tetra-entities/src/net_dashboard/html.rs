@@ -3395,6 +3395,34 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 }
 .bts-tile-value.tx{color:var(--accent);}
 .bts-tile-value.rx{color:var(--accent2);}
+/* Dual-carrier secondary mini-tiles (inside BTS Details) */
+.bts-secondary-wrap{
+  display:none;margin:0 18px 12px;padding:12px 14px;
+  border:1px solid color-mix(in srgb,var(--accent) 28%, var(--border));
+  border-radius:10px;background:color-mix(in srgb,var(--accent) 6%, var(--bg));
+}
+.bts-secondary-wrap.is-on{display:block;}
+.bts-secondary-head{
+  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.08em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:10px;
+}
+.bts-secondary-grid{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;
+}
+.bts-secondary-grid .bts-tile{padding:9px 10px;gap:4px;}
+.bts-secondary-grid .bts-tile-value{font-size:13px;}
+.bts-dc-btn{
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.04em;
+  padding:7px 14px;border-radius:999px;border:1px solid var(--border2);
+  background:var(--bg3);color:var(--text2);cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+.bts-dc-btn:hover{border-color:var(--accent);color:var(--accent);}
+.vc-dual-block{margin-top:8px;}
+.vc-dual-hint{font-size:11px;color:var(--text3);margin:6px 0 0;font-family:var(--mono);}
+@media(max-width:500px){
+  .bts-secondary-grid{grid-template-columns:1fr 1fr;}
+  .bts-secondary-wrap{margin:0 12px 12px;}
+}
 /* Header status chips (Neighbor Cell / HangTime) */
 .bts-chip{
   display:inline-flex;align-items:center;gap:6px;
@@ -4325,6 +4353,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="bts-tile"><div class="bts-tile-label">MNC</div><div class="bts-tile-value" id="bts-mnc">—</div></div>
           <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_carrier">Main Carrier</div><div class="bts-tile-value" id="bts-carrier">—</div></div>
         </div>
+        <div class="bts-secondary-wrap" id="bts-secondary-wrap">
+          <div class="bts-secondary-head" data-i18n="bts_secondary_head">Secondary carrier</div>
+          <div class="bts-secondary-grid">
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_sec_carrier">Carrier</div><div class="bts-tile-value" id="bts-sec-carrier">—</div></div>
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_tx">TX Freq</div><div class="bts-tile-value tx" id="bts-sec-tx">—</div></div>
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_rx">RX Freq</div><div class="bts-tile-value rx" id="bts-sec-rx">—</div></div>
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_shift">Duplex Shift</div><div class="bts-tile-value" id="bts-sec-shift">—</div></div>
+          </div>
+        </div>
         <!-- Timeslots live inside BTS Details (between RF identity tiles and access bars) -->
         <div class="ts-grid" id="ts-grid">
           <div class="ts-row">
@@ -4413,7 +4450,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
           <span id="bts-access" class="bts-access">—</span>
         </div>
-        <!-- Dual-Carrier ON/OFF — applied via controlled service restart -->
+        <!-- Dual Carrier — configure in TMO Cell; mini-tiles above when active -->
         <div class="bts-access-bar">
           <div class="bts-access-info">
             <span class="bts-access-icon">
@@ -4424,7 +4461,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <div class="bts-access-sub" id="dc-sub">—</div>
             </div>
           </div>
-          <span class="sw"><input type="checkbox" id="dc-toggle" onchange="onDualCarrierToggle(this)"><i></i></span>
+          <button type="button" class="bts-dc-btn" id="dc-goto-config" onclick="gotoDualCarrierConfig()" data-i18n="dc_configure">Configure…</button>
         </div>
       </div>
 
@@ -5437,7 +5474,19 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                   <details style="margin-top:14px">
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_rf_adv">Advanced RF</summary>
                     <div class="group-list">
-                      <label class="field"><span>Main carrier</span><input type="number" id="vc-main-carrier" class="form-input"></label>
+                      <label class="field"><span>Main carrier</span><input type="number" id="vc-main-carrier" class="form-input" oninput="onVcMainCarrierChange()"></label>
+                      <label class="field" style="cursor:pointer;align-items:center">
+                        <span data-i18n="dual_carrier">Dual Carrier</span>
+                        <span class="field-control" style="display:flex;align-items:center;gap:10px">
+                          <span class="sw"><input type="checkbox" id="vc-dual-carrier" onchange="onVcDualCarrierChange()"><i></i></span>
+                        </span>
+                      </label>
+                      <div class="vc-dual-block" id="vc-dual-block" style="display:none">
+                        <label class="field"><span data-i18n="cfg_secondary_carrier">Secondary carrier</span>
+                          <input type="number" id="vc-secondary-carrier" class="form-input" min="0" max="3999" onblur="clampVcSecondaryCarrier()">
+                        </label>
+                        <div class="vc-dual-hint" id="vc-dual-hint">—</div>
+                      </div>
                       <label class="field"><span>Freq band</span><input type="number" id="vc-freq-band" class="form-input" value="4"></label>
                       <label class="field"><span>Duplex spacing id</span><input type="number" id="vc-duplex-id" class="form-input" value="4"></label>
                       <label class="field"><span data-i18n="cfg_custom_duplex">Custom duplex (MHz)</span><input type="text" inputmode="decimal" id="vc-custom-duplex" class="form-input" placeholder="7.600000" onblur="normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'})" onkeydown="if(event.key==='Enter'){normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});this.blur();}"></label>
@@ -6847,6 +6896,9 @@ const LANGS={
     registered_terminals:'Registered Radios',
     bts_details:'TETRA BTS Details',bts_tx:'TX Freq',bts_rx:'RX Freq',bts_shift:'Duplex Shift',bts_rate:'Sample Rate',
     dual_carrier:'Dual Carrier',dc_on_sub:'On · secondary carrier #{c}',dc_off_sub:'Off · single carrier',
+    dc_configure:'Configure…',bts_secondary_head:'Secondary carrier',bts_sec_carrier:'Carrier',
+    cfg_secondary_carrier:'Secondary carrier',cfg_dual_hint:'Allowed ±{d} around main (Fs {fs} kHz)',
+    cfg_dual_help:'Second traffic carrier on the same SDR. Secondary must fit the sample-rate passband; Fs is taken from the running SDR (or 600 kHz default).',
     dc_enter_carrier:'Secondary carrier number (e.g. main carrier ±1):',dc_bad_carrier:'Please enter a valid carrier number.',
     dc_confirm_on:'Enable Dual Carrier? This RESTARTS the base station and briefly drops all active calls.',
     dc_confirm_off:'Disable Dual Carrier? This RESTARTS the base station and briefly drops all active calls.',
@@ -7148,6 +7200,9 @@ const LANGS={
     registered_terminals:'Radiouri Înregistrate',
     bts_details:'Detalii BTS TETRA',bts_tx:'Frecvență TX',bts_rx:'Frecvență RX',bts_shift:'Decalaj Duplex',bts_rate:'Rată Eșantionare',
     dual_carrier:'Dual Carrier',dc_on_sub:'Pornit · carrier secundar #{c}',dc_off_sub:'Oprit · un singur carrier',
+    dc_configure:'Configurează…',bts_secondary_head:'Carrier secundar',bts_sec_carrier:'Carrier',
+    cfg_secondary_carrier:'Carrier secundar',cfg_dual_hint:'Permis ±{d} față de main (Fs {fs} kHz)',
+    cfg_dual_help:'Al doilea carrier de trafic pe același SDR. Secundarul trebuie să încapă în passband-ul Fs (SDR în funcțiune sau 600 kHz implicit).',
     dc_enter_carrier:'Numărul carrier-ului secundar (ex. carrier principal ±1):',dc_bad_carrier:'Introdu un număr de carrier valid.',
     dc_confirm_on:'Pornești Dual Carrier? Asta REPORNEȘTE stația de bază și pică toate apelurile active câteva secunde.',
     dc_confirm_off:'Oprești Dual Carrier? Asta REPORNEȘTE stația de bază și pică toate apelurile active câteva secunde.',
@@ -7444,6 +7499,9 @@ const LANGS={
 
     terminals:'Radios',registered:'registrados',
     dual_carrier:'Dual Carrier',dc_on_sub:'Activo · carrier secundario #{c}',dc_off_sub:'Apagado · un solo carrier',
+    dc_configure:'Configurar…',bts_secondary_head:'Carrier secundario',bts_sec_carrier:'Carrier',
+    cfg_secondary_carrier:'Carrier secundario',cfg_dual_hint:'Permitido ±{d} alrededor del main (Fs {fs} kHz)',
+    cfg_dual_help:'Segundo carrier de tráfico en el mismo SDR. El secundario debe caber en el passband de la Fs (la del SDR en marcha, o 600 kHz por defecto).',
     dc_enter_carrier:'Número de carrier secundario (p. ej. carrier principal ±1):',dc_bad_carrier:'Introduce un número de carrier válido.',
     dc_confirm_on:'¿Activar Dual Carrier? Esto REINICIA la estación base y corta brevemente todas las llamadas activas.',
     dc_confirm_off:'¿Desactivar Dual Carrier? Esto REINICIA la estación base y corta brevemente todas las llamadas activas.',
@@ -11587,6 +11645,7 @@ function updateHwRfUi(rxAnt,txAnt){
 /** Map visual-config control ids → i18n help keys (TETRA + Brew; live + profile sheets). */
 const CFG_HELP_BY_ID={
   'vc-tx-freq':'cfg_help_tx','vc-rx-freq':'cfg_help_rx','vc-colour':'cfg_help_colour',
+  'vc-dual-carrier':'cfg_dual_help','vc-secondary-carrier':'cfg_dual_help',
   'vc-main-carrier':'cfg_help_main_carrier','vc-freq-band':'cfg_help_freq_band','vc-duplex-id':'cfg_help_duplex_id',
   'vc-custom-duplex':'cfg_help_custom_duplex','vc-freq-offset':'cfg_help_freq_offset','vc-reverse':'cfg_help_reverse',
   'vc-device':'cfg_help_hw_device','vc-ppm':'cfg_help_ppm','vc-rx-ant':'cfg_help_rx_ant','vc-tx-ant':'cfg_help_tx_ant',
@@ -11722,6 +11781,17 @@ function collectVisualConfig(){
     late_entry_supported:document.getElementById('vc-late-entry')?!!document.getElementById('vc-late-entry').checked:true,
     voice_service:!!document.getElementById('vc-voice')?.checked,
   };
+  const dualOn=!!document.getElementById('vc-dual-carrier')?.checked;
+  cell_info.dual_carrier_enabled=dualOn;
+  const main=cell_info.main_carrier??0;
+  const want=vcNum('vc-secondary-carrier');
+  if(want!=null||dualOn){
+    cell_info.secondary_carrier=clampSecondaryCarrier(main,want==null?main+1:want,dcState.sample_rate_hz||600000);
+  }
+  if(dualOn){
+    // Persist effective Fs so dual-carrier validate() succeeds (device default if unset).
+    soapysdr.sample_rate=dcState.sample_rate_hz||600000;
+  }
   const customDuplex=mhzFieldToHz('vc-custom-duplex'); if(customDuplex!==null)cell_info.custom_duplex_spacing=customDuplex;
   const tz=vcStr('vc-tz'); if(tz)cell_info.timezone=tz;
   // Timers: empty = omit key (server prunes TOML → engine defaults). Explicit 0 kept where valid.
@@ -11770,6 +11840,14 @@ function fillVisualConfig(d,opts){
   setGain('vc-tx-dac',soapy.tx_gain_dac); setGain('vc-tx-mixer',soapy.tx_gain_mixer); setGain('vc-tx-pga',soapy.tx_gain_pga);
   const cell=d?.cell_info||{};
   vcSet('vc-freq-band',cell.freq_band??4); vcSet('vc-main-carrier',cell.main_carrier);
+  const dualEl=document.getElementById('vc-dual-carrier');
+  if(dualEl){
+    dualEl.checked=cell.dual_carrier_enabled===true
+      || (cell.secondary_carrier!=null && cell.dual_carrier_enabled!==false);
+  }
+  if(cell.secondary_carrier!=null)vcSet('vc-secondary-carrier',cell.secondary_carrier);
+  if(soapy.sample_rate)dcState.sample_rate_hz=Number(soapy.sample_rate);
+  onVcDualCarrierChange();
   vcSet('vc-duplex-id',cell.duplex_spacing??4);
   vcSet('vc-custom-duplex', (cell.custom_duplex_spacing!=null && cell.custom_duplex_spacing!=='')
     ? hzToMhzDisplay(cell.custom_duplex_spacing) : '');
@@ -13723,46 +13801,72 @@ const BTS_TOWER_ICON='<svg viewBox="0 0 24 24" width="12" height="12" fill="none
 const BTS_CLOCK_ICON='<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 // TETRA BTS Details card — static cell + RF identity pulled from config (one fetch).
 // ── Dual-Carrier ON/OFF (first-page toggle; applied via controlled restart) ──
-let dcState={enabled:false,secondary_carrier:null,active:false,main_carrier:null};
+// -- Dual Carrier (Config form + BTS Details) --
+let dcState={enabled:false,secondary_carrier:null,active:false,running_active:false,main_carrier:null,
+  sample_rate_hz:600000,passband_max_delta:24,secondary_min:0,secondary_max:3999};
 function setDcSub(txt){const e=document.getElementById('dc-sub');if(e)e.textContent=txt;}
+function dcMaxDelta(fs){const d=Math.floor((fs||600000)/25000);return Math.max(1,Math.min(3998,d));}
+function clampSecondaryCarrier(main,want,fs){
+  const maxD=dcMaxDelta(fs);const m=main|0;
+  let lo=Math.max(0,m-maxD),hi=Math.min(3999,m+maxD);
+  let s=(want==null||want==='')?m+1:(want|0);
+  if(s===m)s=m+1<=hi?m+1:m-1;
+  return Math.max(lo,Math.min(hi,s));
+}
+function updateVcDualHint(){
+  const hint=document.getElementById('vc-dual-hint');
+  if(!hint)return;
+  const fs=dcState.sample_rate_hz||600000;
+  const d=dcMaxDelta(fs);
+  hint.textContent=t('cfg_dual_hint',{d:d,fs:(fs/1000).toFixed(0)});
+  const sec=document.getElementById('vc-secondary-carrier');
+  const main=vcNum('vc-main-carrier');
+  if(sec&&main!=null){
+    const lo=Math.max(0,main-d),hi=Math.min(3999,main+d);
+    sec.min=lo;sec.max=hi;
+  }
+}
+function onVcDualCarrierChange(){
+  const on=!!document.getElementById('vc-dual-carrier')?.checked;
+  const block=document.getElementById('vc-dual-block');
+  if(block)block.style.display=on?'block':'none';
+  if(on){
+    const main=vcNum('vc-main-carrier')??dcState.main_carrier??0;
+    const secEl=document.getElementById('vc-secondary-carrier');
+    if(secEl&&(secEl.value===''||Number(secEl.value)===main)){
+      secEl.value=clampSecondaryCarrier(main,main+1,dcState.sample_rate_hz);
+    }
+    updateVcDualHint();
+    clampVcSecondaryCarrier();
+  }
+}
+function onVcMainCarrierChange(){if(document.getElementById('vc-dual-carrier')?.checked){updateVcDualHint();clampVcSecondaryCarrier();}}
+function clampVcSecondaryCarrier(){
+  const main=vcNum('vc-main-carrier');if(main==null)return;
+  const secEl=document.getElementById('vc-secondary-carrier');if(!secEl)return;
+  const cur=secEl.value===''?main+1:Number(secEl.value);
+  const clamped=clampSecondaryCarrier(main,cur,dcState.sample_rate_hz);
+  if(clamped!==cur)secEl.value=clamped;
+}
 async function loadDualCarrier(){
   try{
     const r=await fetch('/api/dualcarrier',{credentials:'same-origin'});
     if(!r.ok)return;
     const d=await r.json();
-    dcState=d;
-    const tg=document.getElementById('dc-toggle');
-    // Don't fight the user mid-toggle (while focused or a request is in flight).
-    if(tg&&!tg.disabled&&document.activeElement!==tg){tg.checked=!!d.active;}
-    setDcSub(d.active?t('dc_on_sub',{c:d.secondary_carrier}):t('dc_off_sub'));
+    dcState=Object.assign(dcState,d);
+    if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
+    setDcSub(d.running_active||d.active?t('dc_on_sub',{c:d.secondary_carrier}):t('dc_off_sub'));
+    updateVcDualHint();
   }catch{}
 }
-async function onDualCarrierToggle(el){
-  const want=el.checked;
-  let secondary=dcState.secondary_carrier;
-  if(want&&!secondary){
-    const def=dcState.main_carrier?(dcState.main_carrier+1):'';
-    const v=await dashPrompt({
-      title:t('dual_carrier'),
-      body:t('dc_enter_carrier'),
-      value:def,
-      min:1,
-      confirmLabel:t('confirm'),
-    });
-    if(v===null){el.checked=false;return;}
-    secondary=parseInt(String(v).trim(),10);
-    if(!Number.isInteger(secondary)||secondary<=0){el.checked=false;await dashAlert(t('notice'),t('dc_bad_carrier'));return;}
-  }
-  const ok=await dashConfirm(t('dc_applying'),want?t('dc_confirm_on'):t('dc_confirm_off'),{confirmLabel:t('confirm')});
-  if(!ok){el.checked=!want;return;}
-  if(!await ensureServiceOrOfferStart(t('dc_applying'))){el.checked=!want;return;}
-  el.disabled=true;setDcSub(t('dc_applying'));
-  try{
-    const body=want?{enabled:true,secondary_carrier:secondary}:{enabled:false};
-    const r=await fetch('/api/dualcarrier',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(r.ok){setDcSub(t('dc_restarting'));beginServiceRestartWait();}
-    else{const err=await r.text();await dashAlert(t('notice'),t('dc_failed')+': '+err);el.checked=!want;el.disabled=false;loadDualCarrier();}
-  }catch(e){await dashAlert(t('notice'),t('conn_error'));el.checked=!want;el.disabled=false;}
+function gotoDualCarrierConfig(){
+  showPage('config',document.getElementById('nav-config'));
+  setTimeout(()=>{
+    const el=document.getElementById('vc-dual-carrier')||document.getElementById('vc-main-carrier');
+    const details=el?.closest('details');
+    if(details)details.open=true;
+    el?.scrollIntoView({behavior:'smooth',block:'center'});
+  },120);
 }
 async function loadBtsInfo(){
   try{
@@ -13776,44 +13880,41 @@ async function loadBtsInfo(){
     set('bts-shift', (d.shift_hz!=null&&isFinite(d.shift_hz))?((d.shift_hz>=0?'+':'')+(d.shift_hz/1e6).toFixed(3)+' MHz'):'—');
     set('bts-mcc', d.mcc);
     set('bts-mnc', d.mnc);
-    const carrierValue=document.getElementById('bts-carrier');
-    const carrierLabel=carrierValue?.previousElementSibling;
-    if(carrierValue){
-      const carriers=(Array.isArray(d.carriers)&&d.carriers.length)?d.carriers:[{
-        carrier_num:d.main_carrier,
-        tx_freq_hz:d.tx_freq_hz,
-        rx_freq_hz:d.rx_freq_hz,
-      }];
-      if(carrierLabel)carrierLabel.textContent=(t('bts_carrier')||'Carrier')+(carriers.length>1?'s':'');
-      carrierValue.classList.toggle('bts-carrier-listing', carriers.length>1);
-      carrierValue.innerHTML=carriers.map(c=>{
-        const carrierNum=(c.carrier_num??'—');
-        const dl=mhz(c.tx_freq_hz);
-        const ul=mhz(c.rx_freq_hz);
-        return `<span class="bts-carrier-line">#${carrierNum} · DL ${dl} · UL ${ul}</span>`;
-      }).join('');
-      carrierValue.innerHTML=carrierValue.innerHTML
-        .replace(/\u00c2\u00b7/g,' | ')
-        .replace(/\u00c3\u00a2\u00e2\u201a\u00ac\u00e2\u20ac\u009d/g,'-');
-    }
-    state.mainCarrierNum=d.main_carrier!=null?d.main_carrier:state.mainCarrierNum;
     set('bts-carrier', d.main_carrier!=null?('#'+d.main_carrier):'—');
-    ((Array.isArray(d.carriers)&&d.carriers.length)?d.carriers:[{
-      carrier_num:d.main_carrier,
-      tx_freq_hz:d.tx_freq_hz,
-      rx_freq_hz:d.rx_freq_hz,
-    }]).forEach(c=>tsEnsureCarrierInfo(c.carrier_num,c.tx_freq_hz,c.rx_freq_hz));
+    state.mainCarrierNum=d.main_carrier!=null?d.main_carrier:state.mainCarrierNum;
+    if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
+
+    const carriers=(Array.isArray(d.carriers)&&d.carriers.length)?d.carriers:[{
+      carrier_num:d.main_carrier,tx_freq_hz:d.tx_freq_hz,rx_freq_hz:d.rx_freq_hz,
+    }];
+    carriers.forEach(c=>tsEnsureCarrierInfo(c.carrier_num,c.tx_freq_hz,c.rx_freq_hz));
     renderTsGridCarrier();
-    // Neighbor-cell + hangtime chips in the card header
+
+    const secWrap=document.getElementById('bts-secondary-wrap');
+    const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier);
+    if(secWrap){
+      if(sec||d.dual_carrier_active){
+        const s=sec||carriers[1];
+        secWrap.classList.add('is-on');
+        set('bts-sec-carrier', s&&s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—'));
+        set('bts-sec-tx', mhz(s&&s.tx_freq_hz));
+        set('bts-sec-rx', mhz(s&&s.rx_freq_hz));
+        const secShift=(s&&s.tx_freq_hz!=null&&s.rx_freq_hz!=null)?(s.rx_freq_hz-s.tx_freq_hz):d.shift_hz;
+        set('bts-sec-shift', (secShift!=null&&isFinite(secShift))?((secShift>=0?'+':'')+(secShift/1e6).toFixed(3)+' MHz'):'—');
+      }else{
+        secWrap.classList.remove('is-on');
+      }
+    }
+
     const nb=document.getElementById('bts-neighbor');
     if(nb){
       const n=d.neighbor_count||0;
-      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell · '+(n>0?('ON ('+n+' '+(n===1?'neighbor':'neighbors')+')'):'OFF');
+      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?'neighbor':'neighbors')+')'):'OFF');
       nb.className='bts-chip '+(n>0?'on':'off');
     }
     const hg=document.getElementById('bts-hang');
     if(hg){
-      hg.innerHTML=BTS_CLOCK_ICON+'HangTime · '+(d.hangtime_secs!=null?d.hangtime_secs:'—')+' sec';
+      hg.innerHTML=BTS_CLOCK_ICON+'HangTime — '+(d.hangtime_secs!=null?d.hangtime_secs:'—')+' sec';
       hg.className='bts-chip time';
     }
     const acc=document.getElementById('bts-access');
@@ -13828,9 +13929,9 @@ async function loadBtsInfo(){
         ? ((d.whitelist_count||0)+' '+t('bts_wl_entries'))
         : t('bts_wl_open');
     }
+    loadDualCarrier();
   }catch(e){/* config endpoint unavailable — leave placeholders */}
 }
-
 async function loadBtsInfoLegacy(){
   try{
     const r=await fetch('/api/btsinfo',{credentials:'same-origin'});
@@ -14499,6 +14600,7 @@ function handleTxVisual(msg){
   rfState.lastTs = Date.now();
   rfState.sampleRate = msg.sample_rate || 0;
   rfState.centerFreq = msg.center_freq_hz || 0;
+  if(msg.sample_rate)dcState.sample_rate_hz=msg.sample_rate;
   rfState.carriers = rfNormalizeCarriers(msg.carriers || []);
   rfState.constellationCarrier = rfNormalizeCarrier(msg.constellation_carrier);
 

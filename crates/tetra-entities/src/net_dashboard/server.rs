@@ -35,7 +35,7 @@ const WS_CLIENT_QUEUE: usize = 256;
 const WS_MAX_CLIENTS: usize = 64;
 /// Cap concurrent dashboard HTTP(S) handler threads. Each request still gets its own thread; without
 /// a ceiling, aggressive browser polls (LST DL, retries while the stack is wedged) can exhaust the
-/// Pi and take down the whole process — which surfaces as ERR_CONNECTION_RESET / empty responses.
+/// Pi and take down the whole process â€” which surfaces as ERR_CONNECTION_RESET / empty responses.
 const DASH_MAX_CONN: usize = 32;
 
 fn dash_conn_slots() -> &'static std::sync::atomic::AtomicUsize {
@@ -79,7 +79,7 @@ fn dash_reject_busy_plain(mut stream: TcpStream) {
 }
 
 /// A TETRA SSI is a 24-bit identity. The PDU serializers write it with `write_bits(ssi, 24)`
-/// (MAC-RESOURCE, D-SDS-DATA) whose range assertion aborts the calling thread on a wider value —
+/// (MAC-RESOURCE, D-SDS-DATA) whose range assertion aborts the calling thread on a wider value â€”
 /// and every entity shares one un-isolated stack thread, so a single crafted dashboard request
 /// would take the whole cell down, then take it down again on every retry. The DGNA path already
 /// funnels through the same guard in MM; the dashboard is the highest-privilege plane, so it must
@@ -93,17 +93,17 @@ fn is_valid_ssi(n: u64) -> bool {
 }
 
 /// Read `key` from a WS command body as a TETRA SSI. `None` when the field is missing, not a
-/// number, zero, or wider than 24 bits — every one of which the caller must refuse.
+/// number, zero, or wider than 24 bits â€” every one of which the caller must refuse.
 fn json_ssi(v: &serde_json::Value, key: &str) -> Option<u32> {
     v.get(key).and_then(|x| x.as_u64()).filter(|n| is_valid_ssi(*n)).map(|n| n as u32)
 }
 
 /// Report a refused SSI to the operator. The WS command channel has no per-command reply, so the
-/// log ring — which is broadcast to every connected browser — is where the rejection surfaces.
+/// log ring â€” which is broadcast to every connected browser â€” is where the rejection surfaces.
 fn reject_ws_ssi(state: &DashboardState, cmd: &str, field: &str, raw: Option<&serde_json::Value>) {
     let raw = raw.map(|r| r.to_string()).unwrap_or_else(|| "missing".to_string());
     tracing::warn!(
-        "Dashboard: refusing {} — {} {} out of range (must be 1..={})",
+        "Dashboard: refusing {} â€” {} {} out of range (must be 1..={})",
         cmd,
         field,
         raw,
@@ -152,7 +152,7 @@ fn cp1252_byte(ch: char) -> Option<u8> {
 }
 
 fn looks_mojibake_token(s: &str) -> bool {
-    s.contains('Ã') || s.contains('Â') || s.contains('â') || s.contains("ðŸ") || s.contains("Ãƒ")
+    s.contains('Ãƒ') || s.contains('Ã‚') || s.contains('Ã¢') || s.contains("Ã°Å¸") || s.contains("ÃƒÆ’")
 }
 
 fn fix_mojibake_token_once(token: &str) -> Option<String> {
@@ -164,7 +164,7 @@ fn fix_mojibake_token_once(token: &str) -> Option<String> {
         bytes.push(cp1252_byte(ch)?);
     }
     let decoded = std::str::from_utf8(&bytes).ok()?.to_string();
-    if decoded == token || looks_mojibake_token(&decoded) && decoded.matches('Ã').count() >= token.matches('Ã').count() {
+    if decoded == token || looks_mojibake_token(&decoded) && decoded.matches('Ãƒ').count() >= token.matches('Ãƒ').count() {
         return None;
     }
     Some(decoded)
@@ -227,7 +227,7 @@ fn login_html_body() -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// OTA update state — shared between the HTTP handler and the update thread.
+// OTA update state â€” shared between the HTTP handler and the update thread.
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq)]
@@ -273,7 +273,7 @@ type SharedUpdateState = Arc<Mutex<UpdateState>>;
 /// design a proper login screen.
 ///
 /// Tokens are random 32-byte hex strings. They expire after 7 days of inactivity.
-/// The store is per-process (no on-disk persistence) — restarting FlowStation logs
+/// The store is per-process (no on-disk persistence) â€” restarting FlowStation logs
 /// every session out. That's fine: the dashboard is typically a single-operator tool.
 pub struct SessionStore {
     sessions: HashMap<String, std::time::Instant>,
@@ -324,19 +324,19 @@ impl SessionStore {
 }
 
 type SharedSessionStore = Arc<Mutex<SessionStore>>;
-/// Live dashboard credentials — shared so a System-tab password change takes effect
+/// Live dashboard credentials â€” shared so a System-tab password change takes effect
 /// without restarting the service.
 type SharedAuth = Arc<RwLock<Option<(String, String)>>>;
 
 /// Failed-login tracking, shared across every dashboard connection.
 ///
-/// The previous throttle was a `thread::sleep(500ms)` on the connection that failed — per-connection
+/// The previous throttle was a `thread::sleep(500ms)` on the connection that failed â€” per-connection
 /// and nothing else. An attacker guessing in parallel paid nothing: each guess got its own thread
 /// and its own independent sleep, so throughput scaled with concurrency. A single hit hands over
 /// SDS, kick, DGNA, config, OTA and restart, so a failure has to cost across connections.
 ///
 /// Counted per source IP: escalating delay first, then a hard lockout. The map is deliberately
-/// bounded — an attacker rotating source addresses must not be able to grow it without limit, that
+/// bounded â€” an attacker rotating source addresses must not be able to grow it without limit, that
 /// would just be a different DoS. Idle entries are pruned on access; if the map is still full the
 /// new address is simply not tracked (it still pays the base delay).
 struct LoginThrottle {
@@ -353,13 +353,13 @@ const LOGIN_LOCKOUT_AFTER: u32 = 5;
 /// First lockout length; doubles per further failure up to `LOGIN_LOCKOUT_MAX`.
 const LOGIN_LOCKOUT_BASE: std::time::Duration = std::time::Duration::from_secs(30);
 const LOGIN_LOCKOUT_MAX: std::time::Duration = std::time::Duration::from_secs(15 * 60);
-/// No failure for this long and the address starts from a clean slate (also the prune horizon —
+/// No failure for this long and the address starts from a clean slate (also the prune horizon â€”
 /// deliberately longer than `LOGIN_LOCKOUT_MAX` so pruning can never drop an active lockout).
 const LOGIN_FAIL_RESET: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 /// Hard cap on tracked addresses. Sized well above any plausible operator count.
 const LOGIN_MAX_TRACKED_IPS: usize = 1024;
 /// Per-attempt delay ceiling. Each connection is its own thread, so the sleep must stay short
-/// enough that a flood of failures cannot pin threads — the lockout does the real work.
+/// enough that a flood of failures cannot pin threads â€” the lockout does the real work.
 const LOGIN_DELAY_MAX: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl LoginThrottle {
@@ -397,7 +397,7 @@ impl LoginThrottle {
                 self.entries.insert(ip, FailedLogins { count: 1, last: Instant::now() });
                 1
             }
-            // Map full even after pruning — don't grow it; the base delay still applies.
+            // Map full even after pruning â€” don't grow it; the base delay still applies.
             None => 1,
         };
         LOGIN_DELAY_MAX.min(std::time::Duration::from_millis(500).saturating_mul(count))
@@ -415,8 +415,8 @@ impl LoginThrottle {
 
 type SharedLoginThrottle = Arc<Mutex<LoginThrottle>>;
 
-/// 32 bytes of entropy → 64-char hex string. Uses the OS RNG via `getrandom`-style
-/// `/dev/urandom` read. Falls back to a time+pid mix if /dev/urandom is unavailable —
+/// 32 bytes of entropy â†’ 64-char hex string. Uses the OS RNG via `getrandom`-style
+/// `/dev/urandom` read. Falls back to a time+pid mix if /dev/urandom is unavailable â€”
 /// not cryptographically perfect, but adequate for a session token on a LAN-only
 /// dashboard. Production-grade deployments behind a reverse proxy already get HTTPS
 /// hardening from the proxy layer.
@@ -466,15 +466,15 @@ fn parse_session_cookie(headers: &str) -> Option<String> {
 /// Resolve the product git source directory for OTA updates.
 ///
 /// Resolution order (first match wins):
-///   1. `override_dir` from config ([dashboard].source_dir) — explicit user choice.
+///   1. `override_dir` from config ([dashboard].source_dir) â€” explicit user choice.
 ///   2. Walk up from `current_exe()` looking for a `.git` directory. This handles
 ///      the development case where the binary lives at `<src>/target/release/...`.
 ///   3. Well-known install paths: `/opt/ptbs`, then `/opt/bost-flowstation`, then
-///      legacy FlowStation paths (`/opt/tetra-bluestation`, `/opt/flowstation`, …).
+///      legacy FlowStation paths (`/opt/tetra-bluestation`, `/opt/flowstation`, â€¦).
 ///   4. `current_dir()` if it contains a `.git` directory.
 ///
 /// Returns `Ok(path)` on success, or `Err(message)` listing all paths tried.
-/// The returned path is guaranteed to contain a `.git` entry (file or directory —
+/// The returned path is guaranteed to contain a `.git` entry (file or directory â€”
 /// `.git` can be a file in git worktrees).
 fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, String> {
     fn is_git_repo(p: &std::path::Path) -> bool {
@@ -613,7 +613,7 @@ fn source_tree_is_trusted(_dir: &std::path::Path) -> Result<(), String> {
 }
 
 /// Resolve the login name for the owner of `dir` (Unix). Used so OTA can run `cargo` as that
-/// user instead of root — matching the installer (`sudo -u bts cargo build`) and avoiding
+/// user instead of root â€” matching the installer (`sudo -u bts cargo build`) and avoiding
 /// root-owned `target/` files + OOM from over-parallel root builds on a Pi.
 #[cfg(unix)]
 fn source_tree_owner_name(dir: &std::path::Path) -> Option<String> {
@@ -699,11 +699,11 @@ fn ensure_tetra_codec_installed(src_dir: &std::path::Path, update: &SharedUpdate
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
     {
-        ota_log("BOST_SKIP_TETRA_CODEC set — not installing libtetra-codec".into());
+        ota_log("BOST_SKIP_TETRA_CODEC set â€” not installing libtetra-codec".into());
         return tetra_codec_lib_present();
     }
     if tetra_codec_lib_present() {
-        ota_log("libtetra-codec already present — OK".into());
+        ota_log("libtetra-codec already present â€” OK".into());
         return true;
     }
 
@@ -729,13 +729,13 @@ fn ensure_tetra_codec_installed(src_dir: &std::path::Path, update: &SharedUpdate
         let label = format!("$ bash {}", script.display());
         if stream_cmd(update, label, cmd).is_none() {
             ota_log(
-                "WARN: install-tetra-codec.sh failed — LST voice will stay signalling-only".into(),
+                "WARN: install-tetra-codec.sh failed â€” LST voice will stay signalling-only".into(),
             );
             return false;
         }
         let ok = tetra_codec_lib_present();
         if ok {
-            ota_log("tetra-codec installed — LST voice link enabled".into());
+            ota_log("tetra-codec installed â€” LST voice link enabled".into());
         } else {
             ota_log(
                 "WARN: install-tetra-codec.sh finished but lib still not detected".into(),
@@ -745,14 +745,14 @@ fn ensure_tetra_codec_installed(src_dir: &std::path::Path, update: &SharedUpdate
     }
 
     ota_log(format!(
-        "WARN: {} missing — cannot auto-install codec (re-run OTA after sources include the script)",
+        "WARN: {} missing â€” cannot auto-install codec (re-run OTA after sources include the script)",
         script.display()
     ));
     false
 }
 
 /// True when `libtetra-codec` is linkable on this host (ACELP for LST / optional SIP).
-/// Does **not** enable Asterisk SIP — only the Cargo feature that links the shared library.
+/// Does **not** enable Asterisk SIP â€” only the Cargo feature that links the shared library.
 fn tetra_codec_lib_present() -> bool {
     use std::path::Path;
 
@@ -920,7 +920,7 @@ fn cargo_build_command(
 }
 
 /// Remove zero-byte loose objects left by a killed/OOM mid-fetch. Those make the next
-/// `git fetch` fail with "object file … is empty" / "invalid index-pack", which the UI
+/// `git fetch` fail with "object file â€¦ is empty" / "invalid index-pack", which the UI
 /// used to mislabel as network/TLS.
 fn purge_empty_git_objects(src_dir: &std::path::Path) -> u32 {
     let objects = match std::fs::read_dir(src_dir.join(".git/objects")) {
@@ -1004,7 +1004,7 @@ fn stream_cmd(
                     let mins = started.elapsed().as_secs() / 60;
                     let secs = started.elapsed().as_secs() % 60;
                     u.lock().unwrap().append(&format!(
-                        "… still working ({mins}m {secs:02}s elapsed — long compiles on Pi are normal)"
+                        "â€¦ still working ({mins}m {secs:02}s elapsed â€” long compiles on Pi are normal)"
                     ));
                 }
             }
@@ -1043,7 +1043,7 @@ fn stream_cmd(
         let _ = h.join();
     }
     stop_hb.store(true, Ordering::Relaxed);
-    // Do not join the heartbeat thread — it may be mid-sleep; joining would stall
+    // Do not join the heartbeat thread â€” it may be mid-sleep; joining would stall
     // the success path for up to the heartbeat interval.
     let _ = hb;
     match child.wait() {
@@ -1075,7 +1075,7 @@ fn stream_cmd(
 ///   5. Well-known system / root paths
 ///   6. Bare `cargo` on PATH
 ///
-/// We do **not** scan every `/home/*` directory — only the configured service user and the
+/// We do **not** scan every `/home/*` directory â€” only the configured service user and the
 /// already-trusted source tree owner.
 fn find_cargo(src_dir: &std::path::Path) -> std::path::PathBuf {
     use std::path::{Path, PathBuf};
@@ -1203,7 +1203,7 @@ fn install_built_binary(src_dir: &std::path::Path, update: &SharedUpdateState) -
     for dest in targets {
         let tmp = dest.with_extension("ota-new");
         update.lock().unwrap().append(&format!(
-            "Installing {} → {}",
+            "Installing {} â†’ {}",
             built.display(),
             dest.display()
         ));
@@ -1230,7 +1230,7 @@ fn install_built_binary(src_dir: &std::path::Path, update: &SharedUpdateState) -
 /// Whether the running binary was built from the repository's current commit. `binary_git_hash` is
 /// the abbreviated hash baked into `tetra_core::STACK_VERSION` at build time; `repo_head` is the
 /// full HEAD hash. Returns `None` when the build embedded no usable hash (so we can't tell). This is
-/// the source of truth for "is the binary actually up to date" — comparing git HEAD vs origin alone
+/// the source of truth for "is the binary actually up to date" â€” comparing git HEAD vs origin alone
 /// wrongly reports success after a merge that landed but whose build then failed (FH-BUG-035/037).
 fn binary_built_from(binary_git_hash: &str, repo_head: &str) -> Option<bool> {
     let h = binary_git_hash.strip_suffix("-modified").unwrap_or(binary_git_hash);
@@ -1244,7 +1244,7 @@ fn binary_built_from(binary_git_hash: &str, repo_head: &str) -> Option<bool> {
 /// Steps:
 ///   1. Resolve source dir (config override -> walk-up -> well-known paths -> CWD)
 ///   2. Validate it is a git repository
-///   3. Read OTA channel from config → branch (`stable`/`main`, `beta`/`beta`)
+///   3. Read OTA channel from config â†’ branch (`stable`/`main`, `beta`/`beta`)
 ///   4. git fetch + `checkout -B` + `reset --hard origin/<branch>` (preserves `target/`)
 ///   5. Skip rebuild/install/restart when the running binary already matches HEAD
 ///   6. cargo build --release (incremental; never `cargo clean`)
@@ -1261,7 +1261,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     log!(update, "=== {} OTA Update ===", tetra_core::PRODUCT_NAME);
     log!(
         update,
-        "Migration notice: {} ({}) is coming. This bridge tracks stable→git branch `main` \
+        "Migration notice: {} ({}) is coming. This bridge tracks stableâ†’git branch `main` \
          (legacy `bost` still receives this bridge so field units can update once).",
         tetra_core::PRODUCT_NAME_NEXT,
         tetra_core::PRODUCT_NAME_NEXT_LONG
@@ -1289,7 +1289,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
-    // Drop the cell from the air before the long compile — otherwise RF dies mid-build and
+    // Drop the cell from the air before the long compile â€” otherwise RF dies mid-build and
     // radios stay "registered" while the BS registry is wiped on restart.
     crate::rf_status::request_ota_rf_off();
     log!(update, "RF: offline for OTA (SDR will reopen after service restart)");
@@ -1312,7 +1312,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // Common edge case: FlowStation runs as root (e.g. via systemd) but the git clone
     // lives in a user's home directory (e.g. /home/pi/tetra-bluestation, owned by pi:pi).
     // Recent git versions refuse to operate on repos owned by a different user with
-    // "dubious ownership" — fatal: detected dubious ownership in repository at '...'.
+    // "dubious ownership" â€” fatal: detected dubious ownership in repository at '...'.
     // We try once first, and if we see that error, register the path as a safe.directory
     // via `git config --global --add safe.directory <path>` and retry.
     log!(update, "--- Verifying git repository ---");
@@ -1327,7 +1327,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             return;
         }
         log!(update, "");
-        log!(update, "--- Detected dubious ownership — registering as safe.directory ---");
+        log!(update, "--- Detected dubious ownership â€” registering as safe.directory ---");
         if run_cmd_output(
             &update,
             "git",
@@ -1346,17 +1346,17 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             log!(update, "ERROR: git verification still failing after safe.directory fix.");
             return;
         }
-        log!(update, "✓ safe.directory registered, continuing.");
+        log!(update, "âœ“ safe.directory registered, continuing.");
     }
 
-    // Step 3: channel → branch, point origin at the Bost repo, fetch.
+    // Step 3: channel â†’ branch, point origin at the Bost repo, fetch.
     let channel = crate::net_dashboard::ota_channel::read_ota_channel(&config_path);
     let ota_branch = tetra_core::ota_branch_for_channel(&channel);
     let ota_url = tetra_core::PRODUCT_REPO_GIT;
     let remote_ref = format!("origin/{}", ota_branch);
     log!(
         update,
-        "OTA channel={} → branch {}",
+        "OTA channel={} â†’ branch {}",
         channel,
         ota_branch
     );
@@ -1383,7 +1383,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     } else if current_origin != ota_url && !tetra_core::is_product_repo_url(&current_origin) {
         log!(
             update,
-            "origin was '{}' — switching to {}",
+            "origin was '{}' â€” switching to {}",
             current_origin,
             ota_url
         );
@@ -1398,7 +1398,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             return;
         }
     } else if current_origin != ota_url {
-        // Same product repo (bost-flowstation or future ptbs), different URL form — normalize.
+        // Same product repo (bost-flowstation or future ptbs), different URL form â€” normalize.
         let _ = run_cmd_output(
             &update,
             "git",
@@ -1418,7 +1418,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             "Removed {purged0} empty .git object(s) from a previous interrupted fetch."
         );
     }
-    // Retry a few times: Pi ↔ GitHub over HTTPS occasionally fails with GnuTLS handshake errors.
+    // Retry a few times: Pi â†” GitHub over HTTPS occasionally fails with GnuTLS handshake errors.
     // On "empty object" / index-pack corruption, purge again mid-loop before the next attempt.
     let fetch_refspec = format!("+refs/heads/{0}:refs/remotes/origin/{0}", ota_branch);
     let fetch_ok = {
@@ -1430,7 +1430,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
                 let wait_s = 5 * (attempt - 1);
                 log!(
                     update,
-                    "Fetch failed — retrying in {wait_s}s (attempt {attempt}/{FETCH_ATTEMPTS})…"
+                    "Fetch failed â€” retrying in {wait_s}s (attempt {attempt}/{FETCH_ATTEMPTS})â€¦"
                 );
                 std::thread::sleep(std::time::Duration::from_secs(wait_s as u64));
                 let log_snap = update.lock().unwrap().log.clone();
@@ -1462,12 +1462,12 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             if saw_corrupt {
                 log!(
                     update,
-                    "ERROR: git fetch failed — local .git looks corrupt (empty objects / bad pack), not a generic network error. Empty objects were purged automatically; tap Actualizar again. If it keeps failing, on the Pi run: find /opt/bost-flowstation/.git/objects -type f -empty -delete && git -C /opt/bost-flowstation fetch origin"
+                    "ERROR: git fetch failed â€” local .git looks corrupt (empty objects / bad pack), not a generic network error. Empty objects were purged automatically; tap Actualizar again. If it keeps failing, on the Pi run: find /opt/bost-flowstation/.git/objects -type f -empty -delete && git -C /opt/bost-flowstation fetch origin"
                 );
             } else {
                 log!(
                     update,
-                    "ERROR: git fetch failed after {FETCH_ATTEMPTS} attempts (network, DNS, or GitHub TLS on the Pi). Check connectivity to github.com, then retry. If the log shows 'object file … is empty', the local .git is corrupt — see the corrupt-.git message above."
+                    "ERROR: git fetch failed after {FETCH_ATTEMPTS} attempts (network, DNS, or GitHub TLS on the Pi). Check connectivity to github.com, then retry. If the log shows 'object file â€¦ is empty', the local .git is corrupt â€” see the corrupt-.git message above."
                 );
             }
         }
@@ -1511,7 +1511,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
 
         let backup_path = format!("{}.bak", config_path);
         match atomic_copy(&config_path, &backup_path) {
-            Ok(_) => log!(update, "Config backed up → {}", backup_path),
+            Ok(_) => log!(update, "Config backed up â†’ {}", backup_path),
             Err(e) => log!(update, "WARNING: config backup failed: {} (continuing)", e),
         }
     }
@@ -1545,14 +1545,14 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     }
 
     // Step 5: decide whether to rebuild.
-    // Always try to install tetra-codec first — even when git HEAD already matches the binary,
+    // Always try to install tetra-codec first â€” even when git HEAD already matches the binary,
     // an existing install may still be signalling-only (no ACELP link). Without this, a second
     // OTA would say "Already up to date" and never enable LST voice.
     let binary_has_codec = cfg!(feature = "asterisk");
     let skip_codec = std::env::var("BOST_SKIP_TETRA_CODEC")
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
-    // Always attempt install when this binary lacks ACELP — even if git already matches.
+    // Always attempt install when this binary lacks ACELP â€” even if git already matches.
     let codec_ok = if !binary_has_codec && !skip_codec {
         ensure_tetra_codec_installed(&src_dir, &update)
     } else {
@@ -1569,12 +1569,12 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         if !binary_has_codec && !skip_codec {
             log!(
                 update,
-                "WARN: libtetra-codec still missing after install attempt — LST voice unavailable. Retry OTA when the Pi has network access to github.com/outerplane/tetra-codec."
+                "WARN: libtetra-codec still missing after install attempt â€” LST voice unavailable. Retry OTA when the Pi has network access to github.com/outerplane/tetra-codec."
             );
         }
         log!(
             update,
-            "Already up to date — running {} matches {}@{}{}.",
+            "Already up to date â€” running {} matches {}@{}{}.",
             tetra_core::STACK_VERSION,
             ota_branch,
             &repo_head[..repo_head.len().min(12)],
@@ -1583,7 +1583,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             } else if skip_codec {
                 " (BOST_SKIP_TETRA_CODEC)"
             } else {
-                " (no libtetra-codec — signalling only)"
+                " (no libtetra-codec â€” signalling only)"
             }
         );
         update.lock().unwrap().finish(true);
@@ -1593,20 +1593,20 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     if need_voice_rebuild && sources_match_binary {
         log!(
             update,
-            "Sources match {}, but this binary has no ACELP link — rebuilding with --features asterisk for LST voice.",
+            "Sources match {}, but this binary has no ACELP link â€” rebuilding with --features asterisk for LST voice.",
             ota_branch
         );
     } else if matches!(binary_current, Some(false)) {
         log!(
             update,
-            "Running binary ({}) does not match {} — rebuilding (incremental).",
+            "Running binary ({}) does not match {} â€” rebuilding (incremental).",
             tetra_core::STACK_VERSION,
             ota_branch
         );
     } else if matches!(binary_current, None) && tree_moved {
         log!(
             update,
-            "Sources moved on {} but build hash is not verifiable — rebuilding to be safe.",
+            "Sources moved on {} but build hash is not verifiable â€” rebuilding to be safe.",
             ota_branch
         );
     }
@@ -1615,7 +1615,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // resolve it explicitly (FH-BUG-037). Run as the source-tree owner with -j 1 to avoid
     // root-owned target/ stalls and OOM on Pi (compiling tetra-entities html.rs is heavy).
     // Output is streamed live so a long compile shows progress instead of looking hung (FH-BUG-035).
-    // Never run `cargo clean` — incremental `target/` is intentional.
+    // Never run `cargo clean` â€” incremental `target/` is intentional.
     log!(update, "--- cargo build --release ---");
     let cargo = find_cargo(&src_dir);
     if cargo == std::path::Path::new("cargo") {
@@ -1633,7 +1633,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     if with_codec {
         log!(
             update,
-            "libtetra-codec / pkg-config tetra-codec found — building with --features asterisk (ACELP for LST; does not enable SIP)"
+            "libtetra-codec / pkg-config tetra-codec found â€” building with --features asterisk (ACELP for LST; does not enable SIP)"
         );
         if let Ok(out) = std::process::Command::new("pkg-config")
             .args(["--libs", "tetra-codec"])
@@ -1650,7 +1650,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     } else {
         log!(
             update,
-            "WARN: libtetra-codec not found — LST voice encode/decode disabled (signalling only). Next OTA will retry auto-install, or run: sudo bash /opt/bost-flowstation/contrib/install/install-tetra-codec.sh"
+            "WARN: libtetra-codec not found â€” LST voice encode/decode disabled (signalling only). Next OTA will retry auto-install, or run: sudo bash /opt/bost-flowstation/contrib/install/install-tetra-codec.sh"
         );
     }
     let build = cargo_build_command(&cargo, &src_dir, &update, with_codec);
@@ -1669,7 +1669,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
-    // Host WiFi drop-in (powersave off) — no SSH; service/OTA run as root on Pi installs.
+    // Host WiFi drop-in (powersave off) â€” no SSH; service/OTA run as root on Pi installs.
     log!(update, "--- Ensuring NetworkManager WiFi drop-in ---");
     match crate::wifi::install_host_wifi_dropin(Some(src_dir.as_path())) {
         Ok(msg) => log!(update, "{msg}"),
@@ -1679,12 +1679,12 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // Flush filesystem buffers so a hard power-loss mid-restart cannot leave a half-written binary.
     let _ = std::process::Command::new("sync").status();
 
-    // Step 8: done — schedule restart. Give the browser a few seconds to observe done_ok
+    // Step 8: done â€” schedule restart. Give the browser a few seconds to observe done_ok
     // before the HTTP server dies (Pi OTA builds leave memory tight; restart can be slow).
-    log!(update, "--- Build successful. Restarting service in 5s… ---");
+    log!(update, "--- Build successful. Restarting service in 5sâ€¦ ---");
     log!(
         update,
-        "Dashboard will disconnect briefly — wait for automatic reload (do not power-cycle yet)."
+        "Dashboard will disconnect briefly â€” wait for automatic reload (do not power-cycle yet)."
     );
     update.lock().unwrap().finish(true);
 
@@ -1698,7 +1698,7 @@ pub struct DashboardServer {
     pub state: DashboardState,
     clients: WsClients,
     config_path: String,
-    /// Shared stack config — used to read live_sds_queue from StackState.
+    /// Shared stack config â€” used to read live_sds_queue from StackState.
     shared_config: Option<tetra_config::bluestation::SharedConfig>,
     cmd_tx: Option<CmdSender>,
     update_state: SharedUpdateState,
@@ -1718,7 +1718,7 @@ pub struct DashboardServer {
     login_throttle: SharedLoginThrottle,
     /// Last time a ts_voice WS message was broadcast per carrier/timeslot.
     ts_last_broadcast: std::sync::Mutex<HashMap<(u16, u8), std::time::Instant>>,
-    /// On-demand RadioID callsign resolver (ISSI → indicativ), cached locally.
+    /// On-demand RadioID callsign resolver (ISSI â†’ indicativ), cached locally.
     radioid: crate::net_dashboard::radioid::RadioIdCache,
     /// LST Dispatch shared handle (None when profile not active).
     lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
@@ -1843,13 +1843,13 @@ impl DashboardServer {
                         Ok(l) => {
                             if http_redirect_only {
                                 tracing::info!(
-                                    "Dashboard HTTP redirect on http://{} → https (port {})",
+                                    "Dashboard HTTP redirect on http://{} â†’ https (port {})",
                                     addr,
                                     https_port_for_redirect
                                 );
                             } else {
                                 tracing::warn!(
-                                    "Dashboard listening on http://{} (HTTPS unavailable — install openssl for TLS)",
+                                    "Dashboard listening on http://{} (HTTPS unavailable â€” install openssl for TLS)",
                                     addr
                                 );
                             }
@@ -1857,7 +1857,7 @@ impl DashboardServer {
                         }
                         Err(e) => {
                             tracing::error!(
-                                "Dashboard failed to bind {}: {} — retrying in 5s (interface/IP may not be ready yet)",
+                                "Dashboard failed to bind {}: {} â€” retrying in 5s (interface/IP may not be ready yet)",
                                 addr,
                                 e
                             );
@@ -1873,7 +1873,7 @@ impl DashboardServer {
                     }
                     if !dash_try_acquire_conn() {
                         tracing::warn!(
-                            "Dashboard: connection cap ({DASH_MAX_CONN}) reached — rejecting HTTP"
+                            "Dashboard: connection cap ({DASH_MAX_CONN}) reached â€” rejecting HTTP"
                         );
                         dash_reject_busy_plain(stream);
                         continue;
@@ -1919,7 +1919,7 @@ impl DashboardServer {
             })
             .expect("failed to spawn dashboard HTTP thread");
 
-        // Legacy cleartext :8080 — OTA/bookmarks still land somewhere useful.
+        // Legacy cleartext :8080 â€” OTA/bookmarks still land somewhere useful.
         if http_redirect_only && http_port != LEGACY_HTTP_PORT {
             spawn_legacy_http_redirect(bind, LEGACY_HTTP_PORT, https_port);
         }
@@ -1956,7 +1956,7 @@ impl DashboardServer {
                             }
                             Err(e) => {
                                 tracing::error!(
-                                    "Dashboard HTTPS failed to bind {}: {} — retrying in 5s",
+                                    "Dashboard HTTPS failed to bind {}: {} â€” retrying in 5s",
                                     https_addr,
                                     e
                                 );
@@ -1972,7 +1972,7 @@ impl DashboardServer {
                             .unwrap_or_else(|_| "unknown".into());
                         if !dash_try_acquire_conn() {
                             tracing::warn!(
-                                "Dashboard: connection cap ({DASH_MAX_CONN}) reached — rejecting HTTPS from {peer}"
+                                "Dashboard: connection cap ({DASH_MAX_CONN}) reached â€” rejecting HTTPS from {peer}"
                             );
                             dash_reject_busy_plain(tcp);
                             continue;
@@ -2027,7 +2027,7 @@ impl DashboardServer {
                 })
                 .expect("failed to spawn dashboard HTTPS thread");
 
-            // Legacy TLS :8443 → redirect to canonical https://host/…
+            // Legacy TLS :8443 â†’ redirect to canonical https://host/â€¦
             if https_port != LEGACY_HTTPS_PORT {
                 spawn_legacy_https_redirect(bind, LEGACY_HTTPS_PORT, https_port, tls_for_legacy);
             }
@@ -2085,7 +2085,7 @@ impl DashboardServer {
                             group.is_attached = e.groups.contains(&group.gssi);
                         }
                         // If the previously-selected TG is no longer affiliated, drop the
-                        // pointer so the dashboard doesn't carry a stale ▶ marker into the
+                        // pointer so the dashboard doesn't carry a stale â–¶ marker into the
                         // next render (or, worse, fail to re-render anything because the
                         // selected GSSI is missing from the groups list).
                         if let Some(sel) = e.selected_group
@@ -2317,7 +2317,7 @@ impl DashboardServer {
                     s.push_sds_log(direction, *source_issi, *dest_issi, *is_group, *protocol_id, text.clone());
                 }
                 TelemetryEvent::TsVoiceActivity { .. } => {
-                    // Handled below with rate limiting — no state update needed
+                    // Handled below with rate limiting â€” no state update needed
                 }
                 TelemetryEvent::TxVisual {
                     sample_rate,
@@ -2385,14 +2385,14 @@ impl DashboardServer {
                     });
                 }
                 TelemetryEvent::HealthSnapshot(h) => {
-                    // Log only when the overall level changes — not on every periodic sample.
+                    // Log only when the overall level changes â€” not on every periodic sample.
                     if s.last_health.as_ref().map(|p| p.overall) != Some(h.overall) {
                         s.push_log("INFO", format!("Health: overall {}", h.overall.as_str()));
                     }
                     s.last_health = Some(h.clone());
                 }
                 TelemetryEvent::EmergencyAlarm { source_issi, dest_ssi } => {
-                    // ENTER only — re-sends return false and produce no log/broadcast.
+                    // ENTER only â€” re-sends return false and produce no log/broadcast.
                     if s.emergency_enter(*source_issi, *dest_ssi) {
                         s.push_log("WARN", format!("EMERGENCY raised by ISSI {} (dest {})", source_issi, dest_ssi));
                         if let Ok(j) = serde_json::to_string(
@@ -2612,7 +2612,7 @@ fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
             "uptime_secs": h.uptime_secs,
         }),
         // Emergency add/remove are broadcast explicitly (transition-gated) from handle_telemetry,
-        // so the generic path stays silent — otherwise every periodic re-send would re-broadcast.
+        // so the generic path stays silent â€” otherwise every periodic re-send would re-broadcast.
         TelemetryEvent::EmergencyAlarm { .. } | TelemetryEvent::EmergencyCancel { .. } => return None,
         TelemetryEvent::DapnetLog {
             direction,
@@ -2661,7 +2661,7 @@ fn parse_basic_auth(headers: &str) -> Option<(String, String)> {
 /// Constant-time byte slice comparison to mitigate timing attacks.
 /// Returns true iff `supplied == expected` in length and content.
 ///
-/// Bailing out early on a length mismatch — as this used to — leaks the *expected* secret's length:
+/// Bailing out early on a length mismatch â€” as this used to â€” leaks the *expected* secret's length:
 /// an attacker times candidates of increasing length and reads off how long the dashboard password
 /// or the TPG2200 ActionURL token is before guessing a single byte of it. Instead we always walk
 /// the supplied input end to end, wrapping around `expected`, and fold the length difference into
@@ -2700,7 +2700,7 @@ fn http_response_401(mut stream: PrefixedConn) {
     let _ = stream.write_all(resp.as_bytes());
 }
 
-/// Send a ControlCommand through the dashboard → CMCE channel, best-effort.
+/// Send a ControlCommand through the dashboard â†’ CMCE channel, best-effort.
 fn send_control_cmd(cmd_tx: &Arc<Mutex<Option<CmdSender>>>, cmd: ControlCommand) {
     if let Ok(guard) = cmd_tx.lock() {
         if let Some(ref tx) = *guard {
@@ -2709,7 +2709,7 @@ fn send_control_cmd(cmd_tx: &Arc<Mutex<Option<CmdSender>>>, cmd: ControlCommand)
     }
 }
 
-/// GET /api/sds-log — the persisted SDS Log as a JSON array, newest entry first.
+/// GET /api/sds-log â€” the persisted SDS Log as a JSON array, newest entry first.
 fn serve_sds_log(stream: PrefixedConn, state: &DashboardState) {
     let body = {
         let s = state.read().unwrap();
@@ -2719,7 +2719,7 @@ fn serve_sds_log(stream: PrefixedConn, state: &DashboardState) {
     http_json_response(stream, 200, &body);
 }
 
-/// GET /api/dgna-log — the persisted DGNA activity log as a JSON array, newest entry first.
+/// GET /api/dgna-log â€” the persisted DGNA activity log as a JSON array, newest entry first.
 fn serve_dgna_log(stream: PrefixedConn, state: &DashboardState) {
     let body = {
         let s = state.read().unwrap();
@@ -2780,10 +2780,10 @@ fn handle_connection(
     mut conn_guard: Option<DashConnGuard>,
 ) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
-    // Captured before the stream is wrapped — the login throttle keys on it.
+    // Captured before the stream is wrapped â€” the login throttle keys on it.
     let peer_ip = stream.peer_addr().ok().map(|a| a.ip());
 
-    // ── Read the first 4KB for routing (TLS has no TcpStream::peek) ──
+    // â”€â”€ Read the first 4KB for routing (TLS has no TcpStream::peek) â”€â”€
     // Bytes are re-queued via PrefixedConn so drain_http_headers / BufReader / WS
     // handshake still see the full request from the start.
     let mut peek_buf = [0u8; 4096];
@@ -2814,7 +2814,7 @@ fn handle_connection(
         return;
     }
 
-    // ── Cookie-session auth ──────────────────────────────────────────────────
+    // â”€â”€ Cookie-session auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // We replaced the browser-native Basic Auth dialog with a form-based login at
     // /login that issues an fs_session cookie. The native dialog has well-known
     // mobile usability issues (iOS Safari prompts 2-3 times, forgets credentials
@@ -2908,7 +2908,7 @@ fn handle_connection(
                     http_response(
                         buf.into_inner(),
                         429,
-                        &format!("Too many failed logins — try again in {}s", secs),
+                        &format!("Too many failed logins â€” try again in {}s", secs),
                     );
                     return;
                 }
@@ -2975,7 +2975,7 @@ fn handle_connection(
             let is_root = req_line.starts_with("GET / ") || req_line.starts_with("GET /?") || req_line == "GET / HTTP/1.1";
 
             // Public overview (FH-FEAT-033): when enabled, an anonymous visitor may load the SPA
-            // shell and read the narrow public snapshot — nothing else. Every other route (config,
+            // shell and read the narrow public snapshot â€” nothing else. Every other route (config,
             // controls, /ws, raw telemetry) still falls through to the redirect/401 below, so the
             // admin surface stays fully behind the session wall.
             if public_overview && is_root {
@@ -2996,7 +2996,7 @@ fn handle_connection(
             if is_root {
                 http_redirect(inner, "/login");
             } else {
-                http_response(inner, 401, "Unauthorized — please log in");
+                http_response(inner, 401, "Unauthorized â€” please log in");
             }
             return;
         }
@@ -3004,7 +3004,7 @@ fn handle_connection(
 
     // Access control is the cookie gate above: with credentials configured the dashboard requires a
     // login for everything; without credentials it is fully open (the home-network default). We do
-    // NOT additionally restrict control by the peer's address — "is this localhost?" can't tell a
+    // NOT additionally restrict control by the peer's address â€” "is this localhost?" can't tell a
     // browser running on the BTS that connects via the box's LAN IP from a remote one, so it wrongly
     // blocked operators doing DGNA/SDS from the BTS itself. Set a username/password to lock it down.
     if req_line.contains("/ws") {
@@ -3055,7 +3055,7 @@ fn handle_connection(
         crate::service_control::schedule_host_poweroff(std::time::Duration::from_millis(800));
         http_json_response(s, 200, r#"{"ok":true,"action":"poweroff"}"#);
     } else if req_line.contains("GET /api/system/brightness") {
-        // Backlight status probe (FH-FEAT-008) — lets the UI hide the slider on a panel-less host.
+        // Backlight status probe (FH-FEAT-008) â€” lets the UI hide the slider on a panel-less host.
         drain_http_headers(&mut stream);
         let st = crate::backlight::status();
         let body = serde_json::to_string(&st).unwrap_or_else(|_| "{}".to_string());
@@ -3133,8 +3133,8 @@ fn handle_connection(
                 break;
             }
         }
-        // GET /api/configs/<name> — read a specific profile's content
-        // GET /api/configs       — list all profiles
+        // GET /api/configs/<name> â€” read a specific profile's content
+        // GET /api/configs       â€” list all profiles
         let profile_name: Option<String> = req_line
             .split_whitespace()
             .nth(1)
@@ -3146,7 +3146,7 @@ fn handle_connection(
             serve_config_list(buf.into_inner(), &config_path);
         }
     } else if req_line.contains("POST /api/configs/") {
-        // POST /api/configs/<name> — save content to a specific profile (not activate)
+        // POST /api/configs/<name> â€” save content to a specific profile (not activate)
         let profile_name: Option<String> = req_line
             .split_whitespace()
             .nth(1)
@@ -3902,7 +3902,7 @@ fn handle_connection(
             http_response(buf.into_inner(), 200, "OK");
         }
     } else if req_line.contains("DELETE /api/live-sds") {
-        // DELETE /api/live-sds  — clear all
+        // DELETE /api/live-sds  â€” clear all
         let mut buf = BufReader::new(stream);
         loop {
             let mut line = String::new();
@@ -3945,7 +3945,7 @@ fn handle_connection(
                     let protocol_id = v.get("protocol_id").and_then(|p| p.as_u64()).unwrap_or(220) as u8;
                     // The broadcast is serialized with write_bits(source_ssi, 24). `as u32` on the
                     // raw JSON number let anything >= 2^24 through to that assertion, which aborts
-                    // the single stack thread — one POST would crash-loop the cell.
+                    // the single stack thread â€” one POST would crash-loop the cell.
                     let source_issi = v.get("source_issi").and_then(|s| s.as_u64()).unwrap_or(16_777_215);
                     if !is_valid_ssi(source_issi) {
                         http_response(buf.into_inner(), 400, "source_issi out of range (must be 1..=16777215)");
@@ -3968,7 +3968,7 @@ fn handle_connection(
             }
             Err(e) => http_response(buf.into_inner(), 400, &format!("invalid JSON: {}", e)),
         }
-    // ── LST Dispatch ───────────────────────────────────────────────────
+    // â”€â”€ LST Dispatch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     } else if req_line.contains("GET /api/lst/status") {
         drain_http_headers(&mut stream);
         let body = match &lst_handle {
@@ -3978,7 +3978,7 @@ fn handle_connection(
         http_json_response(stream, 200, &body);
     } else if req_line.contains("GET /api/lst/positions") {
         drain_http_headers(&mut stream);
-        // Global LIP store on dashboard state — works with or without LST Dispatch.
+        // Global LIP store on dashboard state â€” works with or without LST Dispatch.
         let body = state
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -4048,9 +4048,9 @@ fn handle_connection(
         );
         let _ = stream.write_all(hdr.as_bytes());
         let _ = stream.write_all(&bytes);
-    // ── WiFi management endpoints ──────────────────────────────────────
+    // â”€â”€ WiFi management endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // All paths under /api/wifi/* are GET (read) or POST (mutate). We keep
-    // the handlers small and delegate to the `wifi` module — see that for
+    // the handlers small and delegate to the `wifi` module â€” see that for
     // docs on what each operation does. Responses are JSON.
     } else if req_line.contains("GET /api/wifi/status") {
         drain_http_headers(&mut stream);
@@ -4378,15 +4378,15 @@ fn handle_ws_command(
             drop(u);
             tracing::info!("Dashboard: OTA update triggered via WS");
             // config_path not available here; caller must use POST /api/update instead
-            // This WS variant is for UI convenience — it signals the browser to poll /api/update/status
+            // This WS variant is for UI convenience â€” it signals the browser to poll /api/update/status
             // The actual update must be triggered via POST /api/update from JS first.
             // Here we just ack that status polling should begin.
             let mut s = state.write().unwrap();
-            s.push_log("INFO", "OTA update started — check /api/update/status for progress".to_string());
+            s.push_log("INFO", "OTA update started â€” check /api/update/status for progress".to_string());
         }
         Some("sds") => {
             // The destination lands in D-SDS-DATA's 24-bit address field. `as u32` silently
-            // truncated a wider JSON value into an in-range-looking one only by accident — values
+            // truncated a wider JSON value into an in-range-looking one only by accident â€” values
             // between 2^24 and 2^32 reached write_bits and aborted the stack thread.
             let Some(dest) = json_ssi(&v, "dest_issi") else {
                 reject_ws_ssi(state, "sds", "dest_issi", v.get("dest_issi"));
@@ -4399,8 +4399,8 @@ fn handle_ws_command(
             tracing::info!("Dashboard: SDS to {} = {}", dest, msg_text);
 
             // Encode text for SDS-TL TRANSFER:
-            //   - If all characters are in ISO-8859-1 range → coding scheme 0x01 (LATIN), 1 byte/char
-            //   - Otherwise → coding scheme 0x02 (UTF-16BE), 2 bytes/char (handles CJK, Arabic, etc.)
+            //   - If all characters are in ISO-8859-1 range â†’ coding scheme 0x01 (LATIN), 1 byte/char
+            //   - Otherwise â†’ coding scheme 0x02 (UTF-16BE), 2 bytes/char (handles CJK, Arabic, etc.)
             // First byte of payload is the text coding scheme identifier per ETSI EN 300 392-2.
             let all_latin = msg_text.chars().all(|c| c as u32 <= 0xFF);
             let (coding_scheme, text_bytes): (u8, Vec<u8>) = if all_latin {
@@ -4620,7 +4620,7 @@ fn handle_ws_command(
             // Route to CMCE: it clears the source SDS session (so the emergency does not re-arm on
             // the radio's next status re-send) and emits EmergencyCancel, which clears the banner
             // for EVERY connected client via the telemetry round-trip. We deliberately do NOT mutate
-            // dashboard state here — otherwise the round-trip would find nothing to clear and skip
+            // dashboard state here â€” otherwise the round-trip would find nothing to clear and skip
             // the broadcast to other browsers.
             if !send_cmd(ControlCommand::ClearEmergency { issi }) {
                 tracing::warn!("Dashboard: no control dispatcher for emergency_clear");
@@ -4737,11 +4737,11 @@ fn serve_update_status(mut stream: PrefixedConn, update_state: &SharedUpdateStat
     let _ = stream.write_all(body.as_bytes());
 }
 
-/// GET /api/callsigns?ids=1,2,3 — resolve ISSIs to RadioID callsigns ("indicative"). Returns a JSON
-/// object `{ "<id>": {"cs":"CALLSIGN","fl":"🇷🇴"} }` for resolved IDs (`fl` is the country flag emoji
+/// GET /api/callsigns?ids=1,2,3 â€” resolve ISSIs to RadioID callsigns ("indicative"). Returns a JSON
+/// object `{ "<id>": {"cs":"CALLSIGN","fl":"ðŸ‡·ðŸ‡´"} }` for resolved IDs (`fl` is the country flag emoji
 /// derived from the call-sign prefix, or empty if unknown) and `{ "<id>": "" }` for IDs confirmed
 /// absent from RadioID. IDs still being fetched in the background are OMITTED, so the client retries
-/// them on a later poll. Lookups are non-blocking — unknown IDs are queued for background resolution.
+/// them on a later poll. Lookups are non-blocking â€” unknown IDs are queued for background resolution.
 fn serve_callsigns(stream: PrefixedConn, radioid: &crate::net_dashboard::radioid::RadioIdCache, req_line: &str) {
     use crate::net_dashboard::radioid::Lookup;
     // Parse the `ids=` query parameter from "GET /api/callsigns?ids=1,2,3 HTTP/1.1".
@@ -4773,13 +4773,13 @@ fn serve_callsigns(stream: PrefixedConn, radioid: &crate::net_dashboard::radioid
             Lookup::NotFound => {
                 map.insert(id.to_string(), serde_json::Value::String(String::new()));
             }
-            Lookup::Pending => {} // omit — client retries on a later poll
+            Lookup::Pending => {} // omit â€” client retries on a later poll
         }
     }
     http_json_response(stream, 200, &serde_json::Value::Object(map).to_string());
 }
 
-/// GET /api/update/check — compare the running build against the tip of the active OTA
+/// GET /api/update/check â€” compare the running build against the tip of the active OTA
 /// channel branch on github.com/Aitorrio/bost-flowstation (fallback: latest GitHub Release).
 /// Best-effort; on any failure returns check_failed=true so the dashboard hides the badge.
 ///
@@ -4825,7 +4825,7 @@ fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool
                 if ch == &channel && *notes == with_notes {
                     (false, existing.clone())
                 } else {
-                    // Different key already running — do not steal; run our own (rare).
+                    // Different key already running â€” do not steal; run our own (rare).
                     let fresh: Slot = std::sync::Arc::new((
                         std::sync::Mutex::new(None),
                         std::sync::Condvar::new(),
@@ -4907,7 +4907,7 @@ fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool
         json
     };
 
-    // Even when git HEAD matches, keep "update available" if this binary has no ACELP link —
+    // Even when git HEAD matches, keep "update available" if this binary has no ACELP link â€”
     // so the GUI can install libtetra-codec without SSH.
     let body = enrich_update_check_for_voice(body);
 
@@ -4939,7 +4939,7 @@ fn enrich_update_check_for_voice(body: String) -> String {
             .to_string();
         if notes.is_empty() {
             v["release_notes"] = serde_json::json!(
-                "- Install TETRA voice codec (libtetra-codec) and rebuild for LST Dispatch audio.\n- Confirm this update — no SSH required.\n- After restart, open https://IP/ so the browser allows the microphone."
+                "- Install TETRA voice codec (libtetra-codec) and rebuild for LST Dispatch audio.\n- Confirm this update â€” no SSH required.\n- After restart, open https://IP/ so the browser allows the microphone."
             );
             v["notes_source"] = serde_json::json!("changelog");
         }
@@ -4951,15 +4951,15 @@ fn enrich_update_check_for_voice(body: String) -> String {
     v.to_string()
 }
 
-/// GET /api/whitelist — return the effective whitelist as JSON:
+/// GET /api/whitelist â€” return the effective whitelist as JSON:
 /// `{"issi_whitelist":[...], "source":"override"|"config", "enabled":bool}`.
 /// `enabled` is false when the list is empty (open network).
-/// GET /api/btsinfo — static cell + RF identity pulled from the running config, for the
+/// GET /api/btsinfo â€” static cell + RF identity pulled from the running config, for the
 /// "TETRA BTS Details" card on the dashboard. Read-only; non-sensitive scalars only.
 fn serve_bts_info(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let body = match shared_config {
         Some(cfg) => {
-            // Whitelist status (runtime override beats config) — mirrors serve_whitelist_get.
+            // Whitelist status (runtime override beats config) â€” mirrors serve_whitelist_get.
             let wl = match cfg.state_read().issi_whitelist_override.clone() {
                 Some(l) => l,
                 None => cfg.config().security.issi_whitelist.clone(),
@@ -5001,6 +5001,11 @@ fn serve_bts_info(mut stream: PrefixedConn, shared_config: &Option<tetra_config:
                 "hangtime_secs": c.cell.hangtime_secs,
                 "whitelist_restricted": restricted,
                 "whitelist_count": wl_count,
+                "sample_rate_hz": c.phy_io.soapysdr.as_ref().and_then(|s| s.fs)
+                    .unwrap_or(crate::net_dashboard::dual_carrier::DEFAULT_SAMPLE_RATE_HZ),
+                "sample_rate_from_toml": c.phy_io.soapysdr.as_ref().and_then(|s| s.fs).is_some(),
+                "dual_carrier_active": c.cell.secondary_carrier.is_some(),
+                "secondary_carrier": c.cell.secondary_carrier,
             })
             .to_string()
         }
@@ -5014,17 +5019,26 @@ fn serve_bts_info(mut stream: PrefixedConn, shared_config: &Option<tetra_config:
     let _ = stream.write_all(body.as_bytes());
 }
 
-/// GET /api/dualcarrier — current Dual-Carrier ON/OFF state for the first-page toggle.
-/// Reads the switch + configured secondary carrier from the TOML (so the number is shown even while
-/// off), plus the running effective state and the main carrier.
+/// GET /api/dualcarrier — Dual-Carrier state for BTS Details + Config form helpers.
 fn serve_dual_carrier_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str) {
-    let st = crate::net_dashboard::dual_carrier::read_dual_carrier(config_path);
+    use crate::net_dashboard::dual_carrier;
+    let st = dual_carrier::read_dual_carrier(config_path);
     let main_carrier = shared_config.as_ref().map(|c| c.config().cell.main_carrier);
-    // What the running stack is actually doing right now (may lag the file until the restart lands).
     let running_active = shared_config
         .as_ref()
         .map(|c| c.config().cell.secondary_carrier.is_some())
         .unwrap_or(false);
+    let fs_toml = dual_carrier::read_sample_rate_from_toml(config_path);
+    let sample_rate_hz = dual_carrier::effective_sample_rate_hz(fs_toml);
+    let max_delta = dual_carrier::max_carrier_delta(sample_rate_hz);
+    let (sec_min, sec_max) = match main_carrier {
+        Some(m) => {
+            let lo = m.saturating_sub(max_delta);
+            let hi = (m + max_delta).min(3999);
+            (lo, hi)
+        }
+        None => (0u16, 3999u16),
+    };
 
     let body = serde_json::json!({
         "enabled": st.enabled,
@@ -5032,9 +5046,13 @@ fn serve_dual_carrier_get(mut stream: PrefixedConn, shared_config: &Option<tetra
         "active": st.active(),
         "running_active": running_active,
         "main_carrier": main_carrier,
+        "sample_rate_hz": sample_rate_hz,
+        "sample_rate_from_toml": fs_toml.is_some(),
+        "passband_max_delta": max_delta,
+        "secondary_min": sec_min,
+        "secondary_max": sec_max,
     })
     .to_string();
-
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
@@ -5043,11 +5061,7 @@ fn serve_dual_carrier_get(mut stream: PrefixedConn, shared_config: &Option<tetra
     let _ = stream.write_all(body.as_bytes());
 }
 
-/// POST /api/dualcarrier — toggle dual carrier. Body: {"enabled": bool, "secondary_carrier"?: u16}.
-///
-/// The secondary carrier cannot be reconfigured live, so this validates the resulting config (so we
-/// never restart into something the BS would reject and loop on), writes the TOML, then schedules a
-/// controlled service restart to apply the new carrier set.
+/// POST /api/dualcarrier — enable/disable dual carrier (restart). Prefer Config form; kept for API.
 fn serve_dual_carrier_post(
     stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
@@ -5065,41 +5079,86 @@ fn serve_dual_carrier_post(
     };
 
     let current = dual_carrier::read_dual_carrier(config_path);
-
-    // When enabling, resolve which carrier to use: explicit from the request, else the one already
-    // configured. Disabling keeps the configured number untouched (so it is remembered).
-    let secondary = if enabled {
-        // Validate the RAW value before the u16 cast: a carrier number is a 12-bit field (0..4095)
-        // and the FreqInfo encoder only accepts < 4000, so reject out-of-range here rather than let
-        // `as u16` silently truncate a huge value into a valid-looking carrier (e.g. 67057 -> 1521).
-        let requested = match req.get("secondary_carrier").and_then(|v| v.as_u64()) {
-            Some(n) if n >= 4000 => {
-                return http_response(stream, 400, "secondary_carrier must be in 0..3999");
-            }
-            Some(n) => Some(n as u16),
-            None => None,
-        };
-        match requested.or(current.secondary_carrier) {
-            Some(n) => Some(n),
-            None => {
-                return http_response(
-                    stream,
-                    400,
-                    "enabling dual carrier needs a secondary_carrier number (none configured yet)",
-                );
-            }
-        }
-    } else {
-        None
-    };
-
-    // Dry-run the prospective config so a bad carrier (e.g. outside the SDR passband, or equal to the
-    // main carrier) is rejected here instead of crash-looping the service after the restart.
     let original = match std::fs::read_to_string(config_path) {
         Ok(s) => s,
         Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
     };
-    let prospective = dual_carrier::compute_toml(&original, enabled, secondary);
+
+    if !enabled {
+        if let Err(e) = dual_carrier::write_dual_carrier(config_path, false, None) {
+            return http_response(stream, 500, &format!("failed to write config: {e}"));
+        }
+        let _ = dual_carrier::sync_active_cell_profile(
+            config_path,
+            false,
+            current.secondary_carrier,
+            None,
+            None,
+            None,
+        );
+        tracing::info!("Dashboard: Dual-Carrier set OFF; scheduling restart");
+        crate::service_control::schedule_service_action(
+            crate::service_control::ServiceAction::Restart,
+            std::time::Duration::from_secs(2),
+        );
+        return http_response(
+            stream,
+            200,
+            "Dual carrier disabled; the base station is restarting to apply it.",
+        );
+    }
+
+    let main = shared_config
+        .as_ref()
+        .map(|c| c.config().cell.main_carrier)
+        .or_else(|| {
+            tetra_config::bluestation::parsing::from_toml_str(&original)
+                .ok()
+                .map(|c| c.cell.main_carrier)
+        });
+    let Some(main) = main else {
+        return http_response(stream, 400, "main_carrier unknown — cannot enable dual carrier");
+    };
+
+    let fs_hz = dual_carrier::effective_sample_rate_hz(
+        req.get("sample_rate_hz")
+            .and_then(|v| v.as_f64())
+            .or_else(|| dual_carrier::read_sample_rate_from_toml(config_path)),
+    );
+
+    let requested = match req.get("secondary_carrier").and_then(|v| v.as_u64()) {
+        Some(n) if n >= 4000 => {
+            return http_response(stream, 400, "secondary_carrier must be in 0..3999");
+        }
+        Some(n) => Some(n as u16),
+        None => current.secondary_carrier,
+    };
+    let want = requested.unwrap_or(main.saturating_add(1));
+    let secondary = dual_carrier::clamp_secondary_carrier(main, want, fs_hz);
+    if secondary == main {
+        return http_response(stream, 400, "secondary_carrier must differ from main_carrier");
+    }
+
+    let probe = dual_carrier::compute_toml(&original, true, Some(secondary));
+    let cfg = match tetra_config::bluestation::parsing::from_toml_str(&probe) {
+        Ok(c) => c,
+        Err(e) => return http_response(stream, 400, &format!("resulting config does not parse: {e}")),
+    };
+    let carriers = match cfg.bs_phase_mod_carriers() {
+        Ok(c) => c,
+        Err(e) => return http_response(stream, 400, &format!("invalid carrier frequencies: {e}")),
+    };
+    let (main_dl, main_ul) = match carriers.iter().find(|(n, _, _)| *n == main) {
+        Some((_, d, u)) => (*d as f64, *u as f64),
+        None => return http_response(stream, 400, "main carrier missing from frequency table"),
+    };
+    let (sec_dl, sec_ul) = match carriers.iter().find(|(n, _, _)| *n == secondary) {
+        Some((_, d, u)) => (*d as f64, *u as f64),
+        None => return http_response(stream, 400, "secondary carrier missing from frequency table"),
+    };
+
+    let prospective =
+        dual_carrier::build_enabled_toml(&original, secondary, fs_hz, main_dl, main_ul, sec_dl, sec_ul);
     match tetra_config::bluestation::parsing::from_toml_str(&prospective) {
         Ok(cfg) => {
             if let Err(e) = cfg.validate() {
@@ -5109,29 +5168,38 @@ fn serve_dual_carrier_post(
         Err(e) => return http_response(stream, 400, &format!("resulting config does not parse: {e}")),
     }
 
-    if let Err(e) = dual_carrier::write_dual_carrier(config_path, enabled, secondary) {
+    if let Err(e) = dual_carrier::write_toml_body(config_path, &prospective) {
         return http_response(stream, 500, &format!("failed to write config: {e}"));
     }
 
-    let _ = shared_config; // the new carrier set is picked up by the restart, not mutated live.
+    let tx_c = (main_dl + sec_dl) / 2.0;
+    let rx_c = (main_ul + sec_ul) / 2.0;
+    if let Err(e) = dual_carrier::sync_active_cell_profile(
+        config_path,
+        true,
+        Some(secondary),
+        Some(fs_hz),
+        Some(tx_c),
+        Some(rx_c),
+    ) {
+        tracing::warn!("Dashboard: Dual-Carrier enabled but Cell profile sync failed: {e}");
+    }
 
+    let _ = shared_config;
     tracing::info!(
-        "Dashboard: Dual-Carrier set {} (secondary_carrier={:?}); scheduling restart",
-        if enabled { "ON" } else { "OFF" },
-        secondary
+        "Dashboard: Dual-Carrier set ON (secondary_carrier={secondary}, fs={fs_hz}); scheduling restart"
     );
-    crate::service_control::schedule_service_action(crate::service_control::ServiceAction::Restart, std::time::Duration::from_secs(2));
-
+    crate::service_control::schedule_service_action(
+        crate::service_control::ServiceAction::Restart,
+        std::time::Duration::from_secs(2),
+    );
     http_response(
         stream,
         200,
-        if enabled {
-            "Dual carrier enabled; the base station is restarting to apply it."
-        } else {
-            "Dual carrier disabled; the base station is restarting to apply it."
-        },
+        "Dual carrier enabled; the base station is restarting to apply it.",
     );
 }
+
 
 fn serve_whitelist_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let (list, source): (Vec<u32>, &str) = match shared_config {
@@ -5189,7 +5257,7 @@ fn apply_issi_whitelist_live(
                 .collect()
         };
         for issi in to_kick {
-            tracing::info!("Dashboard: whitelist change — kicking non-whitelisted ISSI {}", issi);
+            tracing::info!("Dashboard: whitelist change â€” kicking non-whitelisted ISSI {}", issi);
             send_control_cmd(cmd_tx, ControlCommand::KickMs { issi });
         }
     }
@@ -5204,7 +5272,7 @@ fn apply_issi_whitelist_live(
     Ok(())
 }
 
-/// POST /api/whitelist — set the whitelist. Body: JSON array `[1,2,3]` or
+/// POST /api/whitelist â€” set the whitelist. Body: JSON array `[1,2,3]` or
 /// `{"issi_whitelist":[1,2,3]}`. Applies immediately via the StackState override AND
 /// rewrites the TOML so it survives a restart. An empty list = open network.
 ///
@@ -5242,7 +5310,7 @@ fn serve_whitelist_post(
     }
 }
 
-/// POST /api/profiles/cell/{name}/whitelist — persist ISSI list on the Cell profile.
+/// POST /api/profiles/cell/{name}/whitelist â€” persist ISSI list on the Cell profile.
 /// If that Cell is active, also apply live TOML + runtime override.
 fn serve_cell_whitelist_post(
     stream: PrefixedConn,
@@ -5305,7 +5373,7 @@ fn serve_cell_whitelist_post(
 // Dashboard account (single username/password in [dashboard]). System-tab GUI.
 // ---------------------------------------------------------------------------
 
-/// GET /api/dashboard-auth — `{auth_enabled, username}` (never the password).
+/// GET /api/dashboard-auth â€” `{auth_enabled, username}` (never the password).
 fn serve_dashboard_auth_get(stream: PrefixedConn, auth: &SharedAuth) {
     let creds = auth.read().unwrap_or_else(|e| e.into_inner()).clone();
     let body = match creds {
@@ -5318,7 +5386,7 @@ fn serve_dashboard_auth_get(stream: PrefixedConn, auth: &SharedAuth) {
     http_json_response(stream, 200, &body);
 }
 
-/// POST /api/dashboard-auth — enable auth or change username/password.
+/// POST /api/dashboard-auth â€” enable auth or change username/password.
 ///
 /// Body (JSON):
 /// - Enable (auth currently off): `{username, new_password, confirm_password}`
@@ -5418,7 +5486,7 @@ fn serve_dashboard_auth_post(
         }
     };
 
-    // Persist: patch TOML → parse+validate → atomic write (same safety as /api/config).
+    // Persist: patch TOML â†’ parse+validate â†’ atomic write (same safety as /api/config).
     let original = match std::fs::read_to_string(config_path) {
         Ok(s) => s,
         Err(e) => {
@@ -5455,7 +5523,7 @@ fn serve_dashboard_auth_post(
 // WX/METAR service config (dashboard-editable). See net_dashboard::wx_service.
 // ---------------------------------------------------------------------------
 
-/// GET /api/wx — return the effective WX service settings as JSON.
+/// GET /api/wx â€” return the effective WX service settings as JSON.
 fn serve_wx_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let wx = match shared_config {
         Some(cfg) => cfg.effective_wx_service(),
@@ -5479,7 +5547,7 @@ fn serve_wx_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::b
     let _ = stream.write_all(body.as_bytes());
 }
 
-/// POST /api/wx — update WX service settings. Body: JSON object with the same fields as
+/// POST /api/wx â€” update WX service settings. Body: JSON object with the same fields as
 /// GET. Applies immediately via the StackState override AND rewrites the TOML.
 fn serve_wx_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use tetra_config::bluestation::WxRuntimeOverride;
@@ -5634,11 +5702,11 @@ fn read_post_body(mut stream: PrefixedConn) -> (PrefixedConn, String) {
 }
 
 /// Resolve the bot token to use for a verify/detect/test/save request: a freshly-typed token from
-/// the body (never the masked placeholder, which contains '…'), else the currently-saved one.
+/// the body (never the masked placeholder, which contains 'â€¦'), else the currently-saved one.
 fn telegram_resolve_token(json: &serde_json::Value, shared_config: &Option<tetra_config::bluestation::SharedConfig>) -> String {
     if let Some(t) = json.get("bot_token").and_then(|v| v.as_str()) {
         let t = t.trim();
-        if !t.is_empty() && !t.contains('…') {
+        if !t.is_empty() && !t.contains('â€¦') {
             return t.to_string();
         }
     }
@@ -5649,14 +5717,14 @@ fn telegram_resolve_token(json: &serde_json::Value, shared_config: &Option<tetra
 }
 
 /// Whether a bot token is safe to store. Empty is allowed (not yet configured). A real Telegram
-/// token is `<bot-id>:<auth>` with no whitespace or control characters — rejecting anything else
+/// token is `<bot-id>:<auth>` with no whitespace or control characters â€” rejecting anything else
 /// keeps the token safe inside the config TOML (a stray newline would corrupt the file) and inside
 /// the API URL path.
 fn telegram_token_acceptable(t: &str) -> bool {
     t.is_empty() || (t.contains(':') && t.chars().all(|c| !c.is_whitespace() && !c.is_control()))
 }
 
-/// GET /api/telegram — return the effective Telegram settings as JSON. The token is masked and is
+/// GET /api/telegram â€” return the effective Telegram settings as JSON. The token is masked and is
 /// never echoed in the clear; `token_set` tells the UI whether one is stored.
 fn serve_telegram_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let tg = match shared_config {
@@ -5682,7 +5750,7 @@ fn serve_telegram_get(stream: PrefixedConn, shared_config: &Option<tetra_config:
     http_json_response(stream, 200, &body);
 }
 
-/// POST /api/telegram — save Telegram settings. Applies immediately via the StackState override
+/// POST /api/telegram â€” save Telegram settings. Applies immediately via the StackState override
 /// AND rewrites the TOML. The token is only changed when a fresh (non-masked) one is supplied.
 fn serve_telegram_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use tetra_config::bluestation::TelegramRuntimeOverride;
@@ -5743,7 +5811,7 @@ fn serve_telegram_post(stream: PrefixedConn, shared_config: &Option<tetra_config
     http_response(stream, 200, "OK");
 }
 
-/// POST /api/telegram/verify — validate the token via getMe and return the bot @username.
+/// POST /api/telegram/verify â€” validate the token via getMe and return the bot @username.
 fn serve_telegram_verify(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let json: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
     let token = telegram_resolve_token(&json, shared_config);
@@ -5767,7 +5835,7 @@ fn serve_telegram_verify(stream: PrefixedConn, shared_config: &Option<tetra_conf
     }
 }
 
-/// POST /api/telegram/detect — return the chats that recently messaged the bot (getUpdates).
+/// POST /api/telegram/detect â€” return the chats that recently messaged the bot (getUpdates).
 fn serve_telegram_detect(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let json: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
     let token = telegram_resolve_token(&json, shared_config);
@@ -5800,7 +5868,7 @@ fn serve_telegram_detect(stream: PrefixedConn, shared_config: &Option<tetra_conf
     }
 }
 
-/// POST /api/telegram/test — send a test alert to the configured (or body-supplied) chats.
+/// POST /api/telegram/test â€” send a test alert to the configured (or body-supplied) chats.
 fn serve_telegram_test(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let json: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
     let Some(cfg) = shared_config else {
@@ -5870,7 +5938,7 @@ fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: boo
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| ".".to_string());
 
-    // CPU model — /proc/cpuinfo "model name" (x86) or "Model" (ARM/Pi)
+    // CPU model â€” /proc/cpuinfo "model name" (x86) or "Model" (ARM/Pi)
     let cpu_model = std::fs::read_to_string("/proc/cpuinfo")
         .ok()
         .and_then(|s| {
@@ -5886,7 +5954,7 @@ fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: boo
         .map(|s| s.lines().filter(|l| l.starts_with("processor")).count())
         .unwrap_or(0);
 
-    // CPU load — /proc/stat first line: user nice system idle iowait irq softirq
+    // CPU load â€” /proc/stat first line: user nice system idle iowait irq softirq
     // Take a 100ms sample for a meaningful reading
     fn read_cpu_stat() -> Option<(u64, u64)> {
         let s = std::fs::read_to_string("/proc/stat").ok()?;
@@ -5910,7 +5978,7 @@ fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: boo
         0
     };
 
-    // RAM — /proc/meminfo MemTotal and MemAvailable
+    // RAM â€” /proc/meminfo MemTotal and MemAvailable
     let (ram_total_mb, ram_used_mb) = std::fs::read_to_string("/proc/meminfo")
         .ok()
         .map(|s| {
@@ -5927,7 +5995,7 @@ fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: boo
         })
         .unwrap_or((0, 0));
 
-    // CPU temperature — try common Linux thermal zone paths
+    // CPU temperature â€” try common Linux thermal zone paths
     let cpu_temp_c: Option<f32> = [
         "/sys/class/thermal/thermal_zone0/temp",
         "/sys/class/thermal/thermal_zone1/temp",
@@ -5942,7 +6010,7 @@ fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: boo
             .filter(|&t| t > 0.0 && t < 150.0) // sanity check
     });
 
-    // RF / SoapySDR — ONLY when explicitly probed. Spawning SoapySDRUtil --info/--find
+    // RF / SoapySDR â€” ONLY when explicitly probed. Spawning SoapySDRUtil --info/--find
     // on every boot /api/system (and System auto-refresh) stalls the Pi for seconds and
     // piles up dashboard-conn threads behind GitHub OTA checks.
     let soapy_info = if probe_sdr {
@@ -6000,7 +6068,7 @@ fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: boo
         String::new()
     };
 
-    // Auto-detected SDR name — set by `phy::components::soapy_settings::get_settings()`
+    // Auto-detected SDR name â€” set by `phy::components::soapy_settings::get_settings()`
     // at stack startup. None if no SoapySDR-backed phy is in use (file backend etc).
     let sdr_name = crate::phy::components::soapy_settings::detected_sdr_name().unwrap_or_else(|| "unknown".to_string());
     let rf_status = crate::rf_status::get();
@@ -6106,13 +6174,13 @@ fn save_config_profile(config_path: &str, profile_name: &str, content: &str) -> 
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     if profile_name == active_name {
-        return Err("cannot overwrite active config via profile editor — use the Config editor tab".to_string());
+        return Err("cannot overwrite active config via profile editor â€” use the Config editor tab".to_string());
     }
 
-    // Secrets are served to the profile editor masked (serve_config_profile_get → mask_config_secrets).
-    // If the operator saves without retyping a secret, the editor posts the mask (`••••`/`…`) back
+    // Secrets are served to the profile editor masked (serve_config_profile_get â†’ mask_config_secrets).
+    // If the operator saves without retyping a secret, the editor posts the mask (`â€¢â€¢â€¢â€¢`/`â€¦`) back
     // verbatim; restore the real value from the profile's OWN on-disk content so we never persist the
-    // placeholder over a real credential — the same corruption write_config_validated guards against
+    // placeholder over a real credential â€” the same corruption write_config_validated guards against
     // for the active config, which the profile path previously skipped.
     let content = match std::fs::read_to_string(&profile_path) {
         Ok(current) => unmask_config_secrets(content, &current),
@@ -6135,8 +6203,8 @@ fn save_config_profile(config_path: &str, profile_name: &str, content: &str) -> 
     atomic_write(profile_path, &content).map_err(|e| format!("failed to write profile: {}", e))
 }
 
-/// GET /api/public — anonymous read-only overview (FH-FEAT-033). Projects ONLY non-sensitive,
-/// already-public scalars from the dashboard's own state — never SharedConfig/StackState, and never
+/// GET /api/public â€” anonymous read-only overview (FH-FEAT-033). Projects ONLY non-sensitive,
+/// already-public scalars from the dashboard's own state â€” never SharedConfig/StackState, and never
 /// ISSIs/GSSIs, the whitelist, SDS contents or the log ring. The read lock is the dashboard's own
 /// RwLock (the same one the WS snapshot takes), held only long enough to copy a handful of counts.
 fn serve_public_snapshot(stream: PrefixedConn, state: &DashboardState) {
@@ -6181,8 +6249,8 @@ fn activate_config_profile(config_path: &str, profile_name: &str) -> Result<(), 
     }
 
     // Validate the profile parses + passes validation before it becomes the live config. Activating an
-    // unparseable/invalid profile bricks the cell on the next restart (startup abort under systemd →
-    // crash-loop with no valid .fallback) — the exact failure write_config_validated exists to
+    // unparseable/invalid profile bricks the cell on the next restart (startup abort under systemd â†’
+    // crash-loop with no valid .fallback) â€” the exact failure write_config_validated exists to
     // prevent, so guard the activate path too rather than trusting whatever is on disk.
     let profile_content = std::fs::read_to_string(&profile_path).map_err(|e| format!("failed to read profile: {}", e))?;
     match tetra_config::bluestation::parsing::from_toml_str(&profile_content) {
@@ -6229,8 +6297,8 @@ fn serve_favicon(mut stream: PrefixedConn, svg: bool) {
     let _ = stream.write_all(body);
 }
 
-/// The placeholder characters the secret maskers emit — U+2022 BULLET (`mask_secret`/`mask_token`
-/// for short secrets) and U+2026 HORIZONTAL ELLIPSIS (the `head…tail` form). A posted secret value
+/// The placeholder characters the secret maskers emit â€” U+2022 BULLET (`mask_secret`/`mask_token`
+/// for short secrets) and U+2026 HORIZONTAL ELLIPSIS (the `headâ€¦tail` form). A posted secret value
 /// containing either is the mask echoed back unchanged by the editor, not a freshly typed secret.
 fn value_is_masked_secret(value: &str) -> bool {
     value.contains('\u{2022}') || value.contains('\u{2026}')
@@ -6238,7 +6306,7 @@ fn value_is_masked_secret(value: &str) -> bool {
 
 /// Is `key` one of the secrets that `mask_config_secrets` masks before sending config to the browser?
 fn is_masked_secret_key(key: &str) -> bool {
-    // `token` is the [tpg2200_action] ActionURL token — the sole credential guarding the pre-auth
+    // `token` is the [tpg2200_action] ActionURL token â€” the sole credential guarding the pre-auth
     // public /api/action/tpg2200 endpoint. It is the only `token` key in the config schema, so a
     // bare-key match cannot collide with anything else.
     matches!(key, "password" | "bot_token" | "rwth_core_authkey" | "ami_password" | "token")
@@ -6263,13 +6331,13 @@ fn split_toml_str_assignment(line: &str) -> Option<(&str, &str)> {
 ///
 /// `serve_config_get` masks secrets (`password`, `bot_token`, `rwth_core_authkey`, `ami_password`)
 /// with bullets/ellipsis before serving the config file to the browser, so cleartext never leaves the
-/// host. If the operator saves without retyping a secret, the editor posts that mask back verbatim —
+/// host. If the operator saves without retyping a secret, the editor posts that mask back verbatim â€”
 /// writing it would overwrite the real credential with placeholder characters and lock the operator
 /// out (the reported "passwords corrupted with random symbols" bug). Here we walk the posted `body`,
 /// and for any secret line whose value is still the mask, substitute the plaintext from the same
 /// `[section] key` in `current` (the on-disk config). Genuinely retyped secrets are left untouched.
 ///
-/// Matching is section-aware so `[dashboard] password` and `[brew] password` — same bare key — are
+/// Matching is section-aware so `[dashboard] password` and `[brew] password` â€” same bare key â€” are
 /// never crossed. A masked secret with no stored counterpart is left as-is (no worse than before).
 fn unmask_config_secrets(body: &str, current: &str) -> String {
     // (section header, key) -> stored raw (escaped) value, for masked secret keys only.
@@ -6310,7 +6378,7 @@ fn unmask_config_secrets(body: &str, current: &str) -> String {
 
 /// Write `content` to `path` atomically: temp file in the SAME directory, flushed, then renamed
 /// over the target. `fs::write`/`fs::copy` truncate the destination first, so a crash (or a power
-/// cut — this is a base station) between truncate and write leaves a half-written config.toml that
+/// cut â€” this is a base station) between truncate and write leaves a half-written config.toml that
 /// no longer parses, which aborts startup under systemd `Restart=` and crash-loops the cell. rename
 /// within one filesystem is atomic, so the config is either the old one or the new one, never half.
 pub(crate) fn atomic_write(path: &str, content: &str) -> std::io::Result<()> {
@@ -6339,17 +6407,17 @@ pub(crate) fn atomic_write(path: &str, content: &str) -> std::io::Result<()> {
 }
 
 /// Copy `src` over `dst` atomically (read + [`atomic_write`]), for the config backup/activate paths
-/// that used `fs::copy` — same truncate-then-write exposure as `fs::write`.
+/// that used `fs::copy` â€” same truncate-then-write exposure as `fs::write`.
 fn atomic_copy(src: &str, dst: &str) -> std::io::Result<()> {
     let content = std::fs::read_to_string(src)?;
     atomic_write(dst, &content)
 }
 
-/// POST /api/config/restore — put `<config>.bak` back as the live config.
+/// POST /api/config/restore â€” put `<config>.bak` back as the live config.
 ///
 /// The backup is NOT trusted: it may be truncated (an old non-atomic write that was interrupted),
 /// or written by an earlier schema that no longer parses. Copying it over the live config and
-/// restarting — which is what this endpoint used to do, unconditionally — bricks the station with
+/// restarting â€” which is what this endpoint used to do, unconditionally â€” bricks the station with
 /// no way back. So dry-run parse + `validate()` first, exactly like `write_config_validated`, and
 /// snapshot the config we are about to replace to `<config>.prerestore` so the operator can undo.
 fn restore_config_from_backup(config_path: &str) -> Result<(), (u16, String)> {
@@ -6363,7 +6431,7 @@ fn restore_config_from_backup(config_path: &str) -> Result<(), (u16, String)> {
         }
         Err(e) => return Err((400, format!("backup does not parse, refusing to restore: {e}"))),
     }
-    // Keep the config we are replacing — a restore is itself an operation the operator may regret.
+    // Keep the config we are replacing â€” a restore is itself an operation the operator may regret.
     let snapshot_path = format!("{}.prerestore", config_path);
     if let Err(e) = atomic_copy(config_path, &snapshot_path) {
         tracing::warn!("Dashboard: failed to snapshot config before restore: {}", e);
@@ -6376,7 +6444,7 @@ fn restore_config_from_backup(config_path: &str) -> Result<(), (u16, String)> {
 /// Writing garbage here is what would brick the base station: the service restarts to apply config,
 /// the new file fails to parse, and (with no valid `.fallback`) startup aborts under systemd
 /// `Restart=` into a crash-loop. So parse + `validate()` exactly like `serve_dual_carrier_post`
-/// before touching disk — a bad body is rejected and the running config is left untouched. On
+/// before touching disk â€” a bad body is rejected and the running config is left untouched. On
 /// success the previous config is backed up to `<path>.bak` and the new one written.
 ///
 /// Returns `Ok(())` on success, or `Err((http_code, message))` for the caller to relay.
@@ -6425,13 +6493,13 @@ fn serve_config_get(mut stream: PrefixedConn, config_path: &str) {
 /// The config holds plaintext credentials (Telegram bot token, DAPNET password / RWTH core authkey,
 /// Asterisk AMI password). The per-field endpoints already mask these; the raw `/api/config` read
 /// must do the same so the cleartext never leaves the host. We mask line-by-line, keying on the TOML
-/// key name, and replace only the quoted value — comments and structure are preserved so the file
+/// key name, and replace only the quoted value â€” comments and structure are preserved so the file
 /// still reads naturally in the editor.
 fn mask_config_secrets(content: &str) -> String {
     use crate::net_dashboard::dapnet::mask_secret;
     use crate::net_dashboard::telegram::mask_token;
 
-    // key -> masker. `bot_token` keeps the "id:tail" shape; the rest use the generic head…tail mask.
+    // key -> masker. `bot_token` keeps the "id:tail" shape; the rest use the generic headâ€¦tail mask.
     fn mask_for_key(key: &str, value: &str) -> Option<String> {
         match key {
             "bot_token" => Some(mask_token(value)),
@@ -6508,10 +6576,10 @@ fn lst_b64_decode(s: &str) -> Result<Vec<u8>, ()> {
 }
 
 /// Consume and discard HTTP request headers up to the blank line. Use this
-/// for GET-style endpoints that don't read a body — we still need to clear
+/// for GET-style endpoints that don't read a body â€” we still need to clear
 /// the headers off the stream before responding, otherwise some clients
 /// reuse the connection and get confused.
-/// Extract `/api/profiles/{kind}/<name…>` from a request line after a fixed method+prefix.
+/// Extract `/api/profiles/{kind}/<nameâ€¦>` from a request line after a fixed method+prefix.
 /// Percent-decodes the name; returns None when the path does not match.
 fn profile_path_name(req_line: &str, method_prefix: &str) -> Option<String> {
     let path = req_line.split_whitespace().nth(1)?;
@@ -6584,7 +6652,7 @@ fn read_http_body(stream: &mut PrefixedConn) -> Vec<u8> {
     body
 }
 
-// ── Login UI / session helpers ──────────────────────────────────────────────
+// â”€â”€ Login UI / session helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Parse a login POST body. Accepts both `application/x-www-form-urlencoded`
 /// (user=...&password=...) and a minimal JSON shape `{"user":"...","password":"..."}`.
@@ -6744,7 +6812,7 @@ fn spawn_legacy_http_redirect(bind: &str, listen_port: u16, https_port: u16) {
                 match TcpListener::bind(&addr) {
                     Ok(l) => {
                         tracing::info!(
-                            "Dashboard legacy HTTP redirect on http://{} → https (port {})",
+                            "Dashboard legacy HTTP redirect on http://{} â†’ https (port {})",
                             addr,
                             https_port
                         );
@@ -6752,7 +6820,7 @@ fn spawn_legacy_http_redirect(bind: &str, listen_port: u16, https_port: u16) {
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "Dashboard legacy HTTP bind {}: {} — retrying in 5s",
+                            "Dashboard legacy HTTP bind {}: {} â€” retrying in 5s",
                             addr,
                             e
                         );
@@ -6782,7 +6850,7 @@ fn spawn_legacy_https_redirect(
                 match TcpListener::bind(&addr) {
                     Ok(l) => {
                         tracing::info!(
-                            "Dashboard legacy HTTPS redirect on https://{} → canonical HTTPS :{}",
+                            "Dashboard legacy HTTPS redirect on https://{} â†’ canonical HTTPS :{}",
                             addr,
                             https_port
                         );
@@ -6790,7 +6858,7 @@ fn spawn_legacy_https_redirect(
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "Dashboard legacy HTTPS bind {}: {} — retrying in 5s",
+                            "Dashboard legacy HTTPS bind {}: {} â€” retrying in 5s",
                             addr,
                             e
                         );
@@ -6831,8 +6899,8 @@ fn spawn_legacy_https_redirect(
 
 fn serve_login_success(mut stream: PrefixedConn, token: &str) {
     // Two cookies:
-    //   fs_session: HttpOnly — the actual session token, inaccessible to JS.
-    //   fs_auth: readable — a marker telling the dashboard JS "auth is on",
+    //   fs_session: HttpOnly â€” the actual session token, inaccessible to JS.
+    //   fs_auth: readable â€” a marker telling the dashboard JS "auth is on",
     //                       so it can decide to show the Logout button.
     // The marker carries no security value; the HttpOnly session is what's checked.
     // On TLS, add Secure so browsers won't send the cookie over plain HTTP.
@@ -6869,7 +6937,7 @@ fn serve_logout(mut stream: PrefixedConn) {
     let _ = stream.write_all(resp.as_bytes());
 }
 
-/// GET /api/dashboard/tls — HTTPS status for the UI (public, no auth).
+/// GET /api/dashboard/tls â€” HTTPS status for the UI (public, no auth).
 fn serve_dashboard_tls_status(stream: PrefixedConn) {
     let st = tls_status();
     let body = format!(
@@ -6895,12 +6963,12 @@ fn serve_login_page(mut stream: PrefixedConn) {
 }
 
 // ===========================================================================
-// Integration dashboard endpoints — DAPNET / GeoAlarm / Snom NOTIFY / Asterisk
+// Integration dashboard endpoints â€” DAPNET / GeoAlarm / Snom NOTIFY / Asterisk
 // plus the TPG2200 ActionURL and DAPNET/SDS log helpers. Ported from the dj2th
 // fork (echolink/meshcom routes intentionally excluded).
 // ===========================================================================
 
-/// DELETE /api/sds-log — clear the persisted SDS Log.
+/// DELETE /api/sds-log â€” clear the persisted SDS Log.
 fn serve_sds_log_clear(stream: PrefixedConn, state: &DashboardState) {
     if let Ok(mut s) = state.write() {
         s.clear_sds_log();
@@ -6908,7 +6976,7 @@ fn serve_sds_log_clear(stream: PrefixedConn, state: &DashboardState) {
     http_json_response(stream, 200, "{\"ok\":true}");
 }
 
-/// DELETE /api/dgna-log — clear the persisted DGNA activity log.
+/// DELETE /api/dgna-log â€” clear the persisted DGNA activity log.
 fn serve_dgna_log_clear(stream: PrefixedConn, state: &DashboardState) {
     if let Ok(mut s) = state.write() {
         s.clear_dgna_log();
@@ -6916,7 +6984,7 @@ fn serve_dgna_log_clear(stream: PrefixedConn, state: &DashboardState) {
     http_json_response(stream, 200, "{\"ok\":true}");
 }
 
-/// GET /api/dapnet-log — the persisted DAPNET Log as a JSON array, newest entry first.
+/// GET /api/dapnet-log â€” the persisted DAPNET Log as a JSON array, newest entry first.
 fn serve_dapnet_log(stream: PrefixedConn, state: &DashboardState) {
     let body = {
         match state.read() {
@@ -6930,7 +6998,7 @@ fn serve_dapnet_log(stream: PrefixedConn, state: &DashboardState) {
     http_json_response(stream, 200, &body);
 }
 
-/// DELETE /api/dapnet-log — clear the persisted DAPNET Log.
+/// DELETE /api/dapnet-log â€” clear the persisted DAPNET Log.
 fn serve_dapnet_log_clear(stream: PrefixedConn, state: &DashboardState) {
     if let Ok(mut s) = state.write() {
         s.clear_dapnet_log();
@@ -7085,7 +7153,7 @@ fn serve_tpg2200_action_url(
     http_response(stream, 200, &format!("OK incident={incident}"));
 }
 
-/// GET /api/asterisk/status — return Asterisk SIP/RTP config + runtime status.
+/// GET /api/asterisk/status â€” return Asterisk SIP/RTP config + runtime status.
 fn serve_asterisk_status(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let body = match shared_config {
         Some(cfg) => {
@@ -7142,7 +7210,7 @@ fn serve_asterisk_status(stream: PrefixedConn, shared_config: &Option<tetra_conf
     http_json_response(stream, 200, &body.to_string());
 }
 
-/// GET /api/snom-notify — return effective Snom XML NOTIFY settings.
+/// GET /api/snom-notify â€” return effective Snom XML NOTIFY settings.
 fn serve_snom_notify_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let snom = shared_config.as_ref().map(|cfg| cfg.effective_snom_notify()).unwrap_or_default();
     let password = snom.ami_password.as_ref();
@@ -7170,7 +7238,7 @@ fn serve_snom_notify_get(stream: PrefixedConn, shared_config: &Option<tetra_conf
     http_json_response(stream, 200, &body.to_string());
 }
 
-/// POST /api/snom-notify — update Snom XML NOTIFY settings live and persist to config.toml.
+/// POST /api/snom-notify â€” update Snom XML NOTIFY settings live and persist to config.toml.
 fn serve_snom_notify_post(
     stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
@@ -7297,7 +7365,7 @@ fn snom_non_empty_or(value: String, fallback: &str) -> String {
 
 fn dapnet_resolve_secret(json: &serde_json::Value, key: &str, current: &str) -> String {
     match json.get(key).and_then(|v| v.as_str()) {
-        Some(v) if !v.contains('…') => v.trim().to_string(),
+        Some(v) if !v.contains('â€¦') => v.trim().to_string(),
         _ => current.to_string(),
     }
 }
@@ -7470,7 +7538,7 @@ fn dapnet_validate_route_conflicts(issi_routes: &BTreeMap<u32, u32>, gssi_routes
     Ok(())
 }
 
-/// GET /api/dapnet — return effective DAPNET settings as JSON. Secrets are masked and are never
+/// GET /api/dapnet â€” return effective DAPNET settings as JSON. Secrets are masked and are never
 /// echoed in the clear.
 fn serve_dapnet_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let (dapnet, runtime) = match shared_config {
@@ -7535,7 +7603,7 @@ fn serve_dapnet_get(stream: PrefixedConn, shared_config: &Option<tetra_config::b
     http_json_response(stream, 200, &body.to_string());
 }
 
-/// POST /api/dapnet — update DAPNET settings. Applies immediately through StackState override
+/// POST /api/dapnet â€” update DAPNET settings. Applies immediately through StackState override
 /// and rewrites `[dapnet]` in config.toml. Secrets are changed only when a fresh, non-masked
 /// value is supplied.
 fn serve_dapnet_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
@@ -7667,7 +7735,7 @@ fn serve_dapnet_post(stream: PrefixedConn, shared_config: &Option<tetra_config::
     http_response(stream, 200, "OK");
 }
 
-/// GET /api/geoalarm — return effective GeoAlarm settings and runtime status as JSON.
+/// GET /api/geoalarm â€” return effective GeoAlarm settings and runtime status as JSON.
 fn serve_geoalarm_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
     let (geoalarm, runtime) = match shared_config {
         Some(cfg) => (cfg.effective_geoalarm(), cfg.state_read().geoalarm_status.clone()),
@@ -7742,7 +7810,7 @@ fn serve_geoalarm_get(stream: PrefixedConn, shared_config: &Option<tetra_config:
     http_json_response(stream, 200, &body.to_string());
 }
 
-/// POST /api/geoalarm — update GeoAlarm settings. Applies immediately through StackState
+/// POST /api/geoalarm â€” update GeoAlarm settings. Applies immediately through StackState
 /// override and rewrites `[geoalarm]` in config.toml.
 fn serve_geoalarm_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use tetra_config::bluestation::{CfgGeoalarmDto, GeoalarmRuntimeOverride, apply_geoalarm_patch};
@@ -8089,7 +8157,7 @@ fn push_dapnet_log_and_broadcast(
     }
 }
 
-/// POST /api/dapnet/send — send one outbound DAPNET message through the configured Hampager API.
+/// POST /api/dapnet/send â€” send one outbound DAPNET message through the configured Hampager API.
 fn serve_dapnet_send(
     stream: PrefixedConn,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
@@ -8252,7 +8320,7 @@ location_area = 1
 "#;
 
     /// A bad config body posted to /api/config must be rejected (400) and must NOT touch the file on
-    /// disk — otherwise the next restart fails to parse it and the base station crash-loops.
+    /// disk â€” otherwise the next restart fails to parse it and the base station crash-loops.
     #[test]
     fn bad_config_post_is_rejected_and_file_untouched() {
         let dir = std::env::temp_dir();
@@ -8266,7 +8334,7 @@ location_area = 1
             Err((400, _)) => {}
             other => panic!("expected 400 rejection, got {other:?}"),
         }
-        // The on-disk config is exactly what we seeded — nothing was written, no .bak made.
+        // The on-disk config is exactly what we seeded â€” nothing was written, no .bak made.
         let after = std::fs::read_to_string(&path).expect("read back");
         assert_eq!(after, MINIMAL_CONFIG, "running config must be untouched after a rejected write");
         assert!(
@@ -8308,7 +8376,7 @@ enabled = true
 
     /// The [tpg2200_action] ActionURL token is the sole credential guarding the pre-auth public
     /// /api/action/tpg2200 endpoint. It must be masked in raw config reads/backups like every other
-    /// secret — it was previously leaked in cleartext because `token` was not in the mask set.
+    /// secret â€” it was previously leaked in cleartext because `token` was not in the mask set.
     #[test]
     fn config_get_masks_tpg2200_token() {
         let raw = "\
@@ -8325,7 +8393,7 @@ dest_issi = 2632585
         assert!(masked.contains("dest_issi = 2632585"));
     }
 
-    /// A malformed config profile must be rejected at save time and never written — otherwise it can
+    /// A malformed config profile must be rejected at save time and never written â€” otherwise it can
     /// later be Activated over the live config and crash-loop the stack on the next restart. A valid
     /// profile is accepted.
     #[test]
@@ -8350,7 +8418,7 @@ dest_issi = 2632585
     }
 
     /// Activating a profile that does not parse/validate must be refused and must leave the live
-    /// config untouched — the whole point of the fallback design is defeated if a bad profile can be
+    /// config untouched â€” the whole point of the fallback design is defeated if a bad profile can be
     /// copied over config.toml unchecked.
     #[test]
     fn profile_activate_rejects_invalid_and_preserves_live_config() {
@@ -8379,10 +8447,10 @@ dest_issi = 2632585
     #[test]
     fn html_mojibake_normalizer_repairs_common_dashboard_tokens() {
         assert_eq!(
-            normalize_mojibake_html("Open Ã¢â‚¬â€ all ISSI may register"),
-            "Open — all ISSI may register"
+            normalize_mojibake_html("Open ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â all ISSI may register"),
+            "Open â€” all ISSI may register"
         );
-        assert_eq!(normalize_mojibake_html("waitingÃ¢â‚¬Â¦"), "waiting…");
+        assert_eq!(normalize_mojibake_html("waitingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦"), "waitingâ€¦");
     }
 
     /// FH-BUG (brew shown as v0): the transport reports version 0 ("unknown") on every (re)connect
@@ -8405,7 +8473,7 @@ dest_issi = 2632585
         });
         assert_eq!(v(), 1, "a v1 group call raises it to v1");
 
-        // Disconnect then reconnect, transport again reports 0 — must NOT downgrade.
+        // Disconnect then reconnect, transport again reports 0 â€” must NOT downgrade.
         server.handle_telemetry(TelemetryEvent::BrewConnected {
             connected: false,
             server_version: 0,
@@ -8433,8 +8501,8 @@ dest_issi = 2632585
 
     /// The reported "passwords corrupted with random symbols" bug: secrets are served masked, and a
     /// save that doesn't retype them must restore the stored plaintext instead of persisting the
-    /// mask. This is the full round-trip: mask on read → post the masked body back (only a non-secret
-    /// field changed) → the real secrets survive. Section-aware, so `[dashboard] password` and
+    /// mask. This is the full round-trip: mask on read â†’ post the masked body back (only a non-secret
+    /// field changed) â†’ the real secrets survive. Section-aware, so `[dashboard] password` and
     /// `[brew] password` (identical bare key) are never crossed.
     #[test]
     fn config_save_restores_unchanged_masked_secrets() {
@@ -8452,7 +8520,7 @@ password = \"dashRealPw\"
 password = \"brewRealPw!\"
 enabled = true
 ";
-        // What the browser's editor receives — cleartext never leaves the host.
+        // What the browser's editor receives â€” cleartext never leaves the host.
         let served = mask_config_secrets(stored);
         assert!(!served.contains("dashRealPw"));
         assert!(!served.contains("brewRealPw!"));
@@ -8462,7 +8530,7 @@ enabled = true
         let posted = served.replace("enabled = true", "enabled = false");
         let resolved = unmask_config_secrets(&posted, stored);
 
-        // Each real secret is restored to its own section — dashboard and brew not crossed.
+        // Each real secret is restored to its own section â€” dashboard and brew not crossed.
         assert!(resolved.contains("password = \"dashRealPw\""), "dashboard password restored");
         assert!(resolved.contains("password = \"brewRealPw!\""), "brew password restored");
         assert!(
@@ -8489,16 +8557,16 @@ enabled = true
 
     /// SHIP-BLOCKER regression: a TETRA SSI is 24 bits and the PDU serializers assert that range,
     /// so an out-of-range `dest_issi` on the dashboard SDS path used to reach `write_bits(ssi, 24)`
-    /// and abort the single stack thread — one WS frame crash-looping the whole cell. It must be
+    /// and abort the single stack thread â€” one WS frame crash-looping the whole cell. It must be
     /// refused at the dashboard boundary instead, and an in-range one must still go through.
     #[test]
     fn ws_sds_rejects_out_of_range_ssi() {
-        // 2^24 — the first value that no longer fits the 24-bit address field.
+        // 2^24 â€” the first value that no longer fits the 24-bit address field.
         let over = MAX_TETRA_SSI as u64 + 1;
         let sent = run_ws_command(&format!(r#"{{"type":"sds","dest_issi":{over},"message":"boom"}}"#));
         assert!(sent.is_empty(), "out-of-range dest_issi must never reach CMCE, got {sent:?}");
 
-        // 2^32 + 1 — `as u32` would silently truncate this to a perfectly legal-looking ISSI 1.
+        // 2^32 + 1 â€” `as u32` would silently truncate this to a perfectly legal-looking ISSI 1.
         let wrapped = 0x1_0000_0001u64;
         let sent = run_ws_command(&format!(r#"{{"type":"sds","dest_issi":{wrapped},"message":"boom"}}"#));
         assert!(sent.is_empty(), "wrapping dest_issi must be refused, not truncated");
@@ -8517,7 +8585,7 @@ enabled = true
         }
     }
 
-    /// The same 24-bit guard on the other privileged WS commands — each one addresses a radio or a
+    /// The same 24-bit guard on the other privileged WS commands â€” each one addresses a radio or a
     /// group and ends up in a serializer with the same assertion.
     #[test]
     fn ws_kick_and_dgna_reject_out_of_range_ssi() {
@@ -8547,7 +8615,7 @@ enabled = true
         let cfg_str = cfg.to_str().unwrap().to_string();
         std::fs::write(&cfg, MINIMAL_CONFIG).expect("seed active config");
 
-        // A truncated backup — parses as far as it goes, then stops mid-table.
+        // A truncated backup â€” parses as far as it goes, then stops mid-table.
         std::fs::write(format!("{cfg_str}.bak"), "config_version = \"0.6\"\n[phy_io\n").expect("seed bad backup");
         match restore_config_from_backup(&cfg_str) {
             Err((400, _)) => {}
@@ -8623,7 +8691,7 @@ enabled = true
         );
     }
 
-    /// A genuinely retyped secret (no mask characters) must overwrite the stored one — otherwise the
+    /// A genuinely retyped secret (no mask characters) must overwrite the stored one â€” otherwise the
     /// operator could never change a password.
     #[test]
     fn config_save_keeps_freshly_typed_secret() {
