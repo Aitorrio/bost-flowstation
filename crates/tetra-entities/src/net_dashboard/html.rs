@@ -7887,6 +7887,7 @@ function applyLang(){
   try{syncPowerMenuUi();}catch{}
   try{syncPrefsMenuUi();}catch{}
   try{installCfgHelp();}catch{}
+  try{setDcSub(dcState.running_active||dcState.active);}catch{}
 }
 function setLang(l,btn){
   currentLang=l;localStorage.setItem('fs_lang',l);
