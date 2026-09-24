@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.41 — Dual Carrier: una sola tarjeta
+
+- Carrier / TX / RX / shift del secondary van **dentro** de la tarjeta Dual Carrier (sin caja aparte).
+- Estado: **Activo** (verde negrita) / **Apagado** (naranja negrita); se quita el texto «carrier secundario #…».
+
 ## v0.3.40 — Dual Carrier UI: orden TS + mini-tiles
 
 - En BTS Details, la fila **MCCH (main)** va arriba y el **BCCH secondary** debajo.

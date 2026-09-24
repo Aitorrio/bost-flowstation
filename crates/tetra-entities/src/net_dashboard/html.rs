@@ -3395,17 +3395,23 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 }
 .bts-tile-value.tx{color:var(--accent);}
 .bts-tile-value.rx{color:var(--accent2);}
-/* Dual-carrier secondary mini-tiles (inside BTS Details) */
-.bts-secondary-wrap{
-  display:none;margin:0 18px 14px;padding:12px 14px;
-  border:1px solid color-mix(in srgb,var(--accent) 28%, var(--border));
-  border-radius:10px;background:color-mix(in srgb,var(--accent) 6%, var(--bg));
+/* Dual Carrier card (status + optional secondary tiles in one panel) */
+.bts-dc-card{
+  display:flex;flex-direction:column;gap:12px;
+  margin:0 18px 16px;padding:13px 16px;
+  background:linear-gradient(180deg, var(--bg), color-mix(in srgb,var(--bg) 80%, #000));
+  border:1px solid var(--border);border-radius:10px;box-shadow:var(--hair);
 }
+.bts-dc-top{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.bts-dc-actions{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.bts-dc-status{
+  font-family:var(--mono);font-size:12px;font-weight:800;letter-spacing:0.04em;
+  line-height:1.2;white-space:nowrap;
+}
+.bts-dc-status.is-on{color:var(--ok);}
+.bts-dc-status.is-off{color:var(--warn);}
+.bts-secondary-wrap{display:none;margin:0;padding:0;border:0;background:transparent;border-radius:0;}
 .bts-secondary-wrap.is-on{display:block;}
-.bts-secondary-head{
-  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:0.08em;
-  text-transform:uppercase;color:var(--accent);margin-bottom:10px;
-}
 .bts-secondary-grid{
   display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;
 }
@@ -3421,7 +3427,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .vc-dual-hint{font-size:11px;color:var(--text3);margin:6px 0 0;font-family:var(--mono);}
 @media(max-width:500px){
   .bts-secondary-grid{grid-template-columns:1fr 1fr;}
-  .bts-secondary-wrap{margin:0 12px 12px;}
+  .bts-dc-card{margin:0 12px 12px;}
 }
 /* Header status chips (Neighbor Cell / HangTime) */
 .bts-chip{
@@ -4441,26 +4447,29 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
           <span id="bts-access" class="bts-access">—</span>
         </div>
-        <!-- Dual Carrier — status + Config; secondary mini-tiles when active -->
-        <div class="bts-access-bar">
-          <div class="bts-access-info">
-            <span class="bts-access-icon">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 16.1a10 10 0 0 1 0-8.2"/><path d="M19.1 7.9a10 10 0 0 1 0 8.2"/><path d="M7.8 13.2a5 5 0 0 1 0-2.4"/><path d="M16.2 10.8a5 5 0 0 1 0 2.4"/><circle cx="12" cy="12" r="1.5"/></svg>
-            </span>
-            <div>
-              <div class="bts-access-title" data-i18n="dual_carrier">Dual Carrier</div>
-              <div class="bts-access-sub" id="dc-sub">—</div>
+        <!-- Dual Carrier — one card: status + Config; secondary tiles nested when ON -->
+        <div class="bts-dc-card" id="bts-dc-card">
+          <div class="bts-dc-top">
+            <div class="bts-access-info">
+              <span class="bts-access-icon">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 16.1a10 10 0 0 1 0-8.2"/><path d="M19.1 7.9a10 10 0 0 1 0 8.2"/><path d="M7.8 13.2a5 5 0 0 1 0-2.4"/><path d="M16.2 10.8a5 5 0 0 1 0 2.4"/><circle cx="12" cy="12" r="1.5"/></svg>
+              </span>
+              <div>
+                <div class="bts-access-title" data-i18n="dual_carrier">Dual Carrier</div>
+                <div class="bts-dc-status is-off" id="dc-sub">Apagado</div>
+              </div>
+            </div>
+            <div class="bts-dc-actions">
+              <button type="button" class="bts-dc-btn" id="dc-goto-config" onclick="gotoDualCarrierConfig()" data-i18n="dc_configure">Configure…</button>
             </div>
           </div>
-          <button type="button" class="bts-dc-btn" id="dc-goto-config" onclick="gotoDualCarrierConfig()" data-i18n="dc_configure">Configure…</button>
-        </div>
-        <div class="bts-secondary-wrap" id="bts-secondary-wrap">
-          <div class="bts-secondary-head" data-i18n="bts_secondary_head">Secondary carrier</div>
-          <div class="bts-secondary-grid">
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_sec_carrier">Carrier</div><div class="bts-tile-value" id="bts-sec-carrier">—</div></div>
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_tx">TX Freq</div><div class="bts-tile-value tx" id="bts-sec-tx">—</div></div>
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_rx">RX Freq</div><div class="bts-tile-value rx" id="bts-sec-rx">—</div></div>
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_shift">Duplex Shift</div><div class="bts-tile-value" id="bts-sec-shift">—</div></div>
+          <div class="bts-secondary-wrap" id="bts-secondary-wrap">
+            <div class="bts-secondary-grid">
+              <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_sec_carrier">Carrier</div><div class="bts-tile-value" id="bts-sec-carrier">—</div></div>
+              <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_tx">TX Freq</div><div class="bts-tile-value tx" id="bts-sec-tx">—</div></div>
+              <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_rx">RX Freq</div><div class="bts-tile-value rx" id="bts-sec-rx">—</div></div>
+              <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_shift">Duplex Shift</div><div class="bts-tile-value" id="bts-sec-shift">—</div></div>
+            </div>
           </div>
         </div>
       </div>
@@ -6895,7 +6904,7 @@ const LANGS={
     active_calls:'Active Calls',circuits:'circuits in use',
     registered_terminals:'Registered Radios',
     bts_details:'TETRA BTS Details',bts_tx:'TX Freq',bts_rx:'RX Freq',bts_shift:'Duplex Shift',bts_rate:'Sample Rate',
-    dual_carrier:'Dual Carrier',dc_on_sub:'On · secondary carrier #{c}',dc_off_sub:'Off · single carrier',
+    dual_carrier:'Dual Carrier',dc_on_sub:'On',dc_off_sub:'Off',
     dc_configure:'Configure…',bts_secondary_head:'Secondary carrier',bts_sec_carrier:'Carrier',
     cfg_secondary_carrier:'Secondary carrier',cfg_dual_hint:'Allowed ±{d} around main (Fs {fs} kHz)',
     cfg_dual_help:'Second traffic carrier on the same SDR. Secondary must fit the sample-rate passband; Fs is taken from the running SDR (or 600 kHz default).',
@@ -7199,7 +7208,7 @@ const LANGS={
     active_calls:'Apeluri Active',circuits:'circuite active',
     registered_terminals:'Radiouri Înregistrate',
     bts_details:'Detalii BTS TETRA',bts_tx:'Frecvență TX',bts_rx:'Frecvență RX',bts_shift:'Decalaj Duplex',bts_rate:'Rată Eșantionare',
-    dual_carrier:'Dual Carrier',dc_on_sub:'Pornit · carrier secundar #{c}',dc_off_sub:'Oprit · un singur carrier',
+    dual_carrier:'Dual Carrier',dc_on_sub:'Pornit',dc_off_sub:'Oprit',
     dc_configure:'Configurează…',bts_secondary_head:'Carrier secundar',bts_sec_carrier:'Carrier',
     cfg_secondary_carrier:'Carrier secundar',cfg_dual_hint:'Permis ±{d} față de main (Fs {fs} kHz)',
     cfg_dual_help:'Al doilea carrier de trafic pe același SDR. Secundarul trebuie să încapă în passband-ul Fs (SDR în funcțiune sau 600 kHz implicit).',
@@ -7498,7 +7507,7 @@ const LANGS={
     rf_no_gains:'no disponible',rf_just_now:'ahora',
 
     terminals:'Radios',registered:'registrados',
-    dual_carrier:'Dual Carrier',dc_on_sub:'Activo · carrier secundario #{c}',dc_off_sub:'Apagado · un solo carrier',
+    dual_carrier:'Dual Carrier',dc_on_sub:'Activo',dc_off_sub:'Apagado',
     dc_configure:'Configurar…',bts_secondary_head:'Carrier secundario',bts_sec_carrier:'Carrier',
     cfg_secondary_carrier:'Carrier secundario',cfg_dual_hint:'Permitido ±{d} alrededor del main (Fs {fs} kHz)',
     cfg_dual_help:'Segundo carrier de tráfico en el mismo SDR. El secundario debe caber en el passband de la Fs (la del SDR en marcha, o 600 kHz por defecto).',
@@ -13813,7 +13822,13 @@ const BTS_CLOCK_ICON='<svg viewBox="0 0 24 24" width="12" height="12" fill="none
 // -- Dual Carrier (Config form + BTS Details) --
 let dcState={enabled:false,secondary_carrier:null,active:false,running_active:false,main_carrier:null,
   sample_rate_hz:600000,passband_max_delta:24,secondary_min:0,secondary_max:3999};
-function setDcSub(txt){const e=document.getElementById('dc-sub');if(e)e.textContent=txt;}
+function setDcSub(on){
+  const e=document.getElementById('dc-sub');
+  if(!e)return;
+  const active=!!on;
+  e.textContent=active?t('dc_on_sub'):t('dc_off_sub');
+  e.className='bts-dc-status '+(active?'is-on':'is-off');
+}
 function dcMaxDelta(fs){const d=Math.floor((fs||600000)/25000);return Math.max(1,Math.min(3998,d));}
 function clampSecondaryCarrier(main,want,fs){
   const maxD=dcMaxDelta(fs);const m=main|0;
@@ -13864,7 +13879,7 @@ async function loadDualCarrier(){
     const d=await r.json();
     dcState=Object.assign(dcState,d);
     if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
-    setDcSub(d.running_active||d.active?t('dc_on_sub',{c:d.secondary_carrier}):t('dc_off_sub'));
+    setDcSub(d.running_active||d.active);
     updateVcDualHint();
   }catch{}
 }
@@ -13906,8 +13921,10 @@ async function loadBtsInfo(){
     const secWrap=document.getElementById('bts-secondary-wrap');
     const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier)
       ||(d.secondary_carrier!=null?carriers.find(c=>c.carrier_num===d.secondary_carrier):null);
+    const dualOn=!!d.dual_carrier_active;
+    setDcSub(dualOn);
     if(secWrap){
-      if(sec||d.dual_carrier_active||d.secondary_carrier!=null){
+      if(dualOn){
         const s=sec||{};
         secWrap.classList.add('is-on');
         set('bts-sec-carrier', (s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—')));
@@ -13980,8 +13997,10 @@ async function loadBtsInfoLegacy(){
     const secWrap=document.getElementById('bts-secondary-wrap');
     const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier)
       ||(d.secondary_carrier!=null?carriers.find(c=>c.carrier_num===d.secondary_carrier):null);
+    const dualOn=!!d.dual_carrier_active;
+    setDcSub(dualOn);
     if(secWrap){
-      if(sec||d.dual_carrier_active||d.secondary_carrier!=null){
+      if(dualOn){
         const s=sec||{};
         secWrap.classList.add('is-on');
         set('bts-sec-carrier', (s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—')));
