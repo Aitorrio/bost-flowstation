@@ -3577,6 +3577,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 [data-theme="light"] .stat-card{background:var(--bg2);}
 [data-theme="light"] .bts-tile,
 [data-theme="light"] .bts-access-bar,
+[data-theme="light"] .bts-dc-card,
 [data-theme="light"] .bts-chip{background:var(--bg);}
 [data-theme="light"] .card-head{background:linear-gradient(180deg,var(--bg3),transparent);}
 

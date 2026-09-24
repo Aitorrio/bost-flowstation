@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.42 — Dual Carrier: mismo fondo que el resto
+
+- La tarjeta Dual Carrier usa el mismo fondo plano (tema light) que Registration Access / tiles BTS.
+
 ## v0.3.41 — Dual Carrier: una sola tarjeta
 
 - Carrier / TX / RX / shift del secondary van **dentro** de la tarjeta Dual Carrier (sin caja aparte).
