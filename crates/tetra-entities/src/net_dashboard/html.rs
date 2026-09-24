@@ -3397,7 +3397,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .bts-tile-value.rx{color:var(--accent2);}
 /* Dual-carrier secondary mini-tiles (inside BTS Details) */
 .bts-secondary-wrap{
-  display:none;margin:0 18px 12px;padding:12px 14px;
+  display:none;margin:0 18px 14px;padding:12px 14px;
   border:1px solid color-mix(in srgb,var(--accent) 28%, var(--border));
   border-radius:10px;background:color-mix(in srgb,var(--accent) 6%, var(--bg));
 }
@@ -4353,15 +4353,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="bts-tile"><div class="bts-tile-label">MNC</div><div class="bts-tile-value" id="bts-mnc">—</div></div>
           <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_carrier">Main Carrier</div><div class="bts-tile-value" id="bts-carrier">—</div></div>
         </div>
-        <div class="bts-secondary-wrap" id="bts-secondary-wrap">
-          <div class="bts-secondary-head" data-i18n="bts_secondary_head">Secondary carrier</div>
-          <div class="bts-secondary-grid">
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_sec_carrier">Carrier</div><div class="bts-tile-value" id="bts-sec-carrier">—</div></div>
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_tx">TX Freq</div><div class="bts-tile-value tx" id="bts-sec-tx">—</div></div>
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_rx">RX Freq</div><div class="bts-tile-value rx" id="bts-sec-rx">—</div></div>
-            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_shift">Duplex Shift</div><div class="bts-tile-value" id="bts-sec-shift">—</div></div>
-          </div>
-        </div>
         <!-- Timeslots live inside BTS Details (between RF identity tiles and access bars) -->
         <div class="ts-grid" id="ts-grid">
           <div class="ts-row">
@@ -4450,7 +4441,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
           <span id="bts-access" class="bts-access">—</span>
         </div>
-        <!-- Dual Carrier — configure in TMO Cell; mini-tiles above when active -->
+        <!-- Dual Carrier — status + Config; secondary mini-tiles when active -->
         <div class="bts-access-bar">
           <div class="bts-access-info">
             <span class="bts-access-icon">
@@ -4462,6 +4453,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </div>
           </div>
           <button type="button" class="bts-dc-btn" id="dc-goto-config" onclick="gotoDualCarrierConfig()" data-i18n="dc_configure">Configure…</button>
+        </div>
+        <div class="bts-secondary-wrap" id="bts-secondary-wrap">
+          <div class="bts-secondary-head" data-i18n="bts_secondary_head">Secondary carrier</div>
+          <div class="bts-secondary-grid">
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_sec_carrier">Carrier</div><div class="bts-tile-value" id="bts-sec-carrier">—</div></div>
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_tx">TX Freq</div><div class="bts-tile-value tx" id="bts-sec-tx">—</div></div>
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_rx">RX Freq</div><div class="bts-tile-value rx" id="bts-sec-rx">—</div></div>
+            <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_shift">Duplex Shift</div><div class="bts-tile-value" id="bts-sec-shift">—</div></div>
+          </div>
         </div>
       </div>
 
@@ -10385,7 +10385,16 @@ function tsCanRenderAssignedCarrier(carrierNum,ts){
   return true;
 }
 function tsCarrierNumbers(){
-  return Object.keys(tsCarrierInfo).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+  // Main (MCCH) first, then secondary / others by carrier number.
+  const nums=Object.keys(tsCarrierInfo).map(Number).filter(Number.isFinite);
+  const main=state.mainCarrierNum;
+  return nums.sort((a,b)=>{
+    if(main!=null){
+      if(a===main&&b!==main)return -1;
+      if(b===main&&a!==main)return 1;
+    }
+    return a-b;
+  });
 }
 function tsEnsureCarrierInfo(carrierNum,txFreqHz,rxFreqHz){
   if(carrierNum==null||!isFinite(carrierNum))return;
@@ -13888,18 +13897,23 @@ async function loadBtsInfo(){
       carrier_num:d.main_carrier,tx_freq_hz:d.tx_freq_hz,rx_freq_hz:d.rx_freq_hz,
     }];
     carriers.forEach(c=>tsEnsureCarrierInfo(c.carrier_num,c.tx_freq_hz,c.rx_freq_hz));
+    if(d.secondary_carrier!=null&&d.dual_carrier_active){
+      const secC=carriers.find(c=>c.carrier_num===d.secondary_carrier);
+      tsEnsureCarrierInfo(d.secondary_carrier,secC&&secC.tx_freq_hz,secC&&secC.rx_freq_hz);
+    }
     renderTsGridCarrier();
 
     const secWrap=document.getElementById('bts-secondary-wrap');
-    const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier);
+    const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier)
+      ||(d.secondary_carrier!=null?carriers.find(c=>c.carrier_num===d.secondary_carrier):null);
     if(secWrap){
-      if(sec||d.dual_carrier_active){
-        const s=sec||carriers[1];
+      if(sec||d.dual_carrier_active||d.secondary_carrier!=null){
+        const s=sec||{};
         secWrap.classList.add('is-on');
-        set('bts-sec-carrier', s&&s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—'));
-        set('bts-sec-tx', mhz(s&&s.tx_freq_hz));
-        set('bts-sec-rx', mhz(s&&s.rx_freq_hz));
-        const secShift=(s&&s.tx_freq_hz!=null&&s.rx_freq_hz!=null)?(s.rx_freq_hz-s.tx_freq_hz):d.shift_hz;
+        set('bts-sec-carrier', (s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—')));
+        set('bts-sec-tx', mhz(s.tx_freq_hz));
+        set('bts-sec-rx', mhz(s.rx_freq_hz));
+        const secShift=(s.tx_freq_hz!=null&&s.rx_freq_hz!=null)?(s.rx_freq_hz-s.tx_freq_hz):d.shift_hz;
         set('bts-sec-shift', (secShift!=null&&isFinite(secShift))?((secShift>=0?'+':'')+(secShift/1e6).toFixed(3)+' MHz'):'—');
       }else{
         secWrap.classList.remove('is-on');
@@ -13937,8 +13951,8 @@ async function loadBtsInfoLegacy(){
     const r=await fetch('/api/btsinfo',{credentials:'same-origin'});
     if(!r.ok)return;
     const d=await r.json();
-    const set=(id,v)=>setText(id,(v==null||v==='')?'-':v);
-    const mhz=(hz,dp)=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'-';
+    const set=(id,v)=>setText(id,(v==null||v==='')?'—':v);
+    const mhz=(hz,dp)=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'—';
     const carriers=(Array.isArray(d.carriers)&&d.carriers.length)?d.carriers:[{
       carrier_num:d.main_carrier,
       tx_freq_hz:d.tx_freq_hz,
@@ -13947,25 +13961,48 @@ async function loadBtsInfoLegacy(){
 
     set('bts-tx', mhz(d.tx_freq_hz));
     set('bts-rx', mhz(d.rx_freq_hz));
-    set('bts-shift', (d.shift_hz!=null&&isFinite(d.shift_hz))?((d.shift_hz>=0?'+':'')+(d.shift_hz/1e6).toFixed(3)+' MHz'):'-');
+    set('bts-shift', (d.shift_hz!=null&&isFinite(d.shift_hz))?((d.shift_hz>=0?'+':'')+(d.shift_hz/1e6).toFixed(3)+' MHz'):'—');
     set('bts-mcc', d.mcc);
     set('bts-mnc', d.mnc);
-    set('bts-carrier', d.main_carrier!=null?('#'+d.main_carrier):'-');
+    set('bts-carrier', d.main_carrier!=null?('#'+d.main_carrier):'—');
 
     state.mainCarrierNum=d.main_carrier!=null?d.main_carrier:state.mainCarrierNum;
+    if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
     Object.keys(tsCarrierInfo).forEach(key=>delete tsCarrierInfo[key]);
     carriers.forEach(c=>tsEnsureCarrierInfo(c.carrier_num,c.tx_freq_hz,c.rx_freq_hz));
+    // Ensure secondary appears in the TS grid even if RF telemetry has not arrived yet.
+    if(d.secondary_carrier!=null&&d.dual_carrier_active){
+      const sec=carriers.find(c=>c.carrier_num===d.secondary_carrier);
+      tsEnsureCarrierInfo(d.secondary_carrier,sec&&sec.tx_freq_hz,sec&&sec.rx_freq_hz);
+    }
     renderTsGridCarrier();
+
+    const secWrap=document.getElementById('bts-secondary-wrap');
+    const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier)
+      ||(d.secondary_carrier!=null?carriers.find(c=>c.carrier_num===d.secondary_carrier):null);
+    if(secWrap){
+      if(sec||d.dual_carrier_active||d.secondary_carrier!=null){
+        const s=sec||{};
+        secWrap.classList.add('is-on');
+        set('bts-sec-carrier', (s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—')));
+        set('bts-sec-tx', mhz(s.tx_freq_hz));
+        set('bts-sec-rx', mhz(s.rx_freq_hz));
+        const secShift=(s.tx_freq_hz!=null&&s.rx_freq_hz!=null)?(s.rx_freq_hz-s.tx_freq_hz):d.shift_hz;
+        set('bts-sec-shift', (secShift!=null&&isFinite(secShift))?((secShift>=0?'+':'')+(secShift/1e6).toFixed(3)+' MHz'):'—');
+      }else{
+        secWrap.classList.remove('is-on');
+      }
+    }
 
     const nb=document.getElementById('bts-neighbor');
     if(nb){
       const n=d.neighbor_count||0;
-      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell | '+(n>0?('ON ('+n+' '+(n===1?'neighbor':'neighbors')+')'):'OFF');
+      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?'neighbor':'neighbors')+')'):'OFF');
       nb.className='bts-chip '+(n>0?'on':'off');
     }
     const hg=document.getElementById('bts-hang');
     if(hg){
-      hg.innerHTML=BTS_CLOCK_ICON+'HangTime | '+(d.hangtime_secs!=null?d.hangtime_secs:'-')+' sec';
+      hg.innerHTML=BTS_CLOCK_ICON+'HangTime — '+(d.hangtime_secs!=null?d.hangtime_secs:'—')+' sec';
       hg.className='bts-chip time';
     }
     const acc=document.getElementById('bts-access');
@@ -13980,7 +14017,7 @@ async function loadBtsInfoLegacy(){
         ? ((d.whitelist_count||0)+' '+t('bts_wl_entries'))
         : t('bts_wl_open');
     }
-  }catch(e){/* config endpoint unavailable - leave placeholders */}
+  }catch(e){/* config endpoint unavailable — leave placeholders */}
 }
 
 async function loadDashboardAuth(){

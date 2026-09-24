@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.40 — Dual Carrier UI: orden TS + mini-tiles
+
+- En BTS Details, la fila **MCCH (main)** va arriba y el **BCCH secondary** debajo.
+- Las mini-tiles del secondary (carrier, TX, RX, shift) aparecen **bajo Dual Carrier** cuando está activo (Home ya las rellena).
+
 ## v0.3.39 — Fix OTA: encoding en server.rs
 
 - Corrige literales UTF-8 corruptos en el detector de mojibake del dashboard que impedían compilar `tetra-entities` en OTA (v0.3.38).
