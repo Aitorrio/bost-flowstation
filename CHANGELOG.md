@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.43 — Dual Carrier: bordes de mini-tiles + promoción estable
+
+- Marcos de Carrier / TX / RX / Duplex dentro de Dual Carrier un poco más oscuros (mejor contraste).
+- Dual Carrier GUI (v0.3.38–0.3.43) promovido a canal **stable** (`main`).
+
 ## v0.3.42 — Dual Carrier: mismo fondo que el resto
 
 - La tarjeta Dual Carrier usa el mismo fondo plano (tema light) que Registration Access / tiles BTS.

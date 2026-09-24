@@ -3415,8 +3415,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .bts-secondary-grid{
   display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;
 }
-.bts-secondary-grid .bts-tile{padding:9px 10px;gap:4px;}
+.bts-secondary-grid .bts-tile{
+  padding:9px 10px;gap:4px;
+  border-color:color-mix(in srgb,var(--text) 28%, var(--border));
+  box-shadow:none;
+}
 .bts-secondary-grid .bts-tile-value{font-size:13px;}
+[data-theme="light"] .bts-secondary-grid .bts-tile{
+  border-color:color-mix(in srgb,var(--text) 22%, var(--border));
+  background:var(--bg2);
+}
 .bts-dc-btn{
   font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:0.04em;
   padding:7px 14px;border-radius:999px;border:1px solid var(--border2);
