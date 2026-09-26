@@ -167,31 +167,101 @@ fn ipv4_for_device(dev: &str) -> Result<Vec<String>, NetworkError> {
 
 /// Compact one-line summary for U-STATUS: `eth0=10.0.1.212* wlan0=10.0.1.228`.
 /// `*` marks the address that matches the default route ([`primary_ip`]).
+///
+/// **Must stay non-blocking** — this runs on the CMCE / radio hot path.
+/// Never call `nmcli` here (spawn + wait stalls TX and takes the stack down).
 pub fn format_ip_status_line() -> String {
-    match status() {
-        Ok(st) => {
-            let mut parts = Vec::new();
-            for iface in &st.interfaces {
-                if iface.kind != IfaceKind::Ethernet && iface.kind != IfaceKind::Wifi {
-                    continue;
-                }
-                for ip in &iface.ipv4 {
-                    let mark = if st.primary_ip.as_deref() == Some(ip.as_str()) {
-                        "*"
-                    } else {
-                        ""
-                    };
-                    parts.push(format!("{}={}{}", iface.name, ip, mark));
-                }
-            }
-            if parts.is_empty() {
-                st.primary_ip
-                    .unwrap_or_else(|| "n/a".to_string())
-            } else {
-                parts.join(" ")
-            }
+    let primary = crate::sys_telemetry::primary_ip();
+    let links = list_ipv4_ifaces_fast();
+    let mut parts = Vec::new();
+    for (name, ip) in &links {
+        // Prefer real LAN NICs; skip tunnels/bridges without a common prefix.
+        if !iface_is_lan(name) {
+            continue;
         }
-        Err(_) => crate::sys_telemetry::primary_ip().unwrap_or_else(|| "n/a".to_string()),
+        let mark = if primary.as_deref() == Some(ip.as_str()) {
+            "*"
+        } else {
+            ""
+        };
+        parts.push(format!("{name}={ip}{mark}"));
+    }
+    if parts.is_empty() {
+        primary.unwrap_or_else(|| "n/a".to_string())
+    } else {
+        // Keep SDS short: TETRA text SDS is limited; prefer eth/wlan first.
+        parts.join(" ")
+    }
+}
+
+fn iface_is_lan(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.starts_with("eth")
+        || n.starts_with("en")
+        || n.starts_with("wlan")
+        || n.starts_with("wl")
+        || n.starts_with("usb")
+}
+
+/// Fast IPv4 enumeration via `getifaddrs` — no subprocesses.
+/// Returns `(ifname, ipv4)` pairs, skipping loopback / unspecified.
+fn list_ipv4_ifaces_fast() -> Vec<(String, String)> {
+    #[cfg(unix)]
+    {
+        use std::ffi::CStr;
+        use std::net::Ipv4Addr;
+
+        let mut out = Vec::new();
+        unsafe {
+            let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
+            if libc::getifaddrs(&mut ifap) != 0 || ifap.is_null() {
+                return out;
+            }
+            let mut cur = ifap;
+            while !cur.is_null() {
+                let ifa = &*cur;
+                if !ifa.ifa_addr.is_null()
+                    && (*ifa.ifa_addr).sa_family as i32 == libc::AF_INET as i32
+                {
+                    let name = CStr::from_ptr(ifa.ifa_name)
+                        .to_string_lossy()
+                        .into_owned();
+                    if name != "lo" {
+                        let sin = &*(ifa.ifa_addr as *const libc::sockaddr_in);
+                        let ip = Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
+                        if !ip.is_unspecified() && !ip.is_loopback() {
+                            out.push((name, ip.to_string()));
+                        }
+                    }
+                }
+                cur = ifa.ifa_next;
+            }
+            libc::freeifaddrs(ifap);
+        }
+        // eth before wlan for stable SDS ordering
+        out.sort_by(|a, b| {
+            lan_rank(&a.0)
+                .cmp(&lan_rank(&b.0))
+                .then(a.0.cmp(&b.0))
+                .then(a.1.cmp(&b.1))
+        });
+        out.dedup();
+        out
+    }
+    #[cfg(not(unix))]
+    {
+        Vec::new()
+    }
+}
+
+fn lan_rank(name: &str) -> u8 {
+    let n = name.to_ascii_lowercase();
+    if n.starts_with("eth") || n.starts_with("en") {
+        0
+    } else if n.starts_with("wlan") || n.starts_with("wl") {
+        1
+    } else {
+        2
     }
 }
 
