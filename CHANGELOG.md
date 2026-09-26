@@ -2,6 +2,35 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.0 — Red host, Dual Carrier GUI y canal estable
+
+Salto menor de serie (aún sin rebrand a PTBS): nuevas capacidades de red en la GUI y consolidación de lo validado en beta.
+
+### Página Red (antes WiFi)
+
+- Menú **Red** con icono híbrido Ethernet+WiFi (superpuestos, estilo LST).
+- Sección **Enlaces**: interfaces ethernet/wifi con IP(s) y badge de **ruta por defecto**.
+- Gestión de perfiles **Ethernet** (conectar / desconectar) vía NetworkManager.
+- WiFi (conexión actual, redes guardadas, disponibles) en **una sola tarjeta** con separadores.
+- Estados NM y perfil «Wired connection» traducidos al idioma de la GUI.
+- API `/api/network/*` (overview + ethernet); `/api/wifi/*` sin cambios.
+
+### U-STATUS (walkie → ISSI 9999)
+
+- `ip` / `info` listan **todas** las IPs de host (`eth0=…*`, `wlan0=…`; `*` = ruta por defecto).
+- Respuesta **multilínea** (CR/LF admitidos en SDS de texto).
+- Enumeración rápida con `getifaddrs` (sin `nmcli` en el hilo de radio — evita caída del stack).
+
+### Dual Carrier (TMO Cell)
+
+- Configuración Dual Carrier en GUI (Config → Advanced RF), límite al passband de Fs.
+- Home / BTS Details: estado Activo/Apagado, mini-tiles secondary, orden MCCH/BCCH.
+
+### Repo / OTA
+
+- Eliminado el workflow de sync con upstream FlowStation (force-push a `main`).
+- Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
+
 ## v0.3.47 — U-STATUS IP multilínea
 
 - El SDS de texto admite CR/LF (antes se filtraban).
