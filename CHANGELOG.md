@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.47 — U-STATUS IP multilínea
+
+- El SDS de texto admite CR/LF (antes se filtraban).
+- Status IP: `Host IP` y cada interfaz en su línea (`eth0=…*`, `wlan0=…`).
+
 ## v0.3.46 — Fix: U-STATUS IP no bloquea el stack
 
 - El Status/info de IP ya no llama a `nmcli` en el hilo de radio (provocaba «Too late to produce TX block» y caída del stack).

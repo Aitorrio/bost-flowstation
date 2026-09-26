@@ -1408,8 +1408,11 @@ impl SdsBsSubentity {
             }
         };
         let mut payload = vec![0x82u8, 0x04u8, mr, 0x01u8];
-        // Keep printable ASCII only (the encoding byte declares ISO-8859-1/ASCII).
-        payload.extend(text.bytes().filter(|&b| b == b'\t' || (0x20..=0x7E).contains(&b)));
+        // ISO-8859-1 declared above: printable ASCII plus tab/CR/LF so multi-line
+        // replies (e.g. Host IP per interface) survive on the radio display.
+        payload.extend(text.bytes().filter(|&b| {
+            b == b'\t' || b == b'\n' || b == b'\r' || (0x20..=0x7E).contains(&b)
+        }));
         let len_bits = (payload.len() * 8) as u16;
         // Deliver the reply on the MCCH unconditionally: this is a response to a U-STATUS the
         // destination radio just sent us via random access on the MCCH, so it is provably
@@ -1519,7 +1522,8 @@ impl SdsBsSubentity {
             // ── FH-FEAT-014: query the host and reply to the requester as an SDS ──
             "ip" => {
                 let line = crate::host_network::format_ip_status_line();
-                self.send_text_sds(queue, 9999, source_ssi, &format!("Host IP: {line}"));
+                // Multi-line: title, then one iface per line (CR/LF allowed in SDS payload).
+                self.send_text_sds(queue, 9999, source_ssi, &format!("Host IP\n{line}"));
             }
             "temp" => {
                 let temp = crate::sys_telemetry::cpu_temp_c()
@@ -1536,7 +1540,12 @@ impl SdsBsSubentity {
                     queue,
                     9999,
                     source_ssi,
-                    &format!("FlowStation v{} | {} | {}", tetra_core::STACK_VERSION, line, temp),
+                    &format!(
+                        "FlowStation v{}\n{}\n{}",
+                        tetra_core::STACK_VERSION,
+                        line,
+                        temp
+                    ),
                 );
             }
             other => {

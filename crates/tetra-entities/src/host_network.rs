@@ -189,8 +189,8 @@ pub fn format_ip_status_line() -> String {
     if parts.is_empty() {
         primary.unwrap_or_else(|| "n/a".to_string())
     } else {
-        // Keep SDS short: TETRA text SDS is limited; prefer eth/wlan first.
-        parts.join(" ")
+        // One interface per line for SDS display (caller may prefix "Host IP\n").
+        parts.join("\n")
     }
 }
 
