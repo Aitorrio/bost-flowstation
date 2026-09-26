@@ -6,6 +6,7 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 - El SDS de texto admite CR/LF (antes se filtraban).
 - Status IP: `Host IP` y cada interfaz en su línea (`eth0=…*`, `wlan0=…`).
+- Página Red + fixes U-STATUS IP (v0.3.44–0.3.47) promovidos a canal **stable** (`main` / `bost`).
 
 ## v0.3.46 — Fix: U-STATUS IP no bloquea el stack
 
