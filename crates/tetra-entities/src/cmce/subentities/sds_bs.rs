@@ -1518,8 +1518,8 @@ impl SdsBsSubentity {
             }
             // ── FH-FEAT-014: query the host and reply to the requester as an SDS ──
             "ip" => {
-                let ip = crate::sys_telemetry::primary_ip().unwrap_or_else(|| "n/a".to_string());
-                self.send_text_sds(queue, 9999, source_ssi, &format!("Host IP: {ip}"));
+                let line = crate::host_network::format_ip_status_line();
+                self.send_text_sds(queue, 9999, source_ssi, &format!("Host IP: {line}"));
             }
             "temp" => {
                 let temp = crate::sys_telemetry::cpu_temp_c()
@@ -1528,7 +1528,7 @@ impl SdsBsSubentity {
                 self.send_text_sds(queue, 9999, source_ssi, &format!("Host temp: {temp}"));
             }
             "info" => {
-                let ip = crate::sys_telemetry::primary_ip().unwrap_or_else(|| "n/a".to_string());
+                let line = crate::host_network::format_ip_status_line();
                 let temp = crate::sys_telemetry::cpu_temp_c()
                     .map(|c| format!("{c:.1}C"))
                     .unwrap_or_else(|| "n/a".to_string());
@@ -1536,7 +1536,7 @@ impl SdsBsSubentity {
                     queue,
                     9999,
                     source_ssi,
-                    &format!("FlowStation v{} | IP {} | {}", tetra_core::STACK_VERSION, ip, temp),
+                    &format!("FlowStation v{} | {} | {}", tetra_core::STACK_VERSION, line, temp),
                 );
             }
             other => {

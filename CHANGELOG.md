@@ -2,6 +2,14 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.44 — Página Red: Ethernet + WiFi
+
+- La pestaña **WiFi** pasa a llamarse **Red** (icono híbrido Ethernet+WiFi).
+- Nueva sección **Enlaces**: todas las interfaces ethernet/wifi con IP y badge de **ruta por defecto**.
+- Gestión de perfiles **Ethernet** (conectar / desconectar) vía NetworkManager.
+- El bloque WiFi (conexión, guardadas, escaneo) se mantiene debajo.
+- U-STATUS `ip` / `info` listan las IPs por interfaz (`eth0=…* wlan0=…`; `*` = ruta por defecto).
+
 ## v0.3.43 — Dual Carrier: bordes de mini-tiles + promoción estable
 
 - Marcos de Carrier / TX / RX / Duplex dentro de Dual Carrier un poco más oscuros (mejor contraste).

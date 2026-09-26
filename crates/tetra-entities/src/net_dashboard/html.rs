@@ -466,11 +466,10 @@ body{
   font-size:10px;font-weight:500;color:var(--text3);margin-left:2px;
 }
 
-/* ── WiFi tab ─────────────────────────────────────────────────────────────
-   The WiFi tab shows three cards (status / saved profiles / scan results)
-   and a modal for entering passwords. Visual language matches the rest of
-   the dashboard: monospace labels, accent green for active items, hover
-   row highlighting that doesn't move content. */
+/* ── Network tab (Ethernet + WiFi) ────────────────────────────────────────
+   Overview of host LAN links, ethernet profile up/down, then the existing
+   WiFi cards (status / saved / scan). Visual language matches the rest of
+   the dashboard. */
 
 .wifi-status-grid{
   display:grid;grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));
@@ -1202,7 +1201,7 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-geoalarm .card-body,
 #page-dapnet .card-body,
 #page-asterisk .card-body,
-#page-wifi .card-body{padding:16px 18px;}
+#page-network .card-body{padding:16px 18px;}
 /* Setup info rows already pad themselves — avoid double inset once card-body has air. */
 #page-setup .card-body .info-row{padding-left:0;padding-right:0;}
 #page-setup .setup-device-list{margin:0 0 12px;}
@@ -3196,27 +3195,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     width:100%;margin-left:0;justify-content:flex-start;
   }
 
-  /* Wi‑Fi: action bars at card foot; rows stack Connect/Forget */
-  #page-wifi .card:has(> .card-head > .card-actions .btn){
+  /* Network: action bars at card foot; rows stack Connect/Forget */
+  #page-network .card:has(> .card-head > .card-actions .btn){
     display:flex;flex-direction:column;
   }
-  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head{
+  #page-network .card:has(> .card-head > .card-actions .btn) > .card-head{
     display:contents;
   }
-  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head > .card-title{
+  #page-network .card:has(> .card-head > .card-actions .btn) > .card-head > .card-title{
     order:1;width:100%;box-sizing:border-box;
     padding:14px 16px 12px;border-bottom:1px solid var(--border);
   }
-  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-body{
+  #page-network .card:has(> .card-head > .card-actions .btn) > .card-body{
     order:2;flex:1 1 auto;
   }
-  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head > .card-actions{
+  #page-network .card:has(> .card-head > .card-actions .btn) > .card-head > .card-actions{
     order:3;width:100%;margin:0;box-sizing:border-box;
     display:flex;flex-direction:column;gap:8px;
     padding:12px 14px max(12px, env(safe-area-inset-bottom));
     border-top:1px solid var(--sep);background:var(--bg2);
   }
-  #page-wifi .card:has(> .card-head > .card-actions .btn) > .card-head > .card-actions .btn{
+  #page-network .card:has(> .card-head > .card-actions .btn) > .card-head > .card-actions .btn{
     width:100%;justify-content:center;min-height:44px;
   }
   .wifi-status-grid{grid-template-columns:1fr 1fr;gap:12px;}
@@ -4053,12 +4052,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
     <!-- SYSTEM — configure / operate the station. -->
     <div class="nav-section-label" data-i18n-section="system_sec">SYSTEM</div>
-    <!-- WiFi tab is hidden until we confirm NetworkManager is available on
+    <!-- Network tab is hidden until we confirm NetworkManager is available on
          the host. The probe runs once at dashboard boot via /api/wifi/available
          and toggles this element's display. -->
-    <div class="nav-item" onclick="showPage('wifi',this)" id="nav-wifi" style="display:none">
-      <span class="nav-icon" data-icon="wifi"></span>
-      <span class="nav-label" data-i18n="wifi">WIFI</span>
+    <div class="nav-item" onclick="showPage('network',this)" id="nav-network" style="display:none">
+      <span class="nav-icon" data-icon="network_host"></span>
+      <span class="nav-label" data-i18n="network">NETWORK</span>
     </div>
     <div class="nav-item" onclick="showPage('setup',this);refreshSetupPage()" id="nav-setup">
       <span class="nav-icon" data-icon="config"></span>
@@ -6036,13 +6035,48 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
     </div>
 
-    <!-- ── WIFI ──
-         Three cards: current status (with disconnect / radio toggle), saved
-         profiles list, and visible networks scan. The whole tab is only
-         attached to a nav button when /api/wifi/available reports true so
-         we never tease functionality the host can't deliver. -->
-    <div class="page" id="page-wifi">
+    <!-- ── NETWORK (Ethernet + WiFi) ──
+         Links overview, ethernet profiles, then WiFi cards. The whole tab is
+         only attached to a nav button when /api/wifi/available reports true. -->
+    <div class="page" id="page-network">
       <div class="section-label" data-i18n="integrations">Integrations</div>
+
+      <!-- Host links: every ethernet/wifi iface with IPv4 + default-route badge -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="network_links">Links</div>
+          <div class="card-actions">
+            <button class="btn btn-sm" onclick="networkRefresh()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="wifi_refresh">Refresh</span></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="help-text" style="margin:0 0 12px;font-size:12px;color:var(--text3)" data-i18n="network_primary_hint">The default-route address is what U-STATUS and outbound traffic use. You can open the dashboard on any listed IP.</p>
+          <div id="network-links-list" class="wifi-list">
+            <div class="wifi-list-empty" data-i18n="wifi_loading">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ethernet profiles -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="network_ethernet">Ethernet</div>
+          <div class="card-actions">
+            <span id="eth-saved-count" class="card-sub"></span>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div class="banner banner-warn">
+            <span class="banner-ico" data-icon="alert"></span>
+            <div class="banner-body" data-i18n="eth_warn_lose_access">If you are connected via Ethernet, disconnecting the cable profile may cut off this session. Keep WiFi or another path available.</div>
+          </div>
+          <div id="eth-saved-list" class="wifi-list" style="padding:12px 18px 16px">
+            <div class="wifi-list-empty" data-i18n="wifi_loading">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label" data-i18n="network_wifi_sec">WiFi</div>
       <!-- Status card: who we're connected to right now, IP, signal -->
       <div class="card">
         <div class="card-head">
@@ -6817,6 +6851,8 @@ const ICONS = {
   config:'<circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8 6 18M18 6l1.8-1.8"/>',
   telegram:'<path d="M20 4 3.5 11.2l6 2.1M20 4l-2.8 14-7-3.6M20 4 9.6 13.6M9.6 13.6V18l2.6-2.6"/>',
   wifi:'<path d="M4.5 9a11 11 0 0 1 15 0M7.5 12.5a6.5 6.5 0 0 1 9 0"/><circle cx="12" cy="16.5" r="1.2" fill="currentColor" stroke="none"/>',
+  /* Hybrid ethernet jack (left) + WiFi arcs (right) for the Network nav item. */
+  network_host:'<rect x="2.5" y="9" width="7.5" height="7" rx="1"/><path d="M4.2 16v1.8h4.1V16"/><path d="M4.5 11.2h1.2M6.9 11.2h1.2M4.5 13.2h1.2M6.9 13.2h1.2"/><path d="M13.2 8.2a6.2 6.2 0 0 1 8.2 0M14.8 11a3.8 3.8 0 0 1 5 0"/><circle cx="17.3" cy="14.8" r="1.1" fill="currentColor" stroke="none"/>',
   system:'<rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3.5v2.5M15 3.5v2.5M9 18v2.5M15 18v2.5M3.5 9H6M3.5 15H6M18 9h2.5M18 15h2.5"/>',
   asterisk:'<circle cx="12" cy="12" r="7.5"/><path d="M12 7.5v9M8.1 9.75l7.8 4.5M15.9 9.75l-7.8 4.5"/>',
   dapnet:'<path d="M6.5 16v-4a5.5 5.5 0 0 1 11 0v4l1.5 2h-14Z"/><path d="M10.5 18.5a1.6 1.6 0 0 0 3 0"/>',
@@ -7157,7 +7193,7 @@ const LANGS={
     system:'System',sys_info:'System Info',sys_hostname:'Hostname',sys_uptime:'Uptime',
     sys_version:'Bost version',sys_os:'OS',sys_config:'Active Config',
     sys_cpu:'CPU',sys_cpu_load:'CPU Load',sys_ram:'RAM',sys_temp:'CPU Temp',
-    wifi:'WiFi',wifi_status:'Current connection',wifi_saved:'Saved networks',wifi_visible:'Available networks',wifi_loading:'Loading…',wifi_scanning:'Scanning…',wifi_no_device:'No WiFi device detected on this host.',wifi_radio_disabled:'WiFi radio is disabled.',wifi_not_connected:'Not connected to any network.',wifi_no_saved:'No saved networks.',wifi_no_networks:'No networks in range.',wifi_ssid:'Network',wifi_signal:'Signal',wifi_ip:'IP address',wifi_actions:'Actions',wifi_disconnect:'Disconnect',wifi_connect:'Connect',wifi_connect_to:'Connect to',wifi_connecting:'Connecting…',wifi_connected:'CONNECTED',wifi_connected_ok:'Connected.',wifi_saved_tag:'SAVED',wifi_open:'OPEN',wifi_forget:'Forget',wifi_confirm_forget:'Forget network',wifi_password:'Password',wifi_hidden:'Hidden network (SSID not broadcast)',wifi_add_hidden:'Hidden network',wifi_scan:'Scan',wifi_refresh:'Refresh',wifi_radio_off:'Disable WiFi',wifi_radio_on:'Enable WiFi',wifi_warn_lose_access:'If connected to the dashboard via WiFi, changing networks may temporarily disconnect you. Make sure you have a backup access path (Ethernet or known good network).',wifi_reconnect_hint:'Disconnect only drops the active profile — NetworkManager can reconnect automatically. Use Disable WiFi to keep the radio off on purpose.',wifi_err_no_ssid:'SSID required',cancel:'Cancel',sys_sensors:'Host Hardware Sensors',sys_sensors_empty:'No sensors detected on this host.',sys_rf:'RF Hardware (SoapySDR)',sys_autorefresh:'Auto-refresh 5s',
+    network:'Network',network_links:'Links',network_ethernet:'Ethernet',network_wifi_sec:'WiFi',network_primary_hint:'The default-route address is what U-STATUS and outbound traffic use. You can open the dashboard on any listed IP.',network_default_route:'DEFAULT ROUTE',network_iface:'Interface',network_kind:'Type',network_state:'State',network_no_links:'No network interfaces found.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WiFi',network_kind_other:'Other',eth_warn_lose_access:'If you are connected via Ethernet, disconnecting the cable profile may cut off this session. Keep WiFi or another path available.',eth_no_saved:'No saved Ethernet profiles.',eth_connected:'CONNECTED',wifi_status:'Current connection',wifi_saved:'Saved networks',wifi_visible:'Available networks',wifi_loading:'Loading…',wifi_scanning:'Scanning…',wifi_no_device:'No WiFi device detected on this host.',wifi_radio_disabled:'WiFi radio is disabled.',wifi_not_connected:'Not connected to any network.',wifi_no_saved:'No saved networks.',wifi_no_networks:'No networks in range.',wifi_ssid:'Network',wifi_signal:'Signal',wifi_ip:'IP address',wifi_actions:'Actions',wifi_disconnect:'Disconnect',wifi_connect:'Connect',wifi_connect_to:'Connect to',wifi_connecting:'Connecting…',wifi_connected:'CONNECTED',wifi_connected_ok:'Connected.',wifi_saved_tag:'SAVED',wifi_open:'OPEN',wifi_forget:'Forget',wifi_confirm_forget:'Forget network',wifi_password:'Password',wifi_hidden:'Hidden network (SSID not broadcast)',wifi_add_hidden:'Hidden network',wifi_scan:'Scan',wifi_refresh:'Refresh',wifi_radio_off:'Disable WiFi',wifi_radio_on:'Enable WiFi',wifi_warn_lose_access:'If connected to the dashboard via WiFi, changing networks may temporarily disconnect you. Make sure you have a backup access path (Ethernet or known good network).',wifi_reconnect_hint:'Disconnect only drops the active profile — NetworkManager can reconnect automatically. Use Disable WiFi to keep the radio off on purpose.',wifi_err_no_ssid:'SSID required',cancel:'Cancel',sys_sensors:'Host Hardware Sensors',sys_sensors_empty:'No sensors detected on this host.',sys_rf:'RF Hardware (SoapySDR)',sys_autorefresh:'Auto-refresh 5s',
     profile_edit_title:'Edit Config Profile',profile_edit_btn:'Edit',
     profile_edit_save_ok:'✓ Saved',profile_edit_save_fail:'✗ Save failed',
     sys_os:'OS',sys_version:'Bost version',sys_config:'Active Config',
@@ -7287,7 +7323,7 @@ const LANGS={
     system:'Sistem',sys_info:'Info Sistem',sys_hostname:'Hostname',sys_uptime:'Uptime',
     sys_os:'OS',sys_version:'Versiune Bost',sys_config:'Config Activ',
     sys_cpu:'CPU',sys_cpu_load:'Încărcare CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
-    wifi:'WiFi',wifi_status:'Conexiunea curentă',wifi_saved:'Rețele salvate',wifi_visible:'Rețele disponibile',wifi_loading:'Se încarcă…',wifi_scanning:'Se scanează…',wifi_no_device:'Niciun dispozitiv WiFi detectat.',wifi_radio_disabled:'Radioul WiFi este dezactivat.',wifi_not_connected:'Neconectat la nicio rețea.',wifi_no_saved:'Nicio rețea salvată.',wifi_no_networks:'Nicio rețea în rază.',wifi_ssid:'Rețea',wifi_signal:'Semnal',wifi_ip:'Adresă IP',wifi_actions:'Acțiuni',wifi_disconnect:'Deconectează',wifi_connect:'Conectează',wifi_connect_to:'Conectează la',wifi_connecting:'Se conectează…',wifi_connected:'CONECTAT',wifi_connected_ok:'Conectat.',wifi_saved_tag:'SALVAT',wifi_open:'DESCHIS',wifi_forget:'Uită',wifi_confirm_forget:'Uită rețeaua',wifi_password:'Parolă',wifi_hidden:'Rețea ascunsă (SSID nedifuzat)',wifi_add_hidden:'Rețea ascunsă',wifi_scan:'Scanează',wifi_refresh:'Reîncarcă',wifi_radio_off:'Dezactivează WiFi',wifi_radio_on:'Activează WiFi',wifi_warn_lose_access:'Dacă ești conectat la dashboard prin WiFi, schimbarea rețelei te poate deconecta temporar. Asigură-te că ai o cale alternativă (Ethernet sau rețea de încredere).',wifi_err_no_ssid:'SSID necesar',cancel:'Anulează',sys_sensors:'Senzori Hardware Gazdă',sys_sensors_empty:'Niciun senzor detectat.',sys_rf:'Hardware RF (SoapySDR)',sys_autorefresh:'Auto-refresh 5s',
+    network:'Rețea',network_links:'Legături',network_ethernet:'Ethernet',network_wifi_sec:'WiFi',network_primary_hint:'Adresa rutei implicite este cea folosită de U-STATUS și traficul de ieșire. Puteți deschide dashboard-ul pe orice IP listat.',network_default_route:'RUTĂ IMPLICITĂ',network_iface:'Interfață',network_kind:'Tip',network_state:'Stare',network_no_links:'Nicio interfață de rețea găsită.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WiFi',network_kind_other:'Altele',eth_warn_lose_access:'Dacă sunteți conectat prin Ethernet, deconectarea profilului poate întrerupe sesiunea. Păstrați WiFi sau o altă cale disponibilă.',eth_no_saved:'Niciun profil Ethernet salvat.',eth_connected:'CONECTAT',wifi_status:'Conexiunea curentă',wifi_saved:'Rețele salvate',wifi_visible:'Rețele disponibile',wifi_loading:'Se încarcă…',wifi_scanning:'Se scanează…',wifi_no_device:'Niciun dispozitiv WiFi detectat.',wifi_radio_disabled:'Radioul WiFi este dezactivat.',wifi_not_connected:'Neconectat la nicio rețea.',wifi_no_saved:'Nicio rețea salvată.',wifi_no_networks:'Nicio rețea în rază.',wifi_ssid:'Rețea',wifi_signal:'Semnal',wifi_ip:'Adresă IP',wifi_actions:'Acțiuni',wifi_disconnect:'Deconectează',wifi_connect:'Conectează',wifi_connect_to:'Conectează la',wifi_connecting:'Se conectează…',wifi_connected:'CONECTAT',wifi_connected_ok:'Conectat.',wifi_saved_tag:'SALVAT',wifi_open:'DESCHIS',wifi_forget:'Uită',wifi_confirm_forget:'Uită rețeaua',wifi_password:'Parolă',wifi_hidden:'Rețea ascunsă (SSID nedifuzat)',wifi_add_hidden:'Rețea ascunsă',wifi_scan:'Scanează',wifi_refresh:'Reîncarcă',wifi_radio_off:'Dezactivează WiFi',wifi_radio_on:'Activează WiFi',wifi_warn_lose_access:'Dacă ești conectat la dashboard prin WiFi, schimbarea rețelei te poate deconecta temporar. Asigură-te că ai o cale alternativă (Ethernet sau rețea de încredere).',wifi_err_no_ssid:'SSID necesar',cancel:'Anulează',sys_sensors:'Senzori Hardware Gazdă',sys_sensors_empty:'Niciun senzor detectat.',sys_rf:'Hardware RF (SoapySDR)',sys_autorefresh:'Auto-refresh 5s',
     profile_edit_title:'Editare Profil Config',profile_edit_btn:'Editează',
     profile_edit_save_ok:'✓ Salvat',profile_edit_save_fail:'✗ Salvare eșuată',
     sys_profiles:'Profile Config',sys_activate:'Activează & Repornire',
@@ -7409,7 +7445,7 @@ const LANGS={
     system:'System',sys_info:'Systeminfo',sys_hostname:'Hostname',sys_uptime:'Laufzeit',
     sys_os:'OS',sys_version:'Bost-Version',sys_config:'Aktive Konfig',
     sys_cpu:'CPU',sys_cpu_load:'CPU-Auslastung',sys_ram:'RAM',sys_temp:'CPU-Temp',
-    wifi:'WLAN',wifi_status:'Aktuelle Verbindung',wifi_saved:'Gespeicherte Netzwerke',wifi_visible:'Verfügbare Netzwerke',wifi_loading:'Wird geladen…',wifi_scanning:'Suche läuft…',wifi_no_device:'Kein WLAN-Gerät erkannt.',wifi_radio_disabled:'WLAN-Funk ist deaktiviert.',wifi_not_connected:'Mit keinem Netzwerk verbunden.',wifi_no_saved:'Keine gespeicherten Netzwerke.',wifi_no_networks:'Keine Netzwerke in Reichweite.',wifi_ssid:'Netzwerk',wifi_signal:'Signal',wifi_ip:'IP-Adresse',wifi_actions:'Aktionen',wifi_disconnect:'Trennen',wifi_connect:'Verbinden',wifi_connect_to:'Verbinden mit',wifi_connecting:'Verbinde…',wifi_connected:'VERBUNDEN',wifi_connected_ok:'Verbunden.',wifi_saved_tag:'GESPEICHERT',wifi_open:'OFFEN',wifi_forget:'Vergessen',wifi_confirm_forget:'Netzwerk vergessen',wifi_password:'Passwort',wifi_hidden:'Verstecktes Netzwerk (SSID nicht gesendet)',wifi_add_hidden:'Verstecktes Netzwerk',wifi_scan:'Suchen',wifi_refresh:'Aktualisieren',wifi_radio_off:'WLAN deaktivieren',wifi_radio_on:'WLAN aktivieren',wifi_warn_lose_access:'Wenn Sie über WLAN mit dem Dashboard verbunden sind, kann ein Netzwerkwechsel die Verbindung trennen. Stellen Sie sicher, dass Sie einen alternativen Zugang haben.',wifi_err_no_ssid:'SSID erforderlich',cancel:'Abbrechen',sys_sensors:'Host-Hardware-Sensoren',sys_sensors_empty:'Keine Sensoren erkannt.',sys_rf:'RF-Hardware (SoapySDR)',sys_autorefresh:'Auto-Aktualisierung 5s',
+    network:'Netzwerk',network_links:'Verbindungen',network_ethernet:'Ethernet',network_wifi_sec:'WLAN',network_primary_hint:'Die Standardroute-Adresse nutzen U-STATUS und ausgehender Verkehr. Das Dashboard ist über jede gelistete IP erreichbar.',network_default_route:'STANDARDROUTE',network_iface:'Schnittstelle',network_kind:'Typ',network_state:'Status',network_no_links:'Keine Netzwerkschnittstellen gefunden.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WLAN',network_kind_other:'Andere',eth_warn_lose_access:'Wenn Sie per Ethernet verbunden sind, kann das Trennen des Profils diese Sitzung unterbrechen. Halten Sie WLAN oder einen anderen Weg bereit.',eth_no_saved:'Keine gespeicherten Ethernet-Profile.',eth_connected:'VERBUNDEN',wifi_status:'Aktuelle Verbindung',wifi_saved:'Gespeicherte Netzwerke',wifi_visible:'Verfügbare Netzwerke',wifi_loading:'Wird geladen…',wifi_scanning:'Suche läuft…',wifi_no_device:'Kein WLAN-Gerät erkannt.',wifi_radio_disabled:'WLAN-Funk ist deaktiviert.',wifi_not_connected:'Mit keinem Netzwerk verbunden.',wifi_no_saved:'Keine gespeicherten Netzwerke.',wifi_no_networks:'Keine Netzwerke in Reichweite.',wifi_ssid:'Netzwerk',wifi_signal:'Signal',wifi_ip:'IP-Adresse',wifi_actions:'Aktionen',wifi_disconnect:'Trennen',wifi_connect:'Verbinden',wifi_connect_to:'Verbinden mit',wifi_connecting:'Verbinde…',wifi_connected:'VERBUNDEN',wifi_connected_ok:'Verbunden.',wifi_saved_tag:'GESPEICHERT',wifi_open:'OFFEN',wifi_forget:'Vergessen',wifi_confirm_forget:'Netzwerk vergessen',wifi_password:'Passwort',wifi_hidden:'Verstecktes Netzwerk (SSID nicht gesendet)',wifi_add_hidden:'Verstecktes Netzwerk',wifi_scan:'Suchen',wifi_refresh:'Aktualisieren',wifi_radio_off:'WLAN deaktivieren',wifi_radio_on:'WLAN aktivieren',wifi_warn_lose_access:'Wenn Sie über WLAN mit dem Dashboard verbunden sind, kann ein Netzwerkwechsel die Verbindung trennen. Stellen Sie sicher, dass Sie einen alternativen Zugang haben.',wifi_err_no_ssid:'SSID erforderlich',cancel:'Abbrechen',sys_sensors:'Host-Hardware-Sensoren',sys_sensors_empty:'Keine Sensoren erkannt.',sys_rf:'RF-Hardware (SoapySDR)',sys_autorefresh:'Auto-Aktualisierung 5s',
     profile_edit_title:'Konfigprofil bearbeiten',profile_edit_btn:'Bearbeiten',
     profile_edit_save_ok:'✓ Gespeichert',profile_edit_save_fail:'✗ Speichern fehlgeschlagen',
     sys_profiles:'Konfigprofile',sys_activate:'Aktivieren & Neustart',
@@ -7689,7 +7725,7 @@ const LANGS={
     system:'Sistema',sys_info:'Info del Sistema',sys_hostname:'Hostname',sys_uptime:'Tiempo activo',
     sys_os:'OS',sys_version:'Versión Bost',sys_config:'Config Activa',
     sys_cpu:'CPU',sys_cpu_load:'Carga CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
-    wifi:'WiFi',wifi_status:'Conexión actual',wifi_saved:'Redes guardadas',wifi_visible:'Redes disponibles',wifi_loading:'Cargando…',wifi_scanning:'Escaneando…',wifi_no_device:'No se detectó dispositivo WiFi.',wifi_radio_disabled:'Radio WiFi desactivada.',wifi_not_connected:'No conectado a ninguna red.',wifi_no_saved:'Sin redes guardadas.',wifi_no_networks:'Sin redes en rango.',wifi_ssid:'Red',wifi_signal:'Señal',wifi_ip:'Dirección IP',wifi_actions:'Acciones',wifi_disconnect:'Desconectar',wifi_connect:'Conectar',wifi_connect_to:'Conectar a',wifi_connecting:'Conectando…',wifi_connected:'CONECTADO',wifi_connected_ok:'Conectado.',wifi_saved_tag:'GUARDADO',wifi_open:'ABIERTO',wifi_forget:'Olvidar',wifi_confirm_forget:'Olvidar red',wifi_password:'Contraseña',wifi_hidden:'Red oculta (SSID no difundido)',wifi_add_hidden:'Red oculta',wifi_scan:'Escanear',wifi_refresh:'Actualizar',wifi_radio_off:'Desactivar WiFi',wifi_radio_on:'Activar WiFi',wifi_warn_lose_access:'Si estás conectado al dashboard vía WiFi, cambiar de red puede desconectarte temporalmente. Asegúrate de tener una vía de acceso alternativa.',wifi_reconnect_hint:'Desconectar solo baja el perfil activo - NetworkManager puede reconectar solo. Usa Desactivar WiFi para dejar la radio apagada a proposito.',wifi_err_no_ssid:'SSID requerido',cancel:'Cancelar',sys_sensors:'Sensores del Sistema',sys_sensors_empty:'No se detectaron sensores.',sys_rf:'Hardware RF (SoapySDR)',sys_autorefresh:'Auto-actualización 5s',
+    network:'Red',network_links:'Enlaces',network_ethernet:'Ethernet',network_wifi_sec:'WiFi',network_primary_hint:'La dirección de la ruta por defecto es la que usan U-STATUS y el tráfico saliente. Puedes abrir el dashboard con cualquiera de las IPs listadas.',network_default_route:'RUTA POR DEFECTO',network_iface:'Interfaz',network_kind:'Tipo',network_state:'Estado',network_no_links:'No se encontraron interfaces de red.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WiFi',network_kind_other:'Otra',eth_warn_lose_access:'Si estás conectado por Ethernet, desconectar el perfil cableado puede cortar esta sesión. Mantén WiFi u otra vía disponible.',eth_no_saved:'Sin perfiles Ethernet guardados.',eth_connected:'CONECTADO',wifi_status:'Conexión actual',wifi_saved:'Redes guardadas',wifi_visible:'Redes disponibles',wifi_loading:'Cargando…',wifi_scanning:'Escaneando…',wifi_no_device:'No se detectó dispositivo WiFi.',wifi_radio_disabled:'Radio WiFi desactivada.',wifi_not_connected:'No conectado a ninguna red.',wifi_no_saved:'Sin redes guardadas.',wifi_no_networks:'Sin redes en rango.',wifi_ssid:'Red',wifi_signal:'Señal',wifi_ip:'Dirección IP',wifi_actions:'Acciones',wifi_disconnect:'Desconectar',wifi_connect:'Conectar',wifi_connect_to:'Conectar a',wifi_connecting:'Conectando…',wifi_connected:'CONECTADO',wifi_connected_ok:'Conectado.',wifi_saved_tag:'GUARDADO',wifi_open:'ABIERTO',wifi_forget:'Olvidar',wifi_confirm_forget:'Olvidar red',wifi_password:'Contraseña',wifi_hidden:'Red oculta (SSID no difundido)',wifi_add_hidden:'Red oculta',wifi_scan:'Escanear',wifi_refresh:'Actualizar',wifi_radio_off:'Desactivar WiFi',wifi_radio_on:'Activar WiFi',wifi_warn_lose_access:'Si estás conectado al dashboard vía WiFi, cambiar de red puede desconectarte temporalmente. Asegúrate de tener una vía de acceso alternativa.',wifi_reconnect_hint:'Desconectar solo baja el perfil activo - NetworkManager puede reconectar solo. Usa Desactivar WiFi para dejar la radio apagada a proposito.',wifi_err_no_ssid:'SSID requerido',cancel:'Cancelar',sys_sensors:'Sensores del Sistema',sys_sensors_empty:'No se detectaron sensores.',sys_rf:'Hardware RF (SoapySDR)',sys_autorefresh:'Auto-actualización 5s',
     profile_edit_title:'Editar Perfil Config',profile_edit_btn:'Editar',
     profile_edit_save_ok:'✓ Guardado',profile_edit_save_fail:'✗ Error al guardar',
     sys_profiles:'Perfiles de Config',sys_activate:'Activar y Reiniciar',
@@ -7778,7 +7814,7 @@ const LANGS={
     sys_activate_confirm:'Váltás a(z) "{name}" profilra és újraindítás?\nAz aktuális konfig mentésre kerül.',
     sys_title:'Rendszer',sys_sec_status:'Állapot',sys_sec_host:'Gazda',sys_sec_radio:'Rádió hardver',sys_sec_sensors:'Szenzorok',sys_sec_profiles:'Profilok',sys_sec_sds:'SDS sugárzás',sys_refresh:'Frissítés',sys_probe:'Vizsgálat',sys_temp_hot:'FORRÓ',sys_temp_warm:'Meleg',sys_temp_ok:'OK',
     sys_bts:'BTS kapcsolat',
-    wifi:'WiFi',wifi_status:'Jelenlegi kapcsolat',wifi_saved:'Mentett hálózatok',wifi_visible:'Elérhető hálózatok',wifi_loading:'Betöltés…',wifi_scanning:'Keresés…',wifi_no_device:'Nem észlelhető WiFi eszköz.',wifi_radio_disabled:'WiFi rádió letiltva.',wifi_not_connected:'Nincs kapcsolat hálózathoz.',wifi_no_saved:'Nincs mentett hálózat.',wifi_no_networks:'Nincs hálózat hatótávolságon belül.',wifi_ssid:'Hálózat',wifi_signal:'Jelerősség',wifi_ip:'IP-cím',wifi_actions:'Műveletek',wifi_disconnect:'Bontás',wifi_connect:'Csatlakozás',wifi_connect_to:'Csatlakozás:',wifi_connecting:'Csatlakozás…',wifi_connected:'KAPCSOLÓDVA',wifi_connected_ok:'Csatlakoztatva.',wifi_saved_tag:'MENTETT',wifi_open:'NYITOTT',wifi_forget:'Elfelejtés',wifi_confirm_forget:'Hálózat elfelejtése',wifi_password:'Jelszó',wifi_hidden:'Rejtett hálózat (SSID nem sugárzott)',wifi_add_hidden:'Rejtett hálózat',wifi_scan:'Keresés',wifi_refresh:'Frissítés',wifi_radio_off:'WiFi letiltása',wifi_radio_on:'WiFi engedélyezése',wifi_warn_lose_access:'Ha WiFi-n keresztül csatlakozol a vezérlőpulthoz, a hálózat módosítása lecsatlakoztathat. Biztosíts alternatív hozzáférést.',wifi_err_no_ssid:'SSID szükséges',cancel:'Mégse',sys_sensors:'Gazdagép szenzorok',sys_sensors_empty:'Nem észlelhetők szenzorok.',
+    network:'Hálózat',network_links:'Kapcsolatok',network_ethernet:'Ethernet',network_wifi_sec:'WiFi',network_primary_hint:'Az alapértelmezett útvonal címét használja az U-STATUS és a kimenő forgalom. A vezérlőpult bármely listázott IP-n elérhető.',network_default_route:'ALAPÉRTELMEZETT ÚTVONAL',network_iface:'Interfész',network_kind:'Típus',network_state:'Állapot',network_no_links:'Nincs hálózati interfész.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WiFi',network_kind_other:'Egyéb',eth_warn_lose_access:'Ha Etherneten csatlakozik, a kábeles profil bontása megszakíthatja a munkamenetet. Tartson WiFi-t vagy más útvonalat készenlétben.',eth_no_saved:'Nincs mentett Ethernet-profil.',eth_connected:'KAPCSOLÓDVA',wifi_status:'Jelenlegi kapcsolat',wifi_saved:'Mentett hálózatok',wifi_visible:'Elérhető hálózatok',wifi_loading:'Betöltés…',wifi_scanning:'Keresés…',wifi_no_device:'Nem észlelhető WiFi eszköz.',wifi_radio_disabled:'WiFi rádió letiltva.',wifi_not_connected:'Nincs kapcsolat hálózathoz.',wifi_no_saved:'Nincs mentett hálózat.',wifi_no_networks:'Nincs hálózat hatótávolságon belül.',wifi_ssid:'Hálózat',wifi_signal:'Jelerősség',wifi_ip:'IP-cím',wifi_actions:'Műveletek',wifi_disconnect:'Bontás',wifi_connect:'Csatlakozás',wifi_connect_to:'Csatlakozás:',wifi_connecting:'Csatlakozás…',wifi_connected:'KAPCSOLÓDVA',wifi_connected_ok:'Csatlakoztatva.',wifi_saved_tag:'MENTETT',wifi_open:'NYITOTT',wifi_forget:'Elfelejtés',wifi_confirm_forget:'Hálózat elfelejtése',wifi_password:'Jelszó',wifi_hidden:'Rejtett hálózat (SSID nem sugárzott)',wifi_add_hidden:'Rejtett hálózat',wifi_scan:'Keresés',wifi_refresh:'Frissítés',wifi_radio_off:'WiFi letiltása',wifi_radio_on:'WiFi engedélyezése',wifi_warn_lose_access:'Ha WiFi-n keresztül csatlakozol a vezérlőpulthoz, a hálózat módosítása lecsatlakoztathat. Biztosíts alternatív hozzáférést.',wifi_err_no_ssid:'SSID szükséges',cancel:'Mégse',sys_sensors:'Gazdagép szenzorok',sys_sensors_empty:'Nem észlelhetők szenzorok.',
   },
   zh:{
     bts_ip:'BTS IP',offline:'离线',online:'在线',
@@ -7860,7 +7896,7 @@ const LANGS={
     system:'系统',sys_info:'系统信息',sys_hostname:'主机名',sys_uptime:'运行时间',
     sys_version:'Bost 版本',sys_os:'操作系统',sys_config:'当前配置',
     sys_cpu:'CPU',sys_cpu_load:'CPU 负载',sys_ram:'内存',sys_temp:'CPU 温度',
-    wifi:'WiFi',wifi_status:'当前连接',wifi_saved:'已保存的网络',wifi_visible:'可用网络',wifi_loading:'加载中…',wifi_scanning:'扫描中…',wifi_no_device:'未检测到 WiFi 设备。',wifi_radio_disabled:'WiFi 已禁用。',wifi_not_connected:'未连接任何网络。',wifi_no_saved:'无已保存的网络。',wifi_no_networks:'范围内无可用网络。',wifi_ssid:'网络',wifi_signal:'信号',wifi_ip:'IP 地址',wifi_actions:'操作',wifi_disconnect:'断开',wifi_connect:'连接',wifi_connect_to:'连接到',wifi_connecting:'连接中…',wifi_connected:'已连接',wifi_connected_ok:'已连接。',wifi_saved_tag:'已保存',wifi_open:'开放',wifi_forget:'忘记',wifi_confirm_forget:'忘记网络',wifi_password:'密码',wifi_hidden:'隐藏网络 (SSID 不广播)',wifi_add_hidden:'隐藏网络',wifi_scan:'扫描',wifi_refresh:'刷新',wifi_radio_off:'禁用 WiFi',wifi_radio_on:'启用 WiFi',wifi_warn_lose_access:'如果您通过 WiFi 连接到仪表板,更换网络可能会暂时断开您的连接。请确保有备用访问方式。',wifi_err_no_ssid:'需要 SSID',cancel:'取消',sys_sensors:'主机硬件传感器',sys_sensors_empty:'未检测到传感器。',sys_rf:'RF 硬件 (SoapySDR)',sys_autorefresh:'自动刷新 5秒',
+    network:'网络',network_links:'链路',network_ethernet:'以太网',network_wifi_sec:'WiFi',network_primary_hint:'默认路由地址用于 U-STATUS 和出站流量。可通过列出的任一 IP 打开仪表板。',network_default_route:'默认路由',network_iface:'接口',network_kind:'类型',network_state:'状态',network_no_links:'未找到网络接口。',network_kind_ethernet:'以太网',network_kind_wifi:'WiFi',network_kind_other:'其他',eth_warn_lose_access:'若通过以太网连接，断开有线配置可能会中断当前会话。请保留 WiFi 或其他访问路径。',eth_no_saved:'无已保存的以太网配置。',eth_connected:'已连接',wifi_status:'当前连接',wifi_saved:'已保存的网络',wifi_visible:'可用网络',wifi_loading:'加载中…',wifi_scanning:'扫描中…',wifi_no_device:'未检测到 WiFi 设备。',wifi_radio_disabled:'WiFi 已禁用。',wifi_not_connected:'未连接任何网络。',wifi_no_saved:'无已保存的网络。',wifi_no_networks:'范围内无可用网络。',wifi_ssid:'网络',wifi_signal:'信号',wifi_ip:'IP 地址',wifi_actions:'操作',wifi_disconnect:'断开',wifi_connect:'连接',wifi_connect_to:'连接到',wifi_connecting:'连接中…',wifi_connected:'已连接',wifi_connected_ok:'已连接。',wifi_saved_tag:'已保存',wifi_open:'开放',wifi_forget:'忘记',wifi_confirm_forget:'忘记网络',wifi_password:'密码',wifi_hidden:'隐藏网络 (SSID 不广播)',wifi_add_hidden:'隐藏网络',wifi_scan:'扫描',wifi_refresh:'刷新',wifi_radio_off:'禁用 WiFi',wifi_radio_on:'启用 WiFi',wifi_warn_lose_access:'如果您通过 WiFi 连接到仪表板,更换网络可能会暂时断开您的连接。请确保有备用访问方式。',wifi_err_no_ssid:'需要 SSID',cancel:'取消',sys_sensors:'主机硬件传感器',sys_sensors_empty:'未检测到传感器。',sys_rf:'RF 硬件 (SoapySDR)',sys_autorefresh:'自动刷新 5秒',
     profile_edit_title:'编辑配置文件',profile_edit_btn:'编辑',
     profile_edit_save_ok:'✓ 已保存',profile_edit_save_fail:'✗ 保存失败',
     sys_profiles:'配置文件',sys_activate:'激活并重启',
@@ -7879,7 +7915,7 @@ function applyLang(){
   document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n')));
   document.querySelectorAll('[data-i18n-tab]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n-tab')));
   // Update nav labels
-  ['stations','dgna','calls','lastheard','rf','health','log','sdslog','asterisk','dapnet','geoalarm','telegram','wifi','setup','config','system'].forEach(p=>{
+  ['stations','dgna','calls','lastheard','rf','health','log','sdslog','asterisk','dapnet','geoalarm','telegram','lst_dispatch','network','setup','config','system'].forEach(p=>{
     const el=document.querySelector(`#nav-${p} .nav-label`);
     if(el)el.textContent=t(p);
   });
@@ -8073,7 +8109,7 @@ function closeMobileSidebar(){
 }
 
 // ── Page navigation ───────────────────────────────────────────────────────
-const PAGE_TITLES={stations:'stations',dgna:'dgna',calls:'calls',lastheard:'lastheard',log:'log',sdslog:'sdslog',rf:'rf',health:'health',asterisk:'asterisk',dapnet:'dapnet',echolink:'echolink',meshcom:'meshcom',geoalarm:'geoalarm',telegram:'telegram',lst_dispatch:'lst_dispatch',setup:'setup',config:'config',system:'system',wifi:'wifi'};
+const PAGE_TITLES={stations:'stations',dgna:'dgna',calls:'calls',lastheard:'lastheard',log:'log',sdslog:'sdslog',rf:'rf',health:'health',asterisk:'asterisk',dapnet:'dapnet',echolink:'echolink',meshcom:'meshcom',geoalarm:'geoalarm',telegram:'telegram',lst_dispatch:'lst_dispatch',setup:'setup',config:'config',system:'system',network:'network'};
 function showPage(name,el){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -8107,33 +8143,155 @@ function showPage(name,el){
     else applyUpdateCheckUi(otaLastCheck);
   }
   else if(sysAutoRefreshTimer){clearInterval(sysAutoRefreshTimer);sysAutoRefreshTimer=null;const cb=document.getElementById('sys-autorefresh');if(cb)cb.checked=false;}
-  if(name==='wifi')wifiRefresh();
+  if(name==='network')networkRefresh();
   if(name==='lst_dispatch')lstPageEnter();
   else if(lstToken)lstSetFastPoll(false);
   if(window.innerWidth<=700)closeMobileSidebar();
 }
 
-// ── WiFi management ────────────────────────────────────────────────────────
-// All WiFi state mutations are last-write-wins and idempotent on the server,
-// so we don't bother with optimistic UI updates — just fire the request,
-// wait for completion, then refresh the displayed state. This is the only
-// safe approach since nmcli can take a few seconds to actually associate
-// and a brief "Connecting…" state is more honest than fake instant success.
+// ── Host network + WiFi management ─────────────────────────────────────────
+// Network overview / ethernet profiles use /api/network/*; WiFi scan/connect
+// stay on /api/wifi/*. Mutations are last-write-wins and idempotent on the
+// server — fire request, wait, then refresh.
 
 let wifiState = { status: null, saved: [], scan: [], modalMode: null, modalSsid: null };
+let networkState = { status: null, ethSaved: [] };
 
 /// One-shot probe at boot: is nmcli installed on this host? Toggles the
 /// sidebar nav item visibility. Falls back to hidden if the request fails
 /// for any reason — better to not advertise than to crash on click.
-async function wifiProbeAvailable(){
+async function networkProbeAvailable(){
   try{
     const res = await fetch('/api/wifi/available');
     const j = await res.json();
     if(j && j.available){
-      const nav = document.getElementById('nav-wifi');
+      const nav = document.getElementById('nav-network');
       if(nav) nav.style.display = '';
     }
   }catch(_){ /* leave hidden */ }
+}
+
+async function networkRefresh(){
+  await Promise.all([networkLoadStatus(), networkLoadEthernetSaved(), wifiRefresh()]);
+}
+
+async function networkLoadStatus(){
+  const el = document.getElementById('network-links-list');
+  if(!el) return;
+  try{
+    const r = await fetch('/api/network/status');
+    const j = await r.json();
+    if(!j.ok){
+      el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(j.error&&j.error.msg||'Error')}</div>`;
+      return;
+    }
+    networkState.status = j.status;
+    networkRenderLinks();
+  }catch(e){
+    el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(String(e))}</div>`;
+  }
+}
+
+function networkKindLabel(kind){
+  if(kind==='ethernet') return t('network_kind_ethernet')||'Ethernet';
+  if(kind==='wifi') return t('network_kind_wifi')||'WiFi';
+  return t('network_kind_other')||'Other';
+}
+
+function networkRenderLinks(){
+  const el = document.getElementById('network-links-list');
+  if(!el) return;
+  const st = networkState.status;
+  const ifaces = (st && st.interfaces) || [];
+  if(!ifaces.length){
+    el.innerHTML = `<div class="wifi-list-empty">${t('network_no_links')||'No network interfaces found.'}</div>`;
+    return;
+  }
+  el.innerHTML = '';
+  ifaces.forEach(iface => {
+    const row=document.createElement('div');
+    row.className='wifi-row'+(iface.is_default?' active':'');
+    const main=document.createElement('div');main.className='wifi-row-main';
+    const title=document.createElement('div');title.className='wifi-row-ssid';
+    title.appendChild(document.createTextNode(iface.name||''));
+    const kindTag=document.createElement('span');kindTag.className='wifi-tag saved';
+    kindTag.textContent=' '+networkKindLabel(iface.kind);
+    title.appendChild(kindTag);
+    if(iface.is_default){
+      const def=document.createElement('span');def.className='wifi-tag active';
+      def.textContent=' '+(t('network_default_route')||'DEFAULT ROUTE');
+      title.appendChild(def);
+    }
+    main.appendChild(title);
+    const meta=document.createElement('div');meta.className='wifi-row-meta';
+    const state=document.createElement('span');state.textContent=iface.state||'—';meta.appendChild(state);
+    if(iface.connection){
+      const conn=document.createElement('span');conn.textContent=iface.connection;meta.appendChild(conn);
+    }
+    const ips=(iface.ipv4&&iface.ipv4.length)?iface.ipv4.join(', '):'—';
+    const ipEl=document.createElement('span');ipEl.textContent=ips;meta.appendChild(ipEl);
+    main.appendChild(meta);
+    row.appendChild(main);
+    el.appendChild(row);
+  });
+}
+
+async function networkLoadEthernetSaved(){
+  const el = document.getElementById('eth-saved-list');
+  const cnt = document.getElementById('eth-saved-count');
+  if(!el) return;
+  try{
+    const r = await fetch('/api/network/ethernet/saved');
+    const j = await r.json();
+    if(!j.ok){
+      el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(j.error&&j.error.msg||'Error')}</div>`;
+      return;
+    }
+    networkState.ethSaved = j.profiles || [];
+    if(cnt) cnt.textContent = networkState.ethSaved.length ? `${networkState.ethSaved.length}` : '';
+    if(networkState.ethSaved.length === 0){
+      el.innerHTML = `<div class="wifi-list-empty">${t('eth_no_saved')||'No saved Ethernet profiles.'}</div>`;
+      return;
+    }
+    el.innerHTML = '';
+    networkState.ethSaved.forEach(p => {
+      const row=document.createElement('div');
+      row.className='wifi-row'+(p.active?' active':'');
+      const main=document.createElement('div');main.className='wifi-row-main';
+      const name=document.createElement('div');name.className='wifi-row-ssid';
+      name.appendChild(document.createTextNode(p.name||''));
+      if(p.active){
+        const tag=document.createElement('span');tag.className='wifi-tag active';
+        tag.textContent=' '+(t('eth_connected')||'CONNECTED');
+        name.appendChild(tag);
+      }
+      main.appendChild(name);row.appendChild(main);
+      const actions=document.createElement('div');actions.className='wifi-row-actions';
+      if(p.active){
+        const b=document.createElement('button');b.className='btn btn-sm btn-warn';
+        b.textContent=t('wifi_disconnect')||'Disconnect';
+        b.onclick=()=>networkEthDown(p.uuid);actions.appendChild(b);
+      }else{
+        const b=document.createElement('button');b.className='btn btn-sm';
+        b.textContent=t('wifi_connect')||'Connect';
+        b.onclick=()=>networkEthUp(p.uuid);actions.appendChild(b);
+      }
+      row.appendChild(actions);
+      el.appendChild(row);
+    });
+  }catch(e){
+    el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(String(e))}</div>`;
+  }
+}
+
+async function networkEthUp(uuid){
+  await wifiCall('/api/network/ethernet/up', {uuid});
+  await networkRefresh();
+}
+
+async function networkEthDown(uuid){
+  await wifiCall('/api/network/ethernet/down', {uuid});
+  await networkRefresh();
 }
 
 async function wifiRefresh(){
@@ -9689,7 +9847,7 @@ function wifiSignalBars(signal){
 
 async function wifiConnectSaved(uuid){
   await wifiCall('/api/wifi/connect', { uuid });
-  await wifiRefresh();
+  await networkRefresh();
 }
 
 // "Connect by SSID" path is for networks already saved but visible in the
@@ -9770,7 +9928,7 @@ async function wifiModalSubmit(){
   okBtn.disabled = false;
   if(r && r.ok){
     msg.textContent = t('wifi_connected_ok')||'Connected.';
-    setTimeout(()=>{ wifiCloseModal(); wifiRefresh(); }, 800);
+    setTimeout(()=>{ wifiCloseModal(); networkRefresh(); }, 800);
   } else {
     const errMsg = r && r.error ? (r.error.msg || JSON.stringify(r.error)) : 'Failed';
     msg.textContent = errMsg;
@@ -9780,21 +9938,21 @@ async function wifiModalSubmit(){
 
 async function wifiDisconnect(){
   await wifiCall('/api/wifi/disconnect', {});
-  await wifiRefresh();
+  await networkRefresh();
 }
 
 async function wifiForget(uuid, name){
   const ok=await dashConfirm(t('wifi_forget'),t('wifi_confirm_forget_body',{name:name||''}),{danger:true,confirmLabel:t('wifi_forget')});
   if(!ok) return;
   await wifiCall('/api/wifi/forget', { uuid });
-  await wifiRefresh();
+  await networkRefresh();
 }
 
 async function wifiToggleRadio(){
   const s = wifiState.status;
   const newEnabled = s ? !s.radio_enabled : false;
   await wifiCall('/api/wifi/radio', { enabled: newEnabled });
-  await wifiRefresh();
+  await networkRefresh();
 }
 
 async function wifiCall(url, body){
@@ -15594,7 +15752,7 @@ async function boot(){
   loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Home) page
   loadDualCarrier();    // Dual-Carrier ON/OFF toggle state
   refreshProfileSelects(); // Home quick Cell × Brew selectors
-  wifiProbeAvailable(); // toggles the WiFi nav item
+  networkProbeAvailable(); // toggles the Network nav item
   loadOtaChannel();
   try{installCfgHelp();}catch{}
   // Defer GitHub OTA check — multi-request, used to stall a dashboard thread on every reload.

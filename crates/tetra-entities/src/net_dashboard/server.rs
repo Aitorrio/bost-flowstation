@@ -4157,6 +4157,67 @@ fn handle_connection(
             Err(e) => serde_json::to_string(&serde_json::json!({"ok": false, "error": e})).unwrap_or_default(),
         };
         http_json_response(stream, 200, &body);
+    // ── Host network (Ethernet + overview) ─────────────────────────────
+    // Complements /api/wifi/*: lists all host LAN ifaces and manages
+    // ethernet profiles. Wi-Fi scan/connect stays under /api/wifi.
+    } else if req_line.contains("GET /api/network/status") {
+        drain_http_headers(&mut stream);
+        let body = match crate::host_network::status() {
+            Ok(s) => serde_json::to_string(&serde_json::json!({"ok": true, "status": s})).unwrap_or_default(),
+            Err(e) => serde_json::to_string(&serde_json::json!({"ok": false, "error": e})).unwrap_or_default(),
+        };
+        http_json_response(stream, 200, &body);
+    } else if req_line.contains("GET /api/network/ethernet/saved") {
+        drain_http_headers(&mut stream);
+        let body = match crate::host_network::list_ethernet_saved() {
+            Ok(profiles) => serde_json::to_string(&serde_json::json!({"ok": true, "profiles": profiles})).unwrap_or_default(),
+            Err(e) => serde_json::to_string(&serde_json::json!({"ok": false, "error": e})).unwrap_or_default(),
+        };
+        http_json_response(stream, 200, &body);
+    } else if req_line.contains("POST /api/network/ethernet/up") {
+        let body = read_http_body(&mut stream);
+        let req: serde_json::Value = match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(e) => {
+                http_response(stream, 400, &format!("invalid JSON: {}", e));
+                return;
+            }
+        };
+        let uuid = match req.get("uuid").and_then(|v| v.as_str()) {
+            Some(u) => u,
+            None => {
+                http_response(stream, 400, "missing uuid");
+                return;
+            }
+        };
+        tracing::info!("Dashboard: bringing ethernet profile up uuid={}", uuid);
+        let body = match crate::host_network::ethernet_up(uuid) {
+            Ok(_) => serde_json::to_string(&serde_json::json!({"ok": true})).unwrap_or_default(),
+            Err(e) => serde_json::to_string(&serde_json::json!({"ok": false, "error": e})).unwrap_or_default(),
+        };
+        http_json_response(stream, 200, &body);
+    } else if req_line.contains("POST /api/network/ethernet/down") {
+        let body = read_http_body(&mut stream);
+        let req: serde_json::Value = match serde_json::from_slice(&body) {
+            Ok(v) => v,
+            Err(e) => {
+                http_response(stream, 400, &format!("invalid JSON: {}", e));
+                return;
+            }
+        };
+        let uuid = match req.get("uuid").and_then(|v| v.as_str()) {
+            Some(u) => u,
+            None => {
+                http_response(stream, 400, "missing uuid");
+                return;
+            }
+        };
+        tracing::info!("Dashboard: bringing ethernet profile down uuid={}", uuid);
+        let body = match crate::host_network::ethernet_down(uuid) {
+            Ok(_) => serde_json::to_string(&serde_json::json!({"ok": true})).unwrap_or_default(),
+            Err(e) => serde_json::to_string(&serde_json::json!({"ok": false, "error": e})).unwrap_or_default(),
+        };
+        http_json_response(stream, 200, &body);
     } else if req_line.contains("GET /api/wifi/available") {
         // Cheap probe used by the dashboard to decide whether to even show
         // the WiFi tab. Returns {"available": true|false}.
