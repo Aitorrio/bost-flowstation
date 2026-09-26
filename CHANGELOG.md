@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.46 — Fix: U-STATUS IP no bloquea el stack
+
+- El Status/info de IP ya no llama a `nmcli` en el hilo de radio (provocaba «Too late to produce TX block» y caída del stack).
+- Lista IPs con `getifaddrs` + `primary_ip()` (rápido, como el Status de temperatura).
+
 ## v0.3.45 — Red: icono, i18n NM y WiFi unificado
 
 - Icono de menú Red: jack Ethernet y arcos WiFi superpuestos (estilo LST), arcos más anchos.
