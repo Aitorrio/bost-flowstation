@@ -2,6 +2,12 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.3.45 — Red: icono, i18n NM y WiFi unificado
+
+- Icono de menú Red: jack Ethernet y arcos WiFi superpuestos (estilo LST), arcos más anchos.
+- Sección de página «Red» (antes «Integraciones»); WiFi en una sola tarjeta con separadores.
+- Estados NM (`connected`, …) y perfil «Wired connection» traducidos al idioma de la GUI.
+
 ## v0.3.44 — Página Red: Ethernet + WiFi
 
 - La pestaña **WiFi** pasa a llamarse **Red** (icono híbrido Ethernet+WiFi).
