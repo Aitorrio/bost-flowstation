@@ -462,24 +462,35 @@ impl CcBsSubentity {
             return;
         }
 
-        let to_drop: Vec<(u16, CallOrigin)> = self
+        let to_drop: Vec<(u16, CallOrigin, Option<uuid::Uuid>)> = self
             .active_calls
             .iter()
             .filter(|(_, call)| call.dest_gssi == gssi)
-            .map(|(call_id, call)| (*call_id, call.origin.clone()))
+            .map(|(call_id, call)| (*call_id, call.origin.clone(), call.brew_uuid))
             .collect();
 
-        for (call_id, origin) in to_drop {
-            // Network (Brew/LST) calls: park on the network entity instead of End.
-            // Leaving the TG mid-QSO (or a register burst that deaffiliates then affiliates)
-            // must keep the remote session so re-Affiliate can late-enter again.
-            if let CallOrigin::Network { brew_uuid } = origin {
+        for (call_id, origin, brew_uuid_opt) in to_drop {
+            // Network (Brew/LST) calls — and Local calls where Brew already holds the floor —
+            // park on the network entity instead of End. Leaving the TG mid-QSO (or a register
+            // burst that deaffiliates then affiliates) must keep the remote session so
+            // re-Affiliate can late-enter again. Local+Brew covers the WiFi race where origin
+            // was not yet transferred to Network.
+            let hold_uuid = match (&origin, brew_uuid_opt) {
+                (CallOrigin::Network { brew_uuid }, _) => Some(*brew_uuid),
+                (CallOrigin::Local { .. }, Some(uuid)) => Some(uuid),
+                (CallOrigin::Local { .. }, None) => None,
+            };
+            if let Some(brew_uuid) = hold_uuid {
                 tracing::info!(
                     "CMCE: holding network call_id={} gssi={} uuid={} (no local listeners)",
                     call_id,
                     gssi,
                     brew_uuid
                 );
+                // Ensure release_group_call does not NetworkCallEnd after Hold (pending-inbound).
+                if let Some(call) = self.active_calls.get_mut(&call_id) {
+                    call.origin = CallOrigin::Network { brew_uuid };
+                }
                 Self::push_control(
                     queue,
                     TetraEntity::Brew,
@@ -1054,9 +1065,25 @@ impl CcBsSubentity {
             let ts = call.ts;
             let dest_ssi = call.dest_gssi;
             let is_local = matches!(call.origin, CallOrigin::Local { .. });
+            // Local teardown that still has Brew inbound (zombie after WiFi race): End Brew
+            // before close_circuit. Network origin uses Never here — Hold already parked
+            // pending-inbound; media-inactivity callers notify NetworkCallEnd themselves.
+            let zombie_brew_uuid = if is_local { call.brew_uuid } else { None };
 
             let carrier_num = call.carrier_num;
             self.preempt_pending.remove(&call_id);
+
+            if let Some(brew_uuid) = zombie_brew_uuid {
+                if brew::is_brew_gssi_routable(&self.config, dest_ssi) {
+                    tracing::info!(
+                        "CMCE: NetworkCallEnd uuid={} before Local release call_id={} (stop zombie DL)",
+                        brew_uuid,
+                        call_id
+                    );
+                    self.notify_network_call_end(queue, brew_uuid);
+                }
+            }
+
             if let Ok(circuit) = self.circuits.close_circuit_slot(Direction::Both, carrier_num, ts) {
                 Self::signal_umac_circuit_close(queue, circuit, self.dltime);
             }

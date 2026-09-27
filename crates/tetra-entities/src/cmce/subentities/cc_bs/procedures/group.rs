@@ -355,11 +355,22 @@ impl CcBsSubentity {
         call.grant_floor(source_issi, None);
         call.touch_activity(self.dltime);
         call.brew_uuid = Some(brew_uuid);
-        if let CallOrigin::Network { brew_uuid: old_uuid } = call.origin
-            && old_uuid != brew_uuid
-        {
-            tracing::warn!("CMCE FSM: network call start changed brew_uuid call_id={}", call_id);
-            call.origin = CallOrigin::Network { brew_uuid };
+        // Brew holds the floor: call is network-owned. Keeps leave-TG / owner U-DISCONNECT
+        // on the Hold → LATE ENTRY path (Ethernet) instead of Local teardown (WiFi race).
+        match &call.origin {
+            CallOrigin::Local { .. } => {
+                tracing::info!(
+                    "CMCE FSM: transferring call_id={} ownership Local→Network (Brew speaker uuid={})",
+                    call_id,
+                    brew_uuid
+                );
+                call.origin = CallOrigin::Network { brew_uuid };
+            }
+            CallOrigin::Network { brew_uuid: old_uuid } if *old_uuid != brew_uuid => {
+                tracing::warn!("CMCE FSM: network call start changed brew_uuid call_id={}", call_id);
+                call.origin = CallOrigin::Network { brew_uuid };
+            }
+            CallOrigin::Network { .. } => {}
         }
 
         // Network speaker owns DL: flip media source in-place (never Open — that closes/reopens

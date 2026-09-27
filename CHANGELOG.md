@@ -2,6 +2,16 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.1 — Brew WiFi: leave mid-QSO como Ethernet
+
+Misma lógica Ethernet/WiFi; con latencia WiFi el MS podía seguir como owner Local mientras Brew hablaba, y rojo/cambio de TG tumbaba el circuito (media huérfana + U-SETUP encima).
+
+- Al preempt de Brew, ownership Local→Network.
+- U-DISCONNECT del owner solo soft-leave si Brew tiene el suelo (D-RELEASE personal; grupo vivo).
+- Sin listeners + Brew activo → Hold / LATE ENTRY (también si origin aún Local).
+- Release Local con brew_uuid → NetworkCallEnd antes de cerrar circuito (anti-zombie DL).
+- Owner con suelo local: teardown ETSI sin cambios.
+
 ## v0.4.0 — Red host, Dual Carrier GUI y canal estable
 
 Salto menor de serie (aún sin rebrand a PTBS): nuevas capacidades de red en la GUI y consolidación de lo validado en beta.

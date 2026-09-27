@@ -986,6 +986,54 @@ impl CcBsSubentity {
         };
 
         let is_call_owner = matches!(&call.origin, CallOrigin::Local { caller_addr } if caller_addr.ssi == sender.ssi);
+        // Brew speaking: owner red must not tear the group (WiFi race vs Ethernet Hold/LE).
+        let brew_holds_floor = !call.local_floor && call.brew_uuid.is_some();
+
+        if is_call_owner && brew_holds_floor {
+            let brew_uuid = call.brew_uuid.expect("brew_holds_floor implies brew_uuid");
+            tracing::info!(
+                "U-DISCONNECT: soft-leave owner ISSI {} call_id={} (Brew holds floor uuid={})",
+                sender.ssi,
+                call_id,
+                brew_uuid
+            );
+            if let Some(call) = self.active_calls.get_mut(&call_id) {
+                call.origin = CallOrigin::Network { brew_uuid };
+            }
+            // Personal leave only — call stays Active for Brew / other listeners.
+            let d_release = DRelease {
+                call_identifier: call_id,
+                disconnect_cause: DisconnectCause::UserRequestedDisconnection,
+                notification_indicator: None,
+                facility: None,
+                proprietary: None,
+            };
+            tracing::info!("-> {:?} (soft-leave to ISSI {})", d_release, sender.ssi);
+            let mut sdu = BitBuffer::new_autoexpand(32);
+            d_release.to_bitbuf(&mut sdu).expect("Failed to serialize DRelease");
+            sdu.seek(0);
+            let sender_addr = TetraAddress::new(sender.ssi, SsiType::Issi);
+            queue.push_back(SapMsg {
+                sap: Sap::LcmcSap,
+                src: TetraEntity::Cmce,
+                dest: TetraEntity::Mle,
+                msg: SapMsgInner::LcmcMleUnitdataReq(LcmcMleUnitdataReq {
+                    sdu,
+                    handle: ul_handle,
+                    endpoint_id: ul_endpoint_id,
+                    link_id: ul_link_id,
+                    layer2service: Layer2Service::Unacknowledged,
+                    pdu_prio: 0,
+                    layer2_qos: 0,
+                    stealing_permission: false,
+                    stealing_repeats_flag: false,
+                    chan_alloc: None,
+                    main_address: sender_addr,
+                    tx_reporter: None,
+                }),
+            });
+            return;
+        }
 
         if is_call_owner {
             tracing::info!("U-DISCONNECT: call owner ISSI {} disconnecting call_id={}", sender.ssi, call_id);

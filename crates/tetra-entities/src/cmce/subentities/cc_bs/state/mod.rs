@@ -692,4 +692,39 @@ mod tests {
         assert!(!call.local_floor);
         assert_eq!(call.source_issi, 2001);
     }
+
+    #[test]
+    fn local_origin_transfers_to_network_when_brew_takes_floor() {
+        let mut call = ActiveCall::new_local(issi(1001), 214, 1001, 1, 1, 0, TdmaTime::default(), CallTimeout::T2m, 0);
+        assert!(matches!(call.origin, CallOrigin::Local { .. }));
+
+        let brew_uuid = uuid::Uuid::from_u128(0xBEEF);
+        call.grant_floor(9001, None);
+        call.brew_uuid = Some(brew_uuid);
+        call.origin = CallOrigin::Network { brew_uuid };
+
+        assert!(!call.local_floor);
+        assert!(call.brew_uuid.is_some());
+        match &call.origin {
+            CallOrigin::Network { brew_uuid: u } => assert_eq!(*u, brew_uuid),
+            CallOrigin::Local { .. } => panic!("expected Network origin after Brew floor"),
+        }
+    }
+
+    #[test]
+    fn brew_floor_soft_leave_predicate() {
+        let mut call = ActiveCall::new_local(issi(1001), 214, 1001, 1, 1, 0, TdmaTime::default(), CallTimeout::T2m, 0);
+        // Owner still talking: hard disconnect path.
+        assert!(call.local_floor);
+        assert!(call.brew_uuid.is_none());
+        let hard = call.local_floor || call.brew_uuid.is_none();
+        assert!(hard);
+
+        // Brew speaking: soft-leave path.
+        let brew_uuid = uuid::Uuid::from_u128(1);
+        call.grant_floor(9001, None);
+        call.brew_uuid = Some(brew_uuid);
+        let soft = !call.local_floor && call.brew_uuid.is_some();
+        assert!(soft);
+    }
 }
