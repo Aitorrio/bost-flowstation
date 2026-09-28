@@ -2,6 +2,15 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.2 — LST SDS: identidad despachador y ACK
+
+SDS de despacho LST deja de fingir entrega a 9999 y usa la ISSI del operador.
+
+- Con LST activo, SDS del roster/panel salen con `source_issi = operator_issi` (no 9999).
+- SDS entrantes al `operator_issi` se absorben con SDS-TL SHORT REPORT (el walkie deja de marcar error de envío).
+- Se elimina la absorción ciega de SDS-DATA a 9999: ruta estándar (local / Brew / undeliverable). WX y U-STATUS a 9999 sin cambios.
+- Inbox LST: solo privados destinados al despachador (sin filtro dual 9999).
+
 ## v0.4.1 — Brew WiFi: leave mid-QSO como Ethernet
 
 Misma lógica Ethernet/WiFi; con latencia WiFi el MS podía seguir como owner Local mientras Brew hablaba, y rojo/cambio de TG tumbaba el circuito (media huérfana + U-SETUP encima).

@@ -6478,6 +6478,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <label class="form-label" data-i18n="sds_msg_label">Message</label>
       <input type="text" id="sds-msg" class="form-input" placeholder="..." maxlength="160">
     </div>
+    <div class="form-row" id="sds-lst-source-hint" style="display:none;font-size:12px;color:var(--muted);line-height:1.45"></div>
     <div class="form-row">
       <label class="form-label" style="display:flex;align-items:center;gap:8px">
         <input type="checkbox" id="sds-callout" onchange="toggleSdsCallout()">
@@ -6984,6 +6985,7 @@ const LANGS={
     wx_periodic_icao:'Station ICAO',wx_periodic_dest:'Destination',wx_periodic_isgroup:'Destination is group',wx_periodic_isgroup_hint:'(GSSI instead of individual ISSI)',
     wx_periodic_interval:'Interval (seconds)',wx_interval_hint:'Minimum 300 s (5 min) to avoid hammering the weather API.',wx_periodic_incomplete:'Set both station ICAO and destination for periodic mode.',
     sds_title:'⬡ Send SDS Message',sds_dest:'Destination ISSI',
+    sds_as_issi:'Sent as ISSI {issi}',
     sds_callout_enable:'TPG2200 Call-Out / Send alarm',
     sds_callout_source:'Source ISSI',
     sds_callout_incident:'Incident number',
@@ -7283,6 +7285,7 @@ const LANGS={
     live_sds_sent:'trimis',live_sds_times:'×',live_sds_forever:'∞',live_sds_delete:'✕',
     fallback_title:'⚠ CONFIG DE REZERVĂ ACTIV — Config principal nu a putut fi încărcat',
     sds_title:'⬡ Trimite Mesaj SDS',sds_dest:'ISSI Destinatar',
+    sds_as_issi:'Trimis ca ISSI {issi}',
     sds_msg_label:'Mesaj',cancel:'Anulează',send:'Trimite',
     th_issi:'ISSI',th_issi_cs:'ISSI / Indicativ',th_groups:'Grupuri',th_ee:'Economie Energie',th_signal:'Semnal',
     tg_selected:'Grup selectat (ultima transmisie)',
@@ -7400,6 +7403,7 @@ const LANGS={
     live_sds_sent:'gesendet',live_sds_times:'×',live_sds_forever:'∞',live_sds_delete:'✕',
     fallback_title:'⚠ FALLBACK-KONFIGURATION AKTIV — Primäre Konfiguration konnte nicht geladen werden',
     sds_title:'⬡ SDS-Nachricht senden',sds_dest:'Ziel-ISSI',
+    sds_as_issi:'Gesendet als ISSI {issi}',
     sds_callout_enable:'TPG2200 Call-Out / Alarm senden',
     sds_callout_source:'Source ISSI',
     sds_callout_incident:'Vorfallnummer',
@@ -7591,6 +7595,7 @@ const LANGS={
     fallback_title:'⚠ CONFIGURACIÓN DE RESERVA ACTIVA — No se pudo cargar la configuración principal',
     fallback_help:'Repara el config.toml principal en Config (formularios, TOML en bruto o Restaurar .bak) y reinicia. El fichero .fallback no se actualiza solo.',
     sds_title:'⬡ Enviar Mensaje SDS',sds_dest:'ISSI Destino',
+    sds_as_issi:'Se envía como ISSI {issi}',
     sds_msg_label:'Mensaje',cancel:'Cancelar',confirm:'Confirmar',ok:'Aceptar',notice:'Aviso',action_failed:'Error',send:'Enviar',
     th_issi:'ISSI',th_issi_cs:'ISSI / Indicativo',th_groups:'Grupos',th_ee:'Ahorro Energía',th_signal:'Señal',
     th_status:'Estado',th_last_seen:'Visto',th_actions:'Acciones',
@@ -7772,6 +7777,7 @@ const LANGS={
     wx_periodic_icao:'Állomás ICAO',wx_periodic_dest:'Cél',wx_periodic_isgroup:'A cél csoport',wx_periodic_isgroup_hint:'(GSSI egyedi ISSI helyett)',
     wx_periodic_interval:'Időköz (másodperc)',wx_interval_hint:'Legalább 300 mp (5 perc), hogy ne terhelje túl az időjárás API-t.',wx_periodic_incomplete:'Add meg az állomás ICAO-t és a célt az időszakos módhoz.',
     sds_title:'⬡ SDS üzenet küldése',sds_dest:'Cél ISSI',
+    sds_as_issi:'Küldés ISSI-ként: {issi}',
     sds_msg_label:'Üzenet',cancel:'Mégse',send:'Küldés',
     th_issi:'ISSI',th_groups:'Csoportok',th_ee:'Energiatakarékos',th_signal:'Jelerősség',
     th_status:'Állapot',th_last_seen:'Utoljára látva',th_actions:'Műveletek',
@@ -7853,6 +7859,7 @@ const LANGS={
     wx_periodic_icao:'台站 ICAO',wx_periodic_dest:'目标',wx_periodic_isgroup:'目标为群组',wx_periodic_isgroup_hint:'（GSSI 而非单个 ISSI）',
     wx_periodic_interval:'间隔（秒）',wx_interval_hint:'最少 300 秒（5 分钟），以免频繁请求气象 API。',wx_periodic_incomplete:'定时模式需同时设置台站 ICAO 和目标。',
     sds_title:'⬡ 发送 SDS 短消息',sds_dest:'目标 ISSI',
+    sds_as_issi:'以 ISSI {issi} 发送',
     live_sds_desc:'向本小区所有终端广播文本消息，按 Home Mode Display 间隔重复发送。直到删除或达到重复次数为止。',
     live_sds_text:'消息内容（最多 251 字符）',live_sds_repeat:'重复次数 (0=无限)',live_sds_send:'广播',
     live_sds_clear_all:'清除全部',live_sds_empty:'暂无广播任务。',
@@ -8922,9 +8929,21 @@ function lstPrivate(issi,duplex){
 }
 function lstOpenSds(issi){
   openSds(issi);
-  const op=Number(document.getElementById('lst-op-issi')?.value||0);
+  const op=Number((lstLastStatus&&lstLastStatus.operator_issi)||document.getElementById('lst-op-issi')?.value||0)||0;
+  lstSdsSource=op;
   const src=document.getElementById('sds-callout-source');
   if(src&&op)src.value=String(op);
+  const hint=document.getElementById('sds-lst-source-hint');
+  if(hint){
+    if(op){
+      const tpl=(typeof t==='function'&&t('sds_as_issi'))||'Sent as ISSI {issi}';
+      hint.textContent=String(tpl).replace('{issi}',String(op));
+      hint.style.display='';
+    }else{
+      hint.textContent='';
+      hint.style.display='none';
+    }
+  }
 }
 function lstCallSetTab(mode){
   lstCallTab=mode==='dx'?'dx':'sx';
@@ -10001,7 +10020,7 @@ async function wifiCall(url, body){
 function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
 
 // ── State + WS ────────────────────────────────────────────────────────────
-let ws=null,state={ms:{},calls:{},emergencies:{},lastHeard:[],sdsLog:[],dapnetLog:[],geoalarmEvents:[],brewOnline:false,brewVer:0,dgnaDefaultAttachmentMode:0,dgnaAttachmentModePickerEnabled:false},sdsDest=0;
+let ws=null,state={ms:{},calls:{},emergencies:{},lastHeard:[],sdsLog:[],dapnetLog:[],geoalarmEvents:[],brewOnline:false,brewVer:0,dgnaDefaultAttachmentMode:0,dgnaAttachmentModePickerEnabled:false},sdsDest=0,lstSdsSource=0;
 let dgnaUi={selectedGssi:0,targetChecks:{},statusLog:[],lastByIssi:{}};
 
 // ── RadioID callsigns (indicativ) ──────────────────────────────────────────────
@@ -12965,9 +12984,41 @@ async function kickMs(issi){
 }
 function toggleSdsCallout(){const on=document.getElementById('sds-callout').checked;document.getElementById('sds-callout-fields').style.display=on?'block':'none';}
 function resetSdsCallout(){document.getElementById('sds-callout').checked=false;document.getElementById('sds-callout-source').value='9999';document.getElementById('sds-callout-incident').value='1';document.getElementById('sds-callout-text').value='ALARM';document.getElementById('sds-callout-raw').value='';toggleSdsCallout();}
-function openSds(issi){sdsDest=issi;document.getElementById('sds-dest').value=issi;document.getElementById('sds-msg').value='';resetSdsCallout();document.getElementById('sds-modal').classList.add('open');}
-function closeSdsModal(){document.getElementById('sds-modal').classList.remove('open');}
-function sendSds(){const dest=parseInt(document.getElementById('sds-dest').value);if(!dest)return;if(document.getElementById('sds-callout').checked){const source=parseInt(document.getElementById('sds-callout-source').value)||9999;const incident=Math.max(1,Math.min(256,parseInt(document.getElementById('sds-callout-incident').value)||1));const alarmText=document.getElementById('sds-callout-text').value.trim()||'ALARM';const rawhex=document.getElementById('sds-callout-raw').value.trim();wsSend({type:'sds_callout',dest_issi:dest,source_issi:source,incident,message:alarmText,raw_hex:rawhex});closeSdsModal();return;}const msg=document.getElementById('sds-msg').value.trim();if(!msg)return;wsSend({type:'sds',dest_issi:dest,message:msg});closeSdsModal();}
+function openSds(issi){
+  lstSdsSource=0;
+  const hint=document.getElementById('sds-lst-source-hint');
+  if(hint){hint.textContent='';hint.style.display='none';}
+  sdsDest=issi;
+  document.getElementById('sds-dest').value=issi;
+  document.getElementById('sds-msg').value='';
+  resetSdsCallout();
+  document.getElementById('sds-modal').classList.add('open');
+}
+function closeSdsModal(){
+  lstSdsSource=0;
+  const hint=document.getElementById('sds-lst-source-hint');
+  if(hint){hint.textContent='';hint.style.display='none';}
+  document.getElementById('sds-modal').classList.remove('open');
+}
+function sendSds(){
+  const dest=parseInt(document.getElementById('sds-dest').value);
+  if(!dest)return;
+  if(document.getElementById('sds-callout').checked){
+    const source=parseInt(document.getElementById('sds-callout-source').value)||lstSdsSource||9999;
+    const incident=Math.max(1,Math.min(256,parseInt(document.getElementById('sds-callout-incident').value)||1));
+    const alarmText=document.getElementById('sds-callout-text').value.trim()||'ALARM';
+    const rawhex=document.getElementById('sds-callout-raw').value.trim();
+    wsSend({type:'sds_callout',dest_issi:dest,source_issi:source,incident,message:alarmText,raw_hex:rawhex});
+    closeSdsModal();
+    return;
+  }
+  const msg=document.getElementById('sds-msg').value.trim();
+  if(!msg)return;
+  const payload={type:'sds',dest_issi:dest,message:msg};
+  if(lstSdsSource)payload.source_issi=lstSdsSource;
+  wsSend(payload);
+  closeSdsModal();
+}
 function dgnaGroupsFor(issi){
   const ms=state.ms[issi];
   if(!ms)return [];

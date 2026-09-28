@@ -468,10 +468,36 @@ impl SdsBsSubentity {
             }
         }
 
-        // ACKs/replies addressed to the dashboard ISSI (9999) are consumed locally.
-        if dest_ssi == 9999 {
-            tracing::debug!("SDS: absorbing message to dashboard ISSI 9999 from {}", source_ssi);
-            return;
+        // LST dispatch console sink: SDS to the configured operator ISSI are consumed
+        // locally with an SDS-TL SHORT REPORT so the MS marks delivery OK. Do NOT
+        // blanket-absorb 9999 — that blocked Brew and lied to the MS (no ACK). Plain
+        // SDS-DATA to 9999 follows standard routing below (local / Brew / drop).
+        // WX and U-STATUS keep their own early paths above / elsewhere.
+        if let Some(op) = net_brew::lst_operator_issi(&self.config) {
+            if dest_ssi == op {
+                if Self::is_sds_tl_report(&pdu.user_defined_data) {
+                    tracing::debug!(
+                        "SDS: absorbing SDS-TL delivery report to LST operator {} from {}",
+                        op,
+                        source_ssi
+                    );
+                    return;
+                }
+                if let Some(mr) = Self::sds_tl_message_reference(&pdu.user_defined_data) {
+                    let report = SdsUserData::Type4(32, vec![0x82u8, 0x10u8, 0x00u8, mr]);
+                    self.send_d_sds_data(queue, op, source_ssi, SsiType::Issi, report);
+                }
+                tracing::info!(
+                    "SDS: absorbed for LST dispatch console: {} -> {}",
+                    source_ssi,
+                    op
+                );
+                self.emit(TelemetryEvent::SdsActivity {
+                    source_issi: source_ssi,
+                    dest_issi: dest_ssi,
+                });
+                return;
+            }
         }
 
         // Route: local delivery (ISSI or GSSI), Brew forward, or drop
