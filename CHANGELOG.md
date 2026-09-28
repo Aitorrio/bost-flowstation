@@ -11,6 +11,7 @@ Misma lógica Ethernet/WiFi; con latencia WiFi el MS podía seguir como owner Lo
 - Sin listeners + Brew activo → Hold / LATE ENTRY (también si origin aún Local).
 - Release Local con brew_uuid → NetworkCallEnd antes de cerrar circuito (anti-zombie DL).
 - Owner con suelo local: teardown ETSI sin cambios.
+- Validado en campo (WiFi Hold → LATE ENTRY). Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
 
 ## v0.4.0 — Red host, Dual Carrier GUI y canal estable
 
