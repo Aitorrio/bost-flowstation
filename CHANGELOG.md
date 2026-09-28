@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.3 — LST SDS: ocultar ACK de entrega en el log
+
+- Los SDS-TL SHORT REPORT (confirmación de entrega del MS) ya no se registran en el log/inbox SDS.
+- Evita la fila fantasma `[text]` justo después de un SDS enviado desde el despacho.
+
 ## v0.4.2 — LST SDS: identidad despachador y ACK
 
 SDS de despacho LST deja de fingir entrega a 9999 y usa la ISSI del operador.

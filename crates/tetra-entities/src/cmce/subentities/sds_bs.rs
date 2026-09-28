@@ -247,8 +247,19 @@ impl SdsBsSubentity {
     /// Record one SDS in the dashboard's SDS Log (best-effort, fire-and-forget). `direction`
     /// is "rx" (uplink from a local MS), "net" (from the network for local delivery), or "tx"
     /// (injected by the dashboard operator). The body is decoded best-effort; non-text
-    /// payloads (status/reports/binary) log with empty text and the raw protocol-id byte.
+    /// payloads (status/binary) log with empty text and the raw protocol-id byte.
+    /// SDS-TL SHORT REPORT / STATUS (delivery ACKs) are not messages — skip them so the
+    /// LST inbox / full log do not show a bare `[text]` placeholder for the ACK.
     fn log_sds(&self, direction: &str, source_issi: u32, dest_issi: u32, is_group: bool, data: &SdsUserData) {
+        if Self::is_sds_tl_report(data) {
+            tracing::debug!(
+                "SDS: skipping log for SDS-TL delivery report {} -> {} ({})",
+                source_issi,
+                dest_issi,
+                direction
+            );
+            return;
+        }
         let protocol_id = data.to_arr().first().copied().unwrap_or(0);
         self.emit(TelemetryEvent::SdsLog {
             direction: direction.to_string(),
