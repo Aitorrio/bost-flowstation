@@ -6,6 +6,7 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 - Los SDS-TL SHORT REPORT (confirmación de entrega del MS) ya no se registran en el log/inbox SDS.
 - Evita la fila fantasma `[text]` justo después de un SDS enviado desde el despacho.
+- Validado en campo (MS↔despacho privado/grupo, origen `operator_issi`). Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
 
 ## v0.4.2 — LST SDS: identidad despachador y ACK
 
