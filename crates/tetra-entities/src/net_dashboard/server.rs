@@ -1828,99 +1828,94 @@ impl DashboardServer {
 
         // HTTP is redirect-only when TLS is up; otherwise keep serving the full dashboard
         // on the cleartext port so a missing openssl doesn't brick the UI.
+        // port == 0 disables the HTTP listener (high-port / shared-host preset).
         let http_redirect_only = tls_cfg.is_some();
         let http_bind = bind.to_string();
         let http_port_owned = http_port;
         let https_port_for_redirect = https_port;
 
-        std::thread::Builder::new()
-            .name("dashboard-http".into())
-            .spawn(move || {
-                crate::wifi::spawn_watchdog();
-                let addr = format!("{}:{}", http_bind, http_port_owned);
-                let listener = loop {
-                    match TcpListener::bind(&addr) {
-                        Ok(l) => {
-                            if http_redirect_only {
-                                tracing::info!(
-                                    "Dashboard HTTP redirect on http://{} → https (port {})",
-                                    addr,
-                                    https_port_for_redirect
-                                );
-                            } else {
-                                tracing::warn!(
-                                    "Dashboard listening on http://{} (HTTPS unavailable — install openssl for TLS)",
-                                    addr
-                                );
-                            }
-                            break l;
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Dashboard failed to bind {}: {} — retrying in 5s (interface/IP may not be ready yet)",
-                                addr,
-                                e
-                            );
-                            std::thread::sleep(std::time::Duration::from_secs(5));
-                        }
-                    }
-                };
-                for stream in listener.incoming() {
-                    let Ok(stream) = stream else { continue };
+        if http_port_owned != 0 {
+            std::thread::Builder::new()
+                .name("dashboard-http".into())
+                .spawn(move || {
+                    crate::wifi::spawn_watchdog();
+                    let addr = format!("{}:{}", http_bind, http_port_owned);
+                    let Some(listener) = bind_tcp_listener(&addr, BindMode::Canonical) else {
+                        return;
+                    };
                     if http_redirect_only {
-                        serve_https_redirect_plain(stream, https_port_for_redirect);
-                        continue;
-                    }
-                    if !dash_try_acquire_conn() {
-                        tracing::warn!(
-                            "Dashboard: connection cap ({DASH_MAX_CONN}) reached — rejecting HTTP"
+                        tracing::info!(
+                            "Dashboard HTTP redirect on http://{} → https (port {})",
+                            addr,
+                            https_port_for_redirect
                         );
-                        dash_reject_busy_plain(stream);
-                        continue;
+                    } else {
+                        tracing::warn!(
+                            "Dashboard listening on http://{} (HTTPS unavailable — install openssl for TLS)",
+                            addr
+                        );
                     }
-                    let state = Arc::clone(&state);
-                    let clients = Arc::clone(&clients);
-                    let config_path = config_path.clone();
-                    let cmd_tx = Arc::clone(&cmd_tx);
-                    let update_state = Arc::clone(&update_state);
-                    let source_dir_override = source_dir_override.clone();
-                    let auth = Arc::clone(&auth);
-                    let shared_config = shared_config.clone();
-                    let sessions = Arc::clone(&sessions);
-                    let login_throttle = Arc::clone(&login_throttle);
-                    let radioid = radioid.clone();
-                    let lst_handle = lst_handle.clone();
-                    if std::thread::Builder::new()
-                        .name("dashboard-conn".into())
-                        .spawn(move || {
-                            handle_connection(
-                                ConnStream::plain(stream),
-                                state,
-                                clients,
-                                config_path,
-                                cmd_tx,
-                                update_state,
-                                source_dir_override,
-                                auth,
-                                shared_config,
-                                sessions,
-                                login_throttle,
-                                radioid,
-                                public_overview,
-                                lst_handle,
-                                Some(DashConnGuard),
-                            )
-                        })
-                        .is_err()
-                    {
-                        dash_release_conn();
+                    for stream in listener.incoming() {
+                        let Ok(stream) = stream else { continue };
+                        if http_redirect_only {
+                            serve_https_redirect_plain(stream, https_port_for_redirect);
+                            continue;
+                        }
+                        if !dash_try_acquire_conn() {
+                            tracing::warn!(
+                                "Dashboard: connection cap ({DASH_MAX_CONN}) reached — rejecting HTTP"
+                            );
+                            dash_reject_busy_plain(stream);
+                            continue;
+                        }
+                        let state = Arc::clone(&state);
+                        let clients = Arc::clone(&clients);
+                        let config_path = config_path.clone();
+                        let cmd_tx = Arc::clone(&cmd_tx);
+                        let update_state = Arc::clone(&update_state);
+                        let source_dir_override = source_dir_override.clone();
+                        let auth = Arc::clone(&auth);
+                        let shared_config = shared_config.clone();
+                        let sessions = Arc::clone(&sessions);
+                        let login_throttle = Arc::clone(&login_throttle);
+                        let radioid = radioid.clone();
+                        let lst_handle = lst_handle.clone();
+                        if std::thread::Builder::new()
+                            .name("dashboard-conn".into())
+                            .spawn(move || {
+                                handle_connection(
+                                    ConnStream::plain(stream),
+                                    state,
+                                    clients,
+                                    config_path,
+                                    cmd_tx,
+                                    update_state,
+                                    source_dir_override,
+                                    auth,
+                                    shared_config,
+                                    sessions,
+                                    login_throttle,
+                                    radioid,
+                                    public_overview,
+                                    lst_handle,
+                                    Some(DashConnGuard),
+                                )
+                            })
+                            .is_err()
+                        {
+                            dash_release_conn();
+                        }
                     }
-                }
-            })
-            .expect("failed to spawn dashboard HTTP thread");
+                })
+                .expect("failed to spawn dashboard HTTP thread");
+        } else {
+            tracing::info!("Dashboard HTTP redirect disabled (port = 0)");
+            crate::wifi::spawn_watchdog();
+        }
 
-        // Legacy cleartext :8080 — OTA/bookmarks still land somewhere useful.
-        if http_redirect_only && http_port != LEGACY_HTTP_PORT {
+        // Bookmark redirects 8080 → canonical HTTPS only in the standard :443 layout.
+        // Fail-soft: if the port is busy/denied, warn once and stop (no ERROR spam).
+        if http_redirect_only && https_port == 443 && http_port != LEGACY_HTTP_PORT {
             spawn_legacy_http_redirect(bind, LEGACY_HTTP_PORT, https_port);
         }
 
@@ -1941,29 +1936,18 @@ impl DashboardServer {
             let radioid = https_radioid;
             let lst_handle = https_lst_handle;
             let tls_for_legacy = Arc::clone(&tls_config);
+            let spawn_legacy_tls = https_port == 443;
 
             std::thread::Builder::new()
                 .name("dashboard-https".into())
                 .spawn(move || {
-                    let listener = loop {
-                        match TcpListener::bind(&https_addr) {
-                            Ok(l) => {
-                                tracing::info!(
-                                    "Dashboard HTTPS listening on https://{} (self-signed; accept the browser warning)",
-                                    https_addr
-                                );
-                                break l;
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Dashboard HTTPS failed to bind {}: {} — retrying in 5s",
-                                    https_addr,
-                                    e
-                                );
-                                std::thread::sleep(std::time::Duration::from_secs(5));
-                            }
-                        }
+                    let Some(listener) = bind_tcp_listener(&https_addr, BindMode::Canonical) else {
+                        return;
                     };
+                    tracing::info!(
+                        "Dashboard HTTPS listening on https://{} (self-signed; accept the browser warning)",
+                        https_addr
+                    );
                     for stream in listener.incoming() {
                         let Ok(tcp) = stream else { continue };
                         let peer = tcp
@@ -2027,11 +2011,27 @@ impl DashboardServer {
                 })
                 .expect("failed to spawn dashboard HTTPS thread");
 
-            // Legacy TLS :8443 → redirect to canonical https://host/…
-            if https_port != LEGACY_HTTPS_PORT {
+            if spawn_legacy_tls {
                 spawn_legacy_https_redirect(bind, LEGACY_HTTPS_PORT, https_port, tls_for_legacy);
             }
         }
+
+        let http_note = if http_port == 0 {
+            "HTTP redirect off".to_string()
+        } else {
+            format!("HTTP :{http_port} redirects")
+        };
+        tracing::info!(
+            "Dashboard ready: https://{}:{}/ ({}; legacy bookmark redirects {})",
+            bind,
+            https_port,
+            http_note,
+            if https_port == 443 {
+                "fail-soft on :8080/:8443"
+            } else {
+                "off"
+            }
+        );
     }
 
     pub fn handle_telemetry(&self, event: TelemetryEvent) {
@@ -3720,6 +3720,13 @@ fn handle_connection(
     } else if req_line.contains("POST /api/dashboard-auth") {
         let (inner, body_str) = read_post_body(stream);
         serve_dashboard_auth_post(inner, &auth, &sessions, &config_path, &body_str);
+    } else if req_line.contains("GET /api/dashboard-ports") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        serve_dashboard_ports_get(s, &shared_config);
+    } else if req_line.contains("POST /api/dashboard-ports") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_dashboard_ports_post(inner, &config_path, &body_str);
     } else if req_line.contains("GET /api/wx") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -5580,6 +5587,93 @@ fn serve_dashboard_auth_post(
     );
 }
 
+/// GET /api/dashboard-ports — current listen ports + preset classification.
+fn serve_dashboard_ports_get(
+    stream: PrefixedConn,
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+) {
+    use crate::net_dashboard::dashboard_ports::preset_name;
+
+    let (port, https_port) = match shared_config {
+        Some(cfg) => cfg
+            .config()
+            .dashboard
+            .as_ref()
+            .map(|d| (d.port, d.https_port))
+            .unwrap_or((80, 443)),
+        None => (80, 443),
+    };
+    let preset = preset_name(port, https_port);
+    let url_hint = if https_port == 443 {
+        "https://<IP>/".to_string()
+    } else {
+        format!("https://<IP>:{https_port}/")
+    };
+    let body = format!(
+        r#"{{"ok":true,"preset":"{preset}","port":{port},"https_port":{https_port},"url_hint":"{url_hint}"}}"#
+    );
+    http_json_response(stream, 200, &body);
+}
+
+/// POST /api/dashboard-ports — set preset `standard` | `high`, then restart the service.
+///
+/// Body: `{"preset":"standard"}` or `{"preset":"high"}`.
+fn serve_dashboard_ports_post(stream: PrefixedConn, config_path: &str, body: &str) {
+    use crate::net_dashboard::dashboard_ports::{patch_dashboard_ports, ports_for_preset, preset_name};
+
+    let json: serde_json::Value = match serde_json::from_str(body.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            http_response(stream, 400, &format!("Invalid JSON: {e}"));
+            return;
+        }
+    };
+    let preset = json
+        .get("preset")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let Some((http_port, https_port)) = ports_for_preset(preset) else {
+        http_response(
+            stream,
+            400,
+            "preset must be \"standard\" (80→443) or \"high\" (HTTPS :8443 only)",
+        );
+        return;
+    };
+
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => {
+            http_response(stream, 500, &format!("Could not read config: {e}"));
+            return;
+        }
+    };
+    let patched = patch_dashboard_ports(&original, http_port, https_port);
+    if let Err((code, msg)) = write_config_validated(config_path, &patched) {
+        http_response(stream, code, &msg);
+        return;
+    }
+
+    let url_hint = if https_port == 443 {
+        "https://<IP>/".to_string()
+    } else {
+        format!("https://<IP>:{https_port}/")
+    };
+    tracing::info!(
+        "Dashboard: ports preset '{preset}' applied (HTTP {http_port}, HTTPS {https_port}) — restarting"
+    );
+    crate::service_control::schedule_service_action(
+        crate::service_control::ServiceAction::Restart,
+        std::time::Duration::from_millis(800),
+    );
+    let body = format!(
+        r#"{{"ok":true,"preset":"{}","port":{http_port},"https_port":{https_port},"url_hint":"{url_hint}","restarting":true}}"#,
+        preset_name(http_port, https_port)
+    );
+    http_json_response(stream, 200, &body);
+}
+
 // ---------------------------------------------------------------------------
 // WX/METAR service config (dashboard-editable). See net_dashboard::wx_service.
 // ---------------------------------------------------------------------------
@@ -6843,6 +6937,86 @@ fn absolute_https_location(header_str: &str, req_line: &str, https_port: u16) ->
     }
 }
 
+#[derive(Clone, Copy)]
+enum BindMode {
+    /// Configured dashboard port — keep retrying; slow down on conflict.
+    Canonical,
+    /// Optional bookmark redirect — few attempts then give up.
+    Legacy,
+}
+
+fn bind_is_conflict(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
+    )
+}
+
+/// Bind a TCP listener with mode-specific retry policy.
+/// Canonical: infinite retry (60s on conflict, 5s otherwise, rate-limited logs).
+/// Legacy: up to 3 attempts then `None`.
+fn bind_tcp_listener(addr: &str, mode: BindMode) -> Option<TcpListener> {
+    let max_attempts = match mode {
+        BindMode::Canonical => usize::MAX,
+        BindMode::Legacy => 3,
+    };
+    let mut attempt = 0usize;
+    let mut logged_conflict = false;
+    loop {
+        attempt = attempt.saturating_add(1);
+        match TcpListener::bind(addr) {
+            Ok(l) => return Some(l),
+            Err(e) => {
+                let conflict = bind_is_conflict(&e);
+                match mode {
+                    BindMode::Legacy => {
+                        if attempt >= max_attempts || conflict {
+                            tracing::warn!(
+                                "Dashboard legacy bind {}: {} — giving up (bookmarks to this port will not redirect)",
+                                addr,
+                                e
+                            );
+                            return None;
+                        }
+                        tracing::warn!(
+                            "Dashboard legacy bind {}: {} — retry {}/{}",
+                            addr,
+                            e,
+                            attempt,
+                            max_attempts
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                    }
+                    BindMode::Canonical => {
+                        if conflict {
+                            if !logged_conflict {
+                                tracing::error!(
+                                    "Dashboard failed to bind {}: {} — check [dashboard] port/https_port, \
+                                     other daemons (nginx/apache), or use the high-port preset (HTTPS :8443). \
+                                     Retrying every 60s.",
+                                    addr,
+                                    e
+                                );
+                                logged_conflict = true;
+                            }
+                            std::thread::sleep(std::time::Duration::from_secs(60));
+                        } else if attempt == 1 || attempt % 12 == 0 {
+                            tracing::warn!(
+                                "Dashboard failed to bind {}: {} — retrying in 5s (interface may not be ready)",
+                                addr,
+                                e
+                            );
+                            std::thread::sleep(std::time::Duration::from_secs(5));
+                        } else {
+                            std::thread::sleep(std::time::Duration::from_secs(5));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn write_plain_redirect(mut stream: TcpStream, location: &str) {
     let resp = format!(
         "HTTP/1.1 302 Found\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -6869,26 +7043,14 @@ fn spawn_legacy_http_redirect(bind: &str, listen_port: u16, https_port: u16) {
     std::thread::Builder::new()
         .name("dashboard-http-legacy".into())
         .spawn(move || {
-            let listener = loop {
-                match TcpListener::bind(&addr) {
-                    Ok(l) => {
-                        tracing::info!(
-                            "Dashboard legacy HTTP redirect on http://{} → https (port {})",
-                            addr,
-                            https_port
-                        );
-                        break l;
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Dashboard legacy HTTP bind {}: {} — retrying in 5s",
-                            addr,
-                            e
-                        );
-                        std::thread::sleep(std::time::Duration::from_secs(5));
-                    }
-                }
+            let Some(listener) = bind_tcp_listener(&addr, BindMode::Legacy) else {
+                return;
             };
+            tracing::info!(
+                "Dashboard legacy HTTP redirect on http://{} → https (port {})",
+                addr,
+                https_port
+            );
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
                 serve_https_redirect_plain(stream, https_port);
@@ -6907,26 +7069,14 @@ fn spawn_legacy_https_redirect(
     std::thread::Builder::new()
         .name("dashboard-https-legacy".into())
         .spawn(move || {
-            let listener = loop {
-                match TcpListener::bind(&addr) {
-                    Ok(l) => {
-                        tracing::info!(
-                            "Dashboard legacy HTTPS redirect on https://{} → canonical HTTPS :{}",
-                            addr,
-                            https_port
-                        );
-                        break l;
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Dashboard legacy HTTPS bind {}: {} — retrying in 5s",
-                            addr,
-                            e
-                        );
-                        std::thread::sleep(std::time::Duration::from_secs(5));
-                    }
-                }
+            let Some(listener) = bind_tcp_listener(&addr, BindMode::Legacy) else {
+                return;
             };
+            tracing::info!(
+                "Dashboard legacy HTTPS redirect on https://{} → canonical HTTPS :{}",
+                addr,
+                https_port
+            );
             for stream in listener.incoming() {
                 let Ok(tcp) = stream else { continue };
                 let tls_config = Arc::clone(&tls_config);

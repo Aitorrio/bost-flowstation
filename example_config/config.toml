@@ -537,10 +537,16 @@ voice_service = true
 #
 # Live view of terminals, active calls, log, config editor, kick and SDS.
 # HTTPS is the canonical UI (self-signed cert; accept the browser warning once).
+# LST Dispatch needs HTTPS for the browser microphone.
+#
+# Presets (installer asks; also System → Panel access):
+#   standard — port = 80, https_port = 443   (dedicated Pi; open https://IP/)
+#   high     — port = 0,  https_port = 8443  (shared host; open https://IP:8443/)
+# port = 0 disables the cleartext HTTP redirect listener.
 #
 # [dashboard]
-# port = 80                      # Cleartext HTTP — redirects to HTTPS (default: 80; must not be 0)
-# https_port = 443               # Real dashboard over TLS (default: 443; must differ from port)
+# port = 80                      # Cleartext HTTP — redirects to HTTPS (0 = disabled)
+# https_port = 443               # Real dashboard over TLS (must not be 0)
 # bind = "0.0.0.0"               # bind address (default: 0.0.0.0 = all interfaces; use 127.0.0.1 for localhost-only)
 #
 # OPTIONAL: form login — protect the dashboard with a username and password.

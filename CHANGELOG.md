@@ -2,6 +2,15 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.4 — Puertos del dashboard: presets y binds estables
+
+Elección de puertos sin pelear con nginx/apache ni spamear ERROR en el log.
+
+- Instalador (SSH/TTY): pregunta **Estándar (80→443)** o **Puerto alto (solo HTTPS 8443)**; `BOST_DASH_PORTS=standard|high` sin TTY. Configs existentes no se tocan.
+- Sistema → Acceso al panel: selector de preset + Apply & Restart (nueva URL tras reinicio).
+- `port = 0` desactiva el redirect HTTP. Migración OTA solo si `port = 8080` sin `https_port`.
+- Listeners legacy 8080/8443 solo en layout :443, fail-soft (sin reintentos infinitos). Bind canónico: conflicto → hint + retry 60s.
+
 ## v0.4.3 — LST SDS: ocultar ACK de entrega en el log
 
 - Los SDS-TL SHORT REPORT (confirmación de entrega del MS) ya no se registran en el log/inbox SDS.

@@ -585,10 +585,17 @@ fn main() {
 
             // start() must be called before Arc::new() because it takes &mut self
             dashboard.start(&dash_cfg.bind, dash_cfg.port, dash_cfg.https_port);
-            eprintln!(
-                " -> Dashboard HTTPS on https://{}:{} (HTTP :{} redirects to HTTPS)",
-                dash_cfg.bind, dash_cfg.https_port, dash_cfg.port
-            );
+            if dash_cfg.port == 0 {
+                eprintln!(
+                    " -> Dashboard HTTPS on https://{}:{} (HTTP redirect off)",
+                    dash_cfg.bind, dash_cfg.https_port
+                );
+            } else {
+                eprintln!(
+                    " -> Dashboard HTTPS on https://{}:{} (HTTP :{} redirects to HTTPS)",
+                    dash_cfg.bind, dash_cfg.https_port, dash_cfg.port
+                );
+            }
 
             // If we started on fallback config, tell the dashboard to show the warning banner.
             if let Some((ref fb_path, ref fb_reason)) = fallback_info {

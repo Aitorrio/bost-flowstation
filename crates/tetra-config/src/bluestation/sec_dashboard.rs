@@ -6,9 +6,11 @@ use toml::Value;
 ///
 /// Canonical access is HTTPS on [`CfgDashboard::https_port`] (default 443).
 /// [`CfgDashboard::port`] (default 80) is a cleartext listener that only redirects to HTTPS.
+/// Set `port = 0` to disable the HTTP redirect listener (high-port / shared-host preset).
 #[derive(Debug, Clone)]
 pub struct CfgDashboard {
     /// Cleartext HTTP port used only to redirect to HTTPS (default: 80).
+    /// `0` disables the HTTP listener entirely.
     pub port: u16,
     /// HTTPS port for the real dashboard (default: 443).
     pub https_port: u16,
@@ -110,13 +112,11 @@ fn default_ota_channel() -> String {
 }
 
 pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, String> {
-    if src.port == 0 {
-        return Err("dashboard: port cannot be 0".to_string());
-    }
+    // port == 0 disables the cleartext HTTP redirect listener (high-port preset).
     if src.https_port == 0 {
         return Err("dashboard: https_port cannot be 0".to_string());
     }
-    if src.port == src.https_port {
+    if src.port != 0 && src.port == src.https_port {
         return Err("dashboard: port and https_port must differ".to_string());
     }
     // Validate source_dir if provided: must be an existing directory.
@@ -167,4 +167,45 @@ pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, Strin
         public_overview: src.public_overview,
         show_dgna_attachment_mode_picker: src.show_dgna_attachment_mode_picker,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_port_zero_high_preset() {
+        let dto = CfgDashboardDto {
+            port: 0,
+            https_port: 8443,
+            bind: "0.0.0.0".into(),
+            source_dir: None,
+            ota_channel: "stable".into(),
+            username: None,
+            password: None,
+            public_overview: false,
+            show_dgna_attachment_mode_picker: false,
+            extra: HashMap::new(),
+        };
+        let c = apply_dashboard_patch(dto).expect("high preset");
+        assert_eq!(c.port, 0);
+        assert_eq!(c.https_port, 8443);
+    }
+
+    #[test]
+    fn rejects_https_port_zero() {
+        let dto = CfgDashboardDto {
+            port: 80,
+            https_port: 0,
+            bind: "0.0.0.0".into(),
+            source_dir: None,
+            ota_channel: "stable".into(),
+            username: None,
+            password: None,
+            public_overview: false,
+            show_dgna_attachment_mode_picker: false,
+            extra: HashMap::new(),
+        };
+        assert!(apply_dashboard_patch(dto).is_err());
+    }
 }

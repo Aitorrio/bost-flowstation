@@ -19,6 +19,7 @@
 #   BOST_USE_DEB=1      prefer .deb asset if available (optional)
 #   BOST_SKIP_BUILD=1   skip cargo build (use existing binary)
 #   BOST_SKIP_TETRA_CODEC=1  skip outerplane ACELP lib (LST voice / Asterisk feature off)
+#   BOST_DASH_PORTS     standard (80→443) or high (HTTPS 8443 only); prompted on TTY if unset
 set -euo pipefail
 
 REPO_URL="${BOST_REPO:-https://github.com/Aitorrio/bost-flowstation.git}"
@@ -35,6 +36,44 @@ SERVICE_USER="${BOST_SERVICE_USER:-bts}"
 # Dashboard channel id for [dashboard].ota_channel
 OTA_CHANNEL="stable"
 [[ "$BRANCH" == "beta" ]] && OTA_CHANNEL="beta"
+
+# Dashboard listen preset: standard (80→443) or high (HTTPS 8443 only).
+# Override with BOST_DASH_PORTS=standard|high. Interactive prompt when TTY and unset.
+DASH_PORTS_PRESET="${BOST_DASH_PORTS:-}"
+DASH_HTTP_PORT=80
+DASH_HTTPS_PORT=443
+
+choose_dashboard_ports() {
+  local choice=""
+  if [[ -n "$DASH_PORTS_PRESET" ]]; then
+    choice="$DASH_PORTS_PRESET"
+  elif [[ -t 0 ]]; then
+    echo
+    echo "Dashboard HTTPS ports (LST microphone requires HTTPS):"
+    echo "  1) Standard — HTTP :80 redirects to HTTPS :443  (recommended dedicated Pi)"
+    echo "  2) High port — HTTPS :8443 only  (when 80/443 are used by nginx/apache/etc.)"
+    read -r -p "Choose [1/2] (default 1): " choice || true
+    case "${choice:-1}" in
+      2|high|HIGH) choice="high" ;;
+      *) choice="standard" ;;
+    esac
+  else
+    choice="standard"
+  fi
+  case "${choice,,}" in
+    high|2)
+      DASH_PORTS_PRESET="high"
+      DASH_HTTP_PORT=0
+      DASH_HTTPS_PORT=8443
+      ;;
+    *)
+      DASH_PORTS_PRESET="standard"
+      DASH_HTTP_PORT=80
+      DASH_HTTPS_PORT=443
+      ;;
+  esac
+  log "Dashboard ports preset: ${DASH_PORTS_PRESET} (HTTP ${DASH_HTTP_PORT}, HTTPS ${DASH_HTTPS_PORT})"
+}
 
 log() { echo "==> $*"; }
 warn() { echo "WARNING: $*" >&2; }
@@ -185,13 +224,16 @@ log "Installed $BIN_PATH"
 # Initial config (only if missing)
 mkdir -p "$CFG_DIR"
 if [[ ! -f "$CFG_PATH" ]]; then
-  log "Writing initial $CFG_PATH (backend=None, dashboard admin/1234, ota_channel=${OTA_CHANNEL})"
+  choose_dashboard_ports
+  log "Writing initial $CFG_PATH (backend=None, dashboard admin/1234, ota_channel=${OTA_CHANNEL}, ports=${DASH_PORTS_PRESET})"
   if [[ -f "$SRC_ROOT/example_config/config.toml" ]]; then
     cp "$SRC_ROOT/example_config/config.toml" "$CFG_PATH"
-    python3 - "$CFG_PATH" "$OTA_CHANNEL" <<'PY'
+    python3 - "$CFG_PATH" "$OTA_CHANNEL" "$DASH_HTTP_PORT" "$DASH_HTTPS_PORT" <<'PY'
 import sys, re
 path = sys.argv[1]
 ota_channel = sys.argv[2] if len(sys.argv) > 2 else "stable"
+http_port = sys.argv[3] if len(sys.argv) > 3 else "80"
+https_port = sys.argv[4] if len(sys.argv) > 4 else "443"
 text = open(path, encoding="utf-8").read()
 text = re.sub(r'(?m)^backend\s*=\s*".*"', 'backend = "None"', text, count=1)
 if re.search(r'(?m)^\s*service_name\s*=', text):
@@ -206,8 +248,8 @@ has_live_dashboard = bool(re.search(r'(?m)^\[dashboard\]\s*$', text))
 dash = (
     '\n[dashboard]\n'
     'bind = "0.0.0.0"\n'
-    'port = 80\n'
-    'https_port = 443\n'
+    f'port = {http_port}\n'
+    f'https_port = {https_port}\n'
     'username = "admin"\n'
     'password = "1234"\n'
     'source_dir = "/opt/bost-flowstation"\n'
@@ -249,8 +291,8 @@ voice_service = true
 
 [dashboard]
 bind = "0.0.0.0"
-port = 80
-https_port = 443
+port = ${DASH_HTTP_PORT}
+https_port = ${DASH_HTTPS_PORT}
 username = "admin"
 password = "1234"
 source_dir = "/opt/bost-flowstation"
@@ -374,7 +416,11 @@ IP="${IP:-<pi-ip>}"
 echo
 echo "────────────────────────────────────────────────────────"
 echo " Bost FlowStation installed"
-echo " Dashboard:  https://${IP}/  (HTTP :80 redirects to HTTPS)"
+if [[ "${DASH_HTTPS_PORT:-443}" == "443" ]]; then
+  echo " Dashboard:  https://${IP}/  (HTTP :80 redirects to HTTPS)"
+else
+  echo " Dashboard:  https://${IP}:${DASH_HTTPS_PORT}/  (HTTPS only; no HTTP :80)"
+fi
 echo " Login:      admin / 1234"
 echo " Config:     ${CFG_PATH}"
 echo " Setup:      open the Setup tab / first-run wizard"

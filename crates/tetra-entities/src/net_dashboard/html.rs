@@ -6396,6 +6396,25 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <span id="sys-auth-en-msg" class="sys-auth-msg"></span>
             </div>
           </div>
+
+          <div class="sys-auth-form-title" style="margin-top:18px" data-i18n="sys_ports_title">Dashboard ports</div>
+          <div class="help-text" style="margin-bottom:10px" data-i18n="sys_ports_help">HTTPS is required for LST microphone access. Standard uses port 443 (HTTP 80 redirects). High port uses only HTTPS 8443 when 80/443 are taken by other services. Changing ports restarts the station.</div>
+          <div class="group-list">
+            <div class="field">
+              <span class="field-label" data-i18n="sys_ports_preset">Preset</span>
+              <span class="field-control">
+                <select id="sys-ports-preset" class="form-input">
+                  <option value="standard" data-i18n="sys_ports_standard">Standard (80 → 443)</option>
+                  <option value="high" data-i18n="sys_ports_high">High port (HTTPS 8443 only)</option>
+                </select>
+              </span>
+            </div>
+          </div>
+          <div class="help-text" id="sys-ports-url-hint" style="margin:8px 0 10px;font-family:var(--mono,monospace)"></div>
+          <div class="sys-auth-actions">
+            <button type="button" class="btn btn-primary" onclick="saveDashboardPorts()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="sys_ports_apply">Apply &amp; Restart</span></button>
+            <span id="sys-ports-msg" class="sys-auth-msg"></span>
+          </div>
         </div>
       </div>
 
@@ -7207,6 +7226,7 @@ const LANGS={
     sys_activate_confirm:'Switch to profile "{name}" and restart?\nCurrent config will be backed up.',
     sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, suspend the radio stack (dashboard stays up), power off the whole Pi, or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_soapy_idle:'Press Probe to scan SoapySDR devices.',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
     sys_sec_account:'Account',sys_account_title:'Panel access',sys_account_help:'Change the dashboard login here. One station account — not part of Cell/Brew profiles.',sys_account_user:'Username',sys_account_change:'Change credentials',sys_account_current_pass:'Current password',sys_account_new_user:'New username (optional)',sys_account_new_pass:'New password (optional)',sys_account_new_pass_req:'New password',sys_account_confirm:'Confirm new password',sys_account_save:'Save',sys_account_enable_title:'Enable login',sys_account_enable_help:'Dashboard access is currently open. Set a username and password to require sign-in.',sys_account_enable_btn:'Enable login',sys_account_open:'OPEN',sys_account_protected:'PROTECTED',sys_account_ok:'Saved — sign in again',sys_account_err:'Could not save',sys_account_need_cur:'Current password required',sys_account_need_change:'Set a new username and/or password',sys_account_mismatch:'Passwords do not match',
+    sys_ports_title:'Dashboard ports',sys_ports_help:'HTTPS is required for LST microphone access. Standard uses port 443 (HTTP 80 redirects). High port uses only HTTPS 8443 when 80/443 are taken by other services. Changing ports restarts the station.',sys_ports_preset:'Preset',sys_ports_standard:'Standard (80 → 443)',sys_ports_high:'High port (HTTPS 8443 only)',sys_ports_apply:'Apply & Restart',sys_ports_confirm:'After restart open {url}. Continue?',sys_ports_ok:'Saved — restarting…',sys_ports_err:'Could not change ports',sys_ports_custom:'Custom ports in config — choose a preset to switch.',
     sys_bts:'BTS Connection',
     cr_original:'© 2026 Razvan Zeces — YO6RZV',
     cr_enhanced:'Enhanced version by Aitor, EA4HBL',
@@ -7741,6 +7761,7 @@ const LANGS={
     sys_activate_confirm:'¿Cambiar al perfil "{name}" y reiniciar?\nLa config actual será respaldada.',
     sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, suspende el stack de radio (el dashboard sigue), apaga toda la Pi, o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_soapy_idle:'Pulsa Sondear para escanear dispositivos SoapySDR.',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
     sys_sec_account:'Cuenta',sys_account_title:'Acceso al panel',sys_account_help:'Cambia el login del panel aquí. Una sola cuenta de estación — no forma parte de los perfiles Cell/Brew.',sys_account_user:'Usuario',sys_account_change:'Cambiar credenciales',sys_account_current_pass:'Contraseña actual',sys_account_new_user:'Nuevo usuario (opcional)',sys_account_new_pass:'Nueva contraseña (opcional)',sys_account_new_pass_req:'Nueva contraseña',sys_account_confirm:'Confirmar nueva contraseña',sys_account_save:'Guardar',sys_account_enable_title:'Activar acceso',sys_account_enable_help:'El dashboard está abierto. Define usuario y contraseña para exigir inicio de sesión.',sys_account_enable_btn:'Activar acceso',sys_account_open:'ABIERTO',sys_account_protected:'PROTEGIDO',sys_account_ok:'Guardado — vuelve a iniciar sesión',sys_account_err:'No se pudo guardar',sys_account_need_cur:'Contraseña actual obligatoria',sys_account_need_change:'Indica un nuevo usuario y/o contraseña',sys_account_mismatch:'Las contraseñas no coinciden',
+    sys_ports_title:'Puertos del panel',sys_ports_help:'HTTPS es necesario para el micrófono LST. Estándar usa el puerto 443 (HTTP 80 redirige). Puerto alto usa solo HTTPS 8443 si 80/443 están ocupados. Cambiar puertos reinicia la estación.',sys_ports_preset:'Preset',sys_ports_standard:'Estándar (80 → 443)',sys_ports_high:'Puerto alto (solo HTTPS 8443)',sys_ports_apply:'Aplicar y reiniciar',sys_ports_confirm:'Tras el reinicio abre {url}. ¿Continuar?',sys_ports_ok:'Guardado — reiniciando…',sys_ports_err:'No se pudieron cambiar los puertos',sys_ports_custom:'Puertos personalizados en config — elige un preset para cambiar.',
     sys_bts:'Conexión BTS',
   },
   hu:{
@@ -8155,7 +8176,7 @@ function showPage(name,el){
   if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadSdsCommands();loadWx();}
   if(name==='telegram'){loadTelegram();}
-  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();loadOtaChannel();startServiceStatusPolling();loadDashboardAuth();
+  if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();loadOtaChannel();startServiceStatusPolling();loadDashboardAuth();loadDashboardPorts();
     // Avoid a fresh GitHub stampede on every System visit — badge uses cache ≤90s.
     if(!otaLastCheck||otaLastCheck.check_failed)checkUpdate();
     else applyUpdateCheckUi(otaLastCheck);
@@ -14315,6 +14336,47 @@ async function loadDashboardAuth(){
       if(enable)enable.style.display='';
     }
   }catch(e){console.error('loadDashboardAuth',e);}
+}
+
+function sysPortsUrlHint(httpsPort){
+  const host=location.hostname||'<IP>';
+  if(Number(httpsPort)===443)return 'https://'+host+'/';
+  return 'https://'+host+':'+httpsPort+'/';
+}
+
+async function loadDashboardPorts(){
+  const sel=document.getElementById('sys-ports-preset');
+  const hint=document.getElementById('sys-ports-url-hint');
+  if(!sel)return;
+  try{
+    const r=await fetch('/api/dashboard-ports',{credentials:'same-origin',cache:'no-store'});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(d.preset==='standard'||d.preset==='high')sel.value=d.preset;
+    const url=sysPortsUrlHint(d.https_port||443);
+    if(hint){
+      hint.textContent=url+(d.preset==='custom'?(' — '+(t('sys_ports_custom')||'')):'');
+    }
+  }catch(e){console.error('loadDashboardPorts',e);}
+}
+
+async function saveDashboardPorts(){
+  const msg=document.getElementById('sys-ports-msg');
+  const sel=document.getElementById('sys-ports-preset');
+  const preset=(sel&&sel.value)||'standard';
+  const httpsPort=preset==='high'?8443:443;
+  const url=sysPortsUrlHint(httpsPort);
+  const confirmTxt=(t('sys_ports_confirm')||'After restart open {url}. Continue?').replace('{url}',url);
+  const ok=await dashConfirm(t('sys_ports_title')||'Dashboard ports',confirmTxt,{confirmLabel:t('sys_ports_apply')||'Apply & Restart'});
+  if(!ok)return;
+  setAuthMsg(msg,'…');
+  try{
+    const r=await fetch('/api/dashboard-ports',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({preset})});
+    const text=await r.text();
+    if(!r.ok){setAuthMsg(msg,text||t('sys_ports_err'),'err');return;}
+    setAuthMsg(msg,t('sys_ports_ok'),'ok');
+    beginServiceRestartWait();
+  }catch(e){setAuthMsg(msg,t('sys_ports_err'),'err');}
 }
 
 function setAuthMsg(el,text,kind){

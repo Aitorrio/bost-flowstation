@@ -23,7 +23,7 @@ sudo ./contrib/install/install-bost.sh
 3. Builds `bluestation-bs` with Cargo and installs it to `/usr/local/bin/bluestation-bs`.
 4. Writes `/etc/flowstation/config.toml` if missing, with:
    - `phy_io.backend = "None"` (web always starts)
-   - `[dashboard]` HTTPS on `:443`, HTTP redirect on `:80`, login `admin` / `1234`
+   - `[dashboard]` ports from the installer preset (**standard** `:80`→`:443` or **high** HTTPS `:8443` only), login `admin` / `1234`
    - `service_name = "bluestation-bs"`
    - sibling `config.toml.fallback` and `setup.json` (`setup_complete=false`)
 5. Installs `bost-setup-helper.sh` + a sudoers drop-in (allowlisted actions only).
@@ -63,15 +63,18 @@ sudo systemctl reload NetworkManager
 | `BOST_FORCE_CLEAN=1` | Delete `/opt/bost-flowstation` and re-clone (keeps `/etc/flowstation`) |
 | `BOST_SKIP_BUILD=1` | Reuse an already-built `target/release/bluestation-bs` |
 | `BOST_SERVICE_USER` | User for rustup/build (default `bts`) |
+| `BOST_DASH_PORTS` | `standard` (HTTP 80 → HTTPS 443) or `high` (HTTPS 8443 only). Prompted on a TTY when unset; only applies to **new** configs |
 
 ## First login
 
-1. Open `https://<pi-ip>/` (or `http://<pi-ip>/` — redirects to HTTPS)
-2. Log in with `admin` / `1234` (change password in Config when convenient)
+1. Open the URL printed by the installer:
+   - **Standard:** `https://<pi-ip>/` (or `http://<pi-ip>/` — redirects to HTTPS)
+   - **High port:** `https://<pi-ip>:8443/`
+2. Log in with `admin` / `1234` (change password in System → Panel access when convenient)
 3. The **Setup** wizard appears if `setup.json` has `setup_complete=false`
 4. Steps: welcome → SDR scan / install driver (SXceiver or Lime) → RF/net/Brew (or defaults) → enable RF + restart → ensure systemd autostart → finish
 
-You can also open the **Setup** sidebar tab at any time.
+You can switch presets later under **System → Panel access → Dashboard ports** (applies config and restarts the service). Existing installs keep their current ports until you change them.
 
 ## Degraded boot (no SDR)
 
@@ -101,6 +104,6 @@ The script **does not overwrite** an existing `/etc/flowstation/config.toml`. To
 ## Upgrading from v0.2.x to v0.3.0
 
 1. Prefer **System → Update** on the dashboard (channel **Estable**), or re-run `install-bost.sh` on the Pi.
-2. After restart, open **`https://<pi-ip>/`**. Boot migrates legacy `[dashboard] port = 8080` → `80` and ensures `https_port = 443`.
+2. After restart, open **`https://<pi-ip>/`** (or `:8443` if you use the high-port preset). Boot only migrates purely legacy `[dashboard] port = 8080` **without** `https_port` → `80` + `https_port = 443`; configs that already set `https_port` are left alone.
 3. LST voice needs the tetra-codec linked build; if missing, OTA offers a codec rebuild.
 4. Existing Cell/Brew profiles and whitelist entries are kept (config.toml is not wiped by the installer).
