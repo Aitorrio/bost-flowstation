@@ -26,6 +26,7 @@ pub mod net_telegram;
 pub mod net_telemetry;
 
 pub mod backlight;
+pub mod cell_context;
 pub mod health;
 pub mod host_network;
 pub mod rf_status;

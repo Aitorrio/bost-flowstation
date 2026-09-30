@@ -361,7 +361,9 @@ impl SdsBsSubentity {
         // Flush SDS that were deferred while their destination was in a call or asleep (EE).
         self.flush_pending_sds(queue);
         // Feed the health monitor's Congestion domain: undelivered/deferred SDS backlog.
-        crate::health::registry().set_sds_queue_depth(self.pending_sds.len());
+        if crate::cell_context::is_primary() {
+            crate::health::registry().set_sds_queue_depth(self.pending_sds.len());
+        }
         if let Some(hmd_tx) = self.home_mode_display_sender.tick_start(&self.config, dltime) {
             self.send_d_sds_data(queue, hmd_tx.source_issi, hmd_tx.dest_gssi, SsiType::Gssi, hmd_tx.payload);
         }

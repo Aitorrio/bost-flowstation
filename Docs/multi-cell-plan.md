@@ -70,6 +70,12 @@ over bounded channels, never share `&mut` state.
 - With N=2 and **no** inter-cell features: two cells run, each only serves its own radios; network
   entities (Brew etc.) still attached to cell 0 only.
 
+**As built:** instead of moving `timeslot_alloc` now, each extra cell gets its own `SharedConfig`
+(from `StackConfig::for_extra_cell`, network services stripped), so state is fully separate until
+Phase 3 shares the registry. A thread-local `cell_context` marks each cell thread; health gauges and
+the detected-SDR badge stay primary-only, and `rf_status::get_all()` reports every cell. A cell
+whose SDR fails to open is not started (no PHY = nothing paces its loop).
+
 **Exit:** two SDRs transmitting two independent cells from one process; single-cell configs unchanged
 (regression test: existing integration tests in `crates/tetra-entities/tests` pass).
 

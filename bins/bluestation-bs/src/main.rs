@@ -178,7 +178,8 @@ fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEnt
 
 /// Attach PHY after the dashboard is running. Never panics on SDR open failure —
 /// degraded mode keeps the web UI / setup wizard available.
-fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<TelemetrySink>) {
+/// Returns true when a PHY was registered.
+fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<TelemetrySink>) -> bool {
     use tetra_config::bluestation::PhyBackend;
     match cfg.config().phy_io.backend {
         PhyBackend::None => {
@@ -186,6 +187,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
                 "phy_io.backend = None (setup mode — complete the Setup wizard to enable RF)",
             );
             eprintln!(" -> RF disabled (setup mode). Dashboard available for configuration.");
+            false
         }
         PhyBackend::SoapySdr => {
             tetra_entities::rf_status::set_starting("SoapySdr");
@@ -196,6 +198,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
                     router.register_entity(Box::new(phy));
                     tetra_entities::rf_status::set_online("SoapySdr", "SDR open, PHY registered");
                     eprintln!(" -> RF online (SoapySDR)");
+                    true
                 }
                 Err(e) => {
                     tracing::error!("RF degraded — continuing without PHY: {e}");
@@ -203,6 +206,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
                     eprintln!(
                         " -> RF offline: {e}\n    Dashboard remains available. Fix the SDR in Setup, then restart."
                     );
+                    false
                 }
             }
         }
@@ -211,8 +215,59 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
             tracing::error!("{msg}");
             tetra_entities::rf_status::set_error("unsupported", msg.clone());
             eprintln!(" -> RF offline: {msg}");
+            false
         }
     }
+}
+
+/// Start one thread per additional cell (`[[cells]]`). Each runs its own radio stack
+/// (PHY → CMCE) on its own SDR with a config from [`StackConfig::for_extra_cell`], so the cells
+/// are fully independent for now: separate registrations, no Brew/LST/dashboard. Threads stop
+/// with the primary via `is_running`.
+fn spawn_extra_cells(cfg: &SharedConfig, is_running: Arc<AtomicBool>) -> Vec<thread::JoinHandle<()>> {
+    let stack_config = cfg.config();
+    let mut handles = Vec::new();
+    for extra in &stack_config.extra_cells {
+        let id = extra.id;
+        let Some(cell_config) = stack_config.for_extra_cell(id) else {
+            continue;
+        };
+        let is_running = is_running.clone();
+        let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
+            tetra_entities::cell_context::set_current(id);
+            let cell_cfg = SharedConfig::from_parts(cell_config, None);
+            let mut router = build_cell_router(&cell_cfg);
+            eprintln!(" -> {id}: opening SDR…");
+            if !try_attach_phy(&mut router, &cell_cfg, None) {
+                // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
+                tracing::error!("{id}: no PHY — cell not started");
+                return;
+            }
+            tracing::info!("{id}: cell stack running");
+            router.run_stack(None, Some(is_running));
+            tracing::info!("{id}: cell stack stopped");
+        });
+        match spawned {
+            Ok(h) => handles.push(h),
+            Err(e) => tracing::error!("{id}: failed to spawn cell thread: {e}"),
+        }
+    }
+    handles
+}
+
+/// Radio stack of an additional cell: the core entities only, without telemetry, control links,
+/// restart recovery or network entities (those remain with the primary cell).
+fn build_cell_router(cfg: &SharedConfig) -> MessageRouter {
+    let mut router = MessageRouter::new(cfg.clone());
+    router.register_entity(Box::new(LmacBs::new(cfg.clone())));
+    router.register_entity(Box::new(UmacBs::new(cfg.clone(), None)));
+    router.register_entity(Box::new(Llc::new(cfg.clone())));
+    router.register_entity(Box::new(MleBs::new(cfg.clone())));
+    router.register_entity(Box::new(MmBs::new(cfg.clone(), None, None)));
+    router.register_entity(Box::new(Sndcp::new(cfg.clone())));
+    router.register_entity(Box::new(CmceBs::new(cfg.clone(), None, None)));
+    router.set_dl_time(TdmaTime::default());
+    router
 }
 
 /// Start base station stack
@@ -469,17 +524,6 @@ fn main() {
         );
     }
 
-    // Multi-cell: [[cells]] is parsed and validated, but only the primary cell runs until
-    // per-cell stacks land (multi-cell plan, phase 2).
-    let stack_config = cfg.config();
-    let extra_cells = &stack_config.extra_cells;
-    if !extra_cells.is_empty() {
-        tracing::warn!(
-            "{} additional cell(s) configured ({}), but multi-cell is not active yet — running the primary cell only",
-            extra_cells.len(),
-            extra_cells.iter().map(|c| c.id.to_string()).collect::<Vec<_>>().join(", ")
-        );
-    }
 
     let lst_handle = {
         let lst_on = cfg
@@ -771,6 +815,15 @@ fn main() {
     // Open SDR / register PHY only after the dashboard (if any) is already listening,
     // so a missing radio never blocks the setup wizard.
     try_attach_phy(&mut router, &cfg, phy_tsink);
+
+    // Multi-cell: additional cells run independently for now (multi-cell plan, phase 2).
+    let extra_cell_threads = spawn_extra_cells(&cfg, is_running.clone());
+    if !extra_cell_threads.is_empty() {
+        tracing::warn!(
+            "{} additional cell(s) started — independent cells: registrations, calls and network links are not shared yet",
+            extra_cell_threads.len()
+        );
+    }
 
     // Start the stack
     router.run_stack(None, Some(is_running));

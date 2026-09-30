@@ -888,8 +888,9 @@ voice_service = true
 # [cells.soapysdr] takes the same keys as [phy_io.soapysdr].
 # Rules: ids 1-7, every carrier unique across all cells, same freq_band, and
 # with SoapySdr every cell (including the primary) must set a unique `device`.
-# NOTE: parsed and validated only for now — the station still runs the primary
-# cell alone until multi-cell support is completed.
+# NOTE: each extra cell runs its own radio stack on its own SDR, but cells are
+# still independent: separate registrations and calls, and Brew/LST/Asterisk/
+# dashboard/WX serve the primary cell only (linking cells is the next phase).
 #
 # [[cells]]
 # id = 1

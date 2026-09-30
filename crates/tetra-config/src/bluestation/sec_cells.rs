@@ -207,4 +207,38 @@ colour_code = 2
         let band = parse("[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\nfreq_band = 3\n").unwrap();
         assert!(band.validate().unwrap_err().contains("freq_band"));
     }
+
+    #[test]
+    fn for_extra_cell_isolates_radio_settings() {
+        let cfg = parse(
+            r#"
+[brew]
+host = "brew.example"
+port = 3000
+tls = false
+username = 1
+password = "x"
+
+[[cells]]
+id = 1
+[cells.cell_info]
+main_carrier = 1525
+colour_code = 2
+"#,
+        )
+        .unwrap();
+        assert!(cfg.brew.is_some());
+
+        let cell = cfg.for_extra_cell(CellId(1)).unwrap();
+        assert_eq!(cell.cell.main_carrier, 1525);
+        assert_eq!(cell.cell.colour_code, 2);
+        assert!(cell.extra_cells.is_empty());
+        assert!(cell.brew.is_none(), "network links stay with the primary cell");
+        assert!(cell.dashboard.is_none());
+        assert!(!cell.wx_service.enabled && !cell.recovery.enabled);
+        assert_eq!(cell.net.mcc, cfg.net.mcc);
+        cell.validate().unwrap();
+
+        assert!(cfg.for_extra_cell(CellId(2)).is_none());
+    }
 }

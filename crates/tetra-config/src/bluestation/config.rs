@@ -170,6 +170,33 @@ impl StackConfig {
         v
     }
 
+    /// Stand-alone config for running one additional cell's radio stack: that cell's
+    /// `cell_info` and SDR, with every station-wide service (Brew, LST, Asterisk, dashboard,
+    /// telemetry, control, WX, recovery, alerts) switched off. Those stay with the primary
+    /// cell until the site core lands (multi-cell plan, phase 3).
+    pub fn for_extra_cell(&self, id: CellId) -> Option<StackConfig> {
+        let extra = self.extra_cells.iter().find(|c| c.id == id)?;
+        let mut cfg = self.clone();
+        cfg.cell = extra.cell.clone();
+        cfg.phy_io.soapysdr = extra.soapysdr.clone();
+        cfg.extra_cells = Vec::new();
+        cfg.brew = None;
+        cfg.lst_dispatch = None;
+        cfg.asterisk.enabled = false;
+        cfg.dapnet.enabled = false;
+        cfg.geoalarm.enabled = false;
+        cfg.tpg2200_action.enabled = false;
+        cfg.snom_notify.enabled = false;
+        cfg.dashboard = None;
+        cfg.telemetry = None;
+        cfg.control = None;
+        cfg.telegram = None;
+        cfg.wx_service.enabled = false;
+        cfg.wx_service.periodic_enabled = false;
+        cfg.recovery.enabled = false;
+        Some(cfg)
+    }
+
     /// Validate that all required configuration fields are properly set.
     pub fn validate(&self) -> Result<(), String> {
         self.validate_primary().map_err(String::from)?;

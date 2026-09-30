@@ -2330,7 +2330,9 @@ impl TetraEntityTrait for UmacBs {
         self.check_hangtime_ul_activity(queue);
 
         // Feed the health monitor's Congestion domain: current downlink scheduling backlog.
-        crate::health::registry().set_dl_queue_depth(self.channel_scheduler.dl_queue_depth());
+        if crate::cell_context::is_primary() {
+            crate::health::registry().set_dl_queue_depth(self.channel_scheduler.dl_queue_depth());
+        }
 
         // Collect/construct traffic that should be sent down to the LMAC
         // This is basically the _previous_ timeslot
