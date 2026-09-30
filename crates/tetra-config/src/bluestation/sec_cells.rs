@@ -233,7 +233,7 @@ colour_code = 2
         assert_eq!(cell.cell.main_carrier, 1525);
         assert_eq!(cell.cell.colour_code, 2);
         assert!(cell.extra_cells.is_empty());
-        assert!(cell.brew.is_none(), "network links stay with the primary cell");
+        assert!(cell.brew.is_some(), "kept so the cell's CMCE routes to the site switch");
         assert!(cell.dashboard.is_none());
         assert!(!cell.wx_service.enabled && !cell.recovery.enabled);
         assert_eq!(cell.net.mcc, cfg.net.mcc);

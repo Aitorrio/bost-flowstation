@@ -89,6 +89,16 @@ whose SDR fails to open is not started (no PHY = nothing paces its loop).
 - Routing rules: incoming Brew/LST group call → every cell with members of that group; SDS to ISSI →
   the cell holding it; unknown location → broadcast/page all cells.
 
+**As built:** no separate site-core thread. `net_site::SiteSwitch` wraps the Brew/LST entity in the
+primary router; each extra cell has a `CellLink` in its Brew slot (crossbeam channels). The switch
+learns ISSI location / group membership from the `MmSubscriberUpdate`s cells send to the network,
+routes by carrier (unique per cell), Brew UUID, or destination, fans network group calls out (first
+`NetworkCallReady` is the anchor; its DL voice is copied to the other cells' circuits; Hold only
+when every cell holds; `GroupListenersAvailable` pulls a cell into a running call), delivers SDS
+between cells directly, and renumbers call ids. Each cell still keeps its own `StackState`, so the
+dashboard/registry view is primary-only until Phase 6. Requires Brew or LST; without a network
+link cells stay independent. Asterisk stays primary-only.
+
 **Exit:** external network traffic reaches radios on any cell; SDS works across cells.
 
 ## Phase 4 — Inter-cell group & individual calls (≈3 weeks)

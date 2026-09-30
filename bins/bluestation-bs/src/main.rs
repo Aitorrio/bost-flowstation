@@ -10,8 +10,8 @@ use tetra_entities::net_control::{
 };
 
 use tetra_config::bluestation::{SharedConfig, StackConfig, parsing};
-use tetra_core::{TdmaTime, debug};
-use tetra_entities::MessageRouter;
+use tetra_core::{CellId, TdmaTime, debug};
+use tetra_entities::{MessageRouter, TetraEntityTrait};
 #[cfg(feature = "asterisk")]
 use tetra_entities::net_asterisk::entity::AsteriskEntity;
 use tetra_entities::net_brew::entity::BrewEntity;
@@ -20,6 +20,7 @@ use tetra_entities::net_lst_dispatch::{LstDispatchEntity, LstDispatchHandle, cod
 use tetra_entities::net_dapnet::spawn_dapnet_worker;
 use tetra_entities::net_dashboard::DashboardServer;
 use tetra_entities::net_geoalarm::{GeoAlarmSink, spawn_geoalarm_worker};
+use tetra_entities::net_site::{CellLink, SitePorts, SiteSwitch, site_links};
 use tetra_entities::net_snom::{snom_notify_channel, spawn_snom_notify_worker};
 use tetra_entities::net_telegram::{TelegramAlertSink, TelegramAlerter, telegram_alert_channel};
 use tetra_entities::net_telemetry::worker::TelemetryWorker;
@@ -224,7 +225,11 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
 /// (PHY → CMCE) on its own SDR with a config from [`StackConfig::for_extra_cell`], so the cells
 /// are fully independent for now: separate registrations, no Brew/LST/dashboard. Threads stop
 /// with the primary via `is_running`.
-fn spawn_extra_cells(cfg: &SharedConfig, is_running: Arc<AtomicBool>) -> Vec<thread::JoinHandle<()>> {
+fn spawn_extra_cells(
+    cfg: &SharedConfig,
+    is_running: Arc<AtomicBool>,
+    mut links: HashMap<CellId, CellLink>,
+) -> Vec<thread::JoinHandle<()>> {
     let stack_config = cfg.config();
     let mut handles = Vec::new();
     for extra in &stack_config.extra_cells {
@@ -233,10 +238,11 @@ fn spawn_extra_cells(cfg: &SharedConfig, is_running: Arc<AtomicBool>) -> Vec<thr
             continue;
         };
         let is_running = is_running.clone();
+        let link = links.remove(&id);
         let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
             tetra_entities::cell_context::set_current(id);
             let cell_cfg = SharedConfig::from_parts(cell_config, None);
-            let mut router = build_cell_router(&cell_cfg);
+            let mut router = build_cell_router(&cell_cfg, link);
             eprintln!(" -> {id}: opening SDR…");
             if !try_attach_phy(&mut router, &cell_cfg, None) {
                 // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
@@ -255,9 +261,9 @@ fn spawn_extra_cells(cfg: &SharedConfig, is_running: Arc<AtomicBool>) -> Vec<thr
     handles
 }
 
-/// Radio stack of an additional cell: the core entities only, without telemetry, control links,
-/// restart recovery or network entities (those remain with the primary cell).
-fn build_cell_router(cfg: &SharedConfig) -> MessageRouter {
+/// Radio stack of an additional cell: the core entities only, without telemetry, control links or
+/// restart recovery. With a network link configured, `link` connects it to the site switch.
+fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>) -> MessageRouter {
     let mut router = MessageRouter::new(cfg.clone());
     router.register_entity(Box::new(LmacBs::new(cfg.clone())));
     router.register_entity(Box::new(UmacBs::new(cfg.clone(), None)));
@@ -266,15 +272,48 @@ fn build_cell_router(cfg: &SharedConfig) -> MessageRouter {
     router.register_entity(Box::new(MmBs::new(cfg.clone(), None, None)));
     router.register_entity(Box::new(Sndcp::new(cfg.clone())));
     router.register_entity(Box::new(CmceBs::new(cfg.clone(), None, None)));
+    if let Some(link) = link {
+        router.register_entity(Box::new(link));
+    }
     router.set_dl_time(TdmaTime::default());
     router
 }
 
 /// Start base station stack
+/// Carrier numbers of every cell, primary first (for the site switch).
+fn site_carriers(cfg: &SharedConfig) -> Vec<(CellId, Vec<u16>)> {
+    cfg.config()
+        .cells()
+        .into_iter()
+        .map(|(id, cell, _)| {
+            let carriers = StackConfig::cell_phase_mod_carriers(cell)
+                .map(|cs| cs.into_iter().map(|(c, _, _)| c).collect())
+                .unwrap_or_default();
+            (id, carriers)
+        })
+        .collect()
+}
+
+/// In a multi-cell station the network entity is wrapped in the site switch so it serves every
+/// cell; single-cell stations register it directly, exactly as before.
+fn wrap_network_entity(
+    entity: Box<dyn TetraEntityTrait>,
+    site: &mut Option<(SitePorts, Vec<(CellId, Vec<u16>)>)>,
+) -> Box<dyn TetraEntityTrait> {
+    match site.take() {
+        Some((ports, carriers)) => {
+            eprintln!(" -> Site switch: network link shared by {} cells", carriers.len());
+            Box::new(SiteSwitch::new(entity, &carriers, ports))
+        }
+        None => entity,
+    }
+}
+
 fn build_bs_stack(
     cfg: &mut SharedConfig,
     config_path: &str,
     lst_handle: Option<LstDispatchHandle>,
+    mut site: Option<(SitePorts, Vec<(CellId, Vec<u16>)>)>,
 ) -> (
     MessageRouter,
     Option<TelemetrySource>,
@@ -407,7 +446,7 @@ fn build_bs_stack(
             tracing::warn!("LST handle provided but lst_dispatch not enabled — ignoring");
         } else {
             let entity = LstDispatchEntity::new(cfg.clone(), handle);
-            router.register_entity(Box::new(entity));
+            router.register_entity(wrap_network_entity(Box::new(entity), &mut site));
             eprintln!(" -> LST Dispatch (local console) enabled");
         }
     } else if let Some(ref brew_cfg) = cfg.config().brew {
@@ -416,7 +455,7 @@ fn build_bs_stack(
         if let Some(ref sink) = tsink {
             brew_entity.set_telemetry_sink(sink.clone());
         }
-        router.register_entity(Box::new(brew_entity));
+        router.register_entity(wrap_network_entity(Box::new(brew_entity), &mut site));
         eprintln!(" -> Brew/TetraPack integration enabled");
     } else if lst_enabled {
         eprintln!(" -> WARNING: lst_dispatch.enabled but no handle wired — dispatch inactive");
@@ -539,8 +578,19 @@ fn main() {
         }
     };
 
+    // Multi-cell with a network link: one site switch in the primary router, one link per
+    // additional cell. Without Brew/LST there is nothing to share and cells stay independent.
+    let extra_cell_ids: Vec<CellId> = cfg.config().extra_cells.iter().map(|c| c.id).collect();
+    let network_enabled = cfg.config().brew.is_some() || lst_handle.is_some();
+    let (site, cell_links) = if !extra_cell_ids.is_empty() && network_enabled {
+        let (ports, links) = site_links(&extra_cell_ids);
+        (Some((ports, site_carriers(&cfg))), links)
+    } else {
+        (None, HashMap::new())
+    };
+
     let (mut router, tsource, cdispatchers, dapnet_telemetry_sink) =
-        build_bs_stack(&mut cfg, &args.config, lst_handle.clone());
+        build_bs_stack(&mut cfg, &args.config, lst_handle.clone(), site);
     // Clone for PHY attach after the dashboard is listening (degraded boot).
     let phy_tsink = dapnet_telemetry_sink.clone();
     let dapnet_cmd_tx = cdispatchers.get(&TetraEntity::Cmce).map(|dispatcher| dispatcher.clone_sender());
@@ -817,10 +867,10 @@ fn main() {
     try_attach_phy(&mut router, &cfg, phy_tsink);
 
     // Multi-cell: additional cells run independently for now (multi-cell plan, phase 2).
-    let extra_cell_threads = spawn_extra_cells(&cfg, is_running.clone());
+    let extra_cell_threads = spawn_extra_cells(&cfg, is_running.clone(), cell_links);
     if !extra_cell_threads.is_empty() {
         tracing::warn!(
-            "{} additional cell(s) started — independent cells: registrations, calls and network links are not shared yet",
+            "{} additional cell(s) started — network calls/SDS are routed across cells; calls started on one cell are not heard on the others yet",
             extra_cell_threads.len()
         );
     }

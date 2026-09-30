@@ -171,17 +171,16 @@ impl StackConfig {
     }
 
     /// Stand-alone config for running one additional cell's radio stack: that cell's
-    /// `cell_info` and SDR, with every station-wide service (Brew, LST, Asterisk, dashboard,
-    /// telemetry, control, WX, recovery, alerts) switched off. Those stay with the primary
-    /// cell until the site core lands (multi-cell plan, phase 3).
+    /// `cell_info` and SDR, with the station-wide services that run beside the primary stack
+    /// (Asterisk, dashboard, telemetry, control, WX, recovery, alerts) switched off. `brew` /
+    /// `lst_dispatch` are kept so the cell's CMCE still routes network traffic; in the cell's
+    /// router that slot is a link to the site switch, not a second network connection.
     pub fn for_extra_cell(&self, id: CellId) -> Option<StackConfig> {
         let extra = self.extra_cells.iter().find(|c| c.id == id)?;
         let mut cfg = self.clone();
         cfg.cell = extra.cell.clone();
         cfg.phy_io.soapysdr = extra.soapysdr.clone();
         cfg.extra_cells = Vec::new();
-        cfg.brew = None;
-        cfg.lst_dispatch = None;
         cfg.asterisk.enabled = false;
         cfg.dapnet.enabled = false;
         cfg.geoalarm.enabled = false;
