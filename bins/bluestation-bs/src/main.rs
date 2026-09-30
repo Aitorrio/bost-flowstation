@@ -501,7 +501,7 @@ fn main() {
     }
 
     // Load config — parse+validate primary; on failure try <config>.fallback the same way.
-    let (stack_cfg, fallback_info) = match load_config_with_fallback(&args.config) {
+    let (mut stack_cfg, fallback_info) = match load_config_with_fallback(&args.config) {
         ConfigLoadResult::Primary(c) => (c, None),
         ConfigLoadResult::Fallback {
             config,
@@ -509,6 +509,8 @@ fn main() {
             primary_error,
         } => (config, Some((fallback_path, primary_error))),
     };
+    // Multi-cell: every cell advertises its siblings as neighbours for reselection.
+    stack_cfg.add_sibling_neighbours();
 
     // Build immutable, cheaply clonable SharedConfig and build the base station stack
     let mut cfg = SharedConfig::from_parts(stack_cfg, None);

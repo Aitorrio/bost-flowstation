@@ -348,8 +348,29 @@ impl SiteSwitch {
     fn handle_from_cell(&mut self, queue: &mut MessageQueue, cell: CellId, mut message: SapMsg) {
         let forward = match &mut message.msg {
             SapMsgInner::MmSubscriberUpdate(update) => {
-                self.directory.apply(cell, update);
-                self.subscriber_update_to_network(update)
+                if let Some(old) = self.directory.apply(cell, update) {
+                    // Reselected from `old`: drop the stale registration there (silently).
+                    tracing::info!("SiteSwitch: ISSI {} moved {old} → {cell}", update.issi);
+                    let drop = SapMsg::new(
+                        Sap::Control,
+                        TetraEntity::Brew,
+                        TetraEntity::Mm,
+                        SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+                            issi: update.issi,
+                            groups: Vec::new(),
+                            action: BrewSubscriberAction::Deregister,
+                        }),
+                    );
+                    self.deliver(queue, old, drop);
+                }
+                // A cell the radio has left (its cleanup after a move) must not undo the
+                // registration it now has on another cell, as far as the network is concerned.
+                let current = self.directory.location(update.issi);
+                let from_old_cell = matches!(
+                    update.action,
+                    BrewSubscriberAction::Deregister | BrewSubscriberAction::Deaffiliate
+                ) && current.is_some_and(|c| c != cell);
+                !from_old_cell && self.subscriber_update_to_network(update)
             }
             SapMsgInner::CmceSdsData(sds) => {
                 let dest = sds.dest_issi;
@@ -1409,5 +1430,58 @@ main_carrier = 1525
         site.tick();
         let s = site.cell1.state_read();
         assert!(s.network_connected && s.brew_link_up);
+    }
+
+    // ── Mobility (phase 5) ──────────────────────────────────────────────────────────────────
+
+    fn register(issi: u32) -> SapMsgInner {
+        SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+            issi,
+            groups: vec![],
+            action: BrewSubscriberAction::Register,
+        })
+    }
+
+    #[test]
+    fn radio_moving_between_cells_is_dropped_on_the_old_cell_only() {
+        let mut site = Site::new();
+        site.from_cell(0, register(100));
+        site.tick();
+        site.net_got();
+
+        // Reselects to cell 1 and registers there.
+        site.from_cell(1, register(100));
+        let (c0, _) = site.tick();
+        assert!(
+            c0.iter().any(|m| matches!(m, SapMsgInner::MmSubscriberUpdate(u)
+                if u.issi == 100 && u.action == BrewSubscriberAction::Deregister)),
+            "cell 0 is told to drop the stale registration"
+        );
+        assert!(
+            site.net_got().iter().any(|m| matches!(m, SapMsgInner::MmSubscriberUpdate(u)
+                if u.action == BrewSubscriberAction::Register)),
+            "the network sees the new registration"
+        );
+
+        // Cell 0's cleanup must not deregister the radio on the network.
+        site.from_cell(
+            0,
+            SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+                issi: 100,
+                groups: vec![],
+                action: BrewSubscriberAction::Deregister,
+            }),
+        );
+        site.tick();
+        assert!(site.net_got().is_empty());
+
+        // SDS for it now goes to cell 1.
+        site.from_net(SapMsgInner::CmceSdsData(CmceSdsData {
+            source_issi: 9000,
+            dest_issi: 100,
+            user_defined_data: SdsUserData::Type1(1),
+        }));
+        let (c0, c1) = site.tick();
+        assert!(c0.is_empty() && c1.iter().any(|m| matches!(m, SapMsgInner::CmceSdsData(_))));
     }
 }

@@ -13,9 +13,11 @@ pub struct SiteDirectory {
 }
 
 impl SiteDirectory {
-    /// Apply a subscriber update a cell sent towards the network.
-    pub fn apply(&mut self, cell: CellId, update: &MmSubscriberUpdate) {
+    /// Apply a subscriber update a cell sent towards the network. Returns the cell the radio was
+    /// registered on before, when this update is a registration that moved it here.
+    pub fn apply(&mut self, cell: CellId, update: &MmSubscriberUpdate) -> Option<CellId> {
         let issi = update.issi;
+        let mut moved_from = None;
         match update.action {
             BrewSubscriberAction::Register => {
                 if let Some(old) = self.location.insert(issi, cell)
@@ -23,6 +25,7 @@ impl SiteDirectory {
                 {
                     // Moved: its groups on the old cell no longer have this ear.
                     self.affiliations.remove(&(old, issi));
+                    moved_from = Some(old);
                 }
                 if !update.groups.is_empty() {
                     self.affiliations.entry((cell, issi)).or_default().extend(&update.groups);
@@ -46,6 +49,7 @@ impl SiteDirectory {
                 }
             }
         }
+        moved_from
     }
 
     /// Cell the ISSI is registered on, if known.

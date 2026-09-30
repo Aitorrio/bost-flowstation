@@ -250,4 +250,48 @@ colour_code = 2
 
         assert!(cfg.for_extra_cell(CellId(2)).is_none());
     }
+
+    #[test]
+    fn sibling_cells_become_neighbours() {
+        let mut cfg = parse(
+            r#"
+[[cell_info.neighbor_cells_ca]]
+cell_identifier_ca = 0
+cell_reselection_types_supported = 1
+neighbor_cell_synchronized = false
+cell_load_ca = 0
+main_carrier_number = 1525
+
+[[cells]]
+id = 1
+[cells.cell_info]
+main_carrier = 1525
+[[cells]]
+id = 2
+[cells.cell_info]
+main_carrier = 1529
+location_area = 2
+"#,
+        )
+        .unwrap();
+        cfg.add_sibling_neighbours();
+        cfg.validate().unwrap();
+
+        let carriers = |c: &crate::bluestation::CfgCellInfo| c.neighbor_cells_ca.iter().map(|n| n.main_carrier_number).collect::<Vec<_>>();
+        assert_eq!(carriers(&cfg.cell), vec![1525, 1529], "configured 1525 kept, 1529 added");
+        assert_eq!(cfg.cell.neighbor_cells_ca[1].cell_identifier_ca, 1, "first free id");
+        assert_eq!(cfg.cell.neighbor_cells_ca[1].location_area, Some(2), "differing LA is advertised");
+        assert_eq!(carriers(&cfg.extra_cells[0].cell), vec![1521, 1529]);
+        assert_eq!(carriers(&cfg.extra_cells[1].cell), vec![1521, 1525]);
+        assert!(cfg.cells().iter().all(|(_, c, _)| c.neighbor_cell_broadcast & 0b10 != 0));
+        assert_eq!(cfg.for_extra_cell(CellId(2)).unwrap().cell.neighbor_cells_ca.len(), 2);
+    }
+
+    #[test]
+    fn single_cell_neighbours_are_untouched() {
+        let mut cfg = parse("").unwrap();
+        cfg.add_sibling_neighbours();
+        assert!(cfg.cell.neighbor_cells_ca.is_empty());
+        assert_eq!(cfg.cell.neighbor_cell_broadcast, 0);
+    }
 }

@@ -2600,6 +2600,28 @@ impl TetraEntityTrait for MmBs {
                             msg: SapMsgInner::MsRssiUpdate { issi, rssi_dbfs },
                         });
                     }
+                    SapMsgInner::MmSubscriberUpdate(update)
+                        if message.src == TetraEntity::Brew && update.action == BrewSubscriberAction::Deregister =>
+                    {
+                        // Multi-cell site switch: the MS registered on a sibling cell. Drop it here
+                        // silently — it no longer listens to this cell, so nothing goes on air.
+                        let issi = update.issi;
+                        tracing::info!("MM: ISSI {} moved to another cell — dropping local registration", issi);
+                        let groups: Vec<u32> = self
+                            .client_mgr
+                            .get_client_by_issi(issi)
+                            .map(|c| c.groups.iter().copied().collect())
+                            .unwrap_or_default();
+                        if !groups.is_empty() {
+                            self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
+                        }
+                        self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
+                        self.client_mgr.remove_client(issi);
+                        self.config.state_write().subscribers.deregister(issi);
+                        self.group_report_requested_at.remove(&issi);
+                        self.attach_overflow_remainder.remove(&issi);
+                        self.recovery_mark_dirty();
+                    }
                     SapMsgInner::MmSubscriberUpdate(update) => {
                         // CMCE can ask MM to deregister an MS (e.g. kick from dashboard)
                         if update.action == BrewSubscriberAction::Deregister {

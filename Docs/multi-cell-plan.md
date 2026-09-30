@@ -134,6 +134,18 @@ priority/emergency is not carried on cross-cell local calls (sent as priority 0)
 - Optional: announced handover via D-NEW-CELL (stretch goal; many terminals do fine with
   unannounced reselection + restore).
 
+**As built:** `StackConfig::add_sibling_neighbours` (called at startup) adds every sibling cell to
+each cell's `neighbor_cells_ca` (configured entries on the same carrier are kept, 7-entry limit,
+first free `cell_identifier_ca`, LA only if it differs) and sets the D-NWRK-BROADCAST-supported bit
+in `neighbor_cell_broadcast`. When the switch sees a radio register on a new cell it sends the old
+cell's MM a Brew-sourced `Deregister`: MM drops the registration without anything on air (the
+dashboard "kick" path sends D-LOCATION-UPDATE-COMMAND instead), CMCE drops its listener counts so
+the old cell releases group calls nobody hears any more; the old cell's resulting deregister /
+deaffiliate never reaches the network. In site-linked mode CMCE matches a U-CALL RESTORE with an
+unknown call id (a sibling cell's) to the active group call of its `other_party_ssi` GSSI and
+answers with its own call id. D-NEW-CELL / announced handover: not done (stretch goal); individual
+calls do not survive a cell change (the peer is released as before).
+
 **Exit:** walking a radio between two cells keeps registration and rejoins an active call.
 
 ## Phase 6 — Dashboard, ops & packaging (≈2 weeks, parallelisable from Phase 2)

@@ -3044,3 +3044,55 @@ fn test_deaffiliate_last_listener_holds_network_call() {
         "must not End the Brew session when the last listener leaves the TG"
     );
 }
+
+/// Multi-cell: a radio that reselected from a sibling cell restores the group call with that
+/// cell's call identifier. The linked cell finds the call by GSSI and answers with its own id.
+#[test]
+fn test_site_linked_restore_from_sibling_cell_matches_group() {
+    debug::setup_logging_verbose();
+
+    let mut config = brew_test_config();
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let call_id = first_d_setup_call_id(&test.dump_sinks(), TEST_GSSI);
+
+    const MOVER: u32 = 1_000_777;
+    let sibling_call_id = call_id + 100;
+    test.submit_message(build_u_call_restore_msg(MOVER, sibling_call_id, TEST_GSSI, false));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let (mut sdu, _) = find_lcmc_req(&msgs, MOVER, CmcePduTypeDl::DCallRestore).expect("D-CALL RESTORE, not D-RELEASE");
+    let restore = DCallRestore::from_bitbuf(&mut sdu).expect("Failed to parse DCallRestore");
+    assert_eq!(restore.call_identifier, call_id, "the radio adopts this cell's call id");
+}
+
+/// Without site linking an unknown call identifier is still rejected (single-cell behaviour).
+#[test]
+fn test_restore_with_unknown_call_id_rejected_when_not_site_linked() {
+    debug::setup_logging_verbose();
+
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let call_id = first_d_setup_call_id(&test.dump_sinks(), TEST_GSSI);
+
+    test.submit_message(build_u_call_restore_msg(1_000_777, call_id + 100, TEST_GSSI, false));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+    assert!(find_lcmc_req(&msgs, 1_000_777, CmcePduTypeDl::DCallRestore).is_none());
+}

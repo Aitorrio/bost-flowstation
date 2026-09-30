@@ -201,6 +201,51 @@ impl StackConfig {
         Some(cfg)
     }
 
+    /// Multi-cell: advertise every sibling cell as a neighbour (D-NWRK-BROADCAST) so radios can
+    /// reselect between the station's cells. Siblings already listed by carrier are left as
+    /// configured; entries are added only while the 7-neighbour limit allows. Also enables the
+    /// "D-NWRK-BROADCAST supported" bit in D-MLE-SYNC on every cell that got neighbours.
+    pub fn add_sibling_neighbours(&mut self) {
+        if self.extra_cells.is_empty() {
+            return;
+        }
+        let siblings: Vec<(u16, u16)> = self.cells().iter().map(|(_, c, _)| (c.main_carrier, c.location_area)).collect();
+        let lists = std::iter::once(&mut self.cell).chain(self.extra_cells.iter_mut().map(|c| &mut c.cell));
+        for cell in lists {
+            for &(carrier, location_area) in &siblings {
+                if carrier == cell.main_carrier
+                    || cell.neighbor_cells_ca.len() >= 7
+                    || cell.neighbor_cells_ca.iter().any(|n| n.main_carrier_number == carrier)
+                {
+                    continue;
+                }
+                let Some(id) = (0u8..=0x1F).find(|id| !cell.neighbor_cells_ca.iter().any(|n| n.cell_identifier_ca == *id)) else {
+                    break;
+                };
+                cell.neighbor_cells_ca.push(crate::bluestation::CfgNeighborCellCa {
+                    cell_identifier_ca: id,
+                    cell_reselection_types_supported: 1,
+                    neighbor_cell_synchronized: false,
+                    cell_load_ca: 0,
+                    main_carrier_number: carrier,
+                    main_carrier_number_extension: None,
+                    mcc: None,
+                    mnc: None,
+                    location_area: (location_area != cell.location_area).then_some(location_area),
+                    maximum_ms_transmit_power: None,
+                    minimum_rx_access_level: None,
+                    subscriber_class: None,
+                    bs_service_details: None,
+                    timeshare_cell_information_or_security_parameters: None,
+                    tdma_frame_offset: None,
+                });
+            }
+            if !cell.neighbor_cells_ca.is_empty() {
+                cell.neighbor_cell_broadcast |= 0b10;
+            }
+        }
+    }
+
     /// True when a network link (Brew, or enabled LST Dispatch) is configured.
     pub fn has_network_link(&self) -> bool {
         self.brew.is_some() || self.lst_dispatch.as_ref().is_some_and(|l| l.enabled)

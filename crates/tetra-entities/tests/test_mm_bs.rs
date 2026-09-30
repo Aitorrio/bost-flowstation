@@ -13,7 +13,7 @@ use tetra_pdus::mm::pdus::d_attach_detach_group_identity::DAttachDetachGroupIden
 use tetra_pdus::mm::pdus::d_mm_status::DMmStatus;
 use tetra_pdus::mm::pdus::u_itsi_detach::UItsiDetach;
 use tetra_pdus::mm::pdus::u_location_update_demand::ULocationUpdateDemand;
-use tetra_saps::control::brew::BrewSubscriberAction;
+use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
 use tetra_saps::lmm::LmmMleUnitdataInd;
 use tetra_saps::sapmsg::{SapMsg, SapMsgInner};
 
@@ -1216,4 +1216,42 @@ fn test_restart_recovery_honours_whitelist() {
     );
 
     let _ = std::fs::remove_file(&path);
+}
+
+/// Multi-cell: the site switch tells a cell (via the Brew slot) that a radio registered on a
+/// sibling cell. MM drops the registration here without anything going on air.
+#[test]
+fn test_moved_to_sibling_cell_drops_registration_silently() {
+    debug::setup_logging_verbose();
+    const MOVER: u32 = 2260900;
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let mm = MmBs::new(test.get_shared_config(), None, None);
+    test.register_entity(mm);
+
+    register_terminal(&mut test, MOVER);
+    let _ = test.dump_sinks();
+    assert!(test.config.state_read().subscribers.is_registered(MOVER), "precondition: registered");
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Mm,
+        msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+            issi: MOVER,
+            groups: vec![],
+            action: BrewSubscriberAction::Deregister,
+        }),
+    });
+    test.run_stack(Some(2));
+    let msgs = test.dump_sinks();
+
+    assert!(!test.config.state_read().subscribers.is_registered(MOVER));
+    assert_eq!(find_location_update_command(&msgs), None, "the radio is on another cell: nothing on air");
+    assert!(
+        msgs.iter().any(|m| m.dest == TetraEntity::Cmce
+            && matches!(&m.msg, SapMsgInner::MmSubscriberUpdate(u) if u.issi == MOVER && u.action == BrewSubscriberAction::Deregister)),
+        "CMCE learns the radio is gone (drops its listener counts)"
+    );
 }

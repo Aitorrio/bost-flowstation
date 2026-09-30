@@ -886,6 +886,8 @@ voice_service = true
 # [cells.cell_info] keys override the primary [cell_info] (anything not set is
 # inherited); neighbor_cells_ca and sds_command_control cannot be set per cell.
 # [cells.soapysdr] takes the same keys as [phy_io.soapysdr].
+# Every cell automatically advertises the other cells as neighbours (no need to
+# list them in neighbor_cells_ca), so radios can reselect between them.
 # Rules: ids 1-7, every carrier unique across all cells, same freq_band, and
 # with SoapySdr every cell (including the primary) must set a unique `device`.
 # NOTE: each extra cell runs its own radio stack on its own SDR. With [brew] or

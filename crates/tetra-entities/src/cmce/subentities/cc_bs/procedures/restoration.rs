@@ -10,7 +10,25 @@ impl CcBsSubentity {
         endpoint_id: u32,
         pdu: UCallRestore,
     ) {
-        let call_id = pdu.call_identifier;
+        let mut call_id = pdu.call_identifier;
+
+        // Multi-cell: an MS that reselected from a sibling cell restores with that cell's call
+        // identifier. Find the same group call here by its GSSI; D-CALL RESTORE carries our id.
+        if !self.individual_calls.contains_key(&call_id)
+            && !self.active_calls.contains_key(&call_id)
+            && brew::is_site_linked(&self.config)
+            && let Some(gssi) = pdu.other_party_ssi
+            && let Some((&id, _)) = self.active_calls.iter().find(|(_, c)| c.dest_gssi as u64 == gssi)
+        {
+            tracing::info!(
+                "CMCE: U-CALL RESTORE from ISSI {} for call_id={} (sibling cell) → local call_id={} gssi={}",
+                sender.ssi,
+                call_id,
+                id,
+                gssi
+            );
+            call_id = id;
+        }
 
         if let Some(call) = self.individual_calls.get_mut(&call_id) {
             if !call.is_active() || (sender.ssi != call.calling_addr.ssi && sender.ssi != call.called_addr.ssi) {
