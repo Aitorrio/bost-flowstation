@@ -10,6 +10,7 @@ Elección de puertos sin pelear con nginx/apache ni spamear ERROR en el log.
 - Sistema → Acceso al panel: selector de preset + Apply & Restart (nueva URL tras reinicio).
 - `port = 0` desactiva el redirect HTTP. Migración OTA solo si `port = 8080` sin `https_port`.
 - Listeners legacy 8080/8443 solo en layout :443, fail-soft (sin reintentos infinitos). Bind canónico: conflicto → hint + retry 60s.
+- Validado en campo. Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
 
 ## v0.4.3 — LST SDS: ocultar ACK de entrega en el log
 
