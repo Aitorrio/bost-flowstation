@@ -2119,6 +2119,11 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   margin:0 18px 14px;padding:0;
 }
 .ts-carrier-group{display:flex;flex-direction:column;gap:8px;}
+.ts-cell-group{display:flex;flex-direction:column;gap:8px;}
+.ts-cell-group+.ts-cell-group{border-top:1px solid var(--border);padding-top:10px;}
+.ts-cell-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:12px;color:var(--text2);}
+.ts-cell-head .cell-name{font-weight:700;color:var(--text);}
+.ts-carrier-head{font-family:var(--mono);font-size:10.5px;color:var(--text3);}
 .ts-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
 .ts-block{
   border:1px solid var(--border);border-radius:8px;
@@ -4805,6 +4810,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
          the radio. We do not rely on receive-side feedback. -->
     <div class="page" id="page-rf">
 
+      <!-- Cells (multi-cell only): state and carriers of every cell -->
+      <div class="card" id="rf-cells-card" style="display:none">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cells_title">Cells</div>
+          <div class="card-actions"><span id="rf-cells-link" class="bts-chip">—</span></div>
+        </div>
+        <div class="card-body">
+          <div class="cells-list" id="rf-cells-list"></div>
+          <div class="help-text" data-i18n="rf_cells_note">The spectrum and quality metrics below are from the primary cell's SDR.</div>
+        </div>
+      </div>
+
       <!-- Hero summary -->
       <div class="hero">
         <span class="hero-dot is-idle" id="rf-hero-dot"></span>
@@ -7006,7 +7023,7 @@ const LANGS={
     registered_terminals:'Registered Radios',
     cells_title:'Cells',cells_help:"Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.",
     cells_carrier:'Carrier',cells_cc:'Colour code',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',cells_radios:'{n} radio(s)',
-    cells_single:'Single cell',cells_linked:'Cells linked',cells_independent:'Independent cells',
+    cells_single:'Single cell',rf_cells_note:"The spectrum and quality metrics below are from the primary cell's SDR.",cells_linked:'Cells linked',cells_independent:'Independent cells',
     cells_need_fields:'Device and carrier are required.',cells_confirm_add:'Add this cell? The station restarts.',cells_confirm_remove:'Remove cell {n}? The station restarts.',
     bts_details:'TETRA BTS Details',bts_tx:'TX Freq',bts_rx:'RX Freq',bts_shift:'Duplex Shift',bts_rate:'Sample Rate',
     dual_carrier:'Dual Carrier',dc_on_sub:'On',dc_off_sub:'Off',
@@ -7521,7 +7538,7 @@ const LANGS={
   es:{
     cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
     cells_carrier:'Portadora',cells_cc:'Código de color',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',cells_radios:'{n} radio(s)',
-    cells_single:'Celda única',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
+    cells_single:'Celda única',rf_cells_note:'El espectro y las métricas de calidad de abajo son del SDR de la celda principal.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
     cells_need_fields:'Hacen falta el dispositivo y la portadora.',cells_confirm_add:'¿Añadir esta celda? La estación se reinicia.',cells_confirm_remove:'¿Quitar la celda {n}? La estación se reinicia.',
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',reconnecting:'RECONECTANDO',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
@@ -8200,7 +8217,7 @@ function showPage(name,el){
   if(name==='stations'){loadBtsInfoLegacy();loadCells();loadDualCarrier();refreshProfileSelects();}
   if(name==='dgna'){syncDgnaAttachmentModePicker();renderDgnaPage();}
   if(name==='sdslog'){loadSdsLog();}
-  if(name==='rf'){
+  if(name==='rf'){loadCells();
     requestAnimationFrame(()=>{
       try{
         rfResizeCanvas('rf-spectrum');
@@ -10669,10 +10686,18 @@ const tsCarrierInfo={};
 
 function fmtMhz(hz,dp){return(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'-';}
 function tsCarrierKey(carrierNum,ts){return String(carrierNum)+':'+String(ts);}
+// Cells from /api/cells ({id,primary,main_carrier,carriers:[num],colour_code,location_area,rf_state}).
+// Empty until loaded (or on a single-cell station without the endpoint): the grid then shows the
+// primary's carriers only.
+let tsCells=[];
+function tsIsMainCarrier(carrierNum){
+  if(carrierNum===state.mainCarrierNum)return true;
+  return tsCells.some(c=>c.main_carrier===carrierNum);
+}
 function tsCanRenderAssignedCarrier(carrierNum,ts){
   if(carrierNum==null||!isFinite(carrierNum)||ts==null||!isFinite(ts))return false;
   if(ts<1||ts>4)return false;
-  if(state.mainCarrierNum!=null&&carrierNum===state.mainCarrierNum)return ts>=2&&ts<=4;
+  if(tsIsMainCarrier(carrierNum))return ts>=2&&ts<=4;
   return true;
 }
 function tsCarrierNumbers(){
@@ -10708,17 +10733,51 @@ function tsCarrierBlockHtml(carrierNum,ts){
     <div class="ts-duration-bar"></div>
   </div>`;
 }
+// Every carrier shown in the grid: each cell's carriers in cell order, then any carrier only seen
+// in btsinfo or a call event.
+function tsAllCarriers(){
+  const out=[];
+  tsCells.forEach(c=>c.carriers.forEach(n=>{if(!out.includes(n))out.push(n);}));
+  tsCarrierNumbers().forEach(n=>{if(!out.includes(n))out.push(n);});
+  if(!out.length&&state.mainCarrierNum!=null)out.push(state.mainCarrierNum);
+  return out;
+}
+function tsCarrierHeadHtml(carrierNum){
+  const info=tsCarrierInfo[String(carrierNum)]||{};
+  const role=tsIsMainCarrier(carrierNum)?t('bts_carrier'):t('bts_secondary_head');
+  return `<div class="ts-carrier-head">${escHtml(role)} #${carrierNum} · TX ${fmtMhz(info.tx_freq_hz)} · RX ${fmtMhz(info.rx_freq_hz)}</div>`;
+}
+function tsCarrierGroupHtml(carrierNum,withHead){
+  return `<div class="ts-carrier-group" data-carrier="${carrierNum}">
+      ${withHead?tsCarrierHeadHtml(carrierNum):''}
+      <div class="ts-row">${[1,2,3,4].map(ts=>tsCarrierBlockHtml(carrierNum,ts)).join('')}</div>
+    </div>`;
+}
 function renderTsGridCarrier(){
   const grid=document.getElementById('ts-grid');
   if(!grid)return;
-  let carriers=tsCarrierNumbers();
-  if(!carriers.length&&state.mainCarrierNum!=null)carriers=[state.mainCarrierNum];
-  if(!carriers.length)return;
-  grid.innerHTML=carriers.map(carrierNum=>{
-    return `<div class="ts-carrier-group" data-carrier="${carrierNum}">
-      <div class="ts-row">${[1,2,3,4].map(ts=>tsCarrierBlockHtml(carrierNum,ts)).join('')}</div>
-    </div>`;
-  }).join('');
+  const all=tsAllCarriers();
+  if(!all.length)return;
+  const withHead=all.length>1;
+  if(tsCells.length<2){
+    grid.innerHTML=all.map(n=>tsCarrierGroupHtml(n,withHead)).join('');
+  }else{
+    const shown=new Set();
+    let html=tsCells.map(c=>{
+      c.carriers.forEach(n=>shown.add(n));
+      const rf=c.rf_state||'starting';
+      const meta=['CC '+c.colour_code,'LA '+c.location_area,t('cells_radios',{n:c.registered_radios||0})].join(' · ');
+      return `<div class="ts-cell-group" data-cell="${c.id}">
+        <div class="ts-cell-head"><span class="cell-name">${escHtml(t('cells_cell',{n:c.id}))}${c.primary?' ★':''}</span>
+          <span class="cell-rf ${escHtmlAttr(rf)}" title="${escHtmlAttr(c.rf_detail||'')}">${escHtml(rf)}</span>
+          <span>${escHtml(meta)}</span></div>
+        ${c.carriers.map(n=>tsCarrierGroupHtml(n,true)).join('')}
+      </div>`;
+    }).join('');
+    const rest=all.filter(n=>!shown.has(n));
+    if(rest.length)html+=`<div class="ts-cell-group">${rest.map(n=>tsCarrierGroupHtml(n,true)).join('')}</div>`;
+    grid.innerHTML=html;
+  }
   updateTsBlocksCarrier();
 }
 function tsRandWaveCarrier(carrierNum,ts){
@@ -10823,10 +10882,11 @@ function tsVoiceCarrier(carrierNum,ts,speakerIssi){
 setInterval(updateTsBlocksCarrier, 250);
 
 function tsCarrierBlockHtml(carrierNum,ts){
-  const idleHeights=(carrierNum===state.mainCarrierNum&&ts===1)?[8,14,10,16,8,12,6]:[3,3,3,3,3,3,3];
-  const label=(carrierNum===state.mainCarrierNum&&ts===1)?'MCCH':(ts===1?'BCCH':'-');
-  const sub=(carrierNum===state.mainCarrierNum&&ts===1)?'ACTIVE':(ts===1?'SECONDARY':'Idle');
-  return `<div class="ts-block${carrierNum===state.mainCarrierNum&&ts===1?' mcch':''}" id="ts-block-${carrierNum}-${ts}">
+  const mcch=tsIsMainCarrier(carrierNum)&&ts===1;
+  const idleHeights=mcch?[8,14,10,16,8,12,6]:[3,3,3,3,3,3,3];
+  const label=mcch?'MCCH':(ts===1?'BCCH':'-');
+  const sub=mcch?'ACTIVE':(ts===1?'SECONDARY':'Idle');
+  return `<div class="ts-block${mcch?' mcch':''}" id="ts-block-${carrierNum}-${ts}">
     <div class="ts-num">TS ${ts}</div>
     ${ts===1?'':'<div class="ts-timer"></div>'}
     <div class="ts-led"></div>
@@ -10842,8 +10902,7 @@ function updateTsBlocksCarrier(){
   const page=document.getElementById('page-stations');
   if(!page||!page.classList.contains('active'))return;
   const now=Date.now();
-  const carriers=tsCarrierNumbers().length?tsCarrierNumbers():(state.mainCarrierNum!=null?[state.mainCarrierNum]:[]);
-  for(const carrierNum of carriers){
+  for(const carrierNum of tsAllCarriers()){
     for(let ts=1;ts<=4;ts++){
       const block=document.getElementById(`ts-block-${carrierNum}-${ts}`);
       if(!block)continue;
@@ -10863,7 +10922,7 @@ function updateTsBlocksCarrier(){
         continue;
       }
 
-      if(ts===1&&carrierNum===state.mainCarrierNum){
+      if(ts===1&&tsIsMainCarrier(carrierNum)){
         block.className='ts-block mcch';
         label.textContent='MCCH';
         sub.textContent='ACTIVE';
@@ -14215,6 +14274,14 @@ async function loadCells(){
     const d=await r.json();
     const cells=d.cells||[];
     const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4):'—';
+    tsCells=cells.map(c=>{
+      (c.carriers||[]).forEach(k=>tsEnsureCarrierInfo(k.carrier_num,k.tx_freq_hz,k.rx_freq_hz));
+      const nums=(c.carriers||[]).map(k=>k.carrier_num).filter(n=>n!=null&&isFinite(n));
+      if(!nums.length&&c.main_carrier!=null)nums.push(c.main_carrier);
+      return Object.assign({},c,{carriers:nums,carrier_list:c.carriers||[]});
+    });
+    renderTsGridCarrier();
+    renderRfCells(cells,d.site_linked);
     setText('cells-link', cells.length>1?(d.site_linked?t('cells_linked'):t('cells_independent')):t('cells_single'));
     list.innerHTML=cells.map(c=>{
       const rf=c.rf_state||'starting';
@@ -14228,6 +14295,32 @@ async function loadCells(){
     }).join('');
   }catch(e){}
 }
+// RF page: one row per cell (state, SDR, carriers). Hidden on a single-cell station.
+function renderRfCells(cells,siteLinked){
+  const card=document.getElementById('rf-cells-card');
+  const list=document.getElementById('rf-cells-list');
+  if(!card||!list)return;
+  card.style.display=cells.length>1?'':'none';
+  if(cells.length<2)return;
+  setText('rf-cells-link',siteLinked?t('cells_linked'):t('cells_independent'));
+  const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4)+' MHz':'—';
+  list.innerHTML=cells.map(c=>{
+    const rf=c.rf_state||'starting';
+    const carriers=(c.carriers||[]).map(k=>'<div class="cell-meta">#'+escHtml(String(k.carrier_num))+
+      ' · TX '+escHtml(mhz(k.tx_freq_hz))+' · RX '+escHtml(mhz(k.rx_freq_hz))+'</div>').join('');
+    const meta=['CC '+c.colour_code,'LA '+c.location_area,t('cells_radios',{n:c.registered_radios}),
+      c.device?('SDR '+c.device):''].filter(Boolean).join(' — ');
+    return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
+      '<span class="cell-rf '+escHtmlAttr(rf)+'">'+escHtml(rf)+'</span>'+
+      '<span class="cell-meta">'+escHtml(meta)+(c.rf_detail?' — '+escHtml(c.rf_detail):'')+'</span>'+
+      '<div style="flex-basis:100%">'+carriers+'</div></div>';
+  }).join('');
+}
+// Keep the per-cell grid and RF list fresh (cell state, radio counts) while either page is open.
+setInterval(()=>{
+  const home=document.getElementById('page-stations'),rfp=document.getElementById('page-rf');
+  if((home&&home.classList.contains('active'))||(rfp&&rfp.classList.contains('active')))loadCells();
+},15000);
 async function cellsScan(){
   const msg=document.getElementById('cells-msg');
   if(msg)msg.textContent='Scanning…';
@@ -14355,6 +14448,7 @@ async function loadBtsInfoLegacy(){
     state.mainCarrierNum=d.main_carrier!=null?d.main_carrier:state.mainCarrierNum;
     if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
     Object.keys(tsCarrierInfo).forEach(key=>delete tsCarrierInfo[key]);
+    tsCells.forEach(c=>c.carrier_list.forEach(k=>tsEnsureCarrierInfo(k.carrier_num,k.tx_freq_hz,k.rx_freq_hz)));
     carriers.forEach(c=>tsEnsureCarrierInfo(c.carrier_num,c.tx_freq_hz,c.rx_freq_hz));
     // Ensure secondary appears in the TS grid even if RF telemetry has not arrived yet.
     if(d.secondary_carrier!=null&&d.dual_carrier_active){
