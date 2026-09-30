@@ -458,6 +458,9 @@ fn build_bs_stack(
         if let Some(ref sink) = tsink {
             brew_entity.set_telemetry_sink(sink.clone());
         }
+        if let Some((_, _, directory)) = &site {
+            brew_entity.set_site_directory(directory.clone());
+        }
         router.register_entity(wrap_network_entity(Box::new(brew_entity), cfg, &mut site));
         eprintln!(" -> Brew/TetraPack integration enabled");
     } else if lst_enabled {

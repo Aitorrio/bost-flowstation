@@ -511,15 +511,16 @@ impl SiteSwitch {
                 if let Some(at) = self.location(dest)
                     && at != cell
                 {
-                    // Radio on a sibling cell: deliver directly, never via the network.
-                    let copy = SapMsg::new(message.sap, TetraEntity::Brew, TetraEntity::Cmce, message.msg.clone());
+                    // Radio on a sibling cell: deliver directly, never via the network. `src` is
+                    // CMCE (not Brew) so the receiving cell doesn't log it again as network SDS.
+                    let copy = SapMsg::new(message.sap, TetraEntity::Cmce, TetraEntity::Cmce, message.msg.clone());
                     self.deliver(queue, at, copy);
                     return;
                 }
                 let members = self.group_cells(dest);
                 let others: Vec<CellId> = members.iter().copied().filter(|c| *c != cell).collect();
                 if !others.is_empty() {
-                    let copy = SapMsg::new(message.sap, TetraEntity::Brew, TetraEntity::Cmce, message.msg.clone());
+                    let copy = SapMsg::new(message.sap, TetraEntity::Cmce, TetraEntity::Cmce, message.msg.clone());
                     self.deliver_all(queue, others, &copy);
                 }
                 // The single-cell rule, site-wide: only an SDS for nobody on site goes to the

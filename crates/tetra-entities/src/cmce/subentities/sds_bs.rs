@@ -562,6 +562,9 @@ impl SdsBsSubentity {
 
     /// Handle incoming SDS data from Brew entity (network-originated SDS)
     pub fn rx_sds_from_brew(&mut self, queue: &mut MessageQueue, message: SapMsg) {
+        // Multi-cell: the site switch hands a sibling cell's SDS over with `src` = CMCE. The
+        // sending cell already logged it ("rx"), so logging it here would duplicate it.
+        let from_sibling_cell = message.src == TetraEntity::Cmce;
         let SapMsgInner::CmceSdsData(sds) = message.msg else {
             tracing::error!("SDS: rx_sds_from_brew expected CmceSdsData, got unexpected message type");
             return;
@@ -584,7 +587,9 @@ impl SdsBsSubentity {
         let is_local_group = !is_local_issi && self.config.state_read().subscribers.has_group_members(sds.dest_issi);
 
         // Log the network-originated SDS in the dashboard SDS Log before it is delivered.
-        self.log_sds("net", sds.source_issi, sds.dest_issi, is_local_group, &sds.user_defined_data);
+        if !from_sibling_cell {
+            self.log_sds("net", sds.source_issi, sds.dest_issi, is_local_group, &sds.user_defined_data);
+        }
 
         if is_local_issi {
             // Send D-SDS-DATA downlink to the local MS on the MCCH.
