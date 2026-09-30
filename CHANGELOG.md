@@ -13,8 +13,8 @@ Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. dos Pluto+).
 - Dashboard: tarjeta **Celdas** (estado RF, portadoras, SDR y radios por celda) con alta/baja de celdas y reinicio. La tabla de radios registradas muestra todas las celdas (insignia C0/C1…).
 - La voz copiada entre celdas pasa por un jitter buffer y sale al ritmo TDMA de la celda que la recibe.
 - Las llamadas de emergencia/prioridad conservan su prioridad en las demás celdas y se imponen al hablante de otra celda.
-- Telemetría: las celdas adicionales envían sus eventos (nuevo evento `MsCell` con la celda de cada registro).
-- Pendiente: Asterisk y WX solo en la celda principal; eventos de llamada de celdas adicionales no se envían a la telemetría; sin traspaso anunciado (D-NEW-CELL).
+- Telemetría: las celdas adicionales envían sus eventos (nuevo evento `MsCell` con la celda de cada registro); sus llamadas usan identificadores propios de la estación (desde 0x4000) para no chocar con los de la celda principal.
+- Pendiente: Asterisk y WX solo en la celda principal; sin traspaso anunciado (D-NEW-CELL).
 
 ## v0.4.4 — Puertos del dashboard: presets y binds estables
 

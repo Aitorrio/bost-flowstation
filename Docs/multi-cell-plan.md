@@ -175,7 +175,8 @@ timeslot, one frame per slot, none in frame 18. Priority: a site-linked CMCE sen
 `FloorGranted`; the switch carries it in the other cells' `NetworkCallStart`, and a higher-priority
 talker pre-empts one on another cell. Telemetry: extra cells use the station's sink via
 `TelemetrySink::for_cell` (registrations followed by `MsCell { issi, cell }`, appended last for
-bitcode wire-stability; extra cells' call events dropped because their call ids collide);
+bitcode wire-stability; extra cells' call events get station-wide ids from 0x4000 up, shared by
+all the stream's sinks, since CMCE call ids are per cell and ≤ 0x3FFF);
 the dashboard shows the cell per radio. MM's silent move cleanup uses `remove_client_quiet` so a
 moved radio doesn't disappear from the table.
 
