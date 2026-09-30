@@ -1168,7 +1168,7 @@ fn test_network_preempts_local_group_speaker() {
     debug::setup_logging_verbose();
 
     let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
-    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(dltime));
     test.populate_entities(
         vec![TetraEntity::Cmce],
         vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],

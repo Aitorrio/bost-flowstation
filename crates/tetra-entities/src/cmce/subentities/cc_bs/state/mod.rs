@@ -598,7 +598,7 @@ impl IndividualCall {
 
 #[cfg(test)]
 mod tests {
-    use super::{ActiveCall, CcFormalEvent, CcFormalState};
+    use super::{ActiveCall, CallOrigin, CcFormalEvent, CcFormalState};
     use tetra_core::{SsiType, TdmaTime, TetraAddress};
     use tetra_pdus::cmce::enums::call_timeout::CallTimeout;
 
