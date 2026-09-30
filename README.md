@@ -41,7 +41,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | **System** control panel | Restart, suspend, full power-off, **OTA**, and **panel account** from the dashboard |
 | Sidebar update badge | Glance notice when a newer commit is available on the **active OTA channel** |
 | Spanish-first UI (multi-language) | Ready for operators who prefer ES |
-| **Multi-cell** *(in development)* | One station, several SDRs: each SDR is one more TETRA cell, linked for calls, SDS and handover |
+| **Multi-cell** *(new in v0.5.0)* | One station, several SDRs: each SDR is one more TETRA cell, linked for calls, SDS and handover |
 
 ---
 
@@ -150,11 +150,11 @@ Collapsed under **Advanced** for power users: red warning, then **Save** and **A
 
 ---
 
-## Multi-cell: one station, several SDRs *(in development)*
+## Multi-cell: one station, several SDRs *(v0.5.0)*
 
 Every extra SDR can run one more TETRA cell from the same station — for example a Pi with two Pluto+ on the network. All cells share one network identity (MCC/MNC), one dashboard and one set of network links, and radios move between them like between sites of one system.
 
-> **Status:** complete in code and unit tests, **not yet validated on air**. Please report how it behaves with your radios.
+> **Status:** new in **v0.5.0** — complete in code and unit tests, **not yet validated on air**. Please report how it behaves with your radios.
 
 ### Setting it up
 
