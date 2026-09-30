@@ -1,6 +1,6 @@
 # Multi-cell (N SDRs, one station) — implementation plan
 
-Status: **draft / planning** (branch `beta`). Goal: one `bluestation-bs` process drives N SDRs, each SDR
+Status: **draft / planning**. Goal: one `bluestation-bs` process drives N SDRs, each SDR
 being one TETRA cell (optionally dual-carrier), sharing one subscriber database, one set of network
 links (Brew / Asterisk / LST / DAPNET / Telegram) and one dashboard, with group calls spanning cells
 and radios roaming between cells.
@@ -40,7 +40,7 @@ over bounded channels, never share `&mut` state.
 
 ---
 
-## Phase 0 — Groundwork & measurements (≈1 week)
+## Phase 0 — Groundwork & measurements 
 - Benchmark CPU of one cell on Pi 4/5 (per-thread %), decide supported max (likely 2 on Pi 4, 3–4 on Pi 5).
 - Test two SDRs on one USB bus (LimeSDR Mini 2 + SXceiver) for throughput/underruns.
 - Inventory every `static`/`OnceLock` and every `cfg.config().cell` / `phy_io` use (14 files) → tag
@@ -49,7 +49,7 @@ over bounded channels, never share `&mut` state.
 
 **Exit:** written inventory + CPU budget; no behaviour change.
 
-## Phase 1 — Config schema (≈1 week)
+## Phase 1 — Config schema 
 - New optional `[[cells]]` array; each entry: `id`, `cell_info` (carriers, colour code, LA, BS id…),
   `soapysdr` (`device` serial mandatory when >1 cell, gains, fs, centers).
 - Legacy single `[cell_info]` + `[phy_io.soapysdr]` auto-maps to `cells = [{ id = 0, … }]` — existing
@@ -61,7 +61,7 @@ over bounded channels, never share `&mut` state.
 
 **Exit:** parser + validator + unit tests; stack still runs only `cells[0]`.
 
-## Phase 2 — Per-cell stack instantiation (≈2 weeks)
+## Phase 2 — Per-cell stack instantiation 
 - Refactor `build_bs_stack` → `build_cell_stack(cell_id, …) -> CellRuntime` (router + entities + PHY).
 - Move `timeslot_alloc` from `StackState` into per-cell state.
 - Spawn one RT thread per cell (FIFO priority as today), each opening its SDR by serial.
@@ -79,7 +79,7 @@ whose SDR fails to open is not started (no PHY = nothing paces its loop).
 **Exit:** two SDRs transmitting two independent cells from one process; single-cell configs unchanged
 (regression test: existing integration tests in `crates/tetra-entities/tests` pass).
 
-## Phase 3 — Site core & site bus (≈2–3 weeks)
+## Phase 3 — Site core & site bus 
 - Extract Brew / Asterisk / LST / DAPNET / Telegram / GeoAlarm out of the per-cell router into a
   site-core thread. Define `SiteMsg` (voice frames, SDS, call control events, registration events)
   with `CellId` tagging.
@@ -101,7 +101,7 @@ link cells stay independent. Asterisk stays primary-only.
 
 **Exit:** external network traffic reaches radios on any cell; SDS works across cells.
 
-## Phase 4 — Inter-cell group & individual calls (≈3 weeks)
+## Phase 4 — Inter-cell group & individual calls 
 - CMCE "call switch" in site core: a group call started on cell A triggers D-SETUP on every other cell
   with members; UL voice from the talker's cell is fanned out as DL TCH to other cells (and to Brew).
 - Floor control (U-TX-DEMAND / D-TX-GRANTED) arbitrated centrally so only one talker site-wide.
@@ -125,7 +125,7 @@ priority/emergency is not carried on cross-cell local calls (sent as priority 0)
 
 **Exit:** radio on cell 0 and radio on cell 1 in the same talkgroup hear each other; P2P works.
 
-## Phase 5 — Mobility (≈2–3 weeks)
+## Phase 5 — Mobility 
 - Auto-populate `neighbor_cells_ca` from sibling cells (no manual config).
 - Cell reselection: accept migrating U-LOCATION-UPDATE, move ISSI in registry, silently drop the stale
   entry on the old cell (MM state cleanup).
@@ -148,7 +148,7 @@ calls do not survive a cell change (the peer is released as before).
 
 **Exit:** walking a radio between two cells keeps registration and rejoins an active call.
 
-## Phase 6 — Dashboard, ops & packaging (≈2 weeks, parallelisable from Phase 2)
+## Phase 6 — Dashboard, ops & packaging 
 - Dashboard: cell selector / per-cell cards (RF status, carriers, load, registered radios, SDR name),
   site-wide views remain aggregated. `/api/btsinfo` returns a `cells` array.
 - Config UI: add/remove cell, pick SDR by detected serial (Setup wizard enumerates all Soapy devices).
