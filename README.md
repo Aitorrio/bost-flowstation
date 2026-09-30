@@ -41,6 +41,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | **System** control panel | Restart, suspend, full power-off, **OTA**, and **panel account** from the dashboard |
 | Sidebar update badge | Glance notice when a newer commit is available on the **active OTA channel** |
 | Spanish-first UI (multi-language) | Ready for operators who prefer ES |
+| **Multi-cell** *(in development)* | One station, several SDRs: each SDR is one more TETRA cell, linked for calls, SDS and handover |
 
 ---
 
@@ -151,14 +152,62 @@ Collapsed under **Advanced** for power users: red warning, then **Save** and **A
 
 ## Multi-cell: one station, several SDRs *(in development)*
 
-Every extra SDR can run one more TETRA cell from the same station, for example two Pluto+ on the network.
+Every extra SDR can run one more TETRA cell from the same station — for example a Pi with two Pluto+ on the network. All cells share one network identity (MCC/MNC), one dashboard and one set of network links, and radios move between them like between sites of one system.
 
-- **Add a cell** from the dashboard's **Cells** card: scan for SDRs, pick the device and a free carrier (frequencies follow from the primary cell's band plan), and the station restarts. Or add a `[[cells]]` entry by hand; see the commented example at the end of [`example_config/config.toml`](example_config/config.toml).
-- With **Brew or LST** enabled the cells are linked: group calls from the network or from any radio reach every cell with members (one talker per group across all cells), individual calls and SDS work between cells, and cells advertise each other as neighbours so radios can move between them, including announced handover (the new cell joins the radio's group call before it arrives).
-- Without Brew/LST each cell runs on its own.
-- The registered-radios table shows every cell's radios (a C0/C1… badge per radio). The Asterisk SIP bridge and the WX/METAR service work from every linked cell.
+> **Status:** complete in code and unit tests, **not yet validated on air**. Please report how it behaves with your radios.
 
-Design and status per phase: [`Docs/multi-cell-plan.md`](Docs/multi-cell-plan.md).
+### Setting it up
+
+- **Dashboard:** the Home page **Cells** card lists every cell (RF state, carriers, SDR, radios). *Scan* finds your SDRs; pick the device, a free carrier and optionally a colour code, and *Add cell* — the station restarts. *Remove* takes a cell out again.
+- **By hand:** add a `[[cells]]` entry per extra SDR. It inherits everything from `[cell_info]` except what you override:
+
+  ```toml
+  [phy_io.soapysdr]
+  device = "driver=plutosdr,uri=ip:192.168.2.1"   # the primary cell's SDR (required once there are cells)
+
+  [[cells]]
+  id = 1                                          # 1-7
+
+  [cells.cell_info]
+  main_carrier = 1525                             # unique per cell
+  colour_code = 2
+
+  [cells.soapysdr]
+  device = "driver=plutosdr,uri=ip:192.168.3.1"
+  tx_freq = 438125000
+  rx_freq = 433125000
+  ```
+
+  Rules: up to 8 cells (ids 1-7 plus the primary), every carrier unique, same `freq_band` and `custom_duplex_spacing`, and every cell (the primary too) names its own SDR `device`. See the commented example at the end of [`example_config/config.toml`](example_config/config.toml).
+
+### What linking gives you
+
+Cells are **linked** when Brew or LST Dispatch is enabled; without either, each cell runs on its own.
+
+- **Group calls** — from the network or from any radio — reach every cell with members of the group. One talker per group across all cells; an emergency call takes the floor from a normal one.
+- **Individual calls and SDS** work between radios on different cells; group SDS reaches members on every cell. Only traffic for nobody on site goes out to Brew, and talkgroups in `local_ssi_ranges` link the cells without ever reaching Brew.
+- **Asterisk (SIP)** and **WX/METAR** work from every cell; dashboard WX changes apply to all of them.
+- Voice passed between cells is buffered and played out on the receiving cell's own timing (separate SDRs have separate clocks).
+
+### Moving between cells
+
+- Every cell automatically advertises the others as neighbours (no need to list them in `neighbor_cells_ca`), with what radios need to find and rank them, and supporting both unannounced and announced reselection.
+- **Unannounced:** a radio that registers on another cell is dropped silently on the old one, and restores its group call on the new one.
+- **Announced (D-NEW-CELL):** the new cell joins the radio's group calls before it arrives; a registration the radio forwards in U-PREPARE is processed by the new cell and answered in D-NEW-CELL.
+- Reselection thresholds and hysteresis are configurable in `[cell_info.cell_reselect]` (defaults 20/10/10/6 dB).
+
+### Dashboard and telemetry
+
+The registered-radios table shows every cell's radios with a C0/C1… badge, the Calls page includes calls on every cell, and telemetry carries each radio's cell (`MsCell` event).
+
+### Known limits
+
+- The bit layout of the reselection parameters and the neighbour carrier extension follows our reading of EN 300 392-2; check a radio's field-test display if reselection misbehaves.
+- A group call spanning cells shows once per cell in the Calls list (each cell runs its own traffic channel).
+- Individual calls do not survive a change of cell.
+- CPU and USB/network bandwidth for several SDRs on one Pi are untested; start with two cells.
+
+Design notes and per-phase status: [`Docs/multi-cell-plan.md`](Docs/multi-cell-plan.md).
 
 ## Stability and system robustness
 
