@@ -109,6 +109,20 @@ link cells stay independent. Asterisk stays primary-only.
 - Handle unequal TDMA timing between cells: voice is re-framed per cell (jitter buffer similar to
   `net_brew/components/jitter_buffer.rs`).
 
+**As built:** all in `SiteSwitch`, no CMCE call-switch. A radio's `FloorGranted` creates a local
+session: the other cells with members get a `NetworkCallStart` (they treat the talker as a network
+speaker) and its `TmdCircuitDataInd` uplink is copied to their circuits; `FloorReleased` sends them
+`NetworkCallEnd` (hangtime), from which any cell's radio can take the floor. A grant on another
+cell while someone talks loses: its cell is pulled into the call and its floor events never reach
+the network. Individual calls to a radio on a sibling cell are connected by passing the circuit-call
+signalling across (CMCE's in/out variants are symmetric) and copying voice both ways. "Site-linked"
+mode (`StackConfig::is_site_linked`): cells report every registration/floor/call to the slot and
+accept every inbound group call; the switch re-applies the Brew rules towards the real network,
+and mirrors `network_connected` / `brew_link_up` from the primary to the other cells (this also
+fixes Phase 3 cells advertising "not connected"). Idle sessions are purged after 10 min.
+Not done: no jitter buffer on copied voice (frames go straight into the other cell's next tick);
+priority/emergency is not carried on cross-cell local calls (sent as priority 0).
+
 **Exit:** radio on cell 0 and radio on cell 1 in the same talkgroup hear each other; P2P works.
 
 ## Phase 5 — Mobility (≈2–3 weeks)

@@ -1,12 +1,26 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use tetra_core::{CellId, TdmaTime, tetra_entities::TetraEntity};
-use tetra_saps::{SapMsg, SapMsgInner, control::call_control::CallControl};
+use tetra_config::bluestation::{SharedConfig, StackConfig};
+use tetra_core::{CellId, Sap, TdmaTime, tetra_entities::TetraEntity};
+use tetra_pdus::cmce::enums::disconnect_cause::DisconnectCause;
+use tetra_saps::{
+    SapMsg, SapMsgInner,
+    control::{
+        brew::{BrewSubscriberAction, MmSubscriberUpdate},
+        call_control::CallControl,
+    },
+    tmd::TmdCircuitDataReq,
+};
 use uuid::Uuid;
 
 use super::SiteDirectory;
-use crate::{MessageQueue, TetraEntityTrait};
+use crate::{MessageQueue, TetraEntityTrait, net_brew};
+
+/// Sessions with no traffic for this long are dropped (the network entity or a cell lost track
+/// of them, e.g. an end message that never came).
+const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Stand-in for the network entity in an additional cell's router. Everything the cell sends to
 /// `TetraEntity::Brew` goes to the [`SiteSwitch`]; whatever the switch routes to this cell is
@@ -68,22 +82,41 @@ struct CellCircuit {
     ts: u8,
 }
 
-/// One network group call fanned out to several cells.
+/// One group call spread over several cells. Either it comes from the network (`origin` None:
+/// the first cell's circuit is reported to the network entity as the `anchor` and its downlink
+/// voice is copied to the `replicas`), or a radio on `origin` is talking and its uplink voice is
+/// copied to the `replicas` on the other cells, which see it as a network call.
 #[derive(Debug)]
 struct GroupSession {
     gssi: u32,
     source_issi: u32,
     priority: u8,
+    origin: Option<CellCircuit>,
     /// Cells sent a NetworkCallStart that have not answered Ready/Hold/End yet.
     pending: BTreeSet<CellId>,
-    /// Circuit reported to the network entity; its downlink voice is copied to `replicas`.
     anchor: Option<CellCircuit>,
     /// False once the anchor's cell left the call (its voice is still copied to the others).
     anchor_live: bool,
     replicas: Vec<CellCircuit>,
+    last_activity: Instant,
 }
 
 impl GroupSession {
+    fn new(gssi: u32, source_issi: u32, priority: u8, origin: Option<CellCircuit>) -> Self {
+        Self {
+            gssi,
+            source_issi,
+            priority,
+            origin,
+            pending: BTreeSet::new(),
+            anchor: None,
+            anchor_live: false,
+            replicas: Vec::new(),
+            last_activity: Instant::now(),
+        }
+    }
+
+    /// Cells taking part as listeners (for a local session: not the origin).
     fn cells(&self) -> BTreeSet<CellId> {
         let mut cells = self.pending.clone();
         if let Some(a) = self.anchor.filter(|_| self.anchor_live) {
@@ -93,12 +126,41 @@ impl GroupSession {
         cells
     }
 
+    fn involves(&self, cell: CellId) -> bool {
+        self.origin.is_some_and(|o| o.cell == cell) || self.cells().contains(&cell)
+    }
+
     fn remove_cell(&mut self, cell: CellId) {
         self.pending.remove(&cell);
         self.replicas.retain(|r| r.cell != cell);
         if self.anchor.is_some_and(|a| a.cell == cell) {
             self.anchor_live = false;
         }
+    }
+
+    fn start_msg(&self, uuid: Uuid) -> CallControl {
+        CallControl::NetworkCallStart {
+            brew_uuid: uuid,
+            source_issi: self.source_issi,
+            dest_gssi: self.gssi,
+            priority: self.priority,
+        }
+    }
+}
+
+/// An individual call between radios on two cells: each side's CMCE sees the other as the
+/// network, so the switch passes the circuit-call signalling across and copies the voice.
+#[derive(Debug)]
+struct CellToCellCall {
+    caller: CellId,
+    called: CellId,
+    circuits: HashMap<CellId, (u16, u8)>,
+    last_activity: Instant,
+}
+
+impl CellToCellCall {
+    fn peer(&self, cell: CellId) -> CellId {
+        if cell == self.caller { self.called } else { self.caller }
     }
 }
 
@@ -137,39 +199,64 @@ impl CallIdMap {
     }
 }
 
+/// Link state the network entity keeps in the primary cell's `StackState`, mirrored to the others.
+type LinkState = (bool, bool, Option<Instant>);
+
 /// Wraps the network entity (Brew / LST Dispatch) in the primary router; see the module docs.
 pub struct SiteSwitch {
     inner: Box<dyn TetraEntityTrait>,
+    primary: SharedConfig,
+    extra: Vec<(CellId, SharedConfig)>,
     all_cells: Vec<CellId>,
     carrier_cell: HashMap<u16, CellId>,
     ports: SitePorts,
     directory: SiteDirectory,
     sessions: HashMap<Uuid, GroupSession>,
-    /// Individual (circuit) calls with the network: Brew session → cell of the local party.
+    /// Individual calls with the network: Brew session → cell of the local party.
     circuit_calls: HashMap<Uuid, CellId>,
+    cell_calls: HashMap<Uuid, CellToCellCall>,
     call_ids: CallIdMap,
+    /// Group of each call a cell reported, to apply the Brew routing rules to its floor events.
+    call_gssi: HashMap<(CellId, u16), u32>,
+    /// Local floors that lost to a talker on another cell: their events never reach the network.
+    suppressed: HashSet<(CellId, u16)>,
+    mirrored_link: Option<LinkState>,
 }
 
 impl SiteSwitch {
-    /// `carriers` lists every cell (primary included) with its carrier numbers.
-    pub fn new(inner: Box<dyn TetraEntityTrait>, carriers: &[(CellId, Vec<u16>)], ports: SitePorts) -> Self {
-        let mut all_cells: Vec<CellId> = carriers.iter().map(|(c, _)| *c).collect();
-        all_cells.sort();
-        let carrier_cell = carriers
-            .iter()
-            .flat_map(|(cell, cs)| cs.iter().map(move |c| (*c, *cell)))
-            .collect();
+    /// `primary` is the primary cell's config (the one the network entity runs with); `extra`
+    /// are the additional cells' configs, whose network link state the switch keeps in sync.
+    pub fn new(inner: Box<dyn TetraEntityTrait>, primary: SharedConfig, extra: Vec<(CellId, SharedConfig)>, ports: SitePorts) -> Self {
+        let mut carrier_cell = HashMap::new();
+        let mut all_cells = vec![CellId::PRIMARY];
+        let cells = std::iter::once((CellId::PRIMARY, &primary)).chain(extra.iter().map(|(id, c)| (*id, c)));
+        for (id, cfg) in cells {
+            if !id.is_primary() {
+                all_cells.push(id);
+            }
+            for (carrier, _, _) in StackConfig::cell_phase_mod_carriers(&cfg.config().cell).unwrap_or_default() {
+                carrier_cell.insert(carrier, id);
+            }
+        }
         Self {
             inner,
+            primary,
+            extra,
             all_cells,
             carrier_cell,
             ports,
             directory: SiteDirectory::default(),
             sessions: HashMap::new(),
             circuit_calls: HashMap::new(),
+            cell_calls: HashMap::new(),
             call_ids: CallIdMap::default(),
+            call_gssi: HashMap::new(),
+            suppressed: HashSet::new(),
+            mirrored_link: None,
         }
     }
+
+    // ── Delivery helpers ────────────────────────────────────────────────────────────────────
 
     fn deliver(&self, queue: &mut MessageQueue, cell: CellId, message: SapMsg) {
         if cell.is_primary() {
@@ -185,6 +272,27 @@ impl SiteSwitch {
         for cell in cells {
             self.deliver(queue, cell, message.clone());
         }
+    }
+
+    /// Call control to a cell's CMCE, as if from the network.
+    fn deliver_cc(&self, queue: &mut MessageQueue, cell: CellId, cc: CallControl) {
+        let msg = SapMsg::new(Sap::Control, TetraEntity::Brew, TetraEntity::Cmce, SapMsgInner::CmceCallControl(cc));
+        self.deliver(queue, cell, msg);
+    }
+
+    /// Downlink voice onto a cell's circuit.
+    fn deliver_voice(&self, queue: &mut MessageQueue, to: CellCircuit, data: &[u8]) {
+        let msg = SapMsg::new(
+            Sap::TmdSap,
+            TetraEntity::Brew,
+            TetraEntity::Umac,
+            SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
+                carrier_num: to.carrier_num,
+                ts: to.ts,
+                data: data.to_vec(),
+            }),
+        );
+        self.deliver(queue, to.cell, msg);
     }
 
     fn cell_of_carrier(&self, carrier_num: u16) -> CellId {
@@ -204,11 +312,44 @@ impl SiteSwitch {
         self.with_inner(queue, |inner, out| inner.rx_prim(out, message));
     }
 
+    // ── Brew routing rules (the cells report everything once site-linked) ───────────────────
+
+    /// Group floor events reach the network entity only for groups it routes.
+    fn group_to_network(&self, gssi: u32) -> bool {
+        net_brew::is_brew_gssi_routable(&self.primary, gssi) || net_brew::is_lst_dispatch_active(&self.primary)
+    }
+
+    /// MM's Brew filter: what of a subscriber update the network entity may see.
+    fn subscriber_update_to_network(&self, update: &mut MmSubscriberUpdate) -> bool {
+        if !net_brew::is_active(&self.primary) {
+            return false;
+        }
+        update.groups.retain(|g| net_brew::is_brew_gssi_routable(&self.primary, *g));
+        match update.action {
+            BrewSubscriberAction::Register | BrewSubscriberAction::Deregister => {
+                net_brew::is_brew_issi_routable(&self.primary, update.issi)
+            }
+            BrewSubscriberAction::Affiliate | BrewSubscriberAction::Deaffiliate => !update.groups.is_empty(),
+        }
+    }
+
+    /// CMCE's routing check for an individual call leaving the site.
+    fn individual_call_to_network(&self, source_issi: u32, destination: u32, number: &str) -> bool {
+        if net_brew::is_lst_dispatch_active(&self.primary) {
+            return true;
+        }
+        net_brew::is_brew_issi_routable(&self.primary, source_issi)
+            && (destination == 0 || !number.is_empty() || net_brew::is_brew_issi_routable(&self.primary, destination))
+    }
+
+    // ── Cell → network ──────────────────────────────────────────────────────────────────────
+
     /// A cell (primary included) sent `message` to the network entity.
     fn handle_from_cell(&mut self, queue: &mut MessageQueue, cell: CellId, mut message: SapMsg) {
-        match &mut message.msg {
+        let forward = match &mut message.msg {
             SapMsgInner::MmSubscriberUpdate(update) => {
                 self.directory.apply(cell, update);
+                self.subscriber_update_to_network(update)
             }
             SapMsgInner::CmceSdsData(sds) => {
                 let dest = sds.dest_issi;
@@ -225,132 +366,332 @@ impl SiteSwitch {
                     let copy = SapMsg::new(message.sap, TetraEntity::Brew, TetraEntity::Cmce, message.msg.clone());
                     self.deliver_all(queue, others, &copy);
                 }
+                true
             }
-            SapMsgInner::CmceCallControl(cc) => {
-                if !self.handle_call_control_from_cell(queue, cell, cc) {
-                    return;
+            SapMsgInner::TmdCircuitDataInd(ind) => {
+                self.copy_uplink_voice(queue, cell, ind.carrier_num, ind.ts, &ind.data);
+                true
+            }
+            SapMsgInner::CmceCallControl(cc) => self.handle_call_control_from_cell(queue, cell, cc),
+            _ => true,
+        };
+        if forward {
+            self.to_inner(queue, message);
+        }
+    }
+
+    /// A radio's uplink voice: copy it to the listening circuits on the other cells.
+    fn copy_uplink_voice(&mut self, queue: &mut MessageQueue, cell: CellId, carrier_num: u16, ts: u8, data: &[u8]) {
+        let from = CellCircuit { cell, carrier_num, ts };
+        let mut targets = Vec::new();
+        for s in self.sessions.values_mut().filter(|s| s.origin == Some(from)) {
+            s.last_activity = Instant::now();
+            targets.extend(s.replicas.iter().copied());
+        }
+        for call in self.cell_calls.values_mut() {
+            if call.circuits.get(&cell) == Some(&(carrier_num, ts)) {
+                call.last_activity = Instant::now();
+                let peer = call.peer(cell);
+                if let Some(&(carrier_num, ts)) = call.circuits.get(&peer) {
+                    targets.push(CellCircuit { cell: peer, carrier_num, ts });
                 }
             }
-            _ => {}
         }
-        self.to_inner(queue, message);
+        for to in targets {
+            self.deliver_voice(queue, to, data);
+        }
     }
 
     /// Returns false when the message is consumed by the switch and must not reach the network
     /// entity. Renumbers call identifiers in place.
     fn handle_call_control_from_cell(&mut self, queue: &mut MessageQueue, cell: CellId, cc: &mut CallControl) -> bool {
-        match cc {
+        if let Some(uuid) = circuit_uuid(cc)
+            && self.cell_calls.contains_key(&uuid)
+        {
+            self.cell_call_signal(queue, cell, uuid, cc);
+            return false;
+        }
+
+        let forward = match cc {
+            CallControl::FloorGranted {
+                call_id,
+                source_issi,
+                dest_gssi,
+                carrier_num,
+                ts,
+            } => {
+                self.call_gssi.insert((cell, *call_id), *dest_gssi);
+                let origin = CellCircuit {
+                    cell,
+                    carrier_num: *carrier_num,
+                    ts: *ts,
+                };
+                self.local_floor_granted(queue, *call_id, *source_issi, *dest_gssi, origin) && self.group_to_network(*dest_gssi)
+            }
+            CallControl::FloorReleased {
+                call_id,
+                carrier_num,
+                ts,
+            }
+            | CallControl::CallEnded {
+                call_id,
+                carrier_num,
+                ts,
+            } => {
+                let origin = CellCircuit {
+                    cell,
+                    carrier_num: *carrier_num,
+                    ts: *ts,
+                };
+                self.local_floor_released(queue, origin);
+                let key = (cell, *call_id);
+                !self.suppressed.remove(&key) && self.call_gssi.get(&key).is_none_or(|g| self.group_to_network(*g))
+            }
             CallControl::NetworkCallReady {
                 brew_uuid,
+                call_id,
                 carrier_num,
                 ts,
                 ..
             } => {
-                if let Some(s) = self.sessions.get_mut(brew_uuid) {
-                    s.pending.remove(&cell);
-                    let circuit = CellCircuit {
-                        cell,
-                        carrier_num: *carrier_num,
-                        ts: *ts,
-                    };
-                    // The anchor's own cell answering again (speaker change) just refreshes it.
-                    if s.anchor.is_some_and(|a| a.cell != cell) {
-                        s.replicas.retain(|r| r.cell != cell);
-                        s.replicas.push(circuit);
-                        return false;
+                let circuit = CellCircuit {
+                    cell,
+                    carrier_num: *carrier_num,
+                    ts: *ts,
+                };
+                match self.sessions.get_mut(brew_uuid) {
+                    Some(s) => {
+                        self.call_gssi.insert((cell, *call_id), s.gssi);
+                        s.pending.remove(&cell);
+                        s.last_activity = Instant::now();
+                        if s.origin.is_some() || s.anchor.is_some_and(|a| a.cell != cell) {
+                            s.replicas.retain(|r| r.cell != cell);
+                            s.replicas.push(circuit);
+                            false
+                        } else {
+                            // First cell (or the anchor refreshing on a speaker change).
+                            s.anchor = Some(circuit);
+                            s.anchor_live = true;
+                            true
+                        }
                     }
-                    s.anchor = Some(circuit);
-                    s.anchor_live = true;
+                    None => true,
                 }
             }
-            CallControl::NetworkCallHold { brew_uuid, .. } => {
-                if let Some(s) = self.sessions.get_mut(brew_uuid) {
+            CallControl::NetworkCallHold { brew_uuid, .. } => match self.sessions.get_mut(brew_uuid) {
+                Some(s) => {
                     s.pending.remove(&cell);
-                    // Only the last cell to answer may put the network call on hold.
-                    if s.anchor.is_some() || !s.pending.is_empty() {
-                        return false;
-                    }
+                    // Only the last cell of a network call to answer may put it on hold.
+                    s.origin.is_none() && s.anchor.is_none() && s.pending.is_empty()
                 }
-            }
-            CallControl::NetworkCallEnd { brew_uuid } => {
-                if let Some(s) = self.sessions.get_mut(brew_uuid) {
+                None => true,
+            },
+            CallControl::NetworkCallEnd { brew_uuid } => match self.sessions.get_mut(brew_uuid) {
+                Some(s) => {
                     s.remove_cell(cell);
-                    if !s.cells().is_empty() {
-                        return false;
+                    if s.origin.is_some() || !s.cells().is_empty() {
+                        false
+                    } else {
+                        self.sessions.remove(brew_uuid);
+                        true
                     }
-                    self.sessions.remove(brew_uuid);
                 }
-            }
+                None => true,
+            },
             CallControl::GroupListenersAvailable { gssi } => {
-                // A cell gained its first member of a group whose network call is already on air
+                // A cell gained its first member of a group whose call is already on air
                 // elsewhere: bring this cell into the call too.
                 let gssi = *gssi;
                 let join = self
                     .sessions
                     .iter_mut()
-                    .find(|(_, s)| s.gssi == gssi && !s.cells().contains(&cell))
+                    .find(|(_, s)| s.gssi == gssi && !s.involves(cell))
                     .map(|(uuid, s)| {
                         s.pending.insert(cell);
-                        CallControl::NetworkCallStart {
-                            brew_uuid: *uuid,
-                            source_issi: s.source_issi,
-                            dest_gssi: gssi,
-                            priority: s.priority,
-                        }
+                        s.start_msg(*uuid)
                     });
                 if let Some(start) = join {
-                    let msg = SapMsg::new(
-                        tetra_core::Sap::Control,
-                        TetraEntity::Brew,
-                        TetraEntity::Cmce,
-                        SapMsgInner::CmceCallControl(start),
-                    );
-                    self.deliver(queue, cell, msg);
+                    self.deliver_cc(queue, cell, start);
+                }
+                true
+            }
+            CallControl::NetworkCircuitSetupRequest { brew_uuid, call } => {
+                let (uuid, source, destination) = (*brew_uuid, call.source_issi, call.destination);
+                let to_network = self.individual_call_to_network(source, destination, &call.number);
+                match self.directory.location(destination) {
+                    Some(called) if called != cell => {
+                        // Called radio is on a sibling cell: connect the two cells directly.
+                        self.cell_calls.insert(
+                            uuid,
+                            CellToCellCall {
+                                caller: cell,
+                                called,
+                                circuits: HashMap::new(),
+                                last_activity: Instant::now(),
+                            },
+                        );
+                        self.deliver_cc(queue, called, cc.clone());
+                        return false;
+                    }
+                    _ if !to_network => {
+                        self.deliver_cc(
+                            queue,
+                            cell,
+                            CallControl::NetworkCircuitSetupReject {
+                                brew_uuid: uuid,
+                                cause: DisconnectCause::CalledPartyNotReachable.into_raw() as u8,
+                            },
+                        );
+                        return false;
+                    }
+                    _ => {
+                        self.circuit_calls.insert(uuid, cell);
+                        true
+                    }
                 }
             }
             _ => {
                 if let Some(uuid) = circuit_uuid(cc) {
                     self.circuit_calls.insert(uuid, cell);
                 }
+                true
             }
-        }
+        };
 
         let ended = matches!(cc, CallControl::CallEnded { .. });
         if let Some(id) = call_id_mut(cc) {
             let local = *id;
-            *id = self.call_ids.global(cell, local);
+            // Only what goes to the network entity is renumbered.
+            if forward {
+                *id = self.call_ids.global(cell, local);
+            }
             if ended {
                 self.call_ids.release(cell, local);
+                self.call_gssi.remove(&(cell, local));
             }
         }
+        forward
+    }
+
+    /// A radio on `origin` got the floor of `gssi`. Returns false if it lost to a talker on
+    /// another cell (the grant is then withdrawn by pulling its cell into that call).
+    fn local_floor_granted(&mut self, queue: &mut MessageQueue, call_id: u16, source_issi: u32, gssi: u32, origin: CellCircuit) -> bool {
+        let cell = origin.cell;
+
+        // Someone on another cell is already talking in this group: they keep the floor.
+        let busy = self
+            .sessions
+            .iter_mut()
+            .find(|(_, s)| s.gssi == gssi && s.origin.is_some_and(|o| o.cell != cell))
+            .map(|(uuid, s)| {
+                let talker = s.origin.map(|o| o.cell);
+                let start = (!s.cells().contains(&cell)).then(|| {
+                    s.pending.insert(cell);
+                    s.start_msg(*uuid)
+                });
+                (talker, start)
+            });
+        if let Some((talker, start)) = busy {
+            tracing::info!("SiteSwitch: {cell} floor for gssi={gssi} (issi={source_issi}) loses to {talker:?}");
+            if let Some(start) = start {
+                self.deliver_cc(queue, cell, start);
+            }
+            self.suppressed.insert((cell, call_id));
+            return false;
+        }
+
+        // Same circuit talking again (speaker change on this cell): update the other cells.
+        let refresh = self.sessions.iter_mut().find(|(_, s)| s.origin == Some(origin)).map(|(uuid, s)| {
+            s.source_issi = source_issi;
+            s.last_activity = Instant::now();
+            (s.cells(), s.start_msg(*uuid))
+        });
+        if let Some((cells, start)) = refresh {
+            for c in cells {
+                self.deliver_cc(queue, c, start.clone());
+            }
+            return true;
+        }
+
+        // New talker: every other cell with members of the group hears it as a network call.
+        let uuid = Uuid::new_v4();
+        let mut s = GroupSession::new(gssi, source_issi, 0, Some(origin));
+        let targets: Vec<CellId> = self.directory.group_cells(gssi).into_iter().filter(|c| *c != cell).collect();
+        for &t in &targets {
+            s.pending.insert(t);
+            self.deliver_cc(queue, t, s.start_msg(uuid));
+        }
+        tracing::info!("SiteSwitch: {cell} talking on gssi={gssi} (issi={source_issi}) → {targets:?}");
+        self.sessions.insert(uuid, s);
         true
     }
+
+    /// The talker on `origin` released the floor (or its call ended): the listening cells go to
+    /// hangtime, from where any of their radios may take the floor next.
+    fn local_floor_released(&mut self, queue: &mut MessageQueue, origin: CellCircuit) {
+        let ended: Vec<Uuid> = self
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.origin == Some(origin))
+            .map(|(u, _)| *u)
+            .collect();
+        for uuid in ended {
+            if let Some(s) = self.sessions.remove(&uuid) {
+                for c in s.cells() {
+                    self.deliver_cc(queue, c, CallControl::NetworkCallEnd { brew_uuid: uuid });
+                }
+            }
+        }
+    }
+
+    /// Circuit-call signalling of a call between two cells: pass it to the other side.
+    fn cell_call_signal(&mut self, queue: &mut MessageQueue, cell: CellId, uuid: Uuid, cc: &CallControl) {
+        let Some(call) = self.cell_calls.get_mut(&uuid) else {
+            return;
+        };
+        call.last_activity = Instant::now();
+        let peer = call.peer(cell);
+        match cc {
+            CallControl::NetworkCircuitMediaReady { carrier_num, ts, .. } => {
+                call.circuits.insert(cell, (*carrier_num, *ts));
+            }
+            CallControl::NetworkCircuitRelease { .. } | CallControl::NetworkCircuitSetupReject { .. } => {
+                self.cell_calls.remove(&uuid);
+                self.deliver_cc(queue, peer, cc.clone());
+            }
+            _ => self.deliver_cc(queue, peer, cc.clone()),
+        }
+    }
+
+    // ── Network → cells ─────────────────────────────────────────────────────────────────────
 
     /// The network entity emitted `message` towards the stack.
     fn route_from_network(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         match &mut message.msg {
             SapMsgInner::TmdCircuitDataReq(req) => {
                 let (carrier_num, ts) = (req.carrier_num, req.ts);
-                let session = self
+                let copies = self
                     .sessions
-                    .values()
-                    .find(|s| s.anchor.is_some_and(|a| a.carrier_num == carrier_num && a.ts == ts));
-                if let Some(s) = session {
-                    for r in &s.replicas {
-                        let mut copy = message.clone();
-                        if let SapMsgInner::TmdCircuitDataReq(c) = &mut copy.msg {
-                            c.carrier_num = r.carrier_num;
-                            c.ts = r.ts;
-                        }
-                        self.deliver(queue, r.cell, copy);
-                    }
-                    if s.anchor_live {
-                        self.deliver(queue, self.cell_of_carrier(carrier_num), message);
-                    }
-                    return;
-                }
+                    .values_mut()
+                    .find(|s| s.origin.is_none() && s.anchor.is_some_and(|a| a.carrier_num == carrier_num && a.ts == ts))
+                    .map(|s| {
+                        s.last_activity = Instant::now();
+                        (s.replicas.clone(), s.anchor_live)
+                    });
                 let cell = self.cell_of_carrier(carrier_num);
-                self.deliver(queue, cell, message);
+                match copies {
+                    Some((replicas, anchor_live)) => {
+                        if let SapMsgInner::TmdCircuitDataReq(req) = &message.msg {
+                            for r in replicas {
+                                self.deliver_voice(queue, r, &req.data);
+                            }
+                        }
+                        if anchor_live {
+                            self.deliver(queue, cell, message);
+                        }
+                    }
+                    None => self.deliver(queue, cell, message),
+                }
             }
             SapMsgInner::CmceCallControl(cc) => {
                 if let Some(id) = call_id_mut(cc)
@@ -358,6 +699,20 @@ impl SiteSwitch {
                 {
                     *id = local;
                     self.deliver(queue, cell, message);
+                    return;
+                }
+                if let CallControl::NetworkCallStart { brew_uuid, dest_gssi, .. } = cc
+                    && !net_brew::network_group_inbound_allowed_from_network(&self.primary, *dest_gssi)
+                {
+                    // What the primary CMCE did before the cells were linked: refuse it.
+                    tracing::info!("SiteSwitch: network call uuid={brew_uuid} gssi={dest_gssi} not allowed inbound");
+                    let end = SapMsg::new(
+                        Sap::Control,
+                        TetraEntity::Cmce,
+                        TetraEntity::Brew,
+                        SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid: *brew_uuid }),
+                    );
+                    self.to_inner(queue, end);
                     return;
                 }
                 let targets = self.network_call_targets(cc);
@@ -395,18 +750,14 @@ impl SiteSwitch {
                 priority,
             } => {
                 let mut targets = self.directory.group_cells(*dest_gssi);
-                let s = self.sessions.entry(*brew_uuid).or_insert_with(|| GroupSession {
-                    gssi: *dest_gssi,
-                    source_issi: *source_issi,
-                    priority: *priority,
-                    pending: BTreeSet::new(),
-                    anchor: None,
-                    anchor_live: false,
-                    replicas: Vec::new(),
-                });
+                let s = self
+                    .sessions
+                    .entry(*brew_uuid)
+                    .or_insert_with(|| GroupSession::new(*dest_gssi, *source_issi, *priority, None));
                 s.gssi = *dest_gssi;
                 s.source_issi = *source_issi;
                 s.priority = *priority;
+                s.last_activity = Instant::now();
                 targets.extend(s.cells());
                 if targets.is_empty() {
                     // Nobody affiliated anywhere: the primary answers (Hold) as before.
@@ -426,8 +777,11 @@ impl SiteSwitch {
                 }
                 None => self.all_cells.iter().copied().collect(),
             },
-            CallControl::NetworkCallMediaActivity { brew_uuid } => match self.sessions.get(brew_uuid) {
-                Some(s) => s.cells(),
+            CallControl::NetworkCallMediaActivity { brew_uuid } => match self.sessions.get_mut(brew_uuid) {
+                Some(s) => {
+                    s.last_activity = Instant::now();
+                    s.cells()
+                }
                 None => self.all_cells.iter().copied().collect(),
             },
             CallControl::NetworkCircuitSetupRequest { brew_uuid, call } => {
@@ -454,6 +808,37 @@ impl SiteSwitch {
             }
         }
     }
+
+    // ── Housekeeping ────────────────────────────────────────────────────────────────────────
+
+    /// Copy the network entity's link state (kept in the primary's `StackState`) to the other
+    /// cells, so they advertise the same network connection and accept network calls.
+    fn mirror_link_state(&mut self) {
+        let now = {
+            let s = self.primary.state_read();
+            (s.network_connected, s.brew_link_up, s.brew_soft_recovery_until)
+        };
+        if self.mirrored_link == Some(now) {
+            return;
+        }
+        for (_, cfg) in &self.extra {
+            let mut s = cfg.state_write();
+            s.network_connected = now.0;
+            s.brew_link_up = now.1;
+            s.brew_soft_recovery_until = now.2;
+        }
+        self.mirrored_link = Some(now);
+    }
+
+    fn purge_idle(&mut self) {
+        let before = self.sessions.len() + self.cell_calls.len();
+        self.sessions.retain(|_, s| s.last_activity.elapsed() < SESSION_IDLE_TIMEOUT);
+        self.cell_calls.retain(|_, c| c.last_activity.elapsed() < SESSION_IDLE_TIMEOUT);
+        let purged = before - self.sessions.len() - self.cell_calls.len();
+        if purged > 0 {
+            tracing::debug!("SiteSwitch: dropped {purged} idle session(s)");
+        }
+    }
 }
 
 impl TetraEntityTrait for SiteSwitch {
@@ -466,6 +851,8 @@ impl TetraEntityTrait for SiteSwitch {
     }
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
+        self.mirror_link_state();
+        self.purge_idle();
         let incoming: Vec<(CellId, SapMsg)> = self.ports.from_cells.try_iter().collect();
         for (cell, message) in incoming {
             self.handle_from_cell(queue, cell, message);
@@ -533,16 +920,51 @@ fn circuit_uuid(cc: &CallControl) -> Option<Uuid> {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use tetra_core::Sap;
-    use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
+    use tetra_config::bluestation::parsing;
+    use tetra_saps::control::call_control::NetworkCircuitCall;
     use tetra_saps::control::enums::sds_user_data::SdsUserData;
     use tetra_saps::control::sds::CmceSdsData;
-    use tetra_saps::tmd::TmdCircuitDataReq;
+    use tetra_saps::tmd::TmdCircuitDataInd;
 
     use super::*;
 
     const C0: u16 = 1521;
     const C1: u16 = 1525;
+    /// Talkgroup inside `local_ssi_ranges`: cross-cell only, never sent to Brew.
+    const LOCAL_TG: u32 = 5001;
+
+    const CONFIG: &str = r#"
+config_version = "0.6"
+stack_mode = "Bs"
+
+[phy_io]
+backend = "None"
+
+[net_info]
+mcc = 901
+mnc = 9999
+
+[cell_info]
+main_carrier = 1521
+freq_band = 4
+freq_offset = 0
+duplex_spacing = 4
+reverse_operation = false
+location_area = 1
+local_ssi_ranges = [[5000, 5999]]
+
+[brew]
+host = "brew.example"
+port = 3000
+tls = false
+username = 1
+password = "x"
+
+[[cells]]
+id = 1
+[cells.cell_info]
+main_carrier = 1525
+"#;
 
     /// Network entity stand-in: records what it receives, emits `outbox` on the next tick.
     #[derive(Default, Clone)]
@@ -569,19 +991,25 @@ mod tests {
         net: MockNet,
         switch: SiteSwitch,
         link: CellLink,
+        primary: SharedConfig,
+        cell1: SharedConfig,
         q0: MessageQueue,
         q1: MessageQueue,
     }
 
     impl Site {
         fn new() -> Self {
+            let cfg = parsing::from_toml_str(CONFIG).unwrap();
+            let cell1 = SharedConfig::from_parts(cfg.for_extra_cell(CellId(1)).unwrap(), None);
+            let primary = SharedConfig::from_parts(cfg, None);
             let net = MockNet::default();
             let (ports, mut links) = site_links(&[CellId(1)]);
-            let carriers = vec![(CellId(0), vec![C0]), (CellId(1), vec![C1])];
             Self {
-                switch: SiteSwitch::new(Box::new(net.clone()), &carriers, ports),
+                switch: SiteSwitch::new(Box::new(net.clone()), primary.clone(), vec![(CellId(1), cell1.clone())], ports),
                 net,
                 link: links.remove(&CellId(1)).unwrap(),
+                primary,
+                cell1,
                 q0: MessageQueue::new(),
                 q1: MessageQueue::new(),
             }
@@ -614,31 +1042,68 @@ mod tests {
         fn net_got(&self) -> Vec<SapMsgInner> {
             self.net.got.lock().unwrap().drain(..).map(|m| m.msg).collect()
         }
-    }
 
-    fn affiliate(issi: u32, gssi: u32) -> SapMsgInner {
-        SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
-            issi,
-            groups: vec![gssi],
-            action: BrewSubscriberAction::Affiliate,
-        })
+        /// Radio `issi` affiliated to `gssi` on `cell`; clears everything that produced.
+        fn member(&mut self, cell: u8, issi: u32, gssi: u32) {
+            self.from_cell(
+                cell,
+                SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+                    issi,
+                    groups: vec![gssi],
+                    action: BrewSubscriberAction::Affiliate,
+                }),
+            );
+            self.tick();
+            self.net_got();
+        }
     }
 
     fn cc(c: CallControl) -> SapMsgInner {
         SapMsgInner::CmceCallControl(c)
     }
 
-    fn is_start(m: &SapMsgInner) -> bool {
-        matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCallStart { .. }))
+    fn start_uuid(msgs: &[SapMsgInner]) -> Option<Uuid> {
+        msgs.iter().find_map(|m| match m {
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallStart { brew_uuid, .. }) => Some(*brew_uuid),
+            _ => None,
+        })
     }
+
+    fn voice_on(msgs: &[SapMsgInner], carrier: u16) -> bool {
+        msgs.iter()
+            .any(|m| matches!(m, SapMsgInner::TmdCircuitDataReq(r) if r.carrier_num == carrier && r.ts == 2))
+    }
+
+    fn has_end(msgs: &[SapMsgInner]) -> bool {
+        msgs.iter()
+            .any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { .. })))
+    }
+
+    fn granted(call_id: u16, issi: u32, gssi: u32, carrier_num: u16) -> SapMsgInner {
+        cc(CallControl::FloorGranted {
+            call_id,
+            source_issi: issi,
+            dest_gssi: gssi,
+            carrier_num,
+            ts: 2,
+        })
+    }
+
+    fn uplink(carrier_num: u16) -> SapMsgInner {
+        SapMsgInner::TmdCircuitDataInd(TmdCircuitDataInd {
+            carrier_num,
+            ts: 2,
+            data: vec![9; 4],
+        })
+    }
+
+    // ── Network calls (phase 3) ─────────────────────────────────────────────────────────────
 
     #[test]
     fn network_group_call_fans_out_and_copies_voice() {
         let mut site = Site::new();
-        site.from_cell(0, affiliate(100, 91));
-        site.from_cell(1, affiliate(200, 91));
-        site.tick();
-        site.net_got();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
 
         let uuid = Uuid::from_u128(1);
         site.from_net(cc(CallControl::NetworkCallStart {
@@ -648,7 +1113,7 @@ mod tests {
             priority: 0,
         }));
         let (c0, c1) = site.tick();
-        assert!(c0.iter().any(is_start) && c1.iter().any(is_start), "both cells have members");
+        assert!(start_uuid(&c0).is_some() && start_uuid(&c1).is_some(), "both cells have members");
 
         let ready = |call_id, carrier_num| {
             cc(CallControl::NetworkCallReady {
@@ -664,9 +1129,9 @@ mod tests {
         site.tick();
         site.from_cell(0, ready(7, C0));
         site.tick();
-        let got = site.net_got();
-        let readies: Vec<_> = got
-            .iter()
+        let readies: Vec<_> = site
+            .net_got()
+            .into_iter()
             .filter(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { .. })))
             .collect();
         assert_eq!(readies.len(), 1, "only the first Ready reaches the network entity");
@@ -687,9 +1152,6 @@ mod tests {
             }),
         ));
         let (c0, c1) = site.tick();
-        let voice_on = |msgs: &[SapMsgInner], carrier| {
-            msgs.iter().any(|m| matches!(m, SapMsgInner::TmdCircuitDataReq(r) if r.carrier_num == carrier && r.ts == 2))
-        };
         assert!(voice_on(&c1, C1) && voice_on(&c0, C0));
 
         // Cell 1 leaving alone is swallowed; the call goes on for cell 0.
@@ -697,19 +1159,16 @@ mod tests {
         site.tick();
         assert!(site.net_got().is_empty());
 
-        // Network ends the call: reaches every cell still in it.
         site.from_net(cc(CallControl::NetworkCallEnd { brew_uuid: uuid }));
         let (c0, _) = site.tick();
-        assert!(c0.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { .. }))));
+        assert!(has_end(&c0));
     }
 
     #[test]
     fn hold_is_forwarded_only_when_every_cell_holds() {
         let mut site = Site::new();
-        site.from_cell(0, affiliate(100, 91));
-        site.from_cell(1, affiliate(200, 91));
-        site.tick();
-        site.net_got();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
 
         let uuid = Uuid::from_u128(2);
         site.from_net(cc(CallControl::NetworkCallStart {
@@ -732,11 +1191,25 @@ mod tests {
     }
 
     #[test]
+    fn network_call_to_group_not_allowed_inbound_is_refused() {
+        let mut site = Site::new();
+        site.member(0, 100, LOCAL_TG);
+        let uuid = Uuid::from_u128(3);
+        site.from_net(cc(CallControl::NetworkCallStart {
+            brew_uuid: uuid,
+            source_issi: 9000,
+            dest_gssi: LOCAL_TG,
+            priority: 0,
+        }));
+        let (c0, c1) = site.tick();
+        assert!(start_uuid(&c0).is_none() && start_uuid(&c1).is_none());
+        assert!(has_end(&site.net_got()), "refused back to the network entity");
+    }
+
+    #[test]
     fn sds_between_cells_is_delivered_directly() {
         let mut site = Site::new();
-        site.from_cell(0, affiliate(100, 91));
-        site.tick();
-        site.net_got();
+        site.member(0, 100, 91);
 
         site.from_cell(
             1,
@@ -754,17 +1227,8 @@ mod tests {
     #[test]
     fn call_ids_are_unique_towards_the_network() {
         let mut site = Site::new();
-        let granted = |carrier_num| {
-            cc(CallControl::FloorGranted {
-                call_id: 4,
-                source_issi: 1,
-                dest_gssi: 91,
-                carrier_num,
-                ts: 2,
-            })
-        };
-        site.from_cell(0, granted(C0));
-        site.from_cell(1, granted(C1));
+        site.from_cell(0, granted(4, 100, 91, C0));
+        site.from_cell(1, granted(4, 200, 92, C1));
         site.tick();
         let ids: Vec<u16> = site
             .net_got()
@@ -789,5 +1253,161 @@ mod tests {
             c1.as_slice(),
             [SapMsgInner::CmceCallControl(CallControl::FloorReleased { call_id: 4, .. })]
         ));
+    }
+
+    // ── Calls between cells (phase 4) ───────────────────────────────────────────────────────
+
+    #[test]
+    fn radio_group_call_is_heard_on_other_cells() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
+
+        site.from_cell(0, granted(4, 100, 91, C0));
+        let (_, c1) = site.tick();
+        let uuid = start_uuid(&c1).expect("cell 1 gets the call as a network call");
+        assert!(
+            site.net_got()
+                .iter()
+                .any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::FloorGranted { .. }))),
+            "a Brew-routable group still goes to the network"
+        );
+
+        site.from_cell(
+            1,
+            cc(CallControl::NetworkCallReady {
+                brew_uuid: uuid,
+                call_id: 9,
+                carrier_num: C1,
+                ts: 2,
+                usage: 4,
+            }),
+        );
+        site.tick();
+        assert!(site.net_got().is_empty(), "the network entity never sees the switch's own session");
+
+        site.from_cell(0, uplink(C0));
+        let (_, c1) = site.tick();
+        assert!(voice_on(&c1, C1), "talker's voice copied to cell 1");
+
+        site.from_cell(
+            0,
+            cc(CallControl::FloorReleased {
+                call_id: 4,
+                carrier_num: C0,
+                ts: 2,
+            }),
+        );
+        let (_, c1) = site.tick();
+        assert!(has_end(&c1), "cell 1 goes to hangtime");
+    }
+
+    #[test]
+    fn one_talker_per_group_across_cells() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
+
+        site.from_cell(0, granted(4, 100, 91, C0));
+        site.tick();
+        site.net_got();
+
+        // Cell 1's radio got a local grant before the call reached it: it loses.
+        site.from_cell(1, granted(6, 200, 91, C1));
+        let (c0, _) = site.tick();
+        assert!(start_uuid(&c0).is_none(), "cell 0 keeps talking");
+        assert!(site.net_got().is_empty(), "losing grant never reaches the network");
+
+        site.from_cell(
+            1,
+            cc(CallControl::FloorReleased {
+                call_id: 6,
+                carrier_num: C1,
+                ts: 2,
+            }),
+        );
+        site.tick();
+        assert!(site.net_got().is_empty(), "nor does its release");
+    }
+
+    #[test]
+    fn local_only_group_links_cells_but_stays_off_the_network() {
+        let mut site = Site::new();
+        site.member(0, 100, LOCAL_TG);
+        site.member(1, 200, LOCAL_TG);
+
+        site.from_cell(0, granted(4, 100, LOCAL_TG, C0));
+        let (_, c1) = site.tick();
+        assert!(start_uuid(&c1).is_some());
+        assert!(site.net_got().is_empty());
+    }
+
+    #[test]
+    fn individual_call_between_cells() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
+
+        let uuid = Uuid::from_u128(40);
+        let call = NetworkCircuitCall {
+            source_issi: 200,
+            destination: 100,
+            number: String::new(),
+            priority: 0,
+            service: 0,
+            mode: 0,
+            duplex: 1,
+            method: 0,
+            communication: 0,
+            grant: 0,
+            permission: 0,
+            timeout: 0,
+            ownership: 0,
+            queued: 0,
+        };
+        site.from_cell(1, cc(CallControl::NetworkCircuitSetupRequest { brew_uuid: uuid, call }));
+        let (c0, _) = site.tick();
+        assert!(c0.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupRequest { .. }))));
+
+        site.from_cell(0, cc(CallControl::NetworkCircuitSetupAccept { brew_uuid: uuid }));
+        let (_, c1) = site.tick();
+        assert!(c1.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupAccept { .. }))));
+
+        let media = |carrier_num| {
+            cc(CallControl::NetworkCircuitMediaReady {
+                brew_uuid: uuid,
+                call_id: 5,
+                carrier_num,
+                ts: 2,
+            })
+        };
+        site.from_cell(0, media(C0));
+        site.from_cell(1, media(C1));
+        site.tick();
+        site.from_cell(0, uplink(C0));
+        site.from_cell(1, uplink(C1));
+        let (c0, c1) = site.tick();
+        assert!(voice_on(&c1, C1) && voice_on(&c0, C0), "voice both ways");
+
+        site.from_cell(0, cc(CallControl::NetworkCircuitRelease { brew_uuid: uuid, cause: 1 }));
+        let (_, c1) = site.tick();
+        assert!(c1.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCircuitRelease { .. }))));
+        assert!(
+            !site.net_got().iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(_))),
+            "the whole call stays on site"
+        );
+    }
+
+    #[test]
+    fn network_link_state_is_mirrored_to_other_cells() {
+        let mut site = Site::new();
+        {
+            let mut s = site.primary.state_write();
+            s.network_connected = true;
+            s.brew_link_up = true;
+        }
+        site.tick();
+        let s = site.cell1.state_read();
+        assert!(s.network_connected && s.brew_link_up);
     }
 }

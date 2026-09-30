@@ -340,7 +340,20 @@ impl MmBs {
         // even when there are no group affiliations yet. The Brew worker
         // decides whether to send REGISTER or REREGISTER based on its own state.
         // Affiliate/Deaffiliate only sent when there are brew-routable groups.
-        if net_brew::is_active(&self.config) {
+        if net_brew::is_site_linked(&self.config) {
+            // Linked multi-cell: the site switch tracks every radio and group for cross-cell
+            // routing, and applies the Brew filters below before anything reaches the network.
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Mm,
+                dest: TetraEntity::Brew,
+                msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+                    issi,
+                    groups: groups.clone(),
+                    action,
+                }),
+            });
+        } else if net_brew::is_active(&self.config) {
             let brew_groups = groups
                 .iter()
                 .filter(|gssi| net_brew::is_brew_gssi_routable(&self.config, **gssi))

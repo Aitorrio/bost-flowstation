@@ -226,22 +226,16 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
 /// are fully independent for now: separate registrations, no Brew/LST/dashboard. Threads stop
 /// with the primary via `is_running`.
 fn spawn_extra_cells(
-    cfg: &SharedConfig,
+    cell_cfgs: Vec<(CellId, SharedConfig)>,
     is_running: Arc<AtomicBool>,
     mut links: HashMap<CellId, CellLink>,
 ) -> Vec<thread::JoinHandle<()>> {
-    let stack_config = cfg.config();
     let mut handles = Vec::new();
-    for extra in &stack_config.extra_cells {
-        let id = extra.id;
-        let Some(cell_config) = stack_config.for_extra_cell(id) else {
-            continue;
-        };
+    for (id, cell_cfg) in cell_cfgs {
         let is_running = is_running.clone();
         let link = links.remove(&id);
         let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
             tetra_entities::cell_context::set_current(id);
-            let cell_cfg = SharedConfig::from_parts(cell_config, None);
             let mut router = build_cell_router(&cell_cfg, link);
             eprintln!(" -> {id}: opening SDR…");
             if !try_attach_phy(&mut router, &cell_cfg, None) {
@@ -280,30 +274,16 @@ fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>) -> MessageRoute
 }
 
 /// Start base station stack
-/// Carrier numbers of every cell, primary first (for the site switch).
-fn site_carriers(cfg: &SharedConfig) -> Vec<(CellId, Vec<u16>)> {
-    cfg.config()
-        .cells()
-        .into_iter()
-        .map(|(id, cell, _)| {
-            let carriers = StackConfig::cell_phase_mod_carriers(cell)
-                .map(|cs| cs.into_iter().map(|(c, _, _)| c).collect())
-                .unwrap_or_default();
-            (id, carriers)
-        })
-        .collect()
-}
+/// Site switch ports plus the additional cells' configs it keeps in sync.
+type SiteSetup = (SitePorts, Vec<(CellId, SharedConfig)>);
 
 /// In a multi-cell station the network entity is wrapped in the site switch so it serves every
 /// cell; single-cell stations register it directly, exactly as before.
-fn wrap_network_entity(
-    entity: Box<dyn TetraEntityTrait>,
-    site: &mut Option<(SitePorts, Vec<(CellId, Vec<u16>)>)>,
-) -> Box<dyn TetraEntityTrait> {
+fn wrap_network_entity(entity: Box<dyn TetraEntityTrait>, cfg: &SharedConfig, site: &mut Option<SiteSetup>) -> Box<dyn TetraEntityTrait> {
     match site.take() {
-        Some((ports, carriers)) => {
-            eprintln!(" -> Site switch: network link shared by {} cells", carriers.len());
-            Box::new(SiteSwitch::new(entity, &carriers, ports))
+        Some((ports, extra)) => {
+            eprintln!(" -> Site switch: network link shared by {} cells", extra.len() + 1);
+            Box::new(SiteSwitch::new(entity, cfg.clone(), extra, ports))
         }
         None => entity,
     }
@@ -313,7 +293,7 @@ fn build_bs_stack(
     cfg: &mut SharedConfig,
     config_path: &str,
     lst_handle: Option<LstDispatchHandle>,
-    mut site: Option<(SitePorts, Vec<(CellId, Vec<u16>)>)>,
+    mut site: Option<SiteSetup>,
 ) -> (
     MessageRouter,
     Option<TelemetrySource>,
@@ -446,7 +426,7 @@ fn build_bs_stack(
             tracing::warn!("LST handle provided but lst_dispatch not enabled — ignoring");
         } else {
             let entity = LstDispatchEntity::new(cfg.clone(), handle);
-            router.register_entity(wrap_network_entity(Box::new(entity), &mut site));
+            router.register_entity(wrap_network_entity(Box::new(entity), cfg, &mut site));
             eprintln!(" -> LST Dispatch (local console) enabled");
         }
     } else if let Some(ref brew_cfg) = cfg.config().brew {
@@ -455,7 +435,7 @@ fn build_bs_stack(
         if let Some(ref sink) = tsink {
             brew_entity.set_telemetry_sink(sink.clone());
         }
-        router.register_entity(wrap_network_entity(Box::new(brew_entity), &mut site));
+        router.register_entity(wrap_network_entity(Box::new(brew_entity), cfg, &mut site));
         eprintln!(" -> Brew/TetraPack integration enabled");
     } else if lst_enabled {
         eprintln!(" -> WARNING: lst_dispatch.enabled but no handle wired — dispatch inactive");
@@ -580,11 +560,20 @@ fn main() {
 
     // Multi-cell with a network link: one site switch in the primary router, one link per
     // additional cell. Without Brew/LST there is nothing to share and cells stay independent.
-    let extra_cell_ids: Vec<CellId> = cfg.config().extra_cells.iter().map(|c| c.id).collect();
-    let network_enabled = cfg.config().brew.is_some() || lst_handle.is_some();
-    let (site, cell_links) = if !extra_cell_ids.is_empty() && network_enabled {
+    // Each additional cell's config (derived from its [[cells]] entry) is built here so the
+    // switch can keep the cells' network link state in sync with the primary.
+    let extra_cell_cfgs: Vec<(CellId, SharedConfig)> = {
+        let stack_config = cfg.config();
+        stack_config
+            .extra_cells
+            .iter()
+            .filter_map(|c| Some((c.id, SharedConfig::from_parts(stack_config.for_extra_cell(c.id)?, None))))
+            .collect()
+    };
+    let extra_cell_ids: Vec<CellId> = extra_cell_cfgs.iter().map(|(id, _)| *id).collect();
+    let (site, cell_links) = if cfg.config().is_site_linked() {
         let (ports, links) = site_links(&extra_cell_ids);
-        (Some((ports, site_carriers(&cfg))), links)
+        (Some((ports, extra_cell_cfgs.clone())), links)
     } else {
         (None, HashMap::new())
     };
@@ -867,10 +856,10 @@ fn main() {
     try_attach_phy(&mut router, &cfg, phy_tsink);
 
     // Multi-cell: additional cells run independently for now (multi-cell plan, phase 2).
-    let extra_cell_threads = spawn_extra_cells(&cfg, is_running.clone(), cell_links);
+    let extra_cell_threads = spawn_extra_cells(extra_cell_cfgs, is_running.clone(), cell_links);
     if !extra_cell_threads.is_empty() {
         tracing::warn!(
-            "{} additional cell(s) started — network calls/SDS are routed across cells; calls started on one cell are not heard on the others yet",
+            "{} additional cell(s) started — calls and SDS are routed across cells through the site switch",
             extra_cell_threads.len()
         );
     }

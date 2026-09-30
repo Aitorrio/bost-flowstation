@@ -883,8 +883,12 @@ impl CcBsSubentity {
             return;
         }
 
+        // Linked multi-cell: the called radio may be on a sibling cell; the site switch decides
+        // (sibling cell, network under the rules below, or reject).
+        let site_linked = brew::is_site_linked(&self.config);
         if network_entity == TetraEntity::Brew
             && !lst_active
+            && !site_linked
             && !brew::is_brew_issi_routable(&self.config, calling_party.ssi)
         {
             tracing::info!(
@@ -907,6 +911,7 @@ impl CcBsSubentity {
         let destination_routable = network_entity == TetraEntity::Asterisk
             || network_call.destination == 0
             || lst_active
+            || site_linked
             || brew::is_brew_issi_routable(&self.config, network_call.destination);
 
         if !has_external_called_party && !destination_routable {

@@ -78,6 +78,10 @@ pub struct StackConfig {
     /// configs. The primary cell (id 0) is always `cell` + `phy_io.soapysdr`.
     pub extra_cells: Vec<CfgExtraCell>,
 
+    /// Set on an additional cell's derived config when its network traffic goes through the
+    /// site switch (see [`StackConfig::is_site_linked`]). Always false in parsed configs.
+    pub site_linked: bool,
+
     /// Brew protocol (TetraPack/BrandMeister) configuration
     pub brew: Option<CfgBrew>,
 
@@ -180,6 +184,7 @@ impl StackConfig {
         let mut cfg = self.clone();
         cfg.cell = extra.cell.clone();
         cfg.phy_io.soapysdr = extra.soapysdr.clone();
+        cfg.site_linked = self.is_site_linked();
         cfg.extra_cells = Vec::new();
         cfg.asterisk.enabled = false;
         cfg.dapnet.enabled = false;
@@ -194,6 +199,18 @@ impl StackConfig {
         cfg.wx_service.periodic_enabled = false;
         cfg.recovery.enabled = false;
         Some(cfg)
+    }
+
+    /// True when a network link (Brew, or enabled LST Dispatch) is configured.
+    pub fn has_network_link(&self) -> bool {
+        self.brew.is_some() || self.lst_dispatch.as_ref().is_some_and(|l| l.enabled)
+    }
+
+    /// True when this stack is one cell of a multi-cell station whose cells are linked through
+    /// the site switch. The stack then reports every registration, group floor and call to its
+    /// network slot (the switch applies the Brew routing rules before the real network sees it).
+    pub fn is_site_linked(&self) -> bool {
+        self.site_linked || (!self.extra_cells.is_empty() && self.has_network_link())
     }
 
     /// Validate that all required configuration fields are properly set.

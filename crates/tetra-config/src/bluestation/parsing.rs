@@ -252,6 +252,7 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         net: net_dto_to_cfg(root.net_info),
         cell: cell_cfg,
         extra_cells,
+        site_linked: false,
         brew: None,
         lst_dispatch: None,
         asterisk: apply_asterisk_patch(root.asterisk.unwrap_or_default())?,

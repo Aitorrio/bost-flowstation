@@ -66,7 +66,8 @@ impl BrewNotification {
             // FloorGranted/Released for every local group floor so the console can highlight RX
             // and filter multi-TG listen.
             BrewNotification::IfGroupRoutable(gssi) => {
-                brew::is_brew_gssi_routable(config, gssi) || brew::is_lst_dispatch_active(config)
+                // Linked multi-cell: the site switch needs every group floor; it filters for Brew.
+                brew::is_brew_gssi_routable(config, gssi) || brew::is_lst_dispatch_active(config) || brew::is_site_linked(config)
             }
         }
     }

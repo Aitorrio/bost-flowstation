@@ -167,6 +167,14 @@ colour_code = 2
     }
 
     #[test]
+    fn cells_without_network_link_are_not_site_linked() {
+        let cfg = parse("[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\n").unwrap();
+        assert!(!cfg.is_site_linked());
+        assert!(!cfg.for_extra_cell(CellId(1)).unwrap().is_site_linked());
+        assert!(!parse("").unwrap().is_site_linked(), "single cell is never site-linked");
+    }
+
+    #[test]
     fn disabled_cell_is_dropped() {
         let cfg = parse("[[cells]]\nid = 1\nenabled = false\n[cells.cell_info]\nmain_carrier = 1525\n").unwrap();
         assert!(cfg.extra_cells.is_empty());
@@ -234,6 +242,7 @@ colour_code = 2
         assert_eq!(cell.cell.colour_code, 2);
         assert!(cell.extra_cells.is_empty());
         assert!(cell.brew.is_some(), "kept so the cell's CMCE routes to the site switch");
+        assert!(cfg.is_site_linked() && cell.is_site_linked(), "Brew + [[cells]] links the cells");
         assert!(cell.dashboard.is_none());
         assert!(!cell.wx_service.enabled && !cell.recovery.enabled);
         assert_eq!(cell.net.mcc, cfg.net.mcc);

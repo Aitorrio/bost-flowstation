@@ -21,6 +21,7 @@ pub fn default_test_config_bs() -> StackConfig {
         net: net_info,
         cell: cell_info,
         extra_cells: Vec::new(),
+        site_linked: false,
         brew: None,
         lst_dispatch: None,
         asterisk: CfgAsterisk::default(),

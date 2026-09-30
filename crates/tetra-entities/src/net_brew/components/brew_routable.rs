@@ -1,6 +1,12 @@
 use tetra_config::bluestation::SharedConfig;
 
 /// Returns true if the Brew component is active
+/// This cell is part of a linked multi-cell station (see `StackConfig::is_site_linked`).
+#[inline]
+pub fn is_site_linked(config: &SharedConfig) -> bool {
+    config.config().is_site_linked()
+}
+
 #[inline]
 pub fn is_active(config: &SharedConfig) -> bool {
     config.config().brew.is_some()
@@ -95,6 +101,16 @@ pub fn is_brew_inbound_allowed(config: &SharedConfig, ssi: u32) -> bool {
 /// - Neither: reject.
 #[inline]
 pub fn is_network_group_inbound_allowed(config: &SharedConfig, ssi: u32) -> bool {
+    // Linked multi-cell: a sibling cell's call arrives the same way; the site switch applies
+    // `network_group_inbound_allowed_from_network` to calls that really come from the network.
+    if is_site_linked(config) {
+        return true;
+    }
+    network_group_inbound_allowed_from_network(config, ssi)
+}
+
+/// [`is_network_group_inbound_allowed`] for a call that comes from Brew / LST itself.
+pub fn network_group_inbound_allowed_from_network(config: &SharedConfig, ssi: u32) -> bool {
     if is_active(config) {
         return is_brew_inbound_allowed(config, ssi);
     }
