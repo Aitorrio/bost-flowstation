@@ -22,7 +22,8 @@ fn cell_info(id: CellId, cfg: &SharedConfig, rf: Option<&crate::rf_status::RfSta
         .into_iter()
         .map(|(carrier_num, tx_freq_hz, rx_freq_hz)| CellCarrierInfo { carrier_num, tx_freq_hz, rx_freq_hz })
         .collect();
-    let radios = cfg.state_read().subscribers.all_registered_issis().count();
+    let mut issis: Vec<u32> = cfg.state_read().subscribers.all_registered_issis().collect();
+    issis.sort_unstable();
     CellInfo {
         id: id.0,
         primary: id.is_primary(),
@@ -33,7 +34,8 @@ fn cell_info(id: CellId, cfg: &SharedConfig, rf: Option<&crate::rf_status::RfSta
         location_area: c.cell.location_area,
         neighbours: c.cell.neighbor_cells_ca.len() as u16,
         device: c.phy_io.soapysdr.as_ref().and_then(|s| s.device.clone()),
-        registered_radios: radios as u32,
+        registered_radios: issis.len() as u32,
+        registered_issis: issis,
         rf_state: rf.and_then(|r| serde_json::to_value(r.state).ok()?.as_str().map(str::to_string)),
         rf_detail: rf.map(|r| r.detail.clone()),
     }

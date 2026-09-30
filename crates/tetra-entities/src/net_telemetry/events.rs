@@ -250,6 +250,9 @@ pub struct CellInfo {
     /// SoapySDR device string, if configured.
     pub device: Option<String>,
     pub registered_radios: u32,
+    /// ISSIs registered on this cell, sorted. Lets a consumer that missed registration events
+    /// (e.g. after a telemetry reconnect) resync its list.
+    pub registered_issis: Vec<u32>,
     /// "online" / "offline" / "error" / "starting"; None before the radio status is known.
     pub rf_state: Option<String>,
     pub rf_detail: Option<String>,
