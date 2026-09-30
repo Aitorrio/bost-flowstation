@@ -149,6 +149,17 @@ Collapsed under **Advanced** for power users: red warning, then **Save** and **A
 
 ---
 
+## Multi-cell: one station, several SDRs *(in development)*
+
+Every extra SDR can run one more TETRA cell from the same station, for example two Pluto+ on the network.
+
+- **Add a cell** from the dashboard's **Cells** card: scan for SDRs, pick the device and a free carrier (frequencies follow from the primary cell's band plan), and the station restarts. Or add a `[[cells]]` entry by hand; see the commented example at the end of [`example_config/config.toml`](example_config/config.toml).
+- With **Brew or LST** enabled the cells are linked: group calls from the network or from any radio reach every cell with members (one talker per group across all cells), individual calls and SDS work between cells, and cells advertise each other as neighbours so radios can move between them.
+- Without Brew/LST each cell runs on its own.
+- Still primary-cell only: Asterisk, WX, telemetry and the registered-radios table.
+
+Design and status per phase: [`Docs/multi-cell-plan.md`](Docs/multi-cell-plan.md).
+
 ## Stability and system robustness
 
 This fork hardens day-to-day operation so your BTS keeps working — and stays recoverable — in most of the situations that used to mean “reinstall from scratch”.

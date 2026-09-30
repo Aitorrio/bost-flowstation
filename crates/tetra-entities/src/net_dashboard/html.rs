@@ -3384,6 +3384,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .topbar-chips{display:flex;align-items:center;gap:8px;min-width:0;}
 /* ≤700px: second row under title/actions (see mobile topbar rules). Do not hide. */
 
+/* ════ Cells card (multi-cell) ════ */
+.cells-list{display:flex;flex-direction:column;gap:8px;}
+.cell-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;}
+.cell-row .cell-name{font-weight:600;min-width:64px;}
+.cell-row .cell-meta{flex:1 1 220px;min-width:0;font-size:12px;color:var(--text2);overflow-wrap:anywhere;}
+.cell-rf{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);}
+.cell-rf.online{color:var(--success,#2ecc71);border-color:currentColor;}
+.cell-rf.error{color:var(--danger);border-color:currentColor;}
+.cells-add{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center;}
+.cells-add .form-input{flex:1 1 160px;min-width:0;width:auto;}
+.cells-add .form-input.narrow{flex:0 1 110px;}
+
 /* ════ TETRA BTS Details card ════ */
 .bts-grid{
   display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
@@ -4491,6 +4503,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <div class="bts-tile"><div class="bts-tile-label" data-i18n="bts_shift">Duplex Shift</div><div class="bts-tile-value" id="bts-sec-shift">—</div></div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Cells — one per SDR (multi-cell) -->
+      <div class="card" id="cells-card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cells_title">Cells</div>
+          <div class="card-actions"><span id="cells-link" class="bts-chip">—</span></div>
+        </div>
+        <div class="card-body">
+          <div class="cells-list" id="cells-list"></div>
+          <div class="help-text" data-i18n="cells_help">Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.</div>
+          <div class="cells-add">
+            <input type="text" class="form-input" id="cells-device" list="cells-device-options" placeholder="driver=plutosdr,uri=ip:192.168.3.1">
+            <datalist id="cells-device-options"></datalist>
+            <input type="number" class="form-input narrow" id="cells-carrier" min="0" max="4095" placeholder="Carrier">
+            <input type="number" class="form-input narrow" id="cells-cc" min="0" max="63" placeholder="Colour code">
+            <button class="btn btn-sm" onclick="cellsScan()" data-i18n="setup_scan">Scan</button>
+            <button class="btn btn-sm" onclick="cellsAdd()" data-i18n="cells_add">Add cell</button>
+          </div>
+          <div class="help-text" id="cells-msg"></div>
         </div>
       </div>
 
@@ -6971,6 +7004,10 @@ const LANGS={
     terminals:'Radios',registered:'registered',
     active_calls:'Active Calls',circuits:'circuits in use',
     registered_terminals:'Registered Radios',
+    cells_title:'Cells',cells_help:"Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.",
+    cells_carrier:'Carrier',cells_cc:'Colour code',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',cells_radios:'{n} radio(s)',
+    cells_single:'Single cell',cells_linked:'Cells linked',cells_independent:'Independent cells',
+    cells_need_fields:'Device and carrier are required.',cells_confirm_add:'Add this cell? The station restarts.',cells_confirm_remove:'Remove cell {n}? The station restarts.',
     bts_details:'TETRA BTS Details',bts_tx:'TX Freq',bts_rx:'RX Freq',bts_shift:'Duplex Shift',bts_rate:'Sample Rate',
     dual_carrier:'Dual Carrier',dc_on_sub:'On',dc_off_sub:'Off',
     dc_configure:'Configure…',bts_secondary_head:'Secondary carrier',bts_sec_carrier:'Carrier',
@@ -7482,6 +7519,10 @@ const LANGS={
     sys_bts:'BTS-Verbindung',
   },
   es:{
+    cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
+    cells_carrier:'Portadora',cells_cc:'Código de color',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',cells_radios:'{n} radio(s)',
+    cells_single:'Celda única',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
+    cells_need_fields:'Hacen falta el dispositivo y la portadora.',cells_confirm_add:'¿Añadir esta celda? La estación se reinicia.',cells_confirm_remove:'¿Quitar la celda {n}? La estación se reinicia.',
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',reconnecting:'RECONECTANDO',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
     stations:'Inicio',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
@@ -8156,7 +8197,7 @@ function showPage(name,el){
   if(el)el.classList.add('active');
   else{const nav=document.getElementById('nav-'+name);if(nav)nav.classList.add('active');}
   document.getElementById('topbar-title').textContent=t(name)||name;
-  if(name==='stations'){loadBtsInfoLegacy();loadDualCarrier();refreshProfileSelects();}
+  if(name==='stations'){loadBtsInfoLegacy();loadCells();loadDualCarrier();refreshProfileSelects();}
   if(name==='dgna'){syncDgnaAttachmentModePicker();renderDgnaPage();}
   if(name==='sdslog'){loadSdsLog();}
   if(name==='rf'){
@@ -14162,6 +14203,61 @@ function gotoDualCarrierConfig(){
     el?.scrollIntoView({behavior:'smooth',block:'center'});
   },120);
 }
+async function loadCells(){
+  const list=document.getElementById('cells-list');
+  if(!list)return;
+  try{
+    const r=await fetch('/api/cells',{credentials:'same-origin'});
+    if(!r.ok)return;
+    const d=await r.json();
+    const cells=d.cells||[];
+    const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4):'—';
+    setText('cells-link', cells.length>1?(d.site_linked?t('cells_linked'):t('cells_independent')):t('cells_single'));
+    list.innerHTML=cells.map(c=>{
+      const rf=c.rf_state||'starting';
+      const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' '+mhz(k.tx_freq_hz)+'/'+mhz(k.rx_freq_hz)+' MHz').join(' · ');
+      const meta=[carriers,'CC '+c.colour_code,'LA '+c.location_area,
+        t('cells_radios',{n:c.registered_radios}),c.device?('SDR '+c.device):''].filter(Boolean).join(' — ');
+      const rm=c.primary?'':'<button class="btn btn-sm btn-danger" onclick="cellsRemove('+c.id+')">'+escHtml(t('cells_remove'))+'</button>';
+      return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
+        '<span class="cell-rf '+escHtmlAttr(rf)+'" title="'+escHtmlAttr(c.rf_detail||'')+'">'+escHtml(rf)+'</span>'+
+        '<span class="cell-meta">'+escHtml(meta)+'</span>'+rm+'</div>';
+    }).join('');
+  }catch(e){}
+}
+async function cellsScan(){
+  const msg=document.getElementById('cells-msg');
+  if(msg)msg.textContent='Scanning…';
+  try{
+    const r=await fetch('/api/setup/scan-sdr',{method:'POST',credentials:'same-origin'});
+    const d=await r.json();
+    const opts=document.getElementById('cells-device-options');
+    if(opts)opts.innerHTML=(d.devices||[]).map(x=>'<option value="'+escHtmlAttr(x.device||'')+'">'+escHtml(x.label||x.driver||'')+'</option>').join('');
+    if(msg)msg.textContent=d.ok?((d.devices||[]).length+' device(s)'):(d.error||'scan failed');
+  }catch(e){if(msg)msg.textContent='scan failed';}
+}
+async function cellsPost(path,body){
+  const msg=document.getElementById('cells-msg');
+  try{
+    const r=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt=await r.text();
+    if(msg)msg.textContent=txt;
+  }catch(e){if(msg)msg.textContent=String(e);}
+}
+function cellsAdd(){
+  const device=(document.getElementById('cells-device')||{}).value||'';
+  const carrier=parseInt((document.getElementById('cells-carrier')||{}).value,10);
+  const ccRaw=(document.getElementById('cells-cc')||{}).value;
+  if(!device.trim()||!isFinite(carrier)){setText('cells-msg',t('cells_need_fields'));return;}
+  if(!confirm(t('cells_confirm_add')))return;
+  const body={device:device.trim(),main_carrier:carrier};
+  if(ccRaw!=='')body.colour_code=parseInt(ccRaw,10);
+  cellsPost('/api/cells/add',body);
+}
+function cellsRemove(id){
+  if(!confirm(t('cells_confirm_remove',{n:id})))return;
+  cellsPost('/api/cells/remove',{id:id});
+}
 async function loadBtsInfo(){
   try{
     const r=await fetch('/api/btsinfo',{credentials:'same-origin'});
@@ -15893,6 +15989,7 @@ async function boot(){
   // Light host snapshot for SDR badge / RF banner (no SoapySDRUtil spawn).
   loadSystemInfo();
   loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Home) page
+  loadCells();
   loadDualCarrier();    // Dual-Carrier ON/OFF toggle state
   refreshProfileSelects(); // Home quick Cell × Brew selectors
   networkProbeAvailable(); // toggles the Network nav item

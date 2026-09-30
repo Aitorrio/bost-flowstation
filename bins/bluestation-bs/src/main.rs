@@ -572,6 +572,7 @@ fn main() {
             .filter_map(|c| Some((c.id, SharedConfig::from_parts(stack_config.for_extra_cell(c.id)?, None))))
             .collect()
     };
+    tetra_entities::net_site::register_extra_cells(extra_cell_cfgs.clone());
     let extra_cell_ids: Vec<CellId> = extra_cell_cfgs.iter().map(|(id, _)| *id).collect();
     let (site, cell_links) = if cfg.config().is_site_linked() {
         let (ports, links) = site_links(&extra_cell_ids);

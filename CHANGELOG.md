@@ -2,6 +2,17 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## Multi-celda (en desarrollo, sin versión)
+
+Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. dos Pluto+).
+
+- Config: nuevas entradas `[[cells]]` (id 1-7) que heredan `[cell_info]` y llevan su propio `[cells.soapysdr]`. Portadoras únicas y `device` obligatorio por celda. Configs de una sola celda no cambian.
+- Cada celda corre su propio stack de radio en su propio hilo/SDR.
+- Con Brew o LST activos las celdas se enlazan (site switch): llamadas de grupo de red y de radios se oyen en todas las celdas con miembros, un solo hablante por grupo, llamadas individuales y SDS entre celdas. Grupos en `local_ssi_ranges` enlazan celdas sin salir a Brew.
+- Movilidad: cada celda anuncia a las demás como vecinas; al registrarse en otra celda se da de baja en la anterior sin nada al aire; restauración de llamada de grupo entre celdas.
+- Dashboard: tarjeta **Celdas** (estado RF, portadoras, SDR y radios por celda) con alta/baja de celdas y reinicio.
+- Pendiente: Asterisk/WX/telemetría solo en la celda principal; sin jitter buffer en la voz copiada entre celdas; sin traspaso anunciado (D-NEW-CELL).
+
 ## v0.4.4 — Puertos del dashboard: presets y binds estables
 
 Elección de puertos sin pelear con nginx/apache ni spamear ERROR en el log.

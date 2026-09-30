@@ -24,5 +24,23 @@
 mod directory;
 mod switch;
 
+use std::sync::OnceLock;
+
+use tetra_config::bluestation::SharedConfig;
+use tetra_core::CellId;
+
 pub use directory::SiteDirectory;
 pub use switch::{CellLink, SitePorts, SiteSwitch, site_links};
+
+static EXTRA_CELLS: OnceLock<Vec<(CellId, SharedConfig)>> = OnceLock::new();
+
+/// Record the running additional cells' configs (set once at startup) so the dashboard can show
+/// every cell's registrations and settings.
+pub fn register_extra_cells(cells: Vec<(CellId, SharedConfig)>) {
+    let _ = EXTRA_CELLS.set(cells);
+}
+
+/// The running additional cells (empty for a single-cell station).
+pub fn extra_cells() -> &'static [(CellId, SharedConfig)] {
+    EXTRA_CELLS.get().map(|v| v.as_slice()).unwrap_or(&[])
+}

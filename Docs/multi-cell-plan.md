@@ -158,6 +158,16 @@ calls do not survive a cell change (the peer is released as before).
 
 ---
 
+**Phase 6 as built:** `GET /api/cells` (every cell: carriers, CC, LA, SDR, RF state from
+`rf_status::get_all`, registered radios from each cell's `StackState` via
+`net_site::register_extra_cells`), `POST /api/cells/add` / `remove` (text edit of `[[cells]]`,
+prospective config parsed + validated before an atomic write, `.cells.bak` backup, restart). Home
+page **Cells** card lists the cells, scans SDRs (existing `scan-sdr`) and adds/removes cells;
+EN + ES strings. Not done: per-cell telemetry `cell_id` (extra cells have no telemetry sink), the
+registered-radios table and Setup wizard remain primary-cell views. TMO profiles keep `[[cells]]`
+(they deep-merge into the file) but don't edit them; a profile whose carrier or SDR clashes with a
+cell fails the usual config validation.
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).

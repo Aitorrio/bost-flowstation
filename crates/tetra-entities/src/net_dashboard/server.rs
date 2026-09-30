@@ -3661,6 +3661,20 @@ fn handle_connection(
             }
         }
         serve_bts_info(buf.into_inner(), &shared_config);
+    } else if req_line.contains("GET /api/cells") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let body = match &shared_config {
+            Some(cfg) => crate::net_dashboard::cells::cells_json(cfg).to_string(),
+            None => "{\"cells\":[]}".to_string(),
+        };
+        http_json_response(s, 200, &body);
+    } else if req_line.contains("POST /api/cells/add") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_add(inner, &config_path, &body_str);
+    } else if req_line.contains("POST /api/cells/remove") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_remove(inner, &config_path, &body_str);
     } else if req_line.contains("GET /api/dualcarrier") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -5085,6 +5099,61 @@ fn serve_bts_info(mut stream: PrefixedConn, shared_config: &Option<tetra_config:
     );
     let _ = stream.write_all(header.as_bytes());
     let _ = stream.write_all(body.as_bytes());
+}
+
+/// Write a config produced by the cells editor and restart to apply it.
+fn apply_cells_config(stream: PrefixedConn, config_path: &str, text: &str, what: String) {
+    let backup = format!("{config_path}.cells.bak");
+    let _ = std::fs::copy(config_path, &backup);
+    if let Err(e) = atomic_write(config_path, text) {
+        return http_response(stream, 500, &format!("failed to write config: {e}"));
+    }
+    tracing::info!("Dashboard: {what}; scheduling restart");
+    crate::service_control::schedule_service_action(
+        crate::service_control::ServiceAction::Restart,
+        std::time::Duration::from_secs(2),
+    );
+    http_response(stream, 200, &format!("{what}; the base station is restarting to apply it."));
+}
+
+/// POST /api/cells/add — `{"device": "...", "main_carrier": N, "colour_code": N?}`.
+fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let device = req.get("device").and_then(|v| v.as_str()).unwrap_or("");
+    let Some(main_carrier) = req.get("main_carrier").and_then(|v| v.as_u64()).filter(|n| *n < 4096) else {
+        return http_response(stream, 400, "main_carrier (0-4095) is required");
+    };
+    let colour_code = req.get("colour_code").and_then(|v| v.as_u64()).map(|v| v.min(63) as u8);
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::cells::add_cell_toml(&original, device, main_carrier as u16, colour_code) {
+        Ok((text, id)) => apply_cells_config(stream, config_path, &text, format!("cell {id} added (carrier {main_carrier})")),
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
+/// POST /api/cells/remove — `{"id": N}`.
+fn serve_cells_remove(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let Some(id) = req.get("id").and_then(|v| v.as_u64()).and_then(|v| u8::try_from(v).ok()) else {
+        return http_response(stream, 400, "id is required");
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::cells::remove_cell_toml(&original, id) {
+        Ok(text) => apply_cells_config(stream, config_path, &text, format!("cell {id} removed")),
+        Err(e) => http_response(stream, 400, &e),
+    }
 }
 
 /// GET /api/dualcarrier — Dual-Carrier state for BTS Details + Config form helpers.
