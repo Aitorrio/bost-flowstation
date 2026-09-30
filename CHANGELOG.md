@@ -14,7 +14,8 @@ Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. dos Pluto+).
 - La voz copiada entre celdas pasa por un jitter buffer y sale al ritmo TDMA de la celda que la recibe.
 - Las llamadas de emergencia/prioridad conservan su prioridad en las demás celdas y se imponen al hablante de otra celda.
 - Telemetría: las celdas adicionales envían sus eventos (nuevo evento `MsCell` con la celda de cada registro); sus llamadas usan identificadores propios de la estación (desde 0x4000) para no chocar con los de la celda principal.
-- Pendiente: Asterisk y WX solo en la celda principal; sin traspaso anunciado (D-NEW-CELL).
+- Traspaso anunciado (MLE): U-PREPARE hacia una vecina anunciada recibe D-NEW-CELL (si no, D-PREPARE-FAIL); la celda destino se une antes a las llamadas de grupo de la radio; U-RESTORE en la celda nueva restaura la llamada con D-RESTORE-ACK (o D-RESTORE-FAIL). Corrige además que la estación ignoraba todas las PDU MLE de subida.
+- Pendiente: Asterisk y WX solo en la celda principal; el registro reenviado dentro de U-PREPARE (tipo 1) se ignora (la radio se registra al llegar).
 
 ## v0.4.4 — Puertos del dashboard: presets y binds estables
 

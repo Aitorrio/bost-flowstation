@@ -180,6 +180,19 @@ all the stream's sinks, since CMCE call ids are per cell and ≤ 0x3FFF);
 the dashboard shows the cell per radio. MM's silent move cleanup uses `remove_client_quiet` so a
 moved radio doesn't disappear from the table.
 
+**Announced handover (D-NEW-CELL) as built:** MLE BS now actually handles uplink MLE PDUs (the
+MLE branch used to read an SDU that had already been taken, and decoded downlink types, so every
+uplink MLE PDU was dropped). The U-PREPARE / U-RESTORE / D-NEW-CELL / D-PREPARE-FAIL /
+D-RESTORE-ACK / D-RESTORE-FAIL codecs are implemented (the "SDU" element has no P-bit and runs to
+the end of the PDU). U-PREPARE to an advertised neighbour (`cell_identifier_ca`) gets D-NEW-CELL
+(channel command valid = change channel immediately), else D-PREPARE-FAIL; site-linked cells also
+send the switch `CallControl::SiteHandoverPrepare`, and the switch registers the MS as a listener of
+its groups in the target cell's CMCE (so that cell joins its group calls via
+`GroupListenersAvailable`), undone after 30 s if the MS never registers there. U-RESTORE hands its
+U-CALL RESTORE to CMCE; MLE wraps CMCE's D-CALL RESTORE in D-RESTORE-ACK or turns its D-RELEASE into
+D-RESTORE-FAIL. Not done: the MM registration an MS may forward inside U-PREPARE (type 1) is
+ignored; `cell_reselection_types_supported` in auto neighbours stays 1 — check with real terminals.
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).

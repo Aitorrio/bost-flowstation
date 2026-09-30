@@ -57,6 +57,17 @@ impl SiteDirectory {
         self.location.get(&issi).copied()
     }
 
+    /// Groups `issi` is affiliated to on `cell`.
+    pub fn groups_of(&self, cell: CellId, issi: u32) -> Vec<u32> {
+        let mut groups: Vec<u32> = self
+            .affiliations
+            .get(&(cell, issi))
+            .map(|g| g.iter().copied().collect())
+            .unwrap_or_default();
+        groups.sort_unstable();
+        groups
+    }
+
     /// Cells with at least one member affiliated to `gssi`.
     pub fn group_cells(&self, gssi: u32) -> BTreeSet<CellId> {
         self.affiliations

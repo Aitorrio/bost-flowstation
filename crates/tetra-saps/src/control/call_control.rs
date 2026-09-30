@@ -205,4 +205,7 @@ pub enum CallControl {
     /// Multi-cell only (CMCE → site switch, never forwarded to Brew/LST): priority of the local
     /// group call whose `FloorGranted` follows, so the other cells get it at the same priority.
     SiteCallPriority { call_id: u16, priority: u8 },
+    /// Multi-cell only (MLE → site switch, never forwarded to Brew/LST): the MS was cleared by
+    /// D-NEW-CELL to move to the sibling cell on `target_carrier` (announced cell reselection).
+    SiteHandoverPrepare { issi: u32, target_carrier: u16 },
 }

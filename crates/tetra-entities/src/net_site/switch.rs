@@ -23,6 +23,10 @@ use crate::{MessageQueue, TetraEntityTrait, net_brew};
 /// of them, e.g. an end message that never came).
 const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// An announced handover the MS doesn't complete (no registration on the target cell) within
+/// this time is undone on the target cell.
+const HANDOVER_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Idle playout buffers are dropped after this long.
 const PLAYOUT_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -286,6 +290,8 @@ pub struct SiteSwitch {
     mirrored_link: Option<LinkState>,
     /// Copied voice for the primary cell's circuits.
     playout: VoicePlayout,
+    /// Announced handovers in progress: (ISSI, target cell, deadline).
+    handovers: Vec<(u32, CellId, Instant)>,
 }
 
 impl SiteSwitch {
@@ -320,6 +326,7 @@ impl SiteSwitch {
             call_priority: HashMap::new(),
             mirrored_link: None,
             playout: VoicePlayout::default(),
+            handovers: Vec::new(),
         }
     }
 
@@ -501,6 +508,10 @@ impl SiteSwitch {
         let forward = match cc {
             CallControl::SiteCallPriority { call_id, priority } => {
                 self.call_priority.insert((cell, *call_id), *priority);
+                return false;
+            }
+            CallControl::SiteHandoverPrepare { issi, target_carrier } => {
+                self.prepare_handover(queue, cell, *issi, *target_carrier);
                 return false;
             }
             CallControl::FloorGranted {
@@ -722,6 +733,39 @@ impl SiteSwitch {
         tracing::info!("SiteSwitch: {cell} talking on gssi={gssi} (issi={source_issi}, priority {priority}) → {targets:?}");
         self.sessions.insert(uuid, s);
         true
+    }
+
+    /// Announced cell reselection: `issi` got D-NEW-CELL on `from` to move to the cell with
+    /// `target_carrier`. Make the target cell's CMCE count it as a listener of its groups now, so
+    /// that cell joins the group calls the MS is in (via `GroupListenersAvailable`) and its
+    /// U-CALL RESTORE finds the call on arrival. Undone if the MS doesn't register there in time.
+    fn prepare_handover(&mut self, queue: &mut MessageQueue, from: CellId, issi: u32, target_carrier: u16) {
+        let Some(&target) = self.carrier_cell.get(&target_carrier) else {
+            return; // Not one of ours (a configured external neighbour).
+        };
+        if target == from {
+            return;
+        }
+        let groups = self.directory.groups_of(from, issi);
+        tracing::info!("SiteHandover: ISSI {issi} announced {from} → {target}, groups {groups:?}");
+        if !groups.is_empty() {
+            self.deliver(queue, target, subscriber_update_from_mm(issi, groups, BrewSubscriberAction::Affiliate));
+        }
+        self.handovers.retain(|(i, _, _)| *i != issi);
+        self.handovers.push((issi, target, Instant::now() + HANDOVER_TIMEOUT));
+    }
+
+    /// Undo announced handovers the MS never completed (it didn't register on the target cell).
+    fn expire_handovers(&mut self, queue: &mut MessageQueue) {
+        let now = Instant::now();
+        let (expired, pending): (Vec<_>, Vec<_>) = self.handovers.drain(..).partition(|(_, _, deadline)| *deadline <= now);
+        self.handovers = pending;
+        for (issi, target, _) in expired {
+            if self.directory.location(issi) != Some(target) {
+                tracing::info!("SiteHandover: ISSI {issi} never arrived on {target}, releasing");
+                self.deliver(queue, target, subscriber_update_from_mm(issi, Vec::new(), BrewSubscriberAction::Deregister));
+            }
+        }
     }
 
     /// The talker on `origin` released the floor (or its call ended): the listening cells go to
@@ -951,6 +995,7 @@ impl TetraEntityTrait for SiteSwitch {
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.mirror_link_state();
         self.purge_idle();
+        self.expire_handovers(queue);
         let incoming: Vec<(CellId, SapMsg)> = self.ports.from_cells.try_iter().collect();
         for (cell, message) in incoming {
             self.handle_from_cell(queue, cell, message);
@@ -964,6 +1009,16 @@ impl TetraEntityTrait for SiteSwitch {
         self.with_inner(queue, |inner, out| result = inner.tick_end(out, ts));
         result
     }
+}
+
+/// A subscriber update for a cell's CMCE as if from its own MM (so it counts as a local radio).
+fn subscriber_update_from_mm(issi: u32, groups: Vec<u32>, action: BrewSubscriberAction) -> SapMsg {
+    SapMsg::new(
+        Sap::Control,
+        TetraEntity::Mm,
+        TetraEntity::Cmce,
+        SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate { issi, groups, action }),
+    )
 }
 
 fn call_id_mut(cc: &mut CallControl) -> Option<&mut u16> {
@@ -1622,5 +1677,43 @@ main_carrier = 1525
             !got.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::SiteCallPriority { .. }))),
             "the priority hint itself never does"
         );
+    }
+
+    #[test]
+    fn announced_handover_prepares_the_target_cell_and_is_undone_if_the_ms_never_arrives() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+
+        site.from_cell(0, cc(CallControl::SiteHandoverPrepare { issi: 100, target_carrier: C1 }));
+        let (_, c1) = site.tick();
+        assert!(
+            c1.iter().any(|m| matches!(m, SapMsgInner::MmSubscriberUpdate(u)
+                if u.issi == 100 && u.action == BrewSubscriberAction::Affiliate && u.groups == vec![91])),
+            "target cell counts the MS as a listener of its groups"
+        );
+        assert!(site.net_got().is_empty(), "handover notice never reaches the network");
+
+        // The MS never registers on cell 1: after the timeout cell 1 releases it.
+        for h in &mut site.switch.handovers {
+            h.2 = Instant::now();
+        }
+        let (_, c1) = site.tick();
+        assert!(c1.iter().any(|m| matches!(m, SapMsgInner::MmSubscriberUpdate(u)
+            if u.issi == 100 && u.action == BrewSubscriberAction::Deregister)));
+    }
+
+    #[test]
+    fn completed_handover_is_not_undone() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.from_cell(0, cc(CallControl::SiteHandoverPrepare { issi: 100, target_carrier: C1 }));
+        site.tick();
+        site.from_cell(1, register(100));
+        site.tick();
+        for h in &mut site.switch.handovers {
+            h.2 = Instant::now();
+        }
+        let (_, c1) = site.tick();
+        assert!(!c1.iter().any(|m| matches!(m, SapMsgInner::MmSubscriberUpdate(u) if u.action == BrewSubscriberAction::Deregister)));
     }
 }
