@@ -210,6 +210,14 @@ sender's cell had no members and Brew SDS was on — linked CMCEs now always han
 group SDS to the switch, which sends to the network only an SDS for nobody on site (and only with
 Brew SDS on).
 
+**Reselection:** auto sibling neighbours advertise `cell_reselection_types_supported = 3` (announced
+and unannounced), the main carrier number extension (band 4 | offset 2 | duplex 3 | reverse 1 bits)
+when the sibling's band plan differs, and its `ms_txpwr_max_cell` when it differs; cells must share
+`custom_duplex_spacing` (not expressible to radios). D-NWRK-BROADCAST with neighbours now sends
+`[cell_info.cell_reselect]` (slow/fast threshold and hysteresis, 4 bits each in 2 dB units; default
+20/10/10/6 dB) instead of 0; the time-only broadcast keeps 0. Nibble order and defaults are from my
+reading of clause 18.5 — verify with a terminal's field-test display.
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).

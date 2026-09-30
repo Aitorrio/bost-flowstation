@@ -92,6 +92,7 @@ pub fn default_cell_info(freq_info: FreqInfo) -> CfgCellInfo {
         local_ssi_ranges: SortedDisjointSsiRanges::from_vec_ssirange(vec![]),
         timezone: None,
         home_mode_display: None,
+        cell_reselect: Default::default(),
         sds_broadcast: None,
         neighbor_cells_ca: Vec::new(),
         hangtime_secs: 5,

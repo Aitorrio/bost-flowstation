@@ -28,6 +28,51 @@ pub struct CfgHomeModeDisplay {
     pub text: String,
 }
 
+/// Cell re-select parameters sent in D-NWRK-BROADCAST with the neighbour list (EN 300 392-2
+/// clause 18.5): when a radio starts looking for a better cell (threshold) and how much better
+/// a neighbour must be before it moves (hysteresis), for slow and fast reselection. dB, 0-30 in
+/// 2 dB steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CfgCellReselect {
+    pub slow_threshold_db: u8,
+    pub fast_threshold_db: u8,
+    pub slow_hysteresis_db: u8,
+    pub fast_hysteresis_db: u8,
+}
+
+impl Default for CfgCellReselect {
+    /// Conservative values: a radio looks around once its serving cell is 20 dB (slow) / 10 dB
+    /// (fast) above the access minimum, and only moves to a clearly better neighbour, avoiding
+    /// ping-pong between the station's own cells.
+    fn default() -> Self {
+        Self {
+            slow_threshold_db: 20,
+            fast_threshold_db: 10,
+            slow_hysteresis_db: 10,
+            fast_hysteresis_db: 6,
+        }
+    }
+}
+
+impl CfgCellReselect {
+    /// The 16-bit "Cell re-select parameters" element: slow threshold, fast threshold, slow
+    /// hysteresis, fast hysteresis, 4 bits each in 2 dB units.
+    pub fn to_element(&self) -> u16 {
+        let q = |db: u8| (db.min(30) / 2) as u16;
+        (q(self.slow_threshold_db) << 12) | (q(self.fast_threshold_db) << 8) | (q(self.slow_hysteresis_db) << 4) | q(self.fast_hysteresis_db)
+    }
+}
+
+/// Serde DTO for `[cell_info.cell_reselect]`.
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CellReselectDto {
+    pub slow_threshold_db: Option<u8>,
+    pub fast_threshold_db: Option<u8>,
+    pub slow_hysteresis_db: Option<u8>,
+    pub fast_hysteresis_db: Option<u8>,
+}
+
 /// Serde DTO for `[cell_info.home_mode_display]` config block.
 #[derive(Default, Deserialize)]
 pub struct HomeModeDisplayDto {
@@ -166,6 +211,9 @@ pub struct CfgCellInfo {
     /// Broadcasts the configured text to all MSs once per interval as a D-SDS-DATA to GSSI 0xFFFFFF.
     pub home_mode_display: Option<CfgHomeModeDisplay>,
 
+    /// Reselection thresholds/hysteresis broadcast with the neighbour list.
+    pub cell_reselect: CfgCellReselect,
+
     /// Optional supplemental periodic SDS broadcast with a custom PID.
     /// Useful for sending status messages (e.g. PID 130) alongside PID 220.
     /// Configured via `[cell_info.sds_broadcast]`. Uses the same structure as home_mode_display.
@@ -272,6 +320,9 @@ pub struct CellInfoDto {
     /// Home Mode Display periodic SDS broadcast. Enabled by presence of this sub-section.
     pub home_mode_display: Option<HomeModeDisplayDto>,
 
+    /// `[cell_info.cell_reselect]`: reselection thresholds/hysteresis (defaults when absent).
+    pub cell_reselect: Option<CellReselectDto>,
+
     /// Supplemental SDS broadcast with custom PID. Enabled by presence of this sub-section.
     pub sds_broadcast: Option<HomeModeDisplayDto>,
 
@@ -354,6 +405,16 @@ pub fn cell_dto_to_cfg(ci: CellInfoDto) -> CfgCellInfo {
             .map(SortedDisjointSsiRanges::from_vec_tuple)
             .unwrap_or(default_tetrapack_local_ranges()),
         timezone: ci.timezone,
+        cell_reselect: {
+            let d = CfgCellReselect::default();
+            let r = ci.cell_reselect.unwrap_or_default();
+            CfgCellReselect {
+                slow_threshold_db: r.slow_threshold_db.unwrap_or(d.slow_threshold_db).min(30),
+                fast_threshold_db: r.fast_threshold_db.unwrap_or(d.fast_threshold_db).min(30),
+                slow_hysteresis_db: r.slow_hysteresis_db.unwrap_or(d.slow_hysteresis_db).min(30),
+                fast_hysteresis_db: r.fast_hysteresis_db.unwrap_or(d.fast_hysteresis_db).min(30),
+            }
+        },
         home_mode_display: ci.home_mode_display.map(|h| CfgHomeModeDisplay {
             source_issi: h.source_issi.unwrap_or(0),
             interval_multiframes: h.interval_multiframes.unwrap_or(96),
@@ -436,4 +497,27 @@ pub struct SdsCommandControlDto {
     pub commands: Vec<SdsCommandEntryDto>,
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+#[cfg(test)]
+mod cell_reselect_tests {
+    use super::CfgCellReselect;
+
+    #[test]
+    fn element_packs_four_2db_nibbles() {
+        let r = CfgCellReselect {
+            slow_threshold_db: 20,
+            fast_threshold_db: 10,
+            slow_hysteresis_db: 10,
+            fast_hysteresis_db: 6,
+        };
+        assert_eq!(r.to_element(), 0xA553);
+        let max = CfgCellReselect {
+            slow_threshold_db: 99,
+            fast_threshold_db: 0,
+            slow_hysteresis_db: 30,
+            fast_hysteresis_db: 1,
+        };
+        assert_eq!(max.to_element(), 0xF0F0, "clamped to 30 dB, rounded down to 2 dB steps");
+    }
 }

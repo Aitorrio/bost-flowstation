@@ -137,6 +137,31 @@ pub struct StackConfig {
     pub emergency: CfgEmergency,
 }
 
+/// "Cell re-selection types supported" advertised for sibling cells: both announced (U-PREPARE /
+/// D-NEW-CELL, with forward registration) and unannounced reselection are handled between the
+/// station's cells (0 = none, 1 = announced, 2 = unannounced, 3 = both).
+const SIBLING_CELL_RESELECTION_TYPES: u8 = 3;
+
+/// "Main carrier number extension" for a neighbour whose band plan differs from the serving
+/// cell's (otherwise a radio would look for the neighbour's carrier number on the serving cell's
+/// plan): frequency band (4 bits), offset (2), duplex spacing (3), reverse operation (1).
+fn carrier_number_extension(neighbour: &CfgCellInfo, serving: &CfgCellInfo) -> Option<u16> {
+    let same_plan = neighbour.freq_band == serving.freq_band
+        && neighbour.freq_offset_hz == serving.freq_offset_hz
+        && neighbour.duplex_spacing_id == serving.duplex_spacing_id
+        && neighbour.reverse_operation == serving.reverse_operation;
+    if same_plan {
+        return None;
+    }
+    let offset_id = FreqInfo::freq_offset_hz_to_id(neighbour.freq_offset_hz)?;
+    Some(
+        ((neighbour.freq_band as u16 & 0xF) << 6)
+            | ((offset_id as u16 & 0x3) << 4)
+            | ((neighbour.duplex_spacing_id as u16 & 0x7) << 1)
+            | neighbour.reverse_operation as u16,
+    )
+}
+
 impl StackConfig {
     /// Return BS phase-modulated carrier numbers and their DL/UL frequencies.
     pub fn bs_phase_mod_carriers(&self) -> Result<Vec<(u16, u32, u32)>, String> {
@@ -207,16 +232,20 @@ impl StackConfig {
 
     /// Multi-cell: advertise every sibling cell as a neighbour (D-NWRK-BROADCAST) so radios can
     /// reselect between the station's cells. Siblings already listed by carrier are left as
-    /// configured; entries are added only while the 7-neighbour limit allows. Also enables the
-    /// "D-NWRK-BROADCAST supported" bit in D-MLE-SYNC on every cell that got neighbours.
+    /// configured; entries are added only while the 7-neighbour limit allows. Each entry says the
+    /// sibling supports announced and unannounced reselection, and carries what a radio needs to
+    /// find and rank it when it differs from the serving cell: the carrier number extension (band
+    /// plan) and the maximum MS transmit power. Also enables the "D-NWRK-BROADCAST supported" bit in
+    /// D-MLE-SYNC on every cell that got neighbours.
     pub fn add_sibling_neighbours(&mut self) {
         if self.extra_cells.is_empty() {
             return;
         }
-        let siblings: Vec<(u16, u16)> = self.cells().iter().map(|(_, c, _)| (c.main_carrier, c.location_area)).collect();
+        let siblings: Vec<CfgCellInfo> = self.cells().iter().map(|(_, c, _)| (*c).clone()).collect();
         let lists = std::iter::once(&mut self.cell).chain(self.extra_cells.iter_mut().map(|c| &mut c.cell));
         for cell in lists {
-            for &(carrier, location_area) in &siblings {
+            for sibling in &siblings {
+                let carrier = sibling.main_carrier;
                 if carrier == cell.main_carrier
                     || cell.neighbor_cells_ca.len() >= 7
                     || cell.neighbor_cells_ca.iter().any(|n| n.main_carrier_number == carrier)
@@ -228,15 +257,17 @@ impl StackConfig {
                 };
                 cell.neighbor_cells_ca.push(crate::bluestation::CfgNeighborCellCa {
                     cell_identifier_ca: id,
-                    cell_reselection_types_supported: 1,
+                    cell_reselection_types_supported: SIBLING_CELL_RESELECTION_TYPES,
+                    // Separate SDRs: the cells' TDMA timing is independent.
                     neighbor_cell_synchronized: false,
                     cell_load_ca: 0,
                     main_carrier_number: carrier,
-                    main_carrier_number_extension: None,
+                    main_carrier_number_extension: carrier_number_extension(sibling, cell),
                     mcc: None,
                     mnc: None,
-                    location_area: (location_area != cell.location_area).then_some(location_area),
-                    maximum_ms_transmit_power: None,
+                    location_area: (sibling.location_area != cell.location_area).then_some(sibling.location_area),
+                    maximum_ms_transmit_power: (sibling.ms_txpwr_max_cell != cell.ms_txpwr_max_cell)
+                        .then_some(sibling.ms_txpwr_max_cell),
                     minimum_rx_access_level: None,
                     subscriber_class: None,
                     bs_service_details: None,
@@ -360,6 +391,11 @@ impl StackConfig {
         for (id, cell, _) in &cells[1..] {
             if cell.freq_band != primary.freq_band {
                 return Err(format!("{id}: freq_band must match the primary cell"));
+            }
+            // Neighbour broadcasts can tell radios another offset / duplex setting, but not a
+            // custom (non-standard) duplex spacing.
+            if cell.custom_duplex_spacing != primary.custom_duplex_spacing {
+                return Err(format!("{id}: custom_duplex_spacing must match the primary cell"));
             }
         }
 

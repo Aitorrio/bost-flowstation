@@ -308,6 +308,21 @@ voice_service = true
 ###############################################################################
 
 ###############################################################################
+# OPTIONAL: Cell reselection parameters
+#
+# Sent with the neighbour list in D-NWRK-BROADCAST (only when neighbours are
+# configured, or with multi-cell [[cells]]). A radio starts looking for a better
+# cell when its serving cell drops below the threshold, and moves only to a
+# neighbour better by the hysteresis. dB, 0-30 in 2 dB steps. Defaults shown.
+#
+# [cell_info.cell_reselect]
+# slow_threshold_db = 20
+# fast_threshold_db = 10
+# slow_hysteresis_db = 10
+# fast_hysteresis_db = 6
+###############################################################################
+
+###############################################################################
 # OPTIONAL: Home Mode Display (PID 220)
 #
 # Periodically broadcasts a text string to all MSs on the cell via D-SDS-DATA.

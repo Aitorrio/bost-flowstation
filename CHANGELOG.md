@@ -18,6 +18,7 @@ Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. dos Pluto+).
 - Asterisk (SIP) desde todas las celdas enlazadas: las llamadas a/desde la centralita llegan a la celda donde está la radio.
 - WX/METAR en todas las celdas: cada celda responde a sus radios; el envío periódico a un grupo lo hace cada celda a sus miembros, a una ISSI solo la celda donde está registrada; los cambios en el dashboard se aplican a todas.
 - SDS de grupo entre celdas: ahora llega a los miembros de las otras celdas aunque la celda de origen tenga miembros, y también con LST (antes solo con Brew SDS activo).
+- Reselección: las celdas hermanas se anuncian con reselección anunciada y no anunciada (3), con la extensión de portadora si su plan de banda difiere y su potencia máxima si difiere; D-NWRK-BROADCAST lleva ahora umbrales/histéresis de reselección (`[cell_info.cell_reselect]`, antes siempre 0) cuando hay vecinas. Todas las celdas deben compartir `custom_duplex_spacing`.
 - Traspaso anunciado tipo 1: el registro que la radio envía dentro de U-PREPARE se procesa en la celda destino y su respuesta vuelve dentro de D-NEW-CELL (o D-PREPARE-FAIL si se rechaza); sin respuesta en 3 s, D-NEW-CELL sin ella.
 
 ## v0.4.4 — Puertos del dashboard: presets y binds estables

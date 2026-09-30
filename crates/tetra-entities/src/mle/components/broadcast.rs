@@ -107,7 +107,8 @@ impl MleBroadcast {
 
             let neighbour_count = neighbour_cells.len() as u8;
             let pdu_with_neighbours = DNwrkBroadcast {
-                cell_re_select_parameters: 0,
+                // Radios use these to decide when to move to one of the neighbours listed below.
+                cell_re_select_parameters: cfg.cell.cell_reselect.to_element(),
                 cell_load_ca: 0,
                 tetra_network_time: time_value,
                 number_of_ca_neighbour_cells: Some(neighbour_count),

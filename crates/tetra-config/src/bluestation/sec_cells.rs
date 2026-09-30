@@ -286,6 +286,11 @@ location_area = 2
         assert_eq!(carriers(&cfg.extra_cells[0].cell), vec![1521, 1529]);
         assert_eq!(carriers(&cfg.extra_cells[1].cell), vec![1521, 1525]);
         assert!(cfg.cells().iter().all(|(_, c, _)| c.neighbor_cell_broadcast & 0b10 != 0));
+        let added = &cfg.cell.neighbor_cells_ca[1];
+        assert_eq!(added.cell_reselection_types_supported, 3, "announced and unannounced");
+        assert_eq!(added.main_carrier_number_extension, None, "same band plan");
+        assert_eq!(added.maximum_ms_transmit_power, None, "same max power");
+        assert_eq!(cfg.cell.neighbor_cells_ca[0].cell_reselection_types_supported, 1, "configured entry untouched");
         assert_eq!(cfg.for_extra_cell(CellId(2)).unwrap().cell.neighbor_cells_ca.len(), 2);
     }
 
@@ -295,5 +300,28 @@ location_area = 2
         cfg.add_sibling_neighbours();
         assert!(cfg.cell.neighbor_cells_ca.is_empty());
         assert_eq!(cfg.cell.neighbor_cell_broadcast, 0);
+    }
+
+    #[test]
+    fn sibling_with_another_band_plan_or_power_is_described_to_radios() {
+        let mut cfg = parse(
+            "[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\nfreq_offset = 12500\nms_txpwr_max_cell = 6\n",
+        )
+        .unwrap();
+        cfg.add_sibling_neighbours();
+        let n = &cfg.cell.neighbor_cells_ca[0];
+        // band 4, offset +12.5 kHz (id 3), duplex spacing 4, not reversed.
+        assert_eq!(n.main_carrier_number_extension, Some((4 << 6) | (3 << 4) | (4 << 1)));
+        assert_eq!(n.maximum_ms_transmit_power, Some(6));
+        let back = &cfg.extra_cells[0].cell.neighbor_cells_ca[0];
+        assert_eq!(back.main_carrier_number, 1521);
+        assert_eq!(back.main_carrier_number_extension, Some((4 << 6) | (0 << 4) | (4 << 1)), "primary's plan, offset 0");
+        cfg.validate().unwrap();
+    }
+
+    #[test]
+    fn cells_must_share_a_custom_duplex_spacing() {
+        let cfg = parse("[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\ncustom_duplex_spacing = 10000000\n").unwrap();
+        assert!(cfg.validate().unwrap_err().contains("custom_duplex_spacing"));
     }
 }

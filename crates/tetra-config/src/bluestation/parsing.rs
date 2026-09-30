@@ -413,6 +413,12 @@ frame_18_ext = false
 ms_txpwr_max_cell = 4
 subscriber_class = 0xFFFF
 
+[cell_info.cell_reselect]
+slow_threshold_db = 20
+fast_threshold_db = 10
+slow_hysteresis_db = 10
+fast_hysteresis_db = 6
+
 [[cell_info.neighbor_cells_ca]]
 cell_identifier_ca = 1
 cell_reselection_types_supported = 1
