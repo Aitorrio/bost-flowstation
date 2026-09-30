@@ -1,6 +1,7 @@
 # Multi-cell (N SDRs, one station) — implementation plan
 
-Status: **draft / planning**. Goal: one `bluestation-bs` process drives N SDRs, each SDR
+Status: **implemented in v0.5.0**, not yet validated on air — see
+[`multi-cell-status.md`](multi-cell-status.md). Goal: one `bluestation-bs` process drives N SDRs, each SDR
 being one TETRA cell (optionally dual-carrier), sharing one subscriber database, one set of network
 links (Brew / Asterisk / LST / DAPNET / Telegram) and one dashboard, with group calls spanning cells
 and radios roaming between cells.
