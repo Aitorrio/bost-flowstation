@@ -229,6 +229,37 @@ pub enum TelemetryEvent {
     /// its `MsRegistration`, only by stations running more than one cell. Appended last for
     /// bitcode wire-stability.
     MsCell { issi: u32, cell: u8 },
+    /// Every cell the station runs (primary first), with its settings and live state — the same
+    /// data as the dashboard Cells card. Emitted periodically. Appended last for bitcode
+    /// wire-stability.
+    CellsSnapshot { site_linked: bool, cells: Vec<CellInfo> },
+}
+
+/// One cell's settings and live state, for [`TelemetryEvent::CellsSnapshot`].
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+pub struct CellInfo {
+    pub id: u8,
+    pub primary: bool,
+    pub main_carrier: u16,
+    pub secondary_carrier: Option<u16>,
+    pub carriers: Vec<CellCarrierInfo>,
+    pub colour_code: u8,
+    pub location_area: u16,
+    /// Neighbour cells advertised in D-NWRK-BROADCAST.
+    pub neighbours: u16,
+    /// SoapySDR device string, if configured.
+    pub device: Option<String>,
+    pub registered_radios: u32,
+    /// "online" / "offline" / "error" / "starting"; None before the radio status is known.
+    pub rf_state: Option<String>,
+    pub rf_detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+pub struct CellCarrierInfo {
+    pub carrier_num: u16,
+    pub tx_freq_hz: u32,
+    pub rx_freq_hz: u32,
 }
 
 /// A single host-system sensor reading. Kept flat for easy JSON serialisation

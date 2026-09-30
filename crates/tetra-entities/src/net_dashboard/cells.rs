@@ -8,45 +8,74 @@ use serde_json::{Value as JsonValue, json};
 use tetra_config::bluestation::{CfgCellInfo, CfgSoapySdr, SharedConfig, StackConfig, parsing};
 use tetra_core::CellId;
 
-/// One cell's settings and live state for the dashboard "Cells" card.
-fn cell_json(id: CellId, cfg: &SharedConfig, rf: Option<&crate::rf_status::RfStatus>) -> JsonValue {
+use crate::net_telemetry::{
+    TelemetryEvent,
+    channel::TelemetrySink,
+    events::{CellCarrierInfo, CellInfo},
+};
+
+/// One cell's settings and live state, for the dashboard "Cells" card and telemetry.
+fn cell_info(id: CellId, cfg: &SharedConfig, rf: Option<&crate::rf_status::RfStatus>) -> CellInfo {
     let c = cfg.config();
-    let carriers: Vec<JsonValue> = StackConfig::cell_phase_mod_carriers(&c.cell)
+    let carriers = StackConfig::cell_phase_mod_carriers(&c.cell)
         .unwrap_or_default()
         .into_iter()
-        .map(|(n, dl, ul)| json!({ "carrier_num": n, "tx_freq_hz": dl, "rx_freq_hz": ul }))
+        .map(|(carrier_num, tx_freq_hz, rx_freq_hz)| CellCarrierInfo { carrier_num, tx_freq_hz, rx_freq_hz })
         .collect();
     let radios = cfg.state_read().subscribers.all_registered_issis().count();
-    json!({
-        "id": id.0,
-        "primary": id.is_primary(),
-        "main_carrier": c.cell.main_carrier,
-        "secondary_carrier": c.cell.secondary_carrier,
-        "carriers": carriers,
-        "colour_code": c.cell.colour_code,
-        "location_area": c.cell.location_area,
-        "neighbours": c.cell.neighbor_cells_ca.len(),
-        "device": c.phy_io.soapysdr.as_ref().and_then(|s| s.device.clone()),
-        "registered_radios": radios,
-        "rf_state": rf.map(|r| r.state),
-        "rf_detail": rf.map(|r| r.detail.clone()),
-    })
+    CellInfo {
+        id: id.0,
+        primary: id.is_primary(),
+        main_carrier: c.cell.main_carrier,
+        secondary_carrier: c.cell.secondary_carrier,
+        carriers,
+        colour_code: c.cell.colour_code,
+        location_area: c.cell.location_area,
+        neighbours: c.cell.neighbor_cells_ca.len() as u16,
+        device: c.phy_io.soapysdr.as_ref().and_then(|s| s.device.clone()),
+        registered_radios: radios as u32,
+        rf_state: rf.and_then(|r| serde_json::to_value(r.state).ok()?.as_str().map(str::to_string)),
+        rf_detail: rf.map(|r| r.detail.clone()),
+    }
+}
+
+/// Every running cell, primary first.
+pub fn cell_infos(primary: &SharedConfig) -> Vec<CellInfo> {
+    let rf = crate::rf_status::get_all();
+    let rf_of = |id: CellId| rf.iter().find(|(c, _)| *c == id).map(|(_, s)| s);
+    let mut cells = vec![cell_info(CellId::PRIMARY, primary, rf_of(CellId::PRIMARY))];
+    for (id, cfg) in crate::net_site::extra_cells() {
+        cells.push(cell_info(*id, cfg, rf_of(*id)));
+    }
+    cells
 }
 
 /// GET /api/cells payload: every running cell, primary first.
 pub fn cells_json(primary: &SharedConfig) -> JsonValue {
-    let rf = crate::rf_status::get_all();
-    let rf_of = |id: CellId| rf.iter().find(|(c, _)| *c == id).map(|(_, s)| s);
-    let mut cells = vec![cell_json(CellId::PRIMARY, primary, rf_of(CellId::PRIMARY))];
-    for (id, cfg) in crate::net_site::extra_cells() {
-        cells.push(cell_json(*id, cfg, rf_of(*id)));
-    }
     json!({
-        "cells": cells,
+        "cells": cell_infos(primary),
         "site_linked": primary.config().is_site_linked(),
         "max_cells": CellId::MAX as usize + 1,
     })
 }
+
+/// Background worker: sends a [`TelemetryEvent::CellsSnapshot`] every `CELLS_SNAPSHOT_INTERVAL`.
+pub fn spawn_cells_telemetry(sink: TelemetrySink, primary: SharedConfig) {
+    let spawned = std::thread::Builder::new().name("cells-telemetry".into()).spawn(move || {
+        loop {
+            sink.send(TelemetryEvent::CellsSnapshot {
+                site_linked: primary.config().is_site_linked(),
+                cells: cell_infos(&primary),
+            });
+            std::thread::sleep(CELLS_SNAPSHOT_INTERVAL);
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("cells telemetry thread not started: {e}");
+    }
+}
+
+const CELLS_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Ids used by `[[cells]]` entries in the file, including disabled ones.
 fn used_ids(toml_text: &str) -> Result<Vec<u8>, String> {

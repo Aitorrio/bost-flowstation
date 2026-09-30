@@ -342,6 +342,7 @@ fn build_bs_stack(
     // (battery). Falls back gracefully if nothing is available.
     if let Some(ref sink) = tsink {
         tetra_entities::sys_telemetry::spawn_sys_health(sink.clone());
+        tetra_entities::net_dashboard::cells::spawn_cells_telemetry(sink.clone(), cfg.clone());
 
         // Background lite stack-health monitor — samples the global health registry and emits a
         // HealthSnapshot through telemetry (→ dashboard tile + Telegram alerts). Tunable via the

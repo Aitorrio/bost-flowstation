@@ -2065,6 +2065,7 @@ impl DashboardServer {
                         e.cell = Some(*cell);
                     }
                 }
+                TelemetryEvent::CellsSnapshot { .. } => {}
                 TelemetryEvent::MsDeregistration { issi } => {
                     s.ms_map.remove(issi);
                     s.push_log("INFO", format!("MS {} deregistered", issi));
@@ -2621,6 +2622,8 @@ fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
         // Emergency add/remove are broadcast explicitly (transition-gated) from handle_telemetry,
         // so the generic path stays silent — otherwise every periodic re-send would re-broadcast.
         TelemetryEvent::EmergencyAlarm { .. } | TelemetryEvent::EmergencyCancel { .. } => return None,
+        // The Cells card polls /api/cells; this snapshot is for remote telemetry consumers.
+        TelemetryEvent::CellsSnapshot { .. } => return None,
         TelemetryEvent::DapnetLog {
             direction,
             id,
