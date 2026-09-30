@@ -193,6 +193,19 @@ U-CALL RESTORE to CMCE; MLE wraps CMCE's D-CALL RESTORE in D-RESTORE-ACK or turn
 D-RESTORE-FAIL. Not done: the MM registration an MS may forward inside U-PREPARE (type 1) is
 ignored; `cell_reselection_types_supported` in auto neighbours stays 1 — check with real terminals.
 
+**Asterisk and WX on every cell:** `StackConfig::cell_id` / `is_multi_cell()` mark a per-cell
+config. Linked extra cells keep `asterisk.enabled`; their router gets a second `CellLink` in the
+`Asterisk` slot (`CellLink::asterisk_link`) feeding a separate channel, and the primary's
+`AsteriskEntity` is wrapped in `net_site::SiteRelay`, which routes its output by carrier (voice,
+re-timed through the receiving cell's playout buffer), by the radio's location for a SIP call to a
+radio (directory now `SharedDirectory`, shared with the switch), and by session UUID otherwise. WX
+runs on every cell with its own CMCE command link for replies; periodic WX to an ISSI is sent only
+by the cell the ISSI is registered on (to a group, by each cell to its members); dashboard WX
+overrides are written to every cell's state. Also fixed: group SDS reached other cells only when the
+sender's cell had no members and Brew SDS was on — linked CMCEs now always hand non-local and local
+group SDS to the switch, which sends to the network only an SDS for nobody on site (and only with
+Brew SDS on).
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).

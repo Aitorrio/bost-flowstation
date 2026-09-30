@@ -5824,10 +5824,13 @@ fn serve_wx_post(stream: PrefixedConn, shared_config: &Option<tetra_config::blue
         periodic_interval_secs: as_u64(&json, "periodic_interval_secs", cur.periodic_interval_secs),
     };
 
-    // 1) Apply at runtime.
+    // 1) Apply at runtime — on every cell (each runs its own WX responder).
     {
         let mut state = cfg.state_write();
         state.wx_override = Some(ov.clone());
+    }
+    for (_, cell_cfg) in crate::net_site::extra_cells() {
+        cell_cfg.state_write().wx_override = Some(ov.clone());
     }
 
     // 2) Persist to TOML.

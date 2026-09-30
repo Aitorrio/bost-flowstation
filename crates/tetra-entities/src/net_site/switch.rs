@@ -15,7 +15,7 @@ use tetra_saps::{
 };
 use uuid::Uuid;
 
-use super::SiteDirectory;
+use super::SharedDirectory;
 use crate::net_brew::components::jitter_buffer::VoiceJitterBuffer;
 use crate::{MessageQueue, TetraEntityTrait, net_brew};
 
@@ -31,7 +31,7 @@ const HANDOVER_TIMEOUT: Duration = Duration::from_secs(30);
 const PLAYOUT_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What the switch sends a cell: a stack message, or a voice frame copied from another cell.
-enum LinkMsg {
+pub(super) enum LinkMsg {
     Msg(SapMsg),
     Voice { carrier_num: u16, ts: u8, data: Vec<u8> },
 }
@@ -86,14 +86,33 @@ impl VoicePlayout {
 /// injected into the cell's queue at the start of each tick.
 pub struct CellLink {
     id: CellId,
+    /// Router slot this link fills: `Brew` (site switch) or `Asterisk` (Asterisk relay).
+    slot: TetraEntity,
     to_switch: Sender<(CellId, SapMsg)>,
-    from_switch: Receiver<LinkMsg>,
+    to_asterisk: Sender<(CellId, SapMsg)>,
+    /// Only the Brew-slot link receives; the Asterisk-slot link just sends.
+    from_switch: Option<Receiver<LinkMsg>>,
     playout: VoicePlayout,
+}
+
+impl CellLink {
+    /// The link for this cell's `Asterisk` slot, towards the primary's Asterisk relay. What the
+    /// relay sends back arrives through this (Brew-slot) link.
+    pub fn asterisk_link(&self) -> CellLink {
+        CellLink {
+            id: self.id,
+            slot: TetraEntity::Asterisk,
+            to_switch: self.to_asterisk.clone(),
+            to_asterisk: self.to_asterisk.clone(),
+            from_switch: None,
+            playout: VoicePlayout::default(),
+        }
+    }
 }
 
 impl TetraEntityTrait for CellLink {
     fn entity(&self) -> TetraEntity {
-        TetraEntity::Brew
+        self.slot
     }
 
     fn rx_prim(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
@@ -103,7 +122,10 @@ impl TetraEntityTrait for CellLink {
     }
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
-        while let Ok(message) = self.from_switch.try_recv() {
+        let Some(from_switch) = &self.from_switch else {
+            return;
+        };
+        while let Ok(message) = from_switch.try_recv() {
             match message {
                 LinkMsg::Msg(m) => queue.push_back(m),
                 LinkMsg::Voice { carrier_num, ts, data } => self.playout.push(carrier_num, ts, data),
@@ -117,11 +139,29 @@ impl TetraEntityTrait for CellLink {
 pub struct SitePorts {
     to_cells: HashMap<CellId, Sender<LinkMsg>>,
     from_cells: Receiver<(CellId, SapMsg)>,
+    from_cells_asterisk: Option<Receiver<(CellId, SapMsg)>>,
+}
+
+/// Asterisk relay's ends: what the cells' Asterisk-slot links send, and the way back to them.
+pub struct RelayPorts {
+    pub(super) to_cells: HashMap<CellId, Sender<LinkMsg>>,
+    pub(super) from_cells: Receiver<(CellId, SapMsg)>,
+}
+
+impl SitePorts {
+    /// Split off the Asterisk relay's ports (once).
+    pub fn take_asterisk(&mut self) -> Option<RelayPorts> {
+        Some(RelayPorts {
+            to_cells: self.to_cells.clone(),
+            from_cells: self.from_cells_asterisk.take()?,
+        })
+    }
 }
 
 /// Create the channels between the switch and one [`CellLink`] per additional cell.
 pub fn site_links(extra_cells: &[CellId]) -> (SitePorts, HashMap<CellId, CellLink>) {
     let (to_switch, from_cells) = unbounded();
+    let (to_asterisk, from_cells_asterisk) = unbounded();
     let mut to_cells = HashMap::new();
     let mut links = HashMap::new();
     for &id in extra_cells {
@@ -131,13 +171,20 @@ pub fn site_links(extra_cells: &[CellId]) -> (SitePorts, HashMap<CellId, CellLin
             id,
             CellLink {
                 id,
+                slot: TetraEntity::Brew,
                 to_switch: to_switch.clone(),
-                from_switch: rx,
+                to_asterisk: to_asterisk.clone(),
+                from_switch: Some(rx),
                 playout: VoicePlayout::default(),
             },
         );
     }
-    (SitePorts { to_cells, from_cells }, links)
+    let ports = SitePorts {
+        to_cells,
+        from_cells,
+        from_cells_asterisk: Some(from_cells_asterisk),
+    };
+    (ports, links)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,7 +322,7 @@ pub struct SiteSwitch {
     all_cells: Vec<CellId>,
     carrier_cell: HashMap<u16, CellId>,
     ports: SitePorts,
-    directory: SiteDirectory,
+    directory: SharedDirectory,
     sessions: HashMap<Uuid, GroupSession>,
     /// Individual calls with the network: Brew session → cell of the local party.
     circuit_calls: HashMap<Uuid, CellId>,
@@ -297,18 +344,16 @@ pub struct SiteSwitch {
 impl SiteSwitch {
     /// `primary` is the primary cell's config (the one the network entity runs with); `extra`
     /// are the additional cells' configs, whose network link state the switch keeps in sync.
-    pub fn new(inner: Box<dyn TetraEntityTrait>, primary: SharedConfig, extra: Vec<(CellId, SharedConfig)>, ports: SitePorts) -> Self {
-        let mut carrier_cell = HashMap::new();
+    pub fn new(
+        inner: Box<dyn TetraEntityTrait>,
+        primary: SharedConfig,
+        extra: Vec<(CellId, SharedConfig)>,
+        ports: SitePorts,
+        directory: SharedDirectory,
+    ) -> Self {
+        let carrier_cell = carrier_map(&primary, &extra);
         let mut all_cells = vec![CellId::PRIMARY];
-        let cells = std::iter::once((CellId::PRIMARY, &primary)).chain(extra.iter().map(|(id, c)| (*id, c)));
-        for (id, cfg) in cells {
-            if !id.is_primary() {
-                all_cells.push(id);
-            }
-            for (carrier, _, _) in StackConfig::cell_phase_mod_carriers(&cfg.config().cell).unwrap_or_default() {
-                carrier_cell.insert(carrier, id);
-            }
-        }
+        all_cells.extend(extra.iter().map(|(id, _)| *id));
         Self {
             inner,
             primary,
@@ -316,7 +361,7 @@ impl SiteSwitch {
             all_cells,
             carrier_cell,
             ports,
-            directory: SiteDirectory::default(),
+            directory,
             sessions: HashMap::new(),
             circuit_calls: HashMap::new(),
             cell_calls: HashMap::new(),
@@ -328,6 +373,20 @@ impl SiteSwitch {
             playout: VoicePlayout::default(),
             handovers: Vec::new(),
         }
+    }
+
+    // ── Directory (shared with the Asterisk relay) ──────────────────────────────────────────
+
+    fn location(&self, issi: u32) -> Option<CellId> {
+        self.directory.read().expect("site directory").location(issi)
+    }
+
+    fn group_cells(&self, gssi: u32) -> BTreeSet<CellId> {
+        self.directory.read().expect("site directory").group_cells(gssi)
+    }
+
+    fn groups_of(&self, cell: CellId, issi: u32) -> Vec<u32> {
+        self.directory.read().expect("site directory").groups_of(cell, issi)
     }
 
     // ── Delivery helpers ────────────────────────────────────────────────────────────────────
@@ -420,7 +479,7 @@ impl SiteSwitch {
     fn handle_from_cell(&mut self, queue: &mut MessageQueue, cell: CellId, mut message: SapMsg) {
         let forward = match &mut message.msg {
             SapMsgInner::MmSubscriberUpdate(update) => {
-                if let Some(old) = self.directory.apply(cell, update) {
+                if let Some(old) = self.directory.write().expect("site directory").apply(cell, update) {
                     // Reselected from `old`: drop the stale registration there (silently).
                     tracing::info!("SiteSwitch: ISSI {} moved {old} → {cell}", update.issi);
                     let drop = SapMsg::new(
@@ -437,7 +496,7 @@ impl SiteSwitch {
                 }
                 // A cell the radio has left (its cleanup after a move) must not undo the
                 // registration it now has on another cell, as far as the network is concerned.
-                let current = self.directory.location(update.issi);
+                let current = self.location(update.issi);
                 let from_old_cell = matches!(
                     update.action,
                     BrewSubscriberAction::Deregister | BrewSubscriberAction::Deaffiliate
@@ -446,7 +505,7 @@ impl SiteSwitch {
             }
             SapMsgInner::CmceSdsData(sds) => {
                 let dest = sds.dest_issi;
-                if let Some(at) = self.directory.location(dest)
+                if let Some(at) = self.location(dest)
                     && at != cell
                 {
                     // Radio on a sibling cell: deliver directly, never via the network.
@@ -454,12 +513,15 @@ impl SiteSwitch {
                     self.deliver(queue, at, copy);
                     return;
                 }
-                let others: Vec<CellId> = self.directory.group_cells(dest).into_iter().filter(|c| *c != cell).collect();
+                let members = self.group_cells(dest);
+                let others: Vec<CellId> = members.iter().copied().filter(|c| *c != cell).collect();
                 if !others.is_empty() {
                     let copy = SapMsg::new(message.sap, TetraEntity::Brew, TetraEntity::Cmce, message.msg.clone());
                     self.deliver_all(queue, others, &copy);
                 }
-                true
+                // The single-cell rule, site-wide: only an SDS for nobody on site goes to the
+                // network, and only with Brew's SDS feature on.
+                self.location(dest).is_none() && members.is_empty() && net_brew::feature_sds_enabled(&self.primary)
             }
             SapMsgInner::TmdCircuitDataInd(ind) => {
                 self.copy_uplink_voice(cell, ind.carrier_num, ind.ts, &ind.data);
@@ -619,7 +681,7 @@ impl SiteSwitch {
             CallControl::NetworkCircuitSetupRequest { brew_uuid, call } => {
                 let (uuid, source, destination) = (*brew_uuid, call.source_issi, call.destination);
                 let to_network = self.individual_call_to_network(source, destination, &call.number);
-                match self.directory.location(destination) {
+                match self.location(destination) {
                     Some(called) if called != cell => {
                         // Called radio is on a sibling cell: connect the two cells directly.
                         self.cell_calls.insert(
@@ -725,7 +787,7 @@ impl SiteSwitch {
         // New talker: every other cell with members of the group hears it as a network call.
         let uuid = Uuid::new_v4();
         let mut s = GroupSession::new(gssi, source_issi, priority, Some(origin));
-        let targets: Vec<CellId> = self.directory.group_cells(gssi).into_iter().filter(|c| *c != cell).collect();
+        let targets: Vec<CellId> = self.group_cells(gssi).into_iter().filter(|c| *c != cell).collect();
         for &t in &targets {
             s.pending.insert(t);
             self.deliver_cc(queue, t, s.start_msg(uuid));
@@ -746,7 +808,7 @@ impl SiteSwitch {
         if target == from {
             return;
         }
-        let groups = self.directory.groups_of(from, issi);
+        let groups = self.groups_of(from, issi);
         tracing::info!("SiteHandover: ISSI {issi} announced {from} → {target}, groups {groups:?}");
         if !groups.is_empty() {
             self.deliver(queue, target, subscriber_update_from_mm(issi, groups, BrewSubscriberAction::Affiliate));
@@ -761,7 +823,7 @@ impl SiteSwitch {
         let (expired, pending): (Vec<_>, Vec<_>) = self.handovers.drain(..).partition(|(_, _, deadline)| *deadline <= now);
         self.handovers = pending;
         for (issi, target, _) in expired {
-            if self.directory.location(issi) != Some(target) {
+            if self.location(issi) != Some(target) {
                 tracing::info!("SiteHandover: ISSI {issi} never arrived on {target}, releasing");
                 self.deliver(queue, target, subscriber_update_from_mm(issi, Vec::new(), BrewSubscriberAction::Deregister));
             }
@@ -862,9 +924,9 @@ impl SiteSwitch {
             }
             SapMsgInner::CmceSdsData(sds) => {
                 let dest = sds.dest_issi;
-                let targets = match self.directory.location(dest) {
+                let targets = match self.location(dest) {
                     Some(cell) => BTreeSet::from([cell]),
-                    None => self.directory.group_cells(dest),
+                    None => self.group_cells(dest),
                 };
                 let targets = if targets.is_empty() {
                     BTreeSet::from([CellId::PRIMARY])
@@ -891,7 +953,7 @@ impl SiteSwitch {
                 dest_gssi,
                 priority,
             } => {
-                let mut targets = self.directory.group_cells(*dest_gssi);
+                let mut targets = self.group_cells(*dest_gssi);
                 let s = self
                     .sessions
                     .entry(*brew_uuid)
@@ -927,7 +989,7 @@ impl SiteSwitch {
                 None => self.all_cells.iter().copied().collect(),
             },
             CallControl::NetworkCircuitSetupRequest { brew_uuid, call } => {
-                let cell = self.directory.location(call.destination).unwrap_or(CellId::PRIMARY);
+                let cell = self.location(call.destination).unwrap_or(CellId::PRIMARY);
                 self.circuit_calls.insert(*brew_uuid, cell);
                 BTreeSet::from([cell])
             }
@@ -1011,6 +1073,18 @@ impl TetraEntityTrait for SiteSwitch {
     }
 }
 
+/// Carrier number → cell, for every cell (carriers are unique per cell).
+pub(super) fn carrier_map(primary: &SharedConfig, extra: &[(CellId, SharedConfig)]) -> HashMap<u16, CellId> {
+    let cells = std::iter::once((CellId::PRIMARY, primary)).chain(extra.iter().map(|(id, c)| (*id, c)));
+    let mut map = HashMap::new();
+    for (id, cfg) in cells {
+        for (carrier, _, _) in StackConfig::cell_phase_mod_carriers(&cfg.config().cell).unwrap_or_default() {
+            map.insert(carrier, id);
+        }
+    }
+    map
+}
+
 /// A subscriber update for a cell's CMCE as if from its own MM (so it counts as a local radio).
 fn subscriber_update_from_mm(issi: u32, groups: Vec<u32>, action: BrewSubscriberAction) -> SapMsg {
     SapMsg::new(
@@ -1053,7 +1127,7 @@ fn carrier_of(cc: &CallControl) -> Option<u16> {
 }
 
 /// Brew session of an individual (circuit-mode) call message.
-fn circuit_uuid(cc: &CallControl) -> Option<Uuid> {
+pub(super) fn circuit_uuid(cc: &CallControl) -> Option<Uuid> {
     match cc {
         CallControl::NetworkCircuitSetupRequest { brew_uuid, .. }
         | CallControl::NetworkCircuitSetupAccept { brew_uuid }
@@ -1162,7 +1236,13 @@ main_carrier = 1525
             let net = MockNet::default();
             let (ports, mut links) = site_links(&[CellId(1)]);
             Self {
-                switch: SiteSwitch::new(Box::new(net.clone()), primary.clone(), vec![(CellId(1), cell1.clone())], ports),
+                switch: SiteSwitch::new(
+                    Box::new(net.clone()),
+                    primary.clone(),
+                    vec![(CellId(1), cell1.clone())],
+                    ports,
+                    SharedDirectory::default(),
+                ),
                 net,
                 link: links.remove(&CellId(1)).unwrap(),
                 primary,
@@ -1715,5 +1795,142 @@ main_carrier = 1525
         }
         let (_, c1) = site.tick();
         assert!(!c1.iter().any(|m| matches!(m, SapMsgInner::MmSubscriberUpdate(u) if u.action == BrewSubscriberAction::Deregister)));
+    }
+
+    fn sds(source_issi: u32, dest_issi: u32) -> SapMsgInner {
+        SapMsgInner::CmceSdsData(CmceSdsData {
+            source_issi,
+            dest_issi,
+            user_defined_data: SdsUserData::Type1(0x8001),
+        })
+    }
+
+    #[test]
+    fn group_sds_reaches_members_on_other_cells_but_not_the_network() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
+        site.from_cell(0, sds(100, 91));
+        let (_, c1) = site.tick();
+        assert!(c1.iter().any(|m| matches!(m, SapMsgInner::CmceSdsData(s) if s.dest_issi == 91)));
+        assert!(site.net_got().is_empty(), "the group has members on site");
+    }
+
+    #[test]
+    fn sds_for_nobody_on_site_goes_to_the_network() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.from_cell(0, sds(100, 777_777));
+        let (_, c1) = site.tick();
+        assert!(c1.is_empty());
+        assert!(site.net_got().iter().any(|m| matches!(m, SapMsgInner::CmceSdsData(s) if s.dest_issi == 777_777)));
+    }
+
+    // ── Asterisk relay ──────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn asterisk_relay_serves_radios_on_every_cell() {
+        use super::super::SiteRelay;
+
+        let cfg = parsing::from_toml_str(CONFIG).unwrap();
+        let cell1 = SharedConfig::from_parts(cfg.for_extra_cell(CellId(1)).unwrap(), None);
+        let primary = SharedConfig::from_parts(cfg, None);
+        let (mut ports, mut links) = site_links(&[CellId(1)]);
+        let directory = SharedDirectory::default();
+        directory.write().unwrap().apply(
+            CellId(1),
+            &MmSubscriberUpdate {
+                issi: 200,
+                groups: vec![],
+                action: BrewSubscriberAction::Register,
+            },
+        );
+        let asterisk = MockNet::default();
+        let mut relay = SiteRelay::new(
+            Box::new(asterisk.clone()),
+            &primary,
+            &[(CellId(1), cell1)],
+            ports.take_asterisk().unwrap(),
+            directory,
+        );
+        let mut link = links.remove(&CellId(1)).unwrap();
+        let mut ast_link = link.asterisk_link();
+        let (mut q0, mut q1) = (MessageQueue::new(), MessageQueue::new());
+        let now = TdmaTime { h: 0, m: 1, f: 1, t: 2 };
+        let drain = |q: &mut MessageQueue| std::iter::from_fn(|| q.pop_front()).map(|m| m.msg).collect::<Vec<_>>();
+
+        // A radio on cell 1 calls a PBX number: the request reaches Asterisk.
+        let uuid = Uuid::from_u128(77);
+        let call = NetworkCircuitCall {
+            source_issi: 200,
+            destination: 0,
+            number: "100".into(),
+            priority: 0,
+            service: 0,
+            mode: 0,
+            duplex: 1,
+            method: 0,
+            communication: 0,
+            grant: 0,
+            permission: 0,
+            timeout: 0,
+            ownership: 0,
+            queued: 0,
+        };
+        ast_link.rx_prim(
+            &mut q1,
+            SapMsg::new(
+                Sap::Control,
+                TetraEntity::Cmce,
+                TetraEntity::Asterisk,
+                cc(CallControl::NetworkCircuitSetupRequest { brew_uuid: uuid, call: call.clone() }),
+            ),
+        );
+        relay.tick_start(&mut q0, now);
+        assert!(asterisk.got.lock().unwrap().iter().any(|m| matches!(m.msg, SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupRequest { .. }))));
+
+        // Asterisk answers and sends voice: both reach cell 1 (voice via its playout buffer).
+        {
+            let mut out = asterisk.outbox.lock().unwrap();
+            out.push(SapMsg::new(
+                Sap::Control,
+                TetraEntity::Asterisk,
+                TetraEntity::Cmce,
+                cc(CallControl::NetworkCircuitSetupAccept { brew_uuid: uuid }),
+            ));
+            for _ in 0..PLAYOUT_FILL {
+                out.push(SapMsg::new(
+                    Sap::TmdSap,
+                    TetraEntity::Asterisk,
+                    TetraEntity::Umac,
+                    SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
+                        carrier_num: C1,
+                        ts: 2,
+                        data: vec![5; 4],
+                    }),
+                ));
+            }
+        }
+        relay.tick_start(&mut q0, now);
+        assert!(drain(&mut q0).is_empty(), "nothing for the primary");
+        link.tick_start(&mut q1, now);
+        let c1 = drain(&mut q1);
+        assert!(c1.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupAccept { .. }))));
+        assert!(voice_on(&c1, C1));
+
+        // A SIP call to radio 200 goes to the cell it is registered on.
+        asterisk.outbox.lock().unwrap().push(SapMsg::new(
+            Sap::Control,
+            TetraEntity::Asterisk,
+            TetraEntity::Cmce,
+            cc(CallControl::NetworkCircuitSetupRequest {
+                brew_uuid: Uuid::from_u128(78),
+                call: NetworkCircuitCall { destination: 200, ..call },
+            }),
+        ));
+        relay.tick_start(&mut q0, now);
+        link.tick_start(&mut q1, now);
+        assert!(drain(&mut q0).is_empty());
+        assert!(drain(&mut q1).iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupRequest { .. }))));
     }
 }

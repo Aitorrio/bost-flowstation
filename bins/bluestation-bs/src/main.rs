@@ -20,7 +20,9 @@ use tetra_entities::net_lst_dispatch::{LstDispatchEntity, LstDispatchHandle, cod
 use tetra_entities::net_dapnet::spawn_dapnet_worker;
 use tetra_entities::net_dashboard::DashboardServer;
 use tetra_entities::net_geoalarm::{GeoAlarmSink, spawn_geoalarm_worker};
-use tetra_entities::net_site::{CellLink, SitePorts, SiteSwitch, site_links};
+use tetra_entities::net_site::{CellLink, SharedDirectory, SitePorts, SiteSwitch, site_links};
+#[cfg(feature = "asterisk")]
+use tetra_entities::net_site::SiteRelay;
 use tetra_entities::net_snom::{snom_notify_channel, spawn_snom_notify_worker};
 use tetra_entities::net_telegram::{TelegramAlertSink, TelegramAlerter, telegram_alert_channel};
 use tetra_entities::net_telemetry::worker::TelemetryWorker;
@@ -257,8 +259,8 @@ fn spawn_extra_cells(
     handles
 }
 
-/// Radio stack of an additional cell: the core entities only, without control links or restart
-/// recovery. With a network link configured, `link` connects it to the site switch; `tsink` is the
+/// Radio stack of an additional cell: the core entities only, without external control links or
+/// restart recovery. With a network link configured, `link` connects it to the site switch; `tsink` is the
 /// station's telemetry stream tagged for this cell.
 fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>, tsink: Option<TelemetrySink>) -> MessageRouter {
     let mut router = MessageRouter::new(cfg.clone());
@@ -268,8 +270,18 @@ fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>, tsink: Option<T
     router.register_entity(Box::new(MleBs::new(cfg.clone())));
     router.register_entity(Box::new(MmBs::new(cfg.clone(), tsink.clone(), None)));
     router.register_entity(Box::new(Sndcp::new(cfg.clone())));
-    router.register_entity(Box::new(CmceBs::new(cfg.clone(), tsink, None)));
+    // CMCE gets its own command link so the WX/METAR responder can send its replies.
+    let (c_d, mut c_e) = build_all_control_links();
+    let mut cmce = CmceBs::new(cfg.clone(), tsink, c_e.remove(&TetraEntity::Cmce));
+    if let Some(d) = c_d.get(&TetraEntity::Cmce) {
+        cmce.set_wx_cmd_sender(d.clone_sender());
+    }
+    router.register_entity(Box::new(cmce));
     if let Some(link) = link {
+        // Linked cells reach the primary's Asterisk bridge through a second link.
+        if cfg.config().asterisk.enabled {
+            router.register_entity(Box::new(link.asterisk_link()));
+        }
         router.register_entity(Box::new(link));
     }
     router.set_dl_time(TdmaTime::default());
@@ -277,16 +289,17 @@ fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>, tsink: Option<T
 }
 
 /// Start base station stack
-/// Site switch ports plus the additional cells' configs it keeps in sync.
-type SiteSetup = (SitePorts, Vec<(CellId, SharedConfig)>);
+/// Site switch ports, the additional cells' configs it keeps in sync, and the radio directory it
+/// shares with the Asterisk relay.
+type SiteSetup = (SitePorts, Vec<(CellId, SharedConfig)>, SharedDirectory);
 
 /// In a multi-cell station the network entity is wrapped in the site switch so it serves every
 /// cell; single-cell stations register it directly, exactly as before.
 fn wrap_network_entity(entity: Box<dyn TetraEntityTrait>, cfg: &SharedConfig, site: &mut Option<SiteSetup>) -> Box<dyn TetraEntityTrait> {
     match site.take() {
-        Some((ports, extra)) => {
+        Some((ports, extra, directory)) => {
             eprintln!(" -> Site switch: network link shared by {} cells", extra.len() + 1);
-            Box::new(SiteSwitch::new(entity, cfg.clone(), extra, ports))
+            Box::new(SiteSwitch::new(entity, cfg.clone(), extra, ports, directory))
         }
         None => entity,
     }
@@ -417,6 +430,11 @@ fn build_bs_stack(
         c_d.remove(&entity);
     }
 
+    // Multi-cell: the Asterisk relay's side of the site links (taken before the switch gets them).
+    let asterisk_relay = site
+        .as_mut()
+        .and_then(|(ports, extra, directory)| Some((ports.take_asterisk()?, extra.clone(), directory.clone())));
+
     // Register Brew XOR LST dispatch (same TetraEntity::Brew slot for CMCE routing).
     let lst_enabled = cfg
         .config()
@@ -452,7 +470,12 @@ fn build_bs_stack(
     if cfg.config().asterisk.enabled {
         match AsteriskEntity::new(cfg.clone()) {
             Ok(asterisk_entity) => {
-                router.register_entity(Box::new(asterisk_entity));
+                // Multi-cell: wrapped so radios on every cell can use the SIP bridge.
+                let entity: Box<dyn TetraEntityTrait> = match asterisk_relay {
+                    Some((ports, extra, directory)) => Box::new(SiteRelay::new(Box::new(asterisk_entity), cfg, &extra, ports, directory)),
+                    None => Box::new(asterisk_entity),
+                };
+                router.register_entity(entity);
                 eprintln!(" -> Asterisk SIP integration enabled");
             }
             Err(err) => {
@@ -460,6 +483,9 @@ fn build_bs_stack(
             }
         }
     }
+
+    #[cfg(not(feature = "asterisk"))]
+    let _ = asterisk_relay;
 
     // Init network time
     router.set_dl_time(TdmaTime::default());
@@ -581,7 +607,7 @@ fn main() {
     let extra_cell_ids: Vec<CellId> = extra_cell_cfgs.iter().map(|(id, _)| *id).collect();
     let (site, cell_links) = if cfg.config().is_site_linked() {
         let (ports, links) = site_links(&extra_cell_ids);
-        (Some((ports, extra_cell_cfgs.clone())), links)
+        (Some((ports, extra_cell_cfgs.clone(), SharedDirectory::default())), links)
     } else {
         (None, HashMap::new())
     };

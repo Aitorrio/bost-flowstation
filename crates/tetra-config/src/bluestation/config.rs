@@ -82,6 +82,10 @@ pub struct StackConfig {
     /// site switch (see [`StackConfig::is_site_linked`]). Always false in parsed configs.
     pub site_linked: bool,
 
+    /// Which cell of the station this config runs: `CellId::PRIMARY` for the file as parsed, the
+    /// `[[cells]]` id on a derived per-cell config (see [`StackConfig::for_extra_cell`]).
+    pub cell_id: CellId,
+
     /// Brew protocol (TetraPack/BrandMeister) configuration
     pub brew: Option<CfgBrew>,
 
@@ -176,17 +180,19 @@ impl StackConfig {
 
     /// Stand-alone config for running one additional cell's radio stack: that cell's
     /// `cell_info` and SDR, with the station-wide services that run beside the primary stack
-    /// (Asterisk, dashboard, telemetry, control, WX, recovery, alerts) switched off. `brew` /
-    /// `lst_dispatch` are kept so the cell's CMCE still routes network traffic; in the cell's
-    /// router that slot is a link to the site switch, not a second network connection.
+    /// (dashboard, telemetry, control, recovery, alerts) switched off. `brew` / `lst_dispatch`
+    /// and, when the cells are linked, `asterisk` are kept so the cell's CMCE still routes network
+    /// traffic; in the cell's router those slots are links to the primary's entities, not second
+    /// connections. WX runs on every cell (each answers its own radios' requests).
     pub fn for_extra_cell(&self, id: CellId) -> Option<StackConfig> {
         let extra = self.extra_cells.iter().find(|c| c.id == id)?;
         let mut cfg = self.clone();
         cfg.cell = extra.cell.clone();
         cfg.phy_io.soapysdr = extra.soapysdr.clone();
         cfg.site_linked = self.is_site_linked();
+        cfg.cell_id = id;
         cfg.extra_cells = Vec::new();
-        cfg.asterisk.enabled = false;
+        cfg.asterisk.enabled = self.asterisk.enabled && self.is_site_linked();
         cfg.dapnet.enabled = false;
         cfg.geoalarm.enabled = false;
         cfg.tpg2200_action.enabled = false;
@@ -195,8 +201,6 @@ impl StackConfig {
         cfg.telemetry = None;
         cfg.control = None;
         cfg.telegram = None;
-        cfg.wx_service.enabled = false;
-        cfg.wx_service.periodic_enabled = false;
         cfg.recovery.enabled = false;
         Some(cfg)
     }
@@ -244,6 +248,11 @@ impl StackConfig {
                 cell.neighbor_cell_broadcast |= 0b10;
             }
         }
+    }
+
+    /// True for every cell of a station that runs more than one cell.
+    pub fn is_multi_cell(&self) -> bool {
+        !self.extra_cells.is_empty() || !self.cell_id.is_primary()
     }
 
     /// True when a network link (Brew, or enabled LST Dispatch) is configured.

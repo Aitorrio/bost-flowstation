@@ -244,7 +244,9 @@ colour_code = 2
         assert!(cell.brew.is_some(), "kept so the cell's CMCE routes to the site switch");
         assert!(cfg.is_site_linked() && cell.is_site_linked(), "Brew + [[cells]] links the cells");
         assert!(cell.dashboard.is_none());
-        assert!(!cell.wx_service.enabled && !cell.recovery.enabled);
+        assert!(!cell.recovery.enabled);
+        assert_eq!(cell.cell_id, CellId(1));
+        assert!(cell.is_multi_cell() && cfg.is_multi_cell());
         assert_eq!(cell.net.mcc, cfg.net.mcc);
         cell.validate().unwrap();
 

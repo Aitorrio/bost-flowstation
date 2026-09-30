@@ -20,8 +20,12 @@
 //!   signalling across (each CMCE sees the other as the network) and copying the voice;
 //! * delivers SDS between cells directly, renumbers call identifiers, and mirrors the network
 //!   link state from the primary to the other cells.
+//!
+//! [`SiteRelay`] does the same for the Asterisk SIP bridge (the primary's `Asterisk` slot), so
+//! radios on every cell can call and be called through the PBX.
 
 mod directory;
+mod relay;
 mod switch;
 
 use std::sync::OnceLock;
@@ -29,8 +33,9 @@ use std::sync::OnceLock;
 use tetra_config::bluestation::SharedConfig;
 use tetra_core::CellId;
 
-pub use directory::SiteDirectory;
-pub use switch::{CellLink, SitePorts, SiteSwitch, site_links};
+pub use directory::{SharedDirectory, SiteDirectory};
+pub use relay::SiteRelay;
+pub use switch::{CellLink, RelayPorts, SitePorts, SiteSwitch, site_links};
 
 static EXTRA_CELLS: OnceLock<Vec<(CellId, SharedConfig)>> = OnceLock::new();
 

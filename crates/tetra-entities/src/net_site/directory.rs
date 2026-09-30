@@ -1,7 +1,11 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 
 use tetra_core::CellId;
 use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
+
+/// The directory, shared by the site switch (which maintains it) and the Asterisk relay.
+pub type SharedDirectory = Arc<RwLock<SiteDirectory>>;
 
 /// Where radios are registered and which cells have members of each group.
 #[derive(Debug, Default)]

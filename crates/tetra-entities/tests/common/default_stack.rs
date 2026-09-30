@@ -22,6 +22,7 @@ pub fn default_test_config_bs() -> StackConfig {
         cell: cell_info,
         extra_cells: Vec::new(),
         site_linked: false,
+        cell_id: tetra_core::CellId::PRIMARY,
         brew: None,
         lst_dispatch: None,
         asterisk: CfgAsterisk::default(),

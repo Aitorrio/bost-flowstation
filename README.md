@@ -156,7 +156,7 @@ Every extra SDR can run one more TETRA cell from the same station, for example t
 - **Add a cell** from the dashboard's **Cells** card: scan for SDRs, pick the device and a free carrier (frequencies follow from the primary cell's band plan), and the station restarts. Or add a `[[cells]]` entry by hand; see the commented example at the end of [`example_config/config.toml`](example_config/config.toml).
 - With **Brew or LST** enabled the cells are linked: group calls from the network or from any radio reach every cell with members (one talker per group across all cells), individual calls and SDS work between cells, and cells advertise each other as neighbours so radios can move between them, including announced handover (the new cell joins the radio's group call before it arrives).
 - Without Brew/LST each cell runs on its own.
-- The registered-radios table shows every cell's radios (a C0/C1… badge per radio); still primary-cell only: Asterisk and WX.
+- The registered-radios table shows every cell's radios (a C0/C1… badge per radio). The Asterisk SIP bridge and the WX/METAR service work from every linked cell.
 
 Design and status per phase: [`Docs/multi-cell-plan.md`](Docs/multi-cell-plan.md).
 
