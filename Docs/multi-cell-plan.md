@@ -190,8 +190,12 @@ send the switch `CallControl::SiteHandoverPrepare`, and the switch registers the
 its groups in the target cell's CMCE (so that cell joins its group calls via
 `GroupListenersAvailable`), undone after 30 s if the MS never registers there. U-RESTORE hands its
 U-CALL RESTORE to CMCE; MLE wraps CMCE's D-CALL RESTORE in D-RESTORE-ACK or turns its D-RELEASE into
-D-RESTORE-FAIL. Not done: the MM registration an MS may forward inside U-PREPARE (type 1) is
-ignored; `cell_reselection_types_supported` in auto neighbours stays 1 — check with real terminals.
+D-RESTORE-FAIL. Type 1 forward registration: the MM PDU inside U-PREPARE goes via the switch
+(`SiteForwardRegistration`) to the target cell's MLE, which hands it to its MM and captures MM's
+answer (instead of transmitting it there) as `SiteForwardRegistrationResult`; the serving cell holds
+D-NEW-CELL until then and sends it with that answer as SDU (D-PREPARE-FAIL if it is a D-LOCATION
+UPDATE REJECT), or without it after 3 s. `cell_reselection_types_supported` in auto neighbours
+stays 1 — check with real terminals.
 
 **Asterisk and WX on every cell:** `StackConfig::cell_id` / `is_multi_cell()` mark a per-cell
 config. Linked extra cells keep `asterisk.enabled`; their router gets a second `CellLink` in the

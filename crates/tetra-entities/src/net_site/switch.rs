@@ -339,6 +339,8 @@ pub struct SiteSwitch {
     playout: VoicePlayout,
     /// Announced handovers in progress: (ISSI, target cell, deadline).
     handovers: Vec<(u32, CellId, Instant)>,
+    /// Forwarded registrations awaiting the target cell's answer: ISSI → serving cell.
+    forwards: HashMap<u32, CellId>,
 }
 
 impl SiteSwitch {
@@ -372,6 +374,7 @@ impl SiteSwitch {
             mirrored_link: None,
             playout: VoicePlayout::default(),
             handovers: Vec::new(),
+            forwards: HashMap::new(),
         }
     }
 
@@ -574,6 +577,27 @@ impl SiteSwitch {
             }
             CallControl::SiteHandoverPrepare { issi, target_carrier } => {
                 self.prepare_handover(queue, cell, *issi, *target_carrier);
+                return false;
+            }
+            CallControl::SiteForwardRegistration { issi, target_carrier, .. } => {
+                // Type 1 announced reselection: the target cell's MLE/MM registers the MS.
+                match self.carrier_cell.get(target_carrier).copied().filter(|t| *t != cell) {
+                    Some(target) => {
+                        self.forwards.insert(*issi, cell);
+                        self.deliver(queue, target, to_mle(cc.clone()));
+                    }
+                    None => {
+                        // Not one of our cells: answer at once, the MS registers on arrival.
+                        let result = CallControl::SiteForwardRegistrationResult { issi: *issi, sdu: None };
+                        self.deliver(queue, cell, to_mle(result));
+                    }
+                }
+                return false;
+            }
+            CallControl::SiteForwardRegistrationResult { issi, .. } => {
+                if let Some(serving) = self.forwards.remove(issi) {
+                    self.deliver(queue, serving, to_mle(cc.clone()));
+                }
                 return false;
             }
             CallControl::FloorGranted {
@@ -1083,6 +1107,11 @@ pub(super) fn carrier_map(primary: &SharedConfig, extra: &[(CellId, SharedConfig
         }
     }
     map
+}
+
+/// Site-internal call control for a cell's MLE.
+fn to_mle(cc: CallControl) -> SapMsg {
+    SapMsg::new(Sap::Control, TetraEntity::Brew, TetraEntity::Mle, SapMsgInner::CmceCallControl(cc))
 }
 
 /// A subscriber update for a cell's CMCE as if from its own MM (so it counts as a local radio).
@@ -1932,5 +1961,29 @@ main_carrier = 1525
         link.tick_start(&mut q1, now);
         assert!(drain(&mut q0).is_empty());
         assert!(drain(&mut q1).iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupRequest { .. }))));
+    }
+
+    #[test]
+    fn forwarded_registration_goes_to_the_target_cells_mle_and_back() {
+        let mut site = Site::new();
+        let demand = tetra_core::BitBuffer::from_bitstr("0010");
+        site.from_cell(0, cc(CallControl::SiteForwardRegistration { issi: 100, target_carrier: C1, sdu: demand }));
+        let (_, c1) = site.tick();
+        assert!(c1.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::SiteForwardRegistration { issi: 100, .. }))));
+
+        site.from_cell(1, cc(CallControl::SiteForwardRegistrationResult { issi: 100, sdu: Some(tetra_core::BitBuffer::from_bitstr("0101")) }));
+        let (c0, _) = site.tick();
+        assert!(c0.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::SiteForwardRegistrationResult { issi: 100, sdu: Some(_) }))));
+        assert!(site.net_got().is_empty(), "site-internal, never to the network");
+    }
+
+    #[test]
+    fn forwarded_registration_to_a_foreign_cell_is_answered_at_once() {
+        let mut site = Site::new();
+        let demand = tetra_core::BitBuffer::from_bitstr("0010");
+        site.from_cell(0, cc(CallControl::SiteForwardRegistration { issi: 100, target_carrier: 3000, sdu: demand }));
+        let (c0, c1) = site.tick();
+        assert!(c1.is_empty());
+        assert!(c0.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::SiteForwardRegistrationResult { sdu: None, .. }))));
     }
 }

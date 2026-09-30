@@ -2257,7 +2257,9 @@ impl UmacBs {
             | CallControl::NetworkCircuitDtmf { .. }
             | CallControl::NetworkCircuitRelease { .. }
             | CallControl::SiteCallPriority { .. }
-            | CallControl::SiteHandoverPrepare { .. } => {
+            | CallControl::SiteHandoverPrepare { .. }
+            | CallControl::SiteForwardRegistration { .. }
+            | CallControl::SiteForwardRegistrationResult { .. } => {
                 tracing::trace!("rx_control: ignoring CMCE-Brew notification (not for UMAC)");
             }
         }

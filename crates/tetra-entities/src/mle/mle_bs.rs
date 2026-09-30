@@ -7,6 +7,7 @@ use tetra_config::bluestation::SharedConfig;
 use tetra_core::tetra_entities::TetraEntity;
 use tetra_core::{BitBuffer, EndpointId, Layer2Service, LinkId, Sap, TdmaTime, TetraAddress, unimplemented_log};
 use tetra_pdus::cmce::enums::cmce_pdu_type_dl::CmcePduTypeDl;
+use tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl;
 use tetra_pdus::mle::enums::mle_pdu_type_ul::MlePduTypeUl;
 use tetra_pdus::mle::pdus::{
     d_new_cell::DNewCell, d_prepare_fail::DPrepareFail, d_restore_ack::DRestoreAck, d_restore_fail::DRestoreFail,
@@ -27,7 +28,23 @@ pub struct MleBs {
     /// MSs whose U-RESTORE (cell reselection) we handed to CMCE: CMCE's answer to the U-CALL
     /// RESTORE it carried goes back inside D-RESTORE-ACK / D-RESTORE-FAIL.
     pending_restores: HashMap<u32, Instant>,
+    /// Serving cell: MSs whose D-NEW-CELL waits for the target cell's answer to the registration
+    /// they forwarded in U-PREPARE (type 1 announced reselection).
+    pending_prepares: HashMap<u32, PendingPrepare>,
+    /// Target cell: MSs whose forwarded registration we handed to MM; MM's answer goes back to the
+    /// serving cell instead of on air here.
+    pending_forwards: HashMap<u32, Instant>,
 }
+
+struct PendingPrepare {
+    link_id: LinkId,
+    endpoint_id: EndpointId,
+    since: Instant,
+}
+
+/// How long the serving cell waits for the target cell's answer to a forwarded registration
+/// before sending D-NEW-CELL without it (the MS then registers on arrival).
+const FORWARD_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// How long CMCE may take to answer the U-CALL RESTORE carried by a U-RESTORE.
 const RESTORE_ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -51,6 +68,8 @@ impl MleBs {
             config,
             broadcast,
             pending_restores: HashMap::new(),
+            pending_prepares: HashMap::new(),
+            pending_forwards: HashMap::new(),
         }
     }
 
@@ -111,21 +130,113 @@ impl MleBs {
             target.main_carrier_number
         );
         if crate::net_brew::is_site_linked(&self.config) {
-            queue.push_back(SapMsg {
-                sap: Sap::Control,
-                src: TetraEntity::Mle,
-                dest: TetraEntity::Brew,
-                msg: SapMsgInner::CmceCallControl(CallControl::SiteHandoverPrepare {
-                    issi: addr.ssi,
-                    target_carrier: target.main_carrier_number,
-                }),
-            });
+            let target_carrier = target.main_carrier_number;
+            Self::push_site(queue, CallControl::SiteHandoverPrepare { issi: addr.ssi, target_carrier });
+            if let Some(sdu) = pdu.sdu {
+                // Type 1: register on the target cell now; D-NEW-CELL carries its MM's answer.
+                tracing::info!("MLE: forwarding {}'s registration to the cell on carrier {}", addr.ssi, target_carrier);
+                self.pending_prepares.insert(
+                    addr.ssi,
+                    PendingPrepare {
+                        link_id,
+                        endpoint_id,
+                        since: Instant::now(),
+                    },
+                );
+                Self::push_site(
+                    queue,
+                    CallControl::SiteForwardRegistration {
+                        issi: addr.ssi,
+                        target_carrier,
+                        sdu,
+                    },
+                );
+                return;
+            }
+        } else if pdu.sdu.is_some() {
+            tracing::debug!("MLE: ignoring forwarded registration from {} (target not a linked cell)", addr.ssi);
         }
         let new_cell = DNewCell {
             channel_command_valid: CHANNEL_COMMAND_CHANGE_IMMEDIATELY,
             sdu: None,
         };
         self.send_mle_pdu(queue, addr, link_id, endpoint_id, |b| new_cell.to_bitbuf(b));
+    }
+
+    fn push_site(queue: &mut MessageQueue, cc: CallControl) {
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Mle,
+            dest: TetraEntity::Brew,
+            msg: SapMsgInner::CmceCallControl(cc),
+        });
+    }
+
+    /// Serving cell: the target cell answered the forwarded registration (or couldn't). Send the
+    /// withheld D-NEW-CELL with MM's answer, or D-PREPARE-FAIL if it rejected the registration.
+    fn finish_prepare(&mut self, queue: &mut MessageQueue, issi: u32, answer: Option<BitBuffer>) {
+        let Some(p) = self.pending_prepares.remove(&issi) else {
+            return;
+        };
+        let addr = TetraAddress {
+            ssi_type: tetra_core::SsiType::Issi,
+            ssi: issi,
+        };
+        let rejected = answer
+            .as_ref()
+            .and_then(|a| a.peek_bits_startoffset(0, 4))
+            .is_some_and(|t| t == MmPduTypeDl::DLocationUpdateReject.into_raw());
+        if rejected {
+            tracing::info!("MLE: forwarded registration of {} rejected → D-PREPARE-FAIL", issi);
+            let fail = DPrepareFail {
+                fail_cause: FAIL_CAUSE_UNSPECIFIED,
+                sdu: answer,
+            };
+            self.send_mle_pdu(queue, addr, p.link_id, p.endpoint_id, |b| fail.to_bitbuf(b));
+            return;
+        }
+        tracing::info!(
+            "MLE: D-NEW-CELL to {}{}",
+            issi,
+            if answer.is_some() { " with the target cell's registration answer" } else { "" }
+        );
+        let new_cell = DNewCell {
+            channel_command_valid: CHANNEL_COMMAND_CHANGE_IMMEDIATELY,
+            sdu: answer,
+        };
+        self.send_mle_pdu(queue, addr, p.link_id, p.endpoint_id, |b| new_cell.to_bitbuf(b));
+    }
+
+    /// Target cell: an MS on a sibling cell forwarded its registration to us. Hand it to MM as if
+    /// received over the air; MM's answer is captured in `rx_lmm_mle_unitdata_req`.
+    fn rx_forward_registration(&mut self, queue: &mut MessageQueue, issi: u32, sdu: BitBuffer) {
+        tracing::info!("MLE: forwarded registration from {} (announced reselection to this cell)", issi);
+        self.pending_forwards.insert(issi, Instant::now());
+        queue.push_back(SapMsg {
+            sap: Sap::LmmSap,
+            src: TetraEntity::Mle,
+            dest: TetraEntity::Mm,
+            msg: SapMsgInner::LmmMleUnitdataInd(LmmMleUnitdataInd {
+                sdu,
+                handle: 0,
+                received_address: TetraAddress {
+                    ssi_type: tetra_core::SsiType::Issi,
+                    ssi: issi,
+                },
+            }),
+        });
+    }
+
+    fn rx_control(&mut self, queue: &mut MessageQueue, message: SapMsg) {
+        match message.msg {
+            SapMsgInner::CmceCallControl(CallControl::SiteForwardRegistration { issi, sdu, .. }) => {
+                self.rx_forward_registration(queue, issi, sdu);
+            }
+            SapMsgInner::CmceCallControl(CallControl::SiteForwardRegistrationResult { issi, sdu }) => {
+                self.finish_prepare(queue, issi, sdu);
+            }
+            _ => tracing::warn!("MLE: unexpected control message, ignoring"),
+        }
     }
 
     /// The MS arrived after cell reselection and restores its call: hand the carried U-CALL
@@ -321,6 +432,20 @@ impl MleBs {
             return;
         };
 
+        // MM's answer to a registration forwarded from a sibling cell: the MS is still over there,
+        // so it goes back to that cell (inside D-NEW-CELL) instead of on air here.
+        self.pending_forwards.retain(|_, at| at.elapsed() < FORWARD_REGISTRATION_TIMEOUT);
+        if self.pending_forwards.remove(&prim.address.ssi).is_some() {
+            Self::push_site(
+                queue,
+                CallControl::SiteForwardRegistrationResult {
+                    issi: prim.address.ssi,
+                    sdu: Some(prim.sdu.clone()),
+                },
+            );
+            return;
+        }
+
         let mle_prot_discriminator = MleProtocolDiscriminator::Mm;
         let sdu_len = prim.sdu.get_len();
         let mut pdu = BitBuffer::new(3 + sdu_len);
@@ -502,6 +627,17 @@ impl TetraEntityTrait for MleBs {
     }
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
+        let late: Vec<u32> = self
+            .pending_prepares
+            .iter()
+            .filter(|(_, p)| p.since.elapsed() >= FORWARD_REGISTRATION_TIMEOUT)
+            .map(|(issi, _)| *issi)
+            .collect();
+        for issi in late {
+            tracing::info!("MLE: no answer to {}'s forwarded registration, D-NEW-CELL without it", issi);
+            self.finish_prepare(queue, issi, None);
+        }
+
         // Broadcast D-NWRK-BROADCAST twice per hyperframe (~30.6s interval) if timezone is configured.
         // Two evenly-spaced slots [20, 50] avoid congestion with other hyperframe-triggered events
         // and give terminals a faster time/date update after cold attach.
@@ -533,6 +669,9 @@ impl TetraEntityTrait for MleBs {
             }
             Sap::LcmcSap => {
                 self.rx_lcmc_prim(queue, message);
+            }
+            Sap::Control => {
+                self.rx_control(queue, message);
             }
             _ => {
                 tracing::error!("BUG: unexpected message or state -- routing error");
@@ -741,5 +880,121 @@ main_carrier_number = 1525
         // CMCE rejects with D-RELEASE (type 6 = 00110).
         mle.rx_prim(&mut q, cmce_answer("001100000000000"));
         assert_eq!(sent_mle_pdus(&drain(&mut q)), vec!["101000".to_string()], "D-RESTORE-FAIL");
+    }
+
+    // ── Forward registration (type 1 announced reselection) ─────────────────────────────────
+
+    /// U-LOCATION UPDATE DEMAND-ish MM bits carried in U-PREPARE (content is opaque to MLE).
+    const MM_DEMAND: &str = "0010000000000011";
+    /// D-LOCATION UPDATE ACCEPT (type 5) / REJECT (type 7) answers from the target cell's MM.
+    const MM_ACCEPT: &str = "0101000000001";
+    const MM_REJECT: &str = "0111000000001";
+
+    fn control(cc: CallControl) -> SapMsg {
+        SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Brew,
+            dest: TetraEntity::Mle,
+            msg: SapMsgInner::CmceCallControl(cc),
+        }
+    }
+
+    fn prepare_with_registration(mle: &mut MleBs, q: &mut MessageQueue) -> Vec<SapMsg> {
+        let prepare = UPrepare {
+            cell_identifier_ca: Some(1),
+            sdu: Some(BitBuffer::from_bitstr(MM_DEMAND)),
+        };
+        mle.rx_prim(q, uplink_mle(|b| prepare.to_bitbuf(b).unwrap()));
+        drain(q)
+    }
+
+    #[test]
+    fn forwarded_registration_holds_d_new_cell_until_the_target_answers() {
+        let mut mle = MleBs::new(config(true));
+        let mut q = MessageQueue::new();
+        let msgs = prepare_with_registration(&mut mle, &mut q);
+        assert!(sent_mle_pdus(&msgs).is_empty(), "D-NEW-CELL waits for the target cell");
+        assert!(msgs.iter().any(|m| matches!(&m.msg,
+            SapMsgInner::CmceCallControl(CallControl::SiteForwardRegistration { issi: MS, target_carrier: 1525, sdu })
+                if sdu.to_bitstr() == MM_DEMAND)));
+
+        mle.rx_prim(
+            &mut q,
+            control(CallControl::SiteForwardRegistrationResult {
+                issi: MS,
+                sdu: Some(BitBuffer::from_bitstr(MM_ACCEPT)),
+            }),
+        );
+        assert_eq!(
+            sent_mle_pdus(&drain(&mut q)),
+            vec![format!("000{}{}{}", "01", "1", MM_ACCEPT)],
+            "D-NEW-CELL carrying the target cell's D-LOCATION UPDATE ACCEPT"
+        );
+    }
+
+    #[test]
+    fn rejected_forwarded_registration_becomes_d_prepare_fail() {
+        let mut mle = MleBs::new(config(true));
+        let mut q = MessageQueue::new();
+        prepare_with_registration(&mut mle, &mut q);
+        mle.rx_prim(
+            &mut q,
+            control(CallControl::SiteForwardRegistrationResult {
+                issi: MS,
+                sdu: Some(BitBuffer::from_bitstr(MM_REJECT)),
+            }),
+        );
+        assert_eq!(sent_mle_pdus(&drain(&mut q)), vec![format!("001001{}", MM_REJECT)]);
+    }
+
+    #[test]
+    fn unanswered_forwarded_registration_times_out_to_plain_d_new_cell() {
+        let mut mle = MleBs::new(config(true));
+        let mut q = MessageQueue::new();
+        prepare_with_registration(&mut mle, &mut q);
+        for p in mle.pending_prepares.values_mut() {
+            p.since = Instant::now() - FORWARD_REGISTRATION_TIMEOUT;
+        }
+        mle.tick_start(&mut q, TdmaTime::default());
+        assert_eq!(sent_mle_pdus(&drain(&mut q)), vec!["000010".to_string()]);
+    }
+
+    #[test]
+    fn target_cell_registers_the_ms_and_returns_mms_answer_instead_of_transmitting_it() {
+        let mut mle = MleBs::new(config(true));
+        let mut q = MessageQueue::new();
+        mle.rx_prim(
+            &mut q,
+            control(CallControl::SiteForwardRegistration {
+                issi: MS,
+                target_carrier: 1521,
+                sdu: BitBuffer::from_bitstr(MM_DEMAND),
+            }),
+        );
+        let msgs = drain(&mut q);
+        assert!(msgs.iter().any(|m| m.dest == TetraEntity::Mm
+            && matches!(&m.msg, SapMsgInner::LmmMleUnitdataInd(ind) if ind.sdu.to_bitstr() == MM_DEMAND && ind.received_address.ssi == MS)));
+
+        let mm_answer = SapMsg {
+            sap: Sap::LmmSap,
+            src: TetraEntity::Mm,
+            dest: TetraEntity::Mle,
+            msg: SapMsgInner::LmmMleUnitdataReq(tetra_saps::lmm::LmmMleUnitdataReq {
+                sdu: BitBuffer::from_bitstr(MM_ACCEPT),
+                handle: 0,
+                address: addr(),
+                layer2service: Layer2Service::Acknowledged,
+                stealing_permission: false,
+                stealing_repeats_flag: false,
+                encryption_flag: false,
+                is_null_pdu: false,
+                tx_reporter: None,
+            }),
+        };
+        mle.rx_prim(&mut q, mm_answer);
+        let msgs = drain(&mut q);
+        assert!(!msgs.iter().any(|m| m.dest == TetraEntity::Llc), "nothing on air here: the MS is on the other cell");
+        assert!(msgs.iter().any(|m| matches!(&m.msg,
+            SapMsgInner::CmceCallControl(CallControl::SiteForwardRegistrationResult { issi: MS, sdu: Some(s) }) if s.to_bitstr() == MM_ACCEPT)));
     }
 }

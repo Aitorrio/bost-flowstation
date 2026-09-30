@@ -1,4 +1,4 @@
-use tetra_core::Direction;
+use tetra_core::{BitBuffer, Direction};
 
 use crate::control::enums::circuit_mode_type::CircuitModeType;
 
@@ -208,4 +208,11 @@ pub enum CallControl {
     /// Multi-cell only (MLE → site switch, never forwarded to Brew/LST): the MS was cleared by
     /// D-NEW-CELL to move to the sibling cell on `target_carrier` (announced cell reselection).
     SiteHandoverPrepare { issi: u32, target_carrier: u16 },
+    /// Multi-cell only (MLE ↔ site switch ↔ MLE, never forwarded to Brew/LST): announced type 1
+    /// cell reselection with forward registration. The MM registration PDU the MS carried in its
+    /// U-PREPARE, for the MM of the cell on `target_carrier`.
+    SiteForwardRegistration { issi: u32, target_carrier: u16, sdu: BitBuffer },
+    /// Multi-cell only: that MM's answer (None: the target isn't one of our cells, or no answer),
+    /// for the serving cell to return inside D-NEW-CELL / D-PREPARE-FAIL.
+    SiteForwardRegistrationResult { issi: u32, sdu: Option<BitBuffer> },
 }
