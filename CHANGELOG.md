@@ -4,22 +4,34 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 ## Multi-celda (en desarrollo, sin versión)
 
-Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. dos Pluto+).
+Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. una Pi con dos Pluto+). Completo en código y tests, **aún sin validar en el aire**.
 
-- Config: nuevas entradas `[[cells]]` (id 1-7) que heredan `[cell_info]` y llevan su propio `[cells.soapysdr]`. Portadoras únicas y `device` obligatorio por celda. Configs de una sola celda no cambian.
-- Cada celda corre su propio stack de radio en su propio hilo/SDR.
-- Con Brew o LST activos las celdas se enlazan (site switch): llamadas de grupo de red y de radios se oyen en todas las celdas con miembros, un solo hablante por grupo, llamadas individuales y SDS entre celdas. Grupos en `local_ssi_ranges` enlazan celdas sin salir a Brew.
-- Movilidad: cada celda anuncia a las demás como vecinas; al registrarse en otra celda se da de baja en la anterior sin nada al aire; restauración de llamada de grupo entre celdas.
-- Dashboard: tarjeta **Celdas** (estado RF, portadoras, SDR y radios por celda) con alta/baja de celdas y reinicio. La tabla de radios registradas muestra todas las celdas (insignia C0/C1…).
-- La voz copiada entre celdas pasa por un jitter buffer y sale al ritmo TDMA de la celda que la recibe.
-- Las llamadas de emergencia/prioridad conservan su prioridad en las demás celdas y se imponen al hablante de otra celda.
-- Telemetría: las celdas adicionales envían sus eventos (nuevo evento `MsCell` con la celda de cada registro); sus llamadas usan identificadores propios de la estación (desde 0x4000) para no chocar con los de la celda principal.
-- Traspaso anunciado (MLE): U-PREPARE hacia una vecina anunciada recibe D-NEW-CELL (si no, D-PREPARE-FAIL); la celda destino se une antes a las llamadas de grupo de la radio; U-RESTORE en la celda nueva restaura la llamada con D-RESTORE-ACK (o D-RESTORE-FAIL). Corrige además que la estación ignoraba todas las PDU MLE de subida.
-- Asterisk (SIP) desde todas las celdas enlazadas: las llamadas a/desde la centralita llegan a la celda donde está la radio.
-- WX/METAR en todas las celdas: cada celda responde a sus radios; el envío periódico a un grupo lo hace cada celda a sus miembros, a una ISSI solo la celda donde está registrada; los cambios en el dashboard se aplican a todas.
-- SDS de grupo entre celdas: ahora llega a los miembros de las otras celdas aunque la celda de origen tenga miembros, y también con LST (antes solo con Brew SDS activo).
-- Reselección: las celdas hermanas se anuncian con reselección anunciada y no anunciada (3), con la extensión de portadora si su plan de banda difiere y su potencia máxima si difiere; D-NWRK-BROADCAST lleva ahora umbrales/histéresis de reselección (`[cell_info.cell_reselect]`, antes siempre 0) cuando hay vecinas. Todas las celdas deben compartir `custom_duplex_spacing`.
-- Traspaso anunciado tipo 1: el registro que la radio envía dentro de U-PREPARE se procesa en la celda destino y su respuesta vuelve dentro de D-NEW-CELL (o D-PREPARE-FAIL si se rechaza); sin respuesta en 3 s, D-NEW-CELL sin ella.
+**Configuración y arranque**
+- Nuevas entradas `[[cells]]` (id 1-7): heredan `[cell_info]`, llevan su propio `[cells.soapysdr]`. Portadoras únicas, mismo `freq_band` y `custom_duplex_spacing`, y `device` obligatorio en cada celda (también la principal). Las configs de una sola celda no cambian.
+- Cada celda corre su propio stack de radio en su propio hilo y SDR.
+- Dashboard: tarjeta **Celdas** en Inicio (estado RF, portadoras, SDR, radios) con escaneo de SDR, alta y baja de celdas (reinicio).
+
+**Celdas enlazadas (con Brew o LST activos)**
+- Llamadas de grupo, de la red o de cualquier radio, en todas las celdas con miembros; un solo hablante por grupo en todo el sitio; una llamada de emergencia se impone al hablante de otra celda.
+- Llamadas individuales y SDS entre celdas; el SDS de grupo llega a los miembros de todas las celdas. Solo sale a Brew lo que no es para nadie del sitio; los grupos de `local_ssi_ranges` enlazan celdas sin salir a Brew.
+- Asterisk (SIP) y WX/METAR desde todas las celdas; los cambios de WX en el dashboard se aplican a todas.
+- La voz entre celdas pasa por un jitter buffer y sale al ritmo TDMA de la celda que la recibe.
+
+**Movilidad**
+- Cada celda anuncia a las demás como vecinas (reselección anunciada y no anunciada), con extensión de portadora y potencia máxima cuando difieren.
+- Al registrarse en otra celda, la radio se da de baja en silencio en la anterior y restaura su llamada de grupo en la nueva.
+- Traspaso anunciado: U-PREPARE → D-NEW-CELL (o D-PREPARE-FAIL); la celda destino se une antes a las llamadas de grupo de la radio; el registro reenviado en U-PREPARE (tipo 1) se procesa en la celda destino y su respuesta va dentro de D-NEW-CELL; U-RESTORE → D-RESTORE-ACK / D-RESTORE-FAIL.
+
+**Dashboard y telemetría**
+- La tabla de radios registradas muestra todas las celdas (insignia C0/C1…) y la página de llamadas incluye las de todas las celdas.
+- Telemetría: nuevo evento `MsCell` (celda de cada registro); las llamadas de celdas adicionales usan identificadores propios de la estación (desde 0x4000).
+
+**Cambios para todas las estaciones (también de una celda)**
+- La estación ignoraba todas las PDU MLE de subida; ahora responde a U-PREPARE (D-PREPARE-FAIL si no hay vecinas) y a U-RESTORE.
+- D-NWRK-BROADCAST con vecinas lleva umbrales/histéresis de reselección configurables (`[cell_info.cell_reselect]`, por defecto 20/10/10/6 dB); antes siempre 0.
+- Tests de `tetra-entities` reparados (import `CallOrigin`, config Brew en el test de preempción) y `Cargo.lock` sincronizado.
+
+**Pendiente de comprobar en el aire:** el orden de bits de los parámetros de reselección y de la extensión de portadora; llamadas individuales que no sobreviven a un cambio de celda; CPU/ancho de banda con varios SDR en una Pi.
 
 ## v0.4.4 — Puertos del dashboard: presets y binds estables
 
