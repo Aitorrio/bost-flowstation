@@ -71,6 +71,8 @@ struct ActiveRx {
     ts: u8,
     /// When set, FloorReleased already fired; accept DL until this Instant then clear.
     draining_until: Option<Instant>,
+    /// False for hangtime-only late-entry (green LED) — must not block TX PTT as "busy".
+    floor_live: bool,
 }
 
 /// Group TX: console PTT released but `pending_ul` still being aired before NetworkCallEnd.
@@ -263,7 +265,11 @@ impl LstDispatchEntity {
         let Some(g) = self.group.as_ref() else {
             return false;
         };
-        self.rx.as_ref().is_some_and(|r| r.gssi == g.gssi)
+        // Hangtime-only RX (late-entry while tx_active=false) keeps the green LED but must
+        // not force double-PTT preempt after the call has already ended.
+        self.rx.as_ref().is_some_and(|r| {
+            r.gssi == g.gssi && r.floor_live && r.draining_until.is_none()
+        })
     }
 
     fn preempt_offer_active(&self) -> bool {
@@ -1175,6 +1181,7 @@ impl LstDispatchEntity {
             carrier_num,
             ts,
             draining_until: None,
+            floor_live: true,
         });
         self.handle.set_status(|s| {
             s.rx_gssi = Some(dest_gssi);
@@ -1358,13 +1365,14 @@ impl TetraEntityTrait for LstDispatchEntity {
                 if tx_active {
                     self.on_floor_granted(call_id, source_issi, gssi, carrier_num, ts);
                 } else if self.listen_gssis.contains(&gssi) {
-                    // Hangtime: mark RX so the TG shows green; audio arrives on next floor.
+                    // Hangtime: green LED only — floor_live=false so TX PTT is not "busy".
                     self.rx = Some(ActiveRx {
                         gssi,
                         call_id,
                         carrier_num,
                         ts,
                         draining_until: None,
+                        floor_live: false,
                     });
                     self.handle.set_status(|s| {
                         s.rx_gssi = Some(gssi);
@@ -1385,6 +1393,14 @@ impl TetraEntityTrait for LstDispatchEntity {
                 ts,
             }) => {
                 self.on_floor_released(call_id, carrier_num, ts);
+                // Hangtime-only RX (floor_live=false) never entered drain — clear it on teardown
+                // so the green LED and any residual busy latch disappear with the call.
+                if self.rx.as_ref().is_some_and(|r| {
+                    !r.floor_live
+                        && (r.call_id == call_id || (r.carrier_num == carrier_num && r.ts == ts))
+                }) {
+                    self.clear_rx();
+                }
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }) => {
                 self.on_call_end_or_release(brew_uuid, 1);

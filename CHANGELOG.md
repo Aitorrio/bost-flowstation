@@ -2,6 +2,14 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.5 — LST: sin double-PTT tras cambio de TG en hangtime
+
+Si un MS entra por late-entry durante hangtime (`tx_active=false`), el despacho armaba RX “verde” que `tx_gssi_busy` trataba como suelo ocupado; al liberar la llamada Network no llegaba `CallEnded` a LST → primer PTT denied / hace falta preempt.
+
+- Hangtime late-entry: LED verde con `floor_live=false` (no bloquea PTT).
+- `release_group_call` notifica siempre `CallEnded` a Brew/LST (`IfGroupRoutable`).
+- `CallEnded` limpia RX hangtime-only.
+
 ## v0.4.4 — Puertos del dashboard: presets y binds estables
 
 Elección de puertos sin pelear con nginx/apache ni spamear ERROR en el log.
