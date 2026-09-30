@@ -2,6 +2,12 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.1 — Multi-celda: SDS de red y telemetría de celdas
+
+- **SDS de la red a radios de celdas adicionales.** Un SDS llegado por Brew (incluido el SMS Center de brew-server) para una radio registrada en una celda adicional se descartaba sin respuesta; ahora se entrega en su celda y Brew recibe el `SDS_REPORT`.
+- **SDS entre celdas registrado una sola vez.** La celda que lo recibe de otra celda ya no lo vuelve a anotar como SDS de red en el registro de SDS ni en la telemetría.
+- **Telemetría de celdas.** Nuevo evento `CellsSnapshot` cada 10 s (también en estaciones de una celda): portadoras y frecuencias, código de color, área de localización, vecinas, SDR, estado RF y las radios registradas en cada celda. brew-server lo muestra en su panel de telemetría y resincroniza con él su lista de registros tras una reconexión.
+
 ## v0.5.0 — Multi-celda: una estación, varios SDR
 
 Primera versión multi-celda. Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. una Pi con dos Pluto+). Completo en código y tests, **aún sin validar en el aire**; las configs de una sola celda funcionan igual que en v0.4.4.
