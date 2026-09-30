@@ -17,6 +17,8 @@ pub struct MsState {
     pub registered_at: u64,
     pub last_seen_secs_ago: u64,
     pub energy_saving_mode: u8, // 0=StayAlive, 1=Eg1..7=Eg7
+    /// Multi-cell: the cell the MS is registered on (None on a single-cell station).
+    pub cell: Option<u8>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -238,6 +240,7 @@ pub struct MsEntry {
     pub registered_at: Instant,
     pub last_seen: Instant,
     pub energy_saving_mode: u8,
+    pub cell: Option<u8>,
 }
 
 #[derive(Debug)]
@@ -506,6 +509,7 @@ impl DashboardStateInner {
                     .saturating_sub(e.registered_at.elapsed().as_secs()),
                 last_seen_secs_ago: e.last_seen.elapsed().as_secs(),
                 energy_saving_mode: e.energy_saving_mode,
+                cell: e.cell,
             })
             .collect()
     }

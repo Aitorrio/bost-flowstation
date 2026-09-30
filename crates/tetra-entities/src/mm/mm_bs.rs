@@ -2616,7 +2616,7 @@ impl TetraEntityTrait for MmBs {
                             self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
                         }
                         self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
-                        self.client_mgr.remove_client(issi);
+                        self.client_mgr.remove_client_quiet(issi);
                         self.config.state_write().subscribers.deregister(issi);
                         self.group_report_requested_at.remove(&issi);
                         self.attach_overflow_remainder.remove(&issi);

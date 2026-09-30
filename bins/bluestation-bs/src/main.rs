@@ -229,14 +229,16 @@ fn spawn_extra_cells(
     cell_cfgs: Vec<(CellId, SharedConfig)>,
     is_running: Arc<AtomicBool>,
     mut links: HashMap<CellId, CellLink>,
+    tsink: Option<TelemetrySink>,
 ) -> Vec<thread::JoinHandle<()>> {
     let mut handles = Vec::new();
     for (id, cell_cfg) in cell_cfgs {
         let is_running = is_running.clone();
+        let cell_sink = tsink.as_ref().map(|s| s.for_cell(id.0));
         let link = links.remove(&id);
         let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
             tetra_entities::cell_context::set_current(id);
-            let mut router = build_cell_router(&cell_cfg, link);
+            let mut router = build_cell_router(&cell_cfg, link, cell_sink);
             eprintln!(" -> {id}: opening SDR…");
             if !try_attach_phy(&mut router, &cell_cfg, None) {
                 // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
@@ -255,17 +257,18 @@ fn spawn_extra_cells(
     handles
 }
 
-/// Radio stack of an additional cell: the core entities only, without telemetry, control links or
-/// restart recovery. With a network link configured, `link` connects it to the site switch.
-fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>) -> MessageRouter {
+/// Radio stack of an additional cell: the core entities only, without control links or restart
+/// recovery. With a network link configured, `link` connects it to the site switch; `tsink` is the
+/// station's telemetry stream tagged for this cell.
+fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>, tsink: Option<TelemetrySink>) -> MessageRouter {
     let mut router = MessageRouter::new(cfg.clone());
     router.register_entity(Box::new(LmacBs::new(cfg.clone())));
-    router.register_entity(Box::new(UmacBs::new(cfg.clone(), None)));
+    router.register_entity(Box::new(UmacBs::new(cfg.clone(), tsink.clone())));
     router.register_entity(Box::new(Llc::new(cfg.clone())));
     router.register_entity(Box::new(MleBs::new(cfg.clone())));
-    router.register_entity(Box::new(MmBs::new(cfg.clone(), None, None)));
+    router.register_entity(Box::new(MmBs::new(cfg.clone(), tsink.clone(), None)));
     router.register_entity(Box::new(Sndcp::new(cfg.clone())));
-    router.register_entity(Box::new(CmceBs::new(cfg.clone(), None, None)));
+    router.register_entity(Box::new(CmceBs::new(cfg.clone(), tsink, None)));
     if let Some(link) = link {
         router.register_entity(Box::new(link));
     }
@@ -310,6 +313,8 @@ fn build_bs_stack(
         || cfg.effective_snom_notify().enabled;
     let (tsink, tsource) = if needs_telemetry {
         let (a, b) = telemetry_channel();
+        // Multi-cell: tag the primary's events with its cell (registrations get an MsCell).
+        let a = if cfg.config().extra_cells.is_empty() { a } else { a.for_cell(0) };
         (Some(a), Some(b))
     } else {
         (None, None)
@@ -585,6 +590,8 @@ fn main() {
         build_bs_stack(&mut cfg, &args.config, lst_handle.clone(), site);
     // Clone for PHY attach after the dashboard is listening (degraded boot).
     let phy_tsink = dapnet_telemetry_sink.clone();
+    // Additional cells report registrations etc. through the same stream, tagged per cell.
+    let cell_tsink = dapnet_telemetry_sink.clone();
     let dapnet_cmd_tx = cdispatchers.get(&TetraEntity::Cmce).map(|dispatcher| dispatcher.clone_sender());
     let mut dapnet_telegram_sink: Option<TelegramAlertSink> = None;
     #[allow(unused_assignments)]
@@ -859,7 +866,7 @@ fn main() {
     try_attach_phy(&mut router, &cfg, phy_tsink);
 
     // Multi-cell: additional cells run independently for now (multi-cell plan, phase 2).
-    let extra_cell_threads = spawn_extra_cells(extra_cell_cfgs, is_running.clone(), cell_links);
+    let extra_cell_threads = spawn_extra_cells(extra_cell_cfgs, is_running.clone(), cell_links, cell_tsink);
     if !extra_cell_threads.is_empty() {
         tracing::warn!(
             "{} additional cell(s) started — calls and SDS are routed across cells through the site switch",

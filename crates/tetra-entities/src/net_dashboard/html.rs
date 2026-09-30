@@ -10341,6 +10341,9 @@ function handleMsg(msg){
       renderStations();renderDgnaPage();break;
     case 'ms_deregistered':
       delete state.ms[msg.issi];renderStations();renderDgnaPage();break;
+    case 'ms_cell':
+      if(state.ms[msg.issi]){state.ms[msg.issi].cell=msg.cell;renderStations();}
+      break;
     case 'ms_rssi':
       if(state.ms[msg.issi]){state.ms[msg.issi].rssi_dbfs=msg.rssi_dbfs;state.ms[msg.issi]._last_seen_ts=Date.now();}
       scheduleStationsRender();break;
@@ -10982,7 +10985,7 @@ function renderStations(){
     const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
     const emg=!!state.emergencies[m.issi];
     return`<tr${emg?' class="row-emergency"':''} data-ms-issi="${m.issi}">
-      <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${idCell(m.issi)}</td><td>${grps}</td>
+      <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${idCell(m.issi)}${m.cell!=null?' <span class="badge badge-dim" title="'+escHtmlAttr(t('cells_cell',{n:m.cell}))+'">C'+m.cell+'</span>':''}</td><td>${grps}</td>
       <td class="col-mobile-hide">${eeLabel(m.energy_saving_mode||0)}</td>
       <td><div class="gauge ${gcls}"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%"></div></div><span class="gauge-value">${rL}</span></div></td>
       <td><span class="pill pill-ok">${t('online_badge')}</span></td>

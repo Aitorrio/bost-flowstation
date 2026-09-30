@@ -10,8 +10,11 @@ Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. dos Pluto+).
 - Cada celda corre su propio stack de radio en su propio hilo/SDR.
 - Con Brew o LST activos las celdas se enlazan (site switch): llamadas de grupo de red y de radios se oyen en todas las celdas con miembros, un solo hablante por grupo, llamadas individuales y SDS entre celdas. Grupos en `local_ssi_ranges` enlazan celdas sin salir a Brew.
 - Movilidad: cada celda anuncia a las demás como vecinas; al registrarse en otra celda se da de baja en la anterior sin nada al aire; restauración de llamada de grupo entre celdas.
-- Dashboard: tarjeta **Celdas** (estado RF, portadoras, SDR y radios por celda) con alta/baja de celdas y reinicio.
-- Pendiente: Asterisk/WX/telemetría solo en la celda principal; sin jitter buffer en la voz copiada entre celdas; sin traspaso anunciado (D-NEW-CELL).
+- Dashboard: tarjeta **Celdas** (estado RF, portadoras, SDR y radios por celda) con alta/baja de celdas y reinicio. La tabla de radios registradas muestra todas las celdas (insignia C0/C1…).
+- La voz copiada entre celdas pasa por un jitter buffer y sale al ritmo TDMA de la celda que la recibe.
+- Las llamadas de emergencia/prioridad conservan su prioridad en las demás celdas y se imponen al hablante de otra celda.
+- Telemetría: las celdas adicionales envían sus eventos (nuevo evento `MsCell` con la celda de cada registro).
+- Pendiente: Asterisk y WX solo en la celda principal; eventos de llamada de celdas adicionales no se envían a la telemetría; sin traspaso anunciado (D-NEW-CELL).
 
 ## v0.4.4 — Puertos del dashboard: presets y binds estables
 

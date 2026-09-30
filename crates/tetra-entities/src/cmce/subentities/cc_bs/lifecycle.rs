@@ -114,6 +114,20 @@ impl CcBsSubentity {
         }
 
         if notify_brew.enabled(&self.config) {
+            // Multi-cell: tell the site switch the call's priority (emergency calls must reach
+            // the other cells as emergency calls). Only raised priorities; 0 is the default.
+            if brew::is_site_linked(&self.config)
+                && let Some(priority) = self.active_calls.get(&grant.call_id).map(|c| c.priority).filter(|p| *p > 0)
+            {
+                Self::push_control(
+                    queue,
+                    TetraEntity::Brew,
+                    CallControl::SiteCallPriority {
+                        call_id: grant.call_id,
+                        priority,
+                    },
+                );
+            }
             Self::push_control(
                 queue,
                 TetraEntity::Brew,

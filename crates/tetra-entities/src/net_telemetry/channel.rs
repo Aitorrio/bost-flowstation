@@ -34,14 +34,46 @@ pub fn dropped_events() -> u64 {
 #[derive(Clone)]
 pub struct TelemetrySink {
     tx: Sender<TelemetryEvent>,
+    /// Multi-cell: the cell whose stack sends through this sink (None = single-cell station).
+    cell: Option<u8>,
 }
 
 impl TelemetrySink {
+    /// The same stream, tagged for one cell of a multi-cell station: registrations are followed
+    /// by `MsCell`, and an additional cell's call events are dropped (call ids are per cell and
+    /// would collide with the primary's; calls between cells show on the primary anyway).
+    pub fn for_cell(&self, cell: u8) -> Self {
+        Self {
+            tx: self.tx.clone(),
+            cell: Some(cell),
+        }
+    }
+
     /// Push a telemetry event. Lock‑free and never blocks — the core loop must not be paced by a
     /// slow telemetry consumer. Fire‑and‑forget: silently drops if the receiver is gone, and
     /// drops the newest event (counted) if the queue is full.
     #[inline]
     pub fn send(&self, event: TelemetryEvent) {
+        let Some(cell) = self.cell else {
+            return self.push(event);
+        };
+        match event {
+            TelemetryEvent::MsRegistration { issi } => {
+                self.push(event);
+                self.push(TelemetryEvent::MsCell { issi, cell });
+            }
+            TelemetryEvent::GroupCallStarted { .. }
+            | TelemetryEvent::GroupCallEnded { .. }
+            | TelemetryEvent::CallSpeakerChanged { .. }
+            | TelemetryEvent::IndividualCallStarted { .. }
+            | TelemetryEvent::IndividualCallEnded { .. }
+                if cell != 0 => {}
+            _ => self.push(event),
+        }
+    }
+
+    #[inline]
+    fn push(&self, event: TelemetryEvent) {
         if let Err(TrySendError::Full(_)) = self.tx.try_send(event) {
             let n = DROPPED_EVENTS.fetch_add(1, Ordering::Relaxed) + 1;
             // Loud on the first loss, then every 1000th — enough for an operator to see
@@ -103,7 +135,7 @@ impl TelemetrySource {
 /// Create a linked (sink, source) pair. Bounded — see [`TELEMETRY_QUEUE_CAP`].
 pub fn telemetry_channel() -> (TelemetrySink, TelemetrySource) {
     let (tx, rx) = bounded(TELEMETRY_QUEUE_CAP);
-    (TelemetrySink { tx }, TelemetrySource { rx })
+    (TelemetrySink { tx, cell: None }, TelemetrySource { rx })
 }
 
 // ---------------------------------------------------------------------------
@@ -162,5 +194,25 @@ mod tests {
 
         // The oldest events survived (drop-newest policy).
         assert!(matches!(source.try_recv(), Some(TelemetryEvent::MsRegistration { issi: 0 })));
+    }
+
+    #[test]
+    fn cell_tagged_sink_reports_cell_and_drops_extra_cell_call_events() {
+        let (sink, source) = telemetry_channel();
+        let cell1 = sink.for_cell(1);
+        let cell0 = sink.for_cell(0);
+
+        cell1.send(TelemetryEvent::MsRegistration { issi: 7 });
+        assert!(matches!(source.try_recv(), Some(TelemetryEvent::MsRegistration { issi: 7 })));
+        assert!(matches!(source.try_recv(), Some(TelemetryEvent::MsCell { issi: 7, cell: 1 })));
+
+        cell1.send(TelemetryEvent::GroupCallEnded { call_id: 4, gssi: 91 });
+        assert!(source.try_recv().is_none(), "extra cell call ids would collide");
+        cell0.send(TelemetryEvent::GroupCallEnded { call_id: 4, gssi: 91 });
+        assert!(matches!(source.try_recv(), Some(TelemetryEvent::GroupCallEnded { .. })));
+
+        sink.send(TelemetryEvent::MsRegistration { issi: 8 });
+        assert!(matches!(source.try_recv(), Some(TelemetryEvent::MsRegistration { issi: 8 })));
+        assert!(source.try_recv().is_none(), "untagged (single-cell) sink adds nothing");
     }
 }

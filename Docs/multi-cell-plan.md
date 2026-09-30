@@ -168,6 +168,17 @@ registered-radios table and Setup wizard remain primary-cell views. TMO profiles
 (they deep-merge into the file) but don't edit them; a profile whose carrier or SDR clashes with a
 cell fails the usual config validation.
 
+**Follow-up fixes:** copied voice goes through a per-circuit `VoiceJitterBuffer` at the
+receiving cell (`VoicePlayout` in `CellLink` / `SiteSwitch`) and plays out on that cell's own
+timeslot, one frame per slot, none in frame 18. Priority: a site-linked CMCE sends
+`CallControl::SiteCallPriority` (switch-only, never forwarded) before a raised-priority
+`FloorGranted`; the switch carries it in the other cells' `NetworkCallStart`, and a higher-priority
+talker pre-empts one on another cell. Telemetry: extra cells use the station's sink via
+`TelemetrySink::for_cell` (registrations followed by `MsCell { issi, cell }`, appended last for
+bitcode wire-stability; extra cells' call events dropped because their call ids collide);
+the dashboard shows the cell per radio. MM's silent move cleanup uses `remove_client_quiet` so a
+moved radio doesn't disappear from the table.
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).

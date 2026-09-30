@@ -521,6 +521,12 @@ impl MmClientMgr {
         }
     }
 
+    /// Remove a client without a deregistration telemetry event: the MS moved to a sibling cell
+    /// and is still registered there (multi-cell), so it must not vanish from the dashboard.
+    pub fn remove_client_quiet(&mut self, ssi: u32) -> Option<MmClientProperties> {
+        self.clients.remove(&ssi)
+    }
+
     /// Detaches all groups from a client
     pub fn client_detach_all_groups(&mut self, issi: u32) -> Result<bool, ClientMgrErr> {
         if let Some(client) = self.clients.get_mut(&issi) {

@@ -3096,3 +3096,41 @@ fn test_restore_with_unknown_call_id_rejected_when_not_site_linked() {
     let msgs = test.dump_sinks();
     assert!(find_lcmc_req(&msgs, 1_000_777, CmcePduTypeDl::DCallRestore).is_none());
 }
+
+/// Multi-cell: a raised-priority local group call tells the site switch its priority right before
+/// the floor grant, so the other cells get it as an emergency call too.
+#[test]
+fn test_site_linked_group_call_reports_priority_to_switch() {
+    debug::setup_logging_verbose();
+
+    let mut config = brew_test_config();
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    test.submit_message(build_u_setup_msg_prio(TEST_ISSI, TEST_GSSI, 15));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let to_brew: Vec<&CallControl> = msgs
+        .iter()
+        .filter(|m| m.dest == TetraEntity::Brew)
+        .filter_map(|m| match &m.msg {
+            SapMsgInner::CmceCallControl(cc) => Some(cc),
+            _ => None,
+        })
+        .collect();
+    let prio = to_brew
+        .iter()
+        .position(|cc| matches!(cc, CallControl::SiteCallPriority { priority, .. } if *priority > 0))
+        .expect("SiteCallPriority sent to the switch");
+    let grant = to_brew
+        .iter()
+        .position(|cc| matches!(cc, CallControl::FloorGranted { .. }))
+        .expect("FloorGranted sent to the switch");
+    assert!(prio < grant, "priority comes first");
+}

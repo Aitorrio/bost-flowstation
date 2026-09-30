@@ -225,6 +225,10 @@ pub enum TelemetryEvent {
         priority: Option<u8>,
         paths: Vec<String>,
     },
+    /// Multi-cell: the MS that just registered is on this cell (0 = primary). Sent right after
+    /// its `MsRegistration`, only by stations running more than one cell. Appended last for
+    /// bitcode wire-stability.
+    MsCell { issi: u32, cell: u8 },
 }
 
 /// A single host-system sensor reading. Kept flat for easy JSON serialisation

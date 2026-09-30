@@ -2055,9 +2055,15 @@ impl DashboardServer {
                             registered_at: Instant::now(),
                             last_seen: Instant::now(),
                             energy_saving_mode: 0,
+                            cell: None,
                         },
                     );
                     s.push_log("INFO", format!("MS {} registered", issi));
+                }
+                TelemetryEvent::MsCell { issi, cell } => {
+                    if let Some(e) = s.ms_map.get_mut(issi) {
+                        e.cell = Some(*cell);
+                    }
                 }
                 TelemetryEvent::MsDeregistration { issi } => {
                     s.ms_map.remove(issi);
@@ -2481,6 +2487,7 @@ impl DashboardServer {
 fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
     let v = match event {
         TelemetryEvent::MsRegistration { issi } => serde_json::json!({"type":"ms_registered","issi":issi}),
+        TelemetryEvent::MsCell { issi, cell } => serde_json::json!({"type":"ms_cell","issi":issi,"cell":cell}),
         TelemetryEvent::MsDeregistration { issi } => serde_json::json!({"type":"ms_deregistered","issi":issi}),
         TelemetryEvent::MsTimeoutDrop { issi } => serde_json::json!({"type":"ms_deregistered","issi":issi,"reason":"t351"}),
         TelemetryEvent::MsGroupAttach { issi, gssis } => serde_json::json!({"type":"ms_groups","issi":issi,"groups":gssis}),

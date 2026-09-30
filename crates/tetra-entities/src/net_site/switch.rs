@@ -16,11 +16,66 @@ use tetra_saps::{
 use uuid::Uuid;
 
 use super::SiteDirectory;
+use crate::net_brew::components::jitter_buffer::VoiceJitterBuffer;
 use crate::{MessageQueue, TetraEntityTrait, net_brew};
 
 /// Sessions with no traffic for this long are dropped (the network entity or a cell lost track
 /// of them, e.g. an end message that never came).
 const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Idle playout buffers are dropped after this long.
+const PLAYOUT_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// What the switch sends a cell: a stack message, or a voice frame copied from another cell.
+enum LinkMsg {
+    Msg(SapMsg),
+    Voice { carrier_num: u16, ts: u8, data: Vec<u8> },
+}
+
+/// Plays voice copied from another cell out on this cell's own TDMA timing. The source cell's
+/// clock is independent (separate SDR), so frames are buffered per circuit and released one per
+/// traffic slot, like Brew does for network voice.
+#[derive(Default)]
+struct VoicePlayout {
+    circuits: HashMap<(u16, u8), (VoiceJitterBuffer, Instant)>,
+}
+
+impl VoicePlayout {
+    fn push(&mut self, carrier_num: u16, ts: u8, data: Vec<u8>) {
+        let (buf, last) = self
+            .circuits
+            .entry((carrier_num, ts))
+            .or_insert_with(|| (VoiceJitterBuffer::with_initial_latency(0), Instant::now()));
+        buf.push(data);
+        *last = Instant::now();
+    }
+
+    /// One frame per circuit whose timeslot is now (no traffic in frame 18).
+    fn drain(&mut self, queue: &mut MessageQueue, dltime: TdmaTime) {
+        self.circuits
+            .retain(|_, (buf, last)| !buf.is_empty() || last.elapsed() < PLAYOUT_IDLE_TIMEOUT);
+        if dltime.f == 18 {
+            return;
+        }
+        for (&(carrier_num, ts), (buf, _)) in self.circuits.iter_mut() {
+            if ts != dltime.t {
+                continue;
+            }
+            if let Some(frame) = buf.pop_ready() {
+                queue.push_back(SapMsg::new(
+                    Sap::TmdSap,
+                    TetraEntity::Brew,
+                    TetraEntity::Umac,
+                    SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
+                        carrier_num,
+                        ts,
+                        data: frame.acelp_data,
+                    }),
+                ));
+            }
+        }
+    }
+}
 
 /// Stand-in for the network entity in an additional cell's router. Everything the cell sends to
 /// `TetraEntity::Brew` goes to the [`SiteSwitch`]; whatever the switch routes to this cell is
@@ -28,7 +83,8 @@ const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 pub struct CellLink {
     id: CellId,
     to_switch: Sender<(CellId, SapMsg)>,
-    from_switch: Receiver<SapMsg>,
+    from_switch: Receiver<LinkMsg>,
+    playout: VoicePlayout,
 }
 
 impl TetraEntityTrait for CellLink {
@@ -42,16 +98,20 @@ impl TetraEntityTrait for CellLink {
         let _ = self.to_switch.send((self.id, message));
     }
 
-    fn tick_start(&mut self, queue: &mut MessageQueue, _ts: TdmaTime) {
+    fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         while let Ok(message) = self.from_switch.try_recv() {
-            queue.push_back(message);
+            match message {
+                LinkMsg::Msg(m) => queue.push_back(m),
+                LinkMsg::Voice { carrier_num, ts, data } => self.playout.push(carrier_num, ts, data),
+            }
         }
+        self.playout.drain(queue, ts);
     }
 }
 
 /// Switch-side ends of the channels to the additional cells.
 pub struct SitePorts {
-    to_cells: HashMap<CellId, Sender<SapMsg>>,
+    to_cells: HashMap<CellId, Sender<LinkMsg>>,
     from_cells: Receiver<(CellId, SapMsg)>,
 }
 
@@ -69,6 +129,7 @@ pub fn site_links(extra_cells: &[CellId]) -> (SitePorts, HashMap<CellId, CellLin
                 id,
                 to_switch: to_switch.clone(),
                 from_switch: rx,
+                playout: VoicePlayout::default(),
             },
         );
     }
@@ -220,7 +281,11 @@ pub struct SiteSwitch {
     call_gssi: HashMap<(CellId, u16), u32>,
     /// Local floors that lost to a talker on another cell: their events never reach the network.
     suppressed: HashSet<(CellId, u16)>,
+    /// Raised priority of local group calls, from `SiteCallPriority` (absent = 0).
+    call_priority: HashMap<(CellId, u16), u8>,
     mirrored_link: Option<LinkState>,
+    /// Copied voice for the primary cell's circuits.
+    playout: VoicePlayout,
 }
 
 impl SiteSwitch {
@@ -252,7 +317,9 @@ impl SiteSwitch {
             call_ids: CallIdMap::default(),
             call_gssi: HashMap::new(),
             suppressed: HashSet::new(),
+            call_priority: HashMap::new(),
             mirrored_link: None,
+            playout: VoicePlayout::default(),
         }
     }
 
@@ -262,7 +329,7 @@ impl SiteSwitch {
         if cell.is_primary() {
             queue.push_back(message);
         } else if let Some(tx) = self.ports.to_cells.get(&cell) {
-            let _ = tx.send(message);
+            let _ = tx.send(LinkMsg::Msg(message));
         } else {
             tracing::warn!("SiteSwitch: no link to {cell}, dropping {:?}", message.msg);
         }
@@ -280,19 +347,17 @@ impl SiteSwitch {
         self.deliver(queue, cell, msg);
     }
 
-    /// Downlink voice onto a cell's circuit.
-    fn deliver_voice(&self, queue: &mut MessageQueue, to: CellCircuit, data: &[u8]) {
-        let msg = SapMsg::new(
-            Sap::TmdSap,
-            TetraEntity::Brew,
-            TetraEntity::Umac,
-            SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
+    /// Downlink voice onto a cell's circuit, via that cell's playout buffer.
+    fn deliver_voice(&mut self, to: CellCircuit, data: &[u8]) {
+        if to.cell.is_primary() {
+            self.playout.push(to.carrier_num, to.ts, data.to_vec());
+        } else if let Some(tx) = self.ports.to_cells.get(&to.cell) {
+            let _ = tx.send(LinkMsg::Voice {
                 carrier_num: to.carrier_num,
                 ts: to.ts,
                 data: data.to_vec(),
-            }),
-        );
-        self.deliver(queue, to.cell, msg);
+            });
+        }
     }
 
     fn cell_of_carrier(&self, carrier_num: u16) -> CellId {
@@ -390,7 +455,7 @@ impl SiteSwitch {
                 true
             }
             SapMsgInner::TmdCircuitDataInd(ind) => {
-                self.copy_uplink_voice(queue, cell, ind.carrier_num, ind.ts, &ind.data);
+                self.copy_uplink_voice(cell, ind.carrier_num, ind.ts, &ind.data);
                 true
             }
             SapMsgInner::CmceCallControl(cc) => self.handle_call_control_from_cell(queue, cell, cc),
@@ -402,7 +467,7 @@ impl SiteSwitch {
     }
 
     /// A radio's uplink voice: copy it to the listening circuits on the other cells.
-    fn copy_uplink_voice(&mut self, queue: &mut MessageQueue, cell: CellId, carrier_num: u16, ts: u8, data: &[u8]) {
+    fn copy_uplink_voice(&mut self, cell: CellId, carrier_num: u16, ts: u8, data: &[u8]) {
         let from = CellCircuit { cell, carrier_num, ts };
         let mut targets = Vec::new();
         for s in self.sessions.values_mut().filter(|s| s.origin == Some(from)) {
@@ -419,7 +484,7 @@ impl SiteSwitch {
             }
         }
         for to in targets {
-            self.deliver_voice(queue, to, data);
+            self.deliver_voice(to, data);
         }
     }
 
@@ -434,6 +499,10 @@ impl SiteSwitch {
         }
 
         let forward = match cc {
+            CallControl::SiteCallPriority { call_id, priority } => {
+                self.call_priority.insert((cell, *call_id), *priority);
+                return false;
+            }
             CallControl::FloorGranted {
                 call_id,
                 source_issi,
@@ -589,6 +658,7 @@ impl SiteSwitch {
             if ended {
                 self.call_ids.release(cell, local);
                 self.call_gssi.remove(&(cell, local));
+                self.call_priority.remove(&(cell, local));
             }
         }
         forward
@@ -598,32 +668,39 @@ impl SiteSwitch {
     /// another cell (the grant is then withdrawn by pulling its cell into that call).
     fn local_floor_granted(&mut self, queue: &mut MessageQueue, call_id: u16, source_issi: u32, gssi: u32, origin: CellCircuit) -> bool {
         let cell = origin.cell;
+        let priority = self.call_priority.get(&(cell, call_id)).copied().unwrap_or(0);
 
-        // Someone on another cell is already talking in this group: they keep the floor.
+        // Someone on another cell is already talking in this group: they keep the floor, unless
+        // this call has a higher priority (e.g. emergency), which takes it over site-wide.
         let busy = self
             .sessions
-            .iter_mut()
+            .iter()
             .find(|(_, s)| s.gssi == gssi && s.origin.is_some_and(|o| o.cell != cell))
-            .map(|(uuid, s)| {
-                let talker = s.origin.map(|o| o.cell);
-                let start = (!s.cells().contains(&cell)).then(|| {
-                    s.pending.insert(cell);
-                    s.start_msg(*uuid)
+            .map(|(uuid, s)| (*uuid, s.priority, s.origin.map(|o| o.cell)));
+        if let Some((busy_uuid, busy_priority, talker)) = busy {
+            if priority <= busy_priority {
+                tracing::info!("SiteSwitch: {cell} floor for gssi={gssi} (issi={source_issi}) loses to {talker:?}");
+                let start = self.sessions.get_mut(&busy_uuid).and_then(|s| {
+                    (!s.cells().contains(&cell)).then(|| {
+                        s.pending.insert(cell);
+                        s.start_msg(busy_uuid)
+                    })
                 });
-                (talker, start)
-            });
-        if let Some((talker, start)) = busy {
-            tracing::info!("SiteSwitch: {cell} floor for gssi={gssi} (issi={source_issi}) loses to {talker:?}");
-            if let Some(start) = start {
-                self.deliver_cc(queue, cell, start);
+                if let Some(start) = start {
+                    self.deliver_cc(queue, cell, start);
+                }
+                self.suppressed.insert((cell, call_id));
+                return false;
             }
-            self.suppressed.insert((cell, call_id));
-            return false;
+            // Pre-empt: the old talker's cell gets the new call below (its CMCE cuts its speaker).
+            tracing::info!("SiteSwitch: {cell} priority {priority} call on gssi={gssi} pre-empts {talker:?} (priority {busy_priority})");
+            self.sessions.remove(&busy_uuid);
         }
 
         // Same circuit talking again (speaker change on this cell): update the other cells.
         let refresh = self.sessions.iter_mut().find(|(_, s)| s.origin == Some(origin)).map(|(uuid, s)| {
             s.source_issi = source_issi;
+            s.priority = priority;
             s.last_activity = Instant::now();
             (s.cells(), s.start_msg(*uuid))
         });
@@ -636,13 +713,13 @@ impl SiteSwitch {
 
         // New talker: every other cell with members of the group hears it as a network call.
         let uuid = Uuid::new_v4();
-        let mut s = GroupSession::new(gssi, source_issi, 0, Some(origin));
+        let mut s = GroupSession::new(gssi, source_issi, priority, Some(origin));
         let targets: Vec<CellId> = self.directory.group_cells(gssi).into_iter().filter(|c| *c != cell).collect();
         for &t in &targets {
             s.pending.insert(t);
             self.deliver_cc(queue, t, s.start_msg(uuid));
         }
-        tracing::info!("SiteSwitch: {cell} talking on gssi={gssi} (issi={source_issi}) → {targets:?}");
+        tracing::info!("SiteSwitch: {cell} talking on gssi={gssi} (issi={source_issi}, priority {priority}) → {targets:?}");
         self.sessions.insert(uuid, s);
         true
     }
@@ -704,7 +781,7 @@ impl SiteSwitch {
                     Some((replicas, anchor_live)) => {
                         if let SapMsgInner::TmdCircuitDataReq(req) = &message.msg {
                             for r in replicas {
-                                self.deliver_voice(queue, r, &req.data);
+                                self.deliver_voice(r, &req.data);
                             }
                         }
                         if anchor_live {
@@ -879,6 +956,7 @@ impl TetraEntityTrait for SiteSwitch {
             self.handle_from_cell(queue, cell, message);
         }
         self.with_inner(queue, |inner, out| inner.tick_start(out, ts));
+        self.playout.drain(queue, ts);
     }
 
     fn tick_end(&mut self, queue: &mut MessageQueue, ts: TdmaTime) -> bool {
@@ -951,6 +1029,9 @@ mod tests {
 
     const C0: u16 = 1521;
     const C1: u16 = 1525;
+    /// Frames to queue so a playout buffer starts. Frames pushed back-to-back look maximally
+    /// jittery, which drives the adaptive depth to its 12-frame ceiling.
+    const PLAYOUT_FILL: usize = 12;
     /// Talkgroup inside `local_ssi_ranges`: cross-cell only, never sent to Brew.
     const LOCAL_TG: u32 = 5001;
 
@@ -1054,8 +1135,10 @@ main_carrier = 1525
 
         /// One primary tick, then collect what each cell received.
         fn tick(&mut self) -> (Vec<SapMsgInner>, Vec<SapMsgInner>) {
-            self.switch.tick_start(&mut self.q0, TdmaTime::default());
-            self.link.tick_start(&mut self.q1, TdmaTime::default());
+            // Timeslot 2 = the test circuits' slot, so copied voice can play out.
+            let now = TdmaTime { h: 0, m: 1, f: 1, t: 2 };
+            self.switch.tick_start(&mut self.q0, now);
+            self.link.tick_start(&mut self.q1, now);
             let drain = |q: &mut MessageQueue| std::iter::from_fn(|| q.pop_front()).map(|m| m.msg).collect();
             (drain(&mut self.q0), drain(&mut self.q1))
         }
@@ -1161,19 +1244,23 @@ main_carrier = 1525
             SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { carrier_num: C1, .. })
         ));
 
-        // DL voice for the anchor circuit (cell 1) is copied to cell 0's circuit.
-        site.net.outbox.lock().unwrap().push(SapMsg::new(
-            Sap::TmdSap,
-            TetraEntity::Brew,
-            TetraEntity::Umac,
-            SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
-                carrier_num: C1,
-                ts: 2,
-                data: vec![1, 2, 3],
-            }),
-        ));
+        // DL voice for the anchor circuit (cell 1) is copied to cell 0's circuit, which plays it
+        // out from its own buffer once enough frames are queued.
+        for _ in 0..PLAYOUT_FILL {
+            site.net.outbox.lock().unwrap().push(SapMsg::new(
+                Sap::TmdSap,
+                TetraEntity::Brew,
+                TetraEntity::Umac,
+                SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq {
+                    carrier_num: C1,
+                    ts: 2,
+                    data: vec![1, 2, 3],
+                }),
+            ));
+        }
         let (c0, c1) = site.tick();
-        assert!(voice_on(&c1, C1) && voice_on(&c0, C0));
+        assert!(voice_on(&c1, C1), "anchor cell gets Brew's paced voice directly");
+        assert!(voice_on(&c0, C0), "replica plays the copy");
 
         // Cell 1 leaving alone is swallowed; the call goes on for cell 0.
         site.from_cell(1, cc(CallControl::NetworkCallEnd { brew_uuid: uuid }));
@@ -1307,7 +1394,9 @@ main_carrier = 1525
         site.tick();
         assert!(site.net_got().is_empty(), "the network entity never sees the switch's own session");
 
-        site.from_cell(0, uplink(C0));
+        for _ in 0..PLAYOUT_FILL {
+            site.from_cell(0, uplink(C0));
+        }
         let (_, c1) = site.tick();
         assert!(voice_on(&c1, C1), "talker's voice copied to cell 1");
 
@@ -1405,8 +1494,12 @@ main_carrier = 1525
         site.from_cell(0, media(C0));
         site.from_cell(1, media(C1));
         site.tick();
-        site.from_cell(0, uplink(C0));
-        site.from_cell(1, uplink(C1));
+        for _ in 0..PLAYOUT_FILL {
+            site.from_cell(0, uplink(C0));
+            site.from_cell(1, uplink(C1));
+        }
+        // Cell 1's uplink reaches the switch on this tick; cell 1 plays cell 0's copy on the next.
+        site.tick();
         let (c0, c1) = site.tick();
         assert!(voice_on(&c1, C1) && voice_on(&c0, C0), "voice both ways");
 
@@ -1483,5 +1576,51 @@ main_carrier = 1525
         }));
         let (c0, c1) = site.tick();
         assert!(c0.is_empty() && c1.iter().any(|m| matches!(m, SapMsgInner::CmceSdsData(_))));
+    }
+
+    #[test]
+    fn copied_voice_plays_out_on_the_receiving_cells_timeslot() {
+        let mut p = VoicePlayout::default();
+        for i in 0..PLAYOUT_FILL {
+            p.push(C1, 2, vec![i as u8]);
+        }
+        let mut q = MessageQueue::new();
+        p.drain(&mut q, TdmaTime { h: 0, m: 1, f: 1, t: 3 });
+        assert!(q.pop_front().is_none(), "not this circuit's slot");
+        p.drain(&mut q, TdmaTime { h: 0, m: 1, f: 18, t: 2 });
+        assert!(q.pop_front().is_none(), "no traffic in frame 18");
+        p.drain(&mut q, TdmaTime { h: 0, m: 1, f: 2, t: 2 });
+        let m = q.pop_front().expect("one frame on its slot");
+        assert!(matches!(m.msg, SapMsgInner::TmdCircuitDataReq(ref r) if r.data == vec![0]), "in order");
+        assert!(q.pop_front().is_none(), "one frame per slot");
+    }
+
+    #[test]
+    fn emergency_call_takes_the_floor_across_cells() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
+
+        site.from_cell(0, granted(4, 100, 91, C0));
+        site.tick();
+        site.net_got();
+
+        // Cell 1 starts an emergency call on the same group while cell 0 talks.
+        site.from_cell(1, cc(CallControl::SiteCallPriority { call_id: 6, priority: 15 }));
+        site.from_cell(1, granted(6, 200, 91, C1));
+        let (c0, _) = site.tick();
+        assert!(
+            c0.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCallStart { priority: 15, .. }))),
+            "cell 0 gets the emergency call at its priority (its CMCE pre-empts the local talker)"
+        );
+        let got = site.net_got();
+        assert!(
+            got.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::FloorGranted { .. }))),
+            "the emergency floor reaches the network"
+        );
+        assert!(
+            !got.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::SiteCallPriority { .. }))),
+            "the priority hint itself never does"
+        );
     }
 }

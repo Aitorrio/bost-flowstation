@@ -202,4 +202,7 @@ pub enum CallControl {
     },
     /// Circuit-call release
     NetworkCircuitRelease { brew_uuid: uuid::Uuid, cause: u8 },
+    /// Multi-cell only (CMCE → site switch, never forwarded to Brew/LST): priority of the local
+    /// group call whose `FloorGranted` follows, so the other cells get it at the same priority.
+    SiteCallPriority { call_id: u16, priority: u8 },
 }
