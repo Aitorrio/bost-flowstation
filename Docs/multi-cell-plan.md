@@ -227,6 +227,3 @@ reading of clause 18.5 — verify with a terminal's field-test display.
   behind `[[cells]]` presence.
 - **Panic containment**: one cell's caught panic must not degrade others (per-cell health counters).
 
-## Suggested delivery
-Phases 1–2 ship as one beta ("independent multi-cell"), 3–4 as the next ("linked multi-cell"),
-5–6 as the release that promotes to stable. Rough total: 12–16 weeks for one developer.
