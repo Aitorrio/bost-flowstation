@@ -45,62 +45,74 @@ pub struct PhyIoDto {
 }
 
 pub fn phy_dto_to_cfg(src: PhyIoDto) -> CfgPhyIo {
-    let soapysdr = src.soapysdr.map(|soapy_dto| {
-        CfgSoapySdr {
-            ul_freq: soapy_dto.rx_freq,
-            dl_freq: soapy_dto.tx_freq,
-            rx_center_freq: soapy_dto.rx_center_freq,
-            tx_center_freq: soapy_dto.tx_center_freq,
-            ppm_err: soapy_dto.ppm_err.unwrap_or(0.0),
-            device: soapy_dto.device,
-            fs: soapy_dto.sample_rate,
-            rx_ch: soapy_dto.rx_channel,
-            tx_ch: soapy_dto.tx_channel,
-            rx_ant: soapy_dto.rx_antenna,
-            tx_ant: soapy_dto.tx_antenna,
-            rx_gains: soapy_dto
-                .extra
-                .iter()
-                .filter_map(|(key, value)| {
-                    key.strip_prefix("rx_gain_").map(|gain_name| {
-                        (
-                            gain_name.to_string().to_lowercase(),
-                            match value {
-                                Value::Integer(v) => *v as f64,
-                                Value::Float(v) => *v,
-                                // TODO: should this error be returned somehow?
-                                _ => panic!("RX gain value must be a number"),
-                            },
-                        )
-                    })
-                })
-                .collect(),
-            tx_gains: soapy_dto
-                .extra
-                .iter()
-                .filter_map(|(key, value)| {
-                    key.strip_prefix("tx_gain_").map(|gain_name| {
-                        (
-                            gain_name.to_string().to_lowercase(),
-                            match value {
-                                Value::Integer(v) => *v as f64,
-                                Value::Float(v) => *v,
-                                // TODO: should this error be returned somehow?
-                                _ => panic!("TX gain value must be a number"),
-                            },
-                        )
-                    })
-                })
-                .collect(),
-        }
-    });
-
     CfgPhyIo {
         backend: src.backend,
         dl_tx_file: src.dl_tx_file,
         ul_rx_file: src.ul_rx_file,
         ul_input_file: src.ul_input_file,
         dl_input_file: src.dl_input_file,
-        soapysdr,
+        soapysdr: src.soapysdr.map(soapy_dto_to_cfg),
+    }
+}
+
+/// Keys in a `soapysdr` table that are not recognised fields (gain keys excluded).
+pub fn soapy_dto_unknown_keys(dto: &SoapySdrDto) -> Vec<&str> {
+    let mut keys: Vec<&str> = dto
+        .extra
+        .keys()
+        .map(|k| k.as_str())
+        .filter(|k| !(k.starts_with("rx_gain_") || k.starts_with("tx_gain_")))
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+pub fn soapy_dto_to_cfg(soapy_dto: SoapySdrDto) -> CfgSoapySdr {
+    CfgSoapySdr {
+        ul_freq: soapy_dto.rx_freq,
+        dl_freq: soapy_dto.tx_freq,
+        rx_center_freq: soapy_dto.rx_center_freq,
+        tx_center_freq: soapy_dto.tx_center_freq,
+        ppm_err: soapy_dto.ppm_err.unwrap_or(0.0),
+        device: soapy_dto.device,
+        fs: soapy_dto.sample_rate,
+        rx_ch: soapy_dto.rx_channel,
+        tx_ch: soapy_dto.tx_channel,
+        rx_ant: soapy_dto.rx_antenna,
+        tx_ant: soapy_dto.tx_antenna,
+        rx_gains: soapy_dto
+            .extra
+            .iter()
+            .filter_map(|(key, value)| {
+                key.strip_prefix("rx_gain_").map(|gain_name| {
+                    (
+                        gain_name.to_string().to_lowercase(),
+                        match value {
+                            Value::Integer(v) => *v as f64,
+                            Value::Float(v) => *v,
+                            // TODO: should this error be returned somehow?
+                            _ => panic!("RX gain value must be a number"),
+                        },
+                    )
+                })
+            })
+            .collect(),
+        tx_gains: soapy_dto
+            .extra
+            .iter()
+            .filter_map(|(key, value)| {
+                key.strip_prefix("tx_gain_").map(|gain_name| {
+                    (
+                        gain_name.to_string().to_lowercase(),
+                        match value {
+                            Value::Integer(v) => *v as f64,
+                            Value::Float(v) => *v,
+                            // TODO: should this error be returned somehow?
+                            _ => panic!("TX gain value must be a number"),
+                        },
+                    )
+                })
+            })
+            .collect(),
     }
 }

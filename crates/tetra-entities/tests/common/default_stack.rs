@@ -20,6 +20,7 @@ pub fn default_test_config_bs() -> StackConfig {
         phy_io,
         net: net_info,
         cell: cell_info,
+        extra_cells: Vec::new(),
         brew: None,
         lst_dispatch: None,
         asterisk: CfgAsterisk::default(),

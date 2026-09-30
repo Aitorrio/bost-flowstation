@@ -12,6 +12,7 @@ use crate::bluestation::{CellInfoDto, CfgControlDto, NetInfoDto, apply_control_p
 use super::config::{StackConfig, StackMode};
 use super::sec_asterisk::{CfgAsteriskDto, apply_asterisk_patch};
 use super::sec_brew::{CfgBrewDto, apply_brew_patch};
+use super::sec_cells::parse_extra_cells;
 use super::sec_dapnet::{CfgDapnetDto, apply_dapnet_patch};
 use super::sec_dashboard::{CfgDashboardDto, apply_dashboard_patch};
 use super::sec_emergency::{CfgEmergencyDto, apply_emergency_patch};
@@ -78,6 +79,16 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
             None
         }
     });
+
+    // Extract [[cells]] (additional cells for multi-cell operation). Each entry's cell_info
+    // overrides are merged on top of the primary [cell_info] as it stands now, i.e. without the
+    // neighbour list and SDS command control that were removed above.
+    let raw_cells = raw.remove("cells");
+    let primary_cell_info_raw = match raw.get("cell_info") {
+        Some(Value::Table(t)) => t.clone(),
+        _ => toml::Table::new(),
+    };
+    let extra_cells = parse_extra_cells(raw_cells, &primary_cell_info_raw)?;
 
     // Now deserialise the (mutated) Value into the typed root — neighbor_cells_ca
     // has been removed so it will not appear in the flatten HashMap.
@@ -240,6 +251,7 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         phy_io: phy_dto_to_cfg(root.phy_io),
         net: net_dto_to_cfg(root.net_info),
         cell: cell_cfg,
+        extra_cells,
         brew: None,
         lst_dispatch: None,
         asterisk: apply_asterisk_patch(root.asterisk.unwrap_or_default())?,

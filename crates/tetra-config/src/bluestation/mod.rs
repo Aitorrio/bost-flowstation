@@ -13,6 +13,9 @@ pub use sec_net::*;
 pub mod sec_cell;
 pub use sec_cell::*;
 
+pub mod sec_cells;
+pub use sec_cells::*;
+
 pub mod sec_phy_soapy;
 pub use sec_phy_soapy::*;
 

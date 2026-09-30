@@ -469,6 +469,18 @@ fn main() {
         );
     }
 
+    // Multi-cell: [[cells]] is parsed and validated, but only the primary cell runs until
+    // per-cell stacks land (multi-cell plan, phase 2).
+    let stack_config = cfg.config();
+    let extra_cells = &stack_config.extra_cells;
+    if !extra_cells.is_empty() {
+        tracing::warn!(
+            "{} additional cell(s) configured ({}), but multi-cell is not active yet — running the primary cell only",
+            extra_cells.len(),
+            extra_cells.iter().map(|c| c.id.to_string()).collect::<Vec<_>>().join(", ")
+        );
+    }
+
     let lst_handle = {
         let lst_on = cfg
             .config()

@@ -878,3 +878,29 @@ voice_service = true
 # auth_user = "flowstation"
 # password = ""
 # realm = "asterisk"
+
+###############################################################################
+# OPTIONAL / EXPERIMENTAL: additional cells (multi-cell, one SDR per cell)
+#
+# Each [[cells]] entry adds one more cell driven by its own SDR. Its
+# [cells.cell_info] keys override the primary [cell_info] (anything not set is
+# inherited); neighbor_cells_ca and sds_command_control cannot be set per cell.
+# [cells.soapysdr] takes the same keys as [phy_io.soapysdr].
+# Rules: ids 1-7, every carrier unique across all cells, same freq_band, and
+# with SoapySdr every cell (including the primary) must set a unique `device`.
+# NOTE: parsed and validated only for now — the station still runs the primary
+# cell alone until multi-cell support is completed.
+#
+# [[cells]]
+# id = 1
+# enabled = true                   # optional, default true
+#
+# [cells.cell_info]
+# main_carrier = 1525
+# colour_code = 2
+#
+# [cells.soapysdr]
+# device = "driver=plutosdr,uri=ip:192.168.3.1"
+# tx_freq = 438125000
+# rx_freq = 433125000
+###############################################################################

@@ -1,10 +1,11 @@
 use serde::Deserialize;
 use std::sync::{Arc, RwLock};
+use tetra_core::CellId;
 use tetra_core::freqs::FreqInfo;
 
 use crate::bluestation::{
-    CfgAsterisk, CfgCellInfo, CfgControl, CfgDapnet, CfgEmergency, CfgGeoalarm, CfgHealth, CfgNetInfo, CfgPhyIo, CfgRecovery, CfgSecurity,
-    CfgSnomNotify, CfgTpg2200Action, CfgWxService, PhyBackend, StackState,
+    CfgAsterisk, CfgCellInfo, CfgControl, CfgDapnet, CfgEmergency, CfgExtraCell, CfgGeoalarm, CfgHealth, CfgNetInfo, CfgPhyIo, CfgRecovery,
+    CfgSecurity, CfgSnomNotify, CfgSoapySdr, CfgTpg2200Action, CfgWxService, PhyBackend, StackState,
 };
 
 use super::sec_brew::CfgBrew;
@@ -73,6 +74,10 @@ pub struct StackConfig {
     pub net: CfgNetInfo,
     pub cell: CfgCellInfo,
 
+    /// Additional cells from `[[cells]]` (multi-cell: one SDR each). Empty for single-cell
+    /// configs. The primary cell (id 0) is always `cell` + `phy_io.soapysdr`.
+    pub extra_cells: Vec<CfgExtraCell>,
+
     /// Brew protocol (TetraPack/BrandMeister) configuration
     pub brew: Option<CfgBrew>,
 
@@ -127,15 +132,20 @@ pub struct StackConfig {
 impl StackConfig {
     /// Return BS phase-modulated carrier numbers and their DL/UL frequencies.
     pub fn bs_phase_mod_carriers(&self) -> Result<Vec<(u16, u32, u32)>, String> {
-        let mut carriers = Vec::with_capacity(if self.cell.secondary_carrier.is_some() { 2 } else { 1 });
-        for carrier in [Some(self.cell.main_carrier), self.cell.secondary_carrier].into_iter().flatten() {
+        Self::cell_phase_mod_carriers(&self.cell)
+    }
+
+    /// Carrier numbers and DL/UL frequencies of any cell.
+    pub fn cell_phase_mod_carriers(cell: &CfgCellInfo) -> Result<Vec<(u16, u32, u32)>, String> {
+        let mut carriers = Vec::with_capacity(if cell.secondary_carrier.is_some() { 2 } else { 1 });
+        for carrier in [Some(cell.main_carrier), cell.secondary_carrier].into_iter().flatten() {
             let freq_info = FreqInfo::from_components(
-                self.cell.freq_band,
+                cell.freq_band,
                 carrier,
-                self.cell.freq_offset_hz,
-                self.cell.reverse_operation,
-                self.cell.duplex_spacing_id,
-                self.cell.custom_duplex_spacing,
+                cell.freq_offset_hz,
+                cell.reverse_operation,
+                cell.duplex_spacing_id,
+                cell.custom_duplex_spacing,
             )?;
             let (dl_freq, ul_freq) = freq_info.get_freqs();
             carriers.push((carrier, dl_freq, ul_freq));
@@ -148,8 +158,144 @@ impl StackConfig {
         freqs_hz.iter().all(|freq| ((*freq as f64) - center_hz).abs() <= half_bw)
     }
 
+    /// Number of cells (SDRs) this station runs: the primary plus enabled `[[cells]]`.
+    pub fn cell_count(&self) -> usize {
+        1 + self.extra_cells.len()
+    }
+
+    /// All cells, primary first then `[[cells]]` in config order: (id, cell parameters, SDR settings).
+    pub fn cells(&self) -> Vec<(CellId, &CfgCellInfo, Option<&CfgSoapySdr>)> {
+        let mut v = vec![(CellId::PRIMARY, &self.cell, self.phy_io.soapysdr.as_ref())];
+        v.extend(self.extra_cells.iter().map(|c| (c.id, &c.cell, c.soapysdr.as_ref())));
+        v
+    }
+
     /// Validate that all required configuration fields are properly set.
-    pub fn validate(&self) -> Result<(), &str> {
+    pub fn validate(&self) -> Result<(), String> {
+        self.validate_primary().map_err(String::from)?;
+        self.validate_extra_cells()
+    }
+
+    /// Carrier and SDR passband checks shared by every cell.
+    fn validate_cell_rf(backend: PhyBackend, cell: &CfgCellInfo, soapy: Option<&CfgSoapySdr>) -> Result<(), &'static str> {
+        if let Some(secondary_carrier) = cell.secondary_carrier
+            && secondary_carrier == cell.main_carrier
+        {
+            return Err("cell.secondary_carrier must differ from cell.main_carrier");
+        }
+
+        if backend != PhyBackend::SoapySdr {
+            return Ok(());
+        }
+        let soapy_cfg = soapy.ok_or("soapysdr configuration must be provided for Soapysdr backend")?;
+
+        let carriers = Self::cell_phase_mod_carriers(cell).map_err(|_| "Invalid cell info frequency settings")?;
+        let (main_dl, main_ul) = carriers
+            .iter()
+            .find(|(carrier_num, _, _)| *carrier_num == cell.main_carrier)
+            .map(|(_, dl, ul)| (*dl, *ul))
+            .ok_or("main carrier missing from computed carrier list")?;
+
+        println!("    Derived BS carriers: {:?}\n", carriers);
+
+        if soapy_cfg.dl_freq as u32 != main_dl {
+            return Err("PhyIo DlFrequency does not match computed FreqInfo");
+        };
+        if soapy_cfg.ul_freq as u32 != main_ul {
+            return Err("PhyIo UlFrequency does not match computed FreqInfo");
+        };
+
+        if carriers.len() > 1 {
+            // A secondary carrier is in use: the SDR center + sample rate MUST be proven to cover
+            // both carriers. A missing sample rate fails closed — we cannot prove the passband
+            // fits, and silently skipping the check let an out-of-passband secondary carrier
+            // through (defeating the dashboard toggle's pre-restart validation).
+            let Some(sample_rate_hz) = soapy_cfg.fs else {
+                return Err(
+                    "dual carrier requires phy_io.soapysdr.sample_rate to be set so the secondary carrier can be proven to fit the SDR passband",
+                );
+            };
+            let dl_freqs: Vec<u32> = carriers.iter().map(|(_, dl, _)| *dl).collect();
+            let ul_freqs: Vec<u32> = carriers.iter().map(|(_, _, ul)| *ul).collect();
+            let (tx_center_hz, _) = soapy_cfg.effective_tx_center_freq_corrected();
+            let (rx_center_hz, _) = soapy_cfg.effective_rx_center_freq_corrected();
+
+            if !Self::frequencies_fit_center(tx_center_hz, sample_rate_hz, &dl_freqs) {
+                return Err("configured TX center/sample-rate do not cover all BS downlink carriers");
+            }
+            if !Self::frequencies_fit_center(rx_center_hz, sample_rate_hz, &ul_freqs) {
+                return Err("configured RX center/sample-rate do not cover all BS uplink carriers");
+            }
+        };
+        Ok(())
+    }
+
+    /// Per-cell and cross-cell checks for `[[cells]]`. No-op for single-cell configs.
+    fn validate_extra_cells(&self) -> Result<(), String> {
+        if self.extra_cells.is_empty() {
+            return Ok(());
+        }
+        if self.stack_mode != StackMode::Bs {
+            return Err("[[cells]] is only supported in Bs stack mode".into());
+        }
+
+        let mut seen_ids = std::collections::HashSet::from([CellId::PRIMARY]);
+        for c in &self.extra_cells {
+            if c.id.is_primary() {
+                return Err("cells: id 0 is reserved for the primary [cell_info]".into());
+            }
+            if c.id.0 > CellId::MAX {
+                return Err(format!("cells: id {} out of range (1-{})", c.id.0, CellId::MAX));
+            }
+            if !seen_ids.insert(c.id) {
+                return Err(format!("cells: duplicate id {}", c.id.0));
+            }
+            if c.cell.ms_txpwr_max_cell > 7 {
+                return Err(format!("{}: ms_txpwr_max_cell must be 0-7 (3 bits)", c.id));
+            }
+            Self::validate_cell_rf(self.phy_io.backend, &c.cell, c.soapysdr.as_ref()).map_err(|e| format!("{}: {e}", c.id))?;
+        }
+
+        let cells = self.cells();
+
+        // Every cell broadcasts the same network identity; only RF parameters may differ.
+        let primary = &self.cell;
+        for (id, cell, _) in &cells[1..] {
+            if cell.freq_band != primary.freq_band {
+                return Err(format!("{id}: freq_band must match the primary cell"));
+            }
+        }
+
+        // No carrier may be used by two cells.
+        let mut seen_carriers = std::collections::HashMap::new();
+        for (id, cell, _) in &cells {
+            for carrier in [Some(cell.main_carrier), cell.secondary_carrier].into_iter().flatten() {
+                if let Some(other) = seen_carriers.insert(carrier, *id) {
+                    return Err(format!("carrier {carrier} is used by both {other} and {id}"));
+                }
+            }
+        }
+
+        // With real SDRs every cell must name its device, and no two cells may share one.
+        if self.phy_io.backend == PhyBackend::SoapySdr {
+            let mut seen_devices = std::collections::HashMap::new();
+            for (id, _, soapy) in &cells {
+                let device = soapy
+                    .and_then(|s| s.device.as_deref())
+                    .map(str::trim)
+                    .filter(|d| !d.is_empty())
+                    .ok_or_else(|| format!("{id}: soapysdr.device must be set when running more than one cell"))?;
+                if let Some(other) = seen_devices.insert(device.to_string(), *id) {
+                    return Err(format!("{other} and {id} use the same SDR device '{device}'"));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks for the primary cell and all station-wide settings.
+    fn validate_primary(&self) -> Result<(), &'static str> {
         // Check input device settings
         match self.phy_io.backend {
             PhyBackend::SoapySdr => {
@@ -163,59 +309,7 @@ impl StackConfig {
             }
         };
 
-        if let Some(secondary_carrier) = self.cell.secondary_carrier
-            && secondary_carrier == self.cell.main_carrier
-        {
-            return Err("cell.secondary_carrier must differ from cell.main_carrier");
-        }
-
-        // Sanity check on computed BS carrier frequencies and SDR settings.
-        if self.phy_io.backend == PhyBackend::SoapySdr {
-            let soapy_cfg = self
-                .phy_io
-                .soapysdr
-                .as_ref()
-                .expect("SoapySdr config must be set for SoapySdr PhyIo");
-
-            let carriers = self.bs_phase_mod_carriers().map_err(|_| "Invalid cell info frequency settings")?;
-            let (main_dl, main_ul) = carriers
-                .iter()
-                .find(|(carrier_num, _, _)| *carrier_num == self.cell.main_carrier)
-                .map(|(_, dl, ul)| (*dl, *ul))
-                .ok_or("main carrier missing from computed carrier list")?;
-
-            println!("    Derived BS carriers: {:?}\n", carriers);
-
-            if soapy_cfg.dl_freq as u32 != main_dl {
-                return Err("PhyIo DlFrequency does not match computed FreqInfo");
-            };
-            if soapy_cfg.ul_freq as u32 != main_ul {
-                return Err("PhyIo UlFrequency does not match computed FreqInfo");
-            };
-
-            if carriers.len() > 1 {
-                // A secondary carrier is in use: the SDR center + sample rate MUST be proven to cover
-                // both carriers. A missing sample rate fails closed — we cannot prove the passband
-                // fits, and silently skipping the check let an out-of-passband secondary carrier
-                // through (defeating the dashboard toggle's pre-restart validation).
-                let Some(sample_rate_hz) = soapy_cfg.fs else {
-                    return Err(
-                        "dual carrier requires phy_io.soapysdr.sample_rate to be set so the secondary carrier can be proven to fit the SDR passband",
-                    );
-                };
-                let dl_freqs: Vec<u32> = carriers.iter().map(|(_, dl, _)| *dl).collect();
-                let ul_freqs: Vec<u32> = carriers.iter().map(|(_, _, ul)| *ul).collect();
-                let (tx_center_hz, _) = soapy_cfg.effective_tx_center_freq_corrected();
-                let (rx_center_hz, _) = soapy_cfg.effective_rx_center_freq_corrected();
-
-                if !Self::frequencies_fit_center(tx_center_hz, sample_rate_hz, &dl_freqs) {
-                    return Err("configured TX center/sample-rate do not cover all BS downlink carriers");
-                }
-                if !Self::frequencies_fit_center(rx_center_hz, sample_rate_hz, &ul_freqs) {
-                    return Err("configured RX center/sample-rate do not cover all BS uplink carriers");
-                }
-            };
-        }
+        Self::validate_cell_rf(self.phy_io.backend, &self.cell, self.phy_io.soapysdr.as_ref())?;
 
         if self.cell.ms_txpwr_max_cell > 7 {
             return Err("ms_txpwr_max_cell must be 0-7 (3 bits)");
