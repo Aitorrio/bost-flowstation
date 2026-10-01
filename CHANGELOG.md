@@ -9,6 +9,7 @@ Respaldar o clonar una estación sin copiar a mano `/etc/flowstation`, y compart
 - **Sistema → Copia de seguridad**: exportar/importar `.bptbs` (config viva, perfiles, setup/fallback, TOMLs hermanos, Wi-Fi SSID+PSK). Al importar se conserva el canal OTA local, se limpia `source_dir` inválido, se fusionan redes Wi-Fi por SSID y se reinicia.
 - **Config → perfiles TMO**: exportar/importar `.ptbs` (solo árbol de perfiles). Sin reinicio automático — usa Aplicar y reiniciar para ponerlos al aire.
 - APIs autenticadas `GET/POST /api/station|profiles/export|import` (ZIP, hasta 32 MiB en estación).
+- Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
 
 ## v0.4.6 — LST: RX verde / double-PTT solo con tráfico real
 
