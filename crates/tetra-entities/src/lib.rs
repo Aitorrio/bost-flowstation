@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod aie;
 pub mod cmce;
 pub mod entity_trait;
 pub mod llc;

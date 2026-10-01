@@ -146,3 +146,25 @@ encrypted radio says is ever sent in clear.
 
 - Which TEA the MTH800/850 are licensed for, and whether their codeplug has class 2 enabled.
 - Source of the TB5/TEA implementation (operator decision).
+
+## 8. Phase 1 — as built
+
+- `[security.aie]` (`class`, `ksg`, `sckn`, `sck`, `clear_groups`) parsed and validated in
+  `tetra-config` (`sec_security.rs`); the key is a `CipherKey` whose `Debug` is redacted.
+  Class 3 is refused at load time.
+- `crates/tetra-entities/src/aie/mod.rs` holds the policy: `effective()` (class 2 only when the
+  named TEA is built in — none is yet, so a configured key is logged and the cell stays class 1),
+  `sysinfo_security()` (unchanged broadcast without AIE), `registration_decision()`,
+  `may_communicate()`, `may_use_group()`.
+- Ciphering parameters decoded by `tetra_pdus::mm::fields::ciphering_parameters`. KSG number is
+  sent as TEA*n* − 1 and SCK number as SCKN − 1. [verify]
+- MM: decision at U-LOCATION UPDATE DEMAND (reject causes 13–16 for a wrong KSG / key type /
+  SCKN); per-radio mode in the client registry and in `SubscriberRegistry::encrypted`; attach
+  requests for other-mode groups dropped (registration and U-ATTACH).
+- CMCE: individual and group U-SETUP refused with "requested service not available" across
+  modes; SDS and status between modes dropped.
+- Not yet: the rule across cells of a multi-cell station (a radio on another cell has no local
+  mode, so it is not blocked) — phase 4; a radio that changes mode on re-registration keeps its
+  other-mode groups until it re-attaches.
+- Note for phase 2: an uplink burst says itself whether it is encrypted (MAC `encryption_mode`),
+  so UL decryption keys off the MAC header; the registered mode decides DL encryption.

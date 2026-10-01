@@ -27,6 +27,21 @@ impl CcBsSubentity {
         queue.push_back(msg);
     }
 
+    /// AIE mixed-cell rule between two local radios (see `crate::aie::may_communicate`).
+    pub(in crate::cmce::subentities::cc_bs) fn aie_may_communicate(&self, a: u32, b: u32) -> bool {
+        let state = self.config.state_read();
+        crate::aie::may_communicate(state.subscribers.encrypted(a), state.subscribers.encrypted(b))
+    }
+
+    /// AIE mixed-cell rule for a local radio using a group (see `crate::aie::may_use_group`).
+    pub(in crate::cmce::subentities::cc_bs) fn aie_may_use_group(&self, issi: u32, gssi: u32) -> bool {
+        let Some(encrypted) = self.config.state_read().subscribers.encrypted(issi) else {
+            return true;
+        };
+        let cfg = self.config.config();
+        crate::aie::may_use_group(crate::aie::effective(&cfg), encrypted, gssi)
+    }
+
     fn setup_collision_cause(&self, calling_issi: u32, called_issi: Option<u32>) -> Option<(u16, IndividualCallState, DisconnectCause)> {
         if let Some((call_id, state)) = self.find_individual_call_by_issi(calling_issi) {
             return Some((call_id, state, DisconnectCause::ConcurrentSetUpNotSupported));
@@ -84,6 +99,18 @@ impl CcBsSubentity {
         };
         let dest_gssi = dest_gssi as u32;
         let dest_addr = TetraAddress::new(dest_gssi, SsiType::Gssi);
+
+        // Mixed AIE cell: a radio only calls groups of its own mode (clear or encrypted).
+        if !self.aie_may_use_group(calling_party.ssi, dest_gssi) {
+            self.reject_setup_request(
+                queue,
+                message,
+                calling_party,
+                DisconnectCause::RequestedServiceNotAvailable,
+                "group belongs to the other encryption mode",
+            );
+            return;
+        }
 
         if !self.has_listener(dest_gssi) {
             tracing::info!(
@@ -518,6 +545,18 @@ impl CcBsSubentity {
         }
 
         let called_addr = TetraAddress::new(called_ssi, SsiType::Issi);
+
+        // Mixed AIE cell: clear and encrypted radios never talk to each other.
+        if !self.aie_may_communicate(calling_party.ssi, called_ssi) {
+            self.reject_setup_request(
+                queue,
+                message,
+                calling_party,
+                DisconnectCause::RequestedServiceNotAvailable,
+                "called radio uses the other encryption mode",
+            );
+            return;
+        }
 
         // PBX/phone calls (no concrete local ISSI) always go through Brew.
         if called_ssi == 0 {

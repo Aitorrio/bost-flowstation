@@ -95,6 +95,7 @@ impl MmBs {
                 "MM: access control posture: {} | air-interface authentication (EN 300 392-7 TEA) is NOT implemented — any radio can claim any ISSI; the whitelist is the only gate",
                 sec.access_control_posture()
             );
+            tracing::warn!("MM: air interface encryption: {}", crate::aie::posture(&cfg));
             if sec.honour_unauthenticated_detach {
                 tracing::warn!(
                     "MM: honouring unauthenticated U-ITSI-DETACH / migration teardown (only from an ISSI registered on the same link) — set [security] honour_unauthenticated_detach = false to refuse it entirely"
@@ -576,6 +577,31 @@ impl MmBs {
             return;
         }
 
+        // Air interface encryption (EN 300 392-7 clause 6.5): class 2 radios register with the
+        // cell's SCK; radios without AIE register in clear (mixed cell).
+        let ciphering = {
+            let cfg = self.config.config();
+            crate::aie::registration_decision(crate::aie::effective(&cfg), pdu.cipher_control, pdu.ciphering_parameters)
+        };
+        let ciphering = match ciphering {
+            crate::aie::CipherDecision::Clear => None,
+            crate::aie::CipherDecision::Encrypted(params) => Some(params),
+            crate::aie::CipherDecision::Reject(cause) => {
+                tracing::warn!(
+                    "MM: ISSI {} asked for ciphering {:?} the cell does not offer — rejecting with {:?}",
+                    issi,
+                    pdu.ciphering_parameters.map(tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters::from_bits),
+                    cause
+                );
+                Self::send_d_location_update_reject_cause(queue, issi, handle, pdu.location_update_type, pdu.address_extension, cause);
+                return;
+            }
+            crate::aie::CipherDecision::Unsupported => {
+                tracing::error!("MM: ISSI {} asked for ciphering but AIE is not active on this cell", issi);
+                return;
+            }
+        };
+
         // Check if we can satisfy this request, print unsupported stuff
         if !Self::feature_check_u_location_update_demand(&pdu) {
             tracing::error!("Unsupported critical features in ULocationUpdateDemand");
@@ -728,7 +754,10 @@ impl MmBs {
 
         // Process optional GroupIdentityLocationDemand field
         let _has_groups = pdu.group_identity_location_demand.is_some();
-        let gila = if let Some(gild) = pdu.group_identity_location_demand {
+        let gila = if let Some(mut gild) = pdu.group_identity_location_demand {
+            gild.group_identity_uplink = gild
+                .group_identity_uplink
+                .map(|giu| self.aie_filter_group_attach(issi, ciphering.is_some(), giu));
             // ETSI Table 16.49 (clause 16.10.17): mode=1 means "detach all currently
             // attached group identities and attach group identities defined in the
             // group identity uplink element."
@@ -829,6 +858,12 @@ impl MmBs {
             .and_then(|c| if c.clch_needed || c.common_scch { Some(0x01u64) } else { None });
 
         let _ = self.client_mgr.set_client_class_of_ms(issi, pdu.class_of_ms);
+        match ciphering {
+            Some(params) => tracing::info!("MS {} registered encrypted ({})", issi, params),
+            None => tracing::debug!("MS {} registered in clear", issi),
+        }
+        let _ = self.client_mgr.set_client_ciphering(issi, ciphering);
+        self.config.state_write().subscribers.set_encrypted(issi, ciphering.is_some());
 
         // Reset periodic registration timer on every successful registration.
         self.client_mgr.reset_registration_timer(issi);
@@ -1144,6 +1179,28 @@ impl MmBs {
         }
     }
 
+    /// AIE mixed cell: drop attach requests for groups of the other encryption mode, so a clear
+    /// radio never joins an encrypted group or the reverse. Detach requests always pass.
+    fn aie_filter_group_attach(&self, issi: u32, encrypted: bool, giu: Vec<GroupIdentityUplink>) -> Vec<GroupIdentityUplink> {
+        let cfg = self.config.config();
+        let aie = crate::aie::effective(&cfg);
+        giu.into_iter()
+            .filter(|g| {
+                let ok = g.group_identity_detachment_uplink.is_some()
+                    || g.gssi.is_none_or(|gssi| crate::aie::may_use_group(aie, encrypted, gssi));
+                if !ok {
+                    tracing::info!(
+                        "MM: ISSI {} ({}) may not attach GSSI {:?}: group of the other encryption mode",
+                        issi,
+                        if encrypted { "encrypted" } else { "clear" },
+                        g.gssi
+                    );
+                }
+                ok
+            })
+            .collect()
+    }
+
     fn rx_u_attach_detach_group_identity(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_attach_detach_group_identity");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
@@ -1284,6 +1341,8 @@ impl MmBs {
             tracing::warn!("rx_u_attach_detach_group_identity: group_identity_uplink missing after feature_check; ignoring");
             return;
         };
+        let encrypted = self.config.state_read().subscribers.encrypted(issi).unwrap_or(false);
+        let giu = self.aie_filter_group_attach(issi, encrypted, giu);
         let requested_n = giu.len();
         let (giu_clamped, dropped_giu) = if requested_n > MAX_GROUPS_PER_ATTACH {
             let (head, tail) = giu.split_at(MAX_GROUPS_PER_ATTACH);
@@ -2285,14 +2344,6 @@ impl MmBs {
         }
         if pdu.request_to_append_la == true {
             unimplemented_log!("Unsupported request_to_append_la == true");
-            supported = false;
-        }
-        if pdu.cipher_control == true {
-            unimplemented_log!("Unsupported cipher_control == true");
-            supported = false;
-        }
-        if pdu.ciphering_parameters.is_some() {
-            unimplemented_log!("Unsupported ciphering_parameters present");
             supported = false;
         }
         if pdu.la_information.is_some() {

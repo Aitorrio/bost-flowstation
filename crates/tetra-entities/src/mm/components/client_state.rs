@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::net_telemetry::{TelemetryEvent, channel::TelemetrySink};
 use tetra_core::TdmaTime;
 use tetra_pdus::mm::enums::energy_saving_mode::EnergySavingMode;
+use tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters;
 use tetra_pdus::mm::fields::class_of_ms::ClassOfMs;
 
 /// Frame-based energy-economy monitoring cycle length, in TDMA frames, per ETSI EN 300 392-2
@@ -64,6 +65,8 @@ pub struct MmClientProperties {
     /// Used to enforce periodic registration expiry (T351).
     pub last_registration_time: std::time::Instant,
     pub class_of_ms: Option<ClassOfMs>,
+    /// Air interface encryption agreed at the last registration; `None` = clear (class 1).
+    pub ciphering: Option<CipheringParameters>,
     /// Layer-2 handle from the last successful location update.
     /// Required for sending downlink MM PDUs (D-LOCATION-UPDATE-COMMAND etc.)
     /// to this MS. Set to 0 until the first location update is received.
@@ -95,6 +98,7 @@ impl MmClientProperties {
             grace_expires_at: None,
             last_registration_time: std::time::Instant::now(),
             class_of_ms: None,
+            ciphering: None,
             last_handle: 0,
             tei: None,
             // last_seen: TdmaTime::default(),
@@ -409,6 +413,21 @@ impl MmClientMgr {
         } else {
             Err(ClientMgrErr::ClientNotFound { issi })
         }
+    }
+
+    /// Store the ciphering agreed at registration (`None` = clear).
+    pub fn set_client_ciphering(&mut self, issi: u32, ciphering: Option<CipheringParameters>) -> Result<(), ClientMgrErr> {
+        if let Some(client) = self.clients.get_mut(&issi) {
+            client.ciphering = ciphering;
+            Ok(())
+        } else {
+            Err(ClientMgrErr::ClientNotFound { issi })
+        }
+    }
+
+    /// Whether a registered radio is encrypted; `None` when the ISSI is not registered here.
+    pub fn client_encrypted(&self, issi: u32) -> Option<bool> {
+        self.clients.get(&issi).map(|c| c.ciphering.is_some())
     }
 
     /// Store the TEI (Terminal Equipment Identity) received from U-TEI-PROVIDE.

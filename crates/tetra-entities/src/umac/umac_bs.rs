@@ -11,7 +11,6 @@ use tetra_pdus::umac::enums::mac_pdu_type::MacPduType;
 use tetra_pdus::umac::enums::sysinfo_opt_field_flag::SysinfoOptFieldFlag;
 use tetra_pdus::umac::fields::channel_allocation::ChanAllocElement;
 use tetra_pdus::umac::fields::sysinfo_default_def_for_access_code_a::SysinfoDefaultDefForAccessCodeA;
-use tetra_pdus::umac::fields::sysinfo_ext_services::SysinfoExtendedServices;
 use tetra_pdus::umac::pdus::mac_access::MacAccess;
 use tetra_pdus::umac::pdus::mac_data::MacData;
 use tetra_pdus::umac::pdus::mac_end_hu::MacEndHu;
@@ -191,22 +190,8 @@ impl UmacBs {
     pub fn generate_precomps(config: &SharedConfig) -> PrecomputedUmacPdus {
         let c = config.config();
 
-        // TODO FIXME make more/all parameters configurable
-        let ext_services = SysinfoExtendedServices {
-            auth_required: false,
-            class1_supported: true,
-            class2_supported: true,
-            class3_supported: false,
-            sck_n: Some(0),
-            dck_retrieval_during_cell_select: None,
-            dck_retrieval_during_cell_reselect: None,
-            linked_gck_crypto_periods: None,
-            short_gck_vn: None,
-            sdstl_addressing_method: 2,
-            gck_supported: false,
-            section: 0,
-            section_data: 0,
-        };
+        // Security part of the broadcast (AIE service bit, extended services element).
+        let (aie_service, ext_services) = crate::aie::sysinfo_security(crate::aie::effective(&c));
 
         let def_access = SysinfoDefaultDefForAccessCodeA {
             imm: 8,
@@ -273,7 +258,7 @@ impl UmacBs {
                 voice_service: c.cell.voice_service,
                 circuit_mode_data_service: c.cell.circuit_mode_data_service,
                 sndcp_service: c.cell.sndcp_service,
-                aie_service: c.cell.aie_service,
+                aie_service: c.cell.aie_service || aie_service,
                 advanced_link: c.cell.advanced_link,
             },
         };

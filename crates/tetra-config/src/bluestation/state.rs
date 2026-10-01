@@ -33,6 +33,8 @@ pub struct Subscriber {
     pub issi: u32,
     // Set of attached GSSIs
     pub attached_groups: HashSet<u32>,
+    /// Registered with air interface encryption (class 2); false = clear.
+    pub encrypted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -89,6 +91,7 @@ impl SubscriberRegistry {
             Subscriber {
                 issi,
                 attached_groups: HashSet::new(),
+                encrypted: false,
             },
         );
     }
@@ -98,7 +101,20 @@ impl SubscriberRegistry {
         self.subscribers.entry(issi).or_insert_with(|| Subscriber {
             issi,
             attached_groups: HashSet::new(),
+            encrypted: false,
         })
+    }
+
+    /// Records whether a registered radio uses air interface encryption. No-op if unregistered.
+    pub fn set_encrypted(&mut self, issi: u32, encrypted: bool) {
+        if let Some(s) = self.subscribers.get_mut(&issi) {
+            s.encrypted = encrypted;
+        }
+    }
+
+    /// Whether a locally registered radio is encrypted; `None` when the ISSI is not registered.
+    pub fn encrypted(&self, issi: u32) -> Option<bool> {
+        self.subscribers.get(&issi).map(|s| s.encrypted)
     }
 
     /// Deregister an ISSI, removing it from the registry and cleaning up any group affiliations

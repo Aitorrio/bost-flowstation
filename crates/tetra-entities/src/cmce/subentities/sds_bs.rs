@@ -288,6 +288,23 @@ impl SdsBsSubentity {
     /// monitoring window (so an unsolicited SDS sent now would be missed — defer it to the window).
     /// Returns false for StayAlive / unknown MSs (absent from the published map) and whenever the
     /// window is open, i.e. those are delivered immediately. (ETSI EN 300 392-2 §16.7.)
+    /// AIE mixed-cell rule: a clear radio and an encrypted one never exchange SDS or status, and
+    /// a radio only sends to groups of its own mode. `dest_ssi` may be an ISSI or a GSSI.
+    fn aie_allows(&self, source_ssi: u32, dest_ssi: u32) -> bool {
+        let state = self.config.state_read();
+        let Some(src_encrypted) = state.subscribers.encrypted(source_ssi) else {
+            return true;
+        };
+        if let Some(dest_encrypted) = state.subscribers.encrypted(dest_ssi) {
+            return crate::aie::may_communicate(Some(src_encrypted), Some(dest_encrypted));
+        }
+        if state.subscribers.has_group_members(dest_ssi) {
+            let cfg = self.config.config();
+            return crate::aie::may_use_group(crate::aie::effective(&cfg), src_encrypted, dest_ssi);
+        }
+        true
+    }
+
     fn ee_window_blocks(&self, dest_ssi: u32) -> bool {
         let state = self.config.state_read();
         match state.ee_monitoring_windows.get(&dest_ssi) {
@@ -511,6 +528,11 @@ impl SdsBsSubentity {
                 });
                 return;
             }
+        }
+
+        if !self.aie_allows(source_ssi, dest_ssi) {
+            tracing::info!("SDS: {} -> {} dropped: the two use different encryption modes", source_ssi, dest_ssi);
+            return;
         }
 
         // Route: local delivery (ISSI or GSSI), Brew forward, or drop
@@ -928,6 +950,11 @@ impl SdsBsSubentity {
         // opts in via [emergency] forward_to_brew. Non-emergency statuses keep their normal routing.
         let is_emergency = matches!(pdu.pre_coded_status, PreCodedStatus::Emergency);
         let brew_ok = net_brew::is_active(&self.config) && (!is_emergency || self.config.config().emergency.forward_to_brew);
+
+        if !self.aie_allows(source_ssi, dest_ssi) {
+            tracing::info!("SDS-STATUS: {} -> {} dropped: the two use different encryption modes", source_ssi, dest_ssi);
+            return;
+        }
 
         // Route: local delivery, Brew forward, or drop
         if self.config.state_read().subscribers.is_registered(dest_ssi) {

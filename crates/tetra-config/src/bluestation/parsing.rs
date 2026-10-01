@@ -264,7 +264,7 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         dashboard: None,
         telemetry: None,
         control: None,
-        security: apply_security_patch(root.security.unwrap_or_default()),
+        security: apply_security_patch(root.security.unwrap_or_default())?,
         wx_service: apply_wx_service_patch(root.wx_service.unwrap_or_default()),
         recovery: apply_recovery_patch(root.recovery.unwrap_or_default()),
         telegram: None,
