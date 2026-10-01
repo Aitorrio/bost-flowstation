@@ -137,6 +137,13 @@ impl<T: NetworkTransport> TelemetryWorker<T> {
             Ok(()) => {
                 tracing::info!("Telemetry transport connected");
                 self.connected = true;
+                // Announce the release first so the server can label this BTS. Sent directly, not
+                // via forward_event, which reconnects on failure and would recurse.
+                let payload = TelemetryCodecJson.encode(&TelemetryEvent::station_version());
+                if let Err(e) = self.transport.send_reliable(&payload) {
+                    tracing::warn!("Telemetry version announce failed: {}, will reconnect", e);
+                    self.connected = false;
+                }
             }
             Err(e) => {
                 tracing::warn!("Telemetry transport connection failed: {}, will retry in {:?}", e, RECONNECT_DELAY);

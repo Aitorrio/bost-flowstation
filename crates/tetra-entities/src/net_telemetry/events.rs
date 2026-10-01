@@ -237,6 +237,28 @@ pub enum TelemetryEvent {
     /// SDR, so the RF page can show every cell. The primary's are sent untagged, as before.
     /// Appended last for bitcode wire-stability.
     CellRf { cell: u8, event: CellRfEvent },
+    /// The station's software version, sent to the telemetry server (e.g. the Brew server) every
+    /// time the link connects so it can show which release each BTS runs. Appended last for
+    /// bitcode wire-stability.
+    StationVersion {
+        /// Bost FlowStation release, e.g. "v0.5.1".
+        version: String,
+        /// Release plus build hash, e.g. "v0.5.1-5a76db7".
+        build: String,
+        /// Upstream FlowStation version the release is based on.
+        upstream: String,
+    },
+}
+
+impl TelemetryEvent {
+    /// This build's [`TelemetryEvent::StationVersion`].
+    pub fn station_version() -> Self {
+        TelemetryEvent::StationVersion {
+            version: tetra_core::PRODUCT_VERSION.to_string(),
+            build: tetra_core::STACK_VERSION.to_string(),
+            upstream: tetra_core::UPSTREAM_VERSION.to_string(),
+        }
+    }
 }
 
 /// The RF events an additional cell's SDR reports, mirroring the `TelemetryEvent` variants of the
