@@ -2,6 +2,12 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.2 — Multi-celda: RF de cada celda y versión en la telemetría
+
+- **Página RF por celda.** Cada celda adicional envía ahora su espectro, constelación, cascada, calidad de señal (EVM, PAPR, fuga de portadora, ancho de banda) y salud del SDR (temperatura, ganancias). Pestañas compactas arriba de la página RF eligen la celda; cada celda conserva su propio historial de cascada.
+- **Versión de la estación en la telemetría.** Nuevo evento `StationVersion` (versión, build y versión base) al conectar con el servidor de telemetría; brew-server la muestra junto a la IP de la BTS.
+- **Menos tráfico de telemetría.** El espectro y la constelación (~5 KB, cinco veces por segundo y celda) ya no se envían al servidor de telemetría; solo los usa la página RF local. EVM, PAPR y salud del SDR se siguen enviando, por celda (`CellRf`).
+
 ## v0.5.1 — Multi-celda: SDS de red y telemetría de celdas
 
 - **SDS de la red a radios de celdas adicionales.** Un SDS llegado por Brew (incluido el SMS Center de brew-server) para una radio registrada en una celda adicional se descartaba sin respuesta; ahora se entrega en su celda y Brew recibe el `SDS_REPORT`.
