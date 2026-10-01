@@ -481,6 +481,9 @@ impl StackConfig {
                 if !seen_carriers.insert(cell.main_carrier_number) {
                     return Err("cell.neighbor_cells_ca: duplicate main_carrier_number — each neighbour must be on a different carrier");
                 }
+                if cell.main_carrier_number == self.cell.main_carrier {
+                    return Err("cell.neighbor_cells_ca: main_carrier_number is this cell's own main_carrier — a cell cannot be its own neighbour");
+                }
             }
         }
 
