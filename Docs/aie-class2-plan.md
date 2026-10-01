@@ -245,5 +245,6 @@ encrypted radio says is ever sent in clear.
     TCH/S type-1 bits = class-sorted order, the uplink TDMA time used for the IV (the stack's
     usual "downlink time − 2 slots" label).
   - Multi-cell: the clear/encrypted rule is not applied across cells yet (phase 4).
-- Switch: `MAC_ENCRYPTION_READY` in `aie/mod.rs`.
+- Switch: `MAC_ENCRYPTION_READY` in `aie/mod.rs` — **on**: a cell runs class 2 when its config has
+  `[security.aie] class = 2`; every other cell is unchanged.
 - Reminder: TEA1 keeps 32 bits of key state (TS 104 053-1 clause 5.2.2).

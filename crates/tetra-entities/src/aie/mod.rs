@@ -1,9 +1,9 @@
 //! Air interface encryption, security class 2 (EN 300 392-7 clause 6). Design and phases:
 //! `Docs/aie-class2-plan.md`.
 //!
-//! Built so far: the policy and signalling around AIE (phase 1), and the TEA1 key stream
-//! generator, TB5 and the IV (phase 2). The MAC layer does not encrypt yet, so the cell keeps
-//! advertising class 1 and a configured `[security.aie]` is reported and otherwise ignored.
+//! Built: the policy and signalling around AIE (phase 1), and TEA1, TB5, TA61 and MAC-layer
+//! encryption of signalling and voice (phase 2). A cell runs class 2 only when
+//! `[security.aie] class = 2` is configured; open points are listed in the plan.
 
 pub mod cipher;
 pub mod ta61;
@@ -19,9 +19,9 @@ pub fn ksg_available(tea: u8) -> bool {
     tea == 1
 }
 
-/// Whether the MAC layer encrypts and decrypts yet. Until it does (phase 2, with TA61 for the
-/// addresses), the cell must not advertise class 2, whatever key stream generators exist.
-const MAC_ENCRYPTION_READY: bool = false;
+/// Whether the MAC layer encrypts and decrypts. On since phase 2; a cell still runs class 2 only
+/// when `[security.aie] class = 2` is configured.
+const MAC_ENCRYPTION_READY: bool = true;
 
 /// TB5 (TS 104 053-3 clause 5.23): the encryption key of one carrier, ECK = CK XOR
 /// [LA:14 CN:12 CC:6 CN:12 CC:6 CN:12 CC:6 CN:12] (TS 100 392-7 clause 6.3.2.2).
@@ -58,7 +58,7 @@ pub fn posture(cfg: &StackConfig) -> String {
     match (&cfg.security.aie, effective(cfg)) {
         (None, _) => "class 1 (clear) — no [security.aie] configured".to_string(),
         (Some(a), Some(_)) => format!(
-            "class 2 — TEA{} SCKN {}, clear radios allowed on {} clear group(s)",
+            "class 2 (EXPERIMENTAL, not yet proven on air) — TEA{} SCKN {}, clear radios allowed on {} clear group(s)",
             a.ksg,
             a.sckn,
             a.clear_groups.len()
@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn configured_aie_stays_off_without_a_ksg() {
+    fn configured_aie_turns_class2_on() {
         let toml = r#"
 config_version = "0.6"
 stack_mode = "Bs"
@@ -285,7 +285,7 @@ clear_groups = [100]
 "#;
         let cfg = tetra_config::bluestation::parsing::from_toml_str(toml).unwrap();
         assert_eq!(cfg.security.aie.as_ref().map(|a| a.clear_groups.clone()), Some(vec![100]));
-        assert!(effective(&cfg).is_none());
-        assert!(posture(&cfg).contains("not finished"));
+        assert!(effective(&cfg).is_some());
+        assert!(posture(&cfg).starts_with("class 2"));
     }
 }
