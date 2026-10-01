@@ -4,8 +4,8 @@ Status: **design draft**, nothing implemented. Target radios: Motorola MTH800 / 
 
 Normative reference: **ETSI TS 100 392-7 V4.2.1 (2026-04)** (TETRA V+D security), clause 6
 (air interface encryption) and Annex A, with the PDU encodings in EN 300 392-2 (clause 16 MM,
-clause 21 MAC). Local copy (not committed): `Docs/spec/ts_10039207v040201p.pdf`. The MAC PDU
-field positions come from EN 300 392-2 and the existing parsers; they are not checked here.
+clause 21 MAC), checked against **ETSI TS 100 392-2 V3.10.1 (2023-03)**. Local copies (not
+committed): `Docs/spec/ts_10039207v040201p.pdf`, `Docs/spec/ts_10039202v031001p.pdf`.
 
 ## 0. Checked against TS 100 392-7 V4.2.1
 
@@ -26,6 +26,17 @@ field positions come from EN 300 392-2 and the existing parsers; they are not ch
 | What is encrypted | cl. 6.7.1.2 | MAC-RESOURCE and DL MAC-END: everything after the channel allocation flag (and the TM-SDU); KSS is per timeslot (max 432 bits on π/4-DQPSK) |
 | Address | cl. 4.2.6, 6.7.1.2 | With TEA set A, whenever a MAC PDU is encrypted its SSI is replaced by the **ESI = TA61(SSI, SCK)** — for individual, group and broadcast addresses. Event label, usage marker, USSI and SMI are not encrypted |
 | Key changes | cl. 6.3.2.0 | Change the SCK within 23 days to avoid IV reuse (recommendation) |
+
+Checked against TS 100 392-2 V3.10.1 — the existing parsers match:
+
+| Item | Spec | Result |
+|---|---|---|
+| U-LOCATION UPDATE DEMAND / D-LOCATION UPDATE REJECT | Tables 16.18, 16.13 | Cipher control (1) then ciphering parameters (10, if cipher control = 1) — as parsed and now sent |
+| MAC-RESOURCE | Table 21.55 | type (2), fill (1), position of grant (1), encryption mode (2), random access (1), length (6), address type (3), address … — matches `mac_resource.rs`. The address sits before the channel allocation flag, so it is protected by ESI, not by the key stream |
+| MAC-ACCESS / MAC-DATA / MAC-U-BLCK | Tables 21.41, 21.46, 21.52 | Encrypted flag right after the fill bit indication — matches the parsers |
+| SYSINFO | Table 21.65 | Hyperframe / cipher key flag (1): 0 → hyperframe number (16), 1 → CCK id **or SCK-VN** (16) — matches `mac_sysinfo.rs`; phase 2 sends some SYSINFOs with flag 1 and the SCK-VN |
+| Security information (ext. services) | TS 100 392-7 Table A.104 | Authentication (1), class 1 (1), class 2/3 (1: 0 = class 2), SCKN (5) — matches `sysinfo_ext_services.rs` |
+| BS service details | Table 18.26 | … reserved, SNDCP, **AIE**, advanced link — matches `bs_service_details.rs` |
 
 **Consequence for phase 2:** besides TB5 and TEA1, the station needs **TA61** (ESI). The BS
 keeps an ESI ↔ SSI table for every registered ISSI, every group in use and the broadcast address,
