@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::net_telemetry::events::TelemetryEvent;
+use crate::net_telemetry::events::{CellRfEvent, TelemetryEvent};
 
 /// Queue depth per telemetry channel.
 ///
@@ -100,6 +100,14 @@ impl TelemetrySink {
     pub fn send(&self, event: TelemetryEvent) {
         let Some(cell) = self.cell else {
             return self.push(event);
+        };
+        let event = if cell != 0 {
+            match CellRfEvent::from_event(event) {
+                Ok(rf) => return self.push(TelemetryEvent::CellRf { cell, event: rf }),
+                Err(event) => event,
+            }
+        } else {
+            event
         };
         let mut event = event;
         let ended = matches!(

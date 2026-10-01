@@ -17,6 +17,7 @@ use crate::net_dashboard::dashboard_ports::{LEGACY_HTTP_PORT, LEGACY_HTTPS_PORT}
 use crate::net_dashboard::html::DASHBOARD_HTML;
 use crate::net_dashboard::state::{CallEntry, DashboardState, DashboardStateInner, MsEntry, MsGroupState};
 use crate::net_telemetry::TelemetryEvent;
+use crate::net_telemetry::events::CellRfEvent;
 use crate::tpg2200::build_tpg2200_callout_payload;
 
 type CmdSender = crossbeam_channel::Sender<ControlCommand>;
@@ -2035,6 +2036,9 @@ impl DashboardServer {
     }
 
     pub fn handle_telemetry(&self, event: TelemetryEvent) {
+        if let TelemetryEvent::CellRf { cell, event: rf } = &event {
+            return self.handle_cell_rf(*cell, rf);
+        }
         let mut msg = event_to_ws_msg(&event);
         // Emergency banner add/remove broadcasts are transition-gated (only on enter/clear, not on
         // every re-send), so they can't ride the generic `event_to_ws_msg` path. Collect them under
@@ -2436,6 +2440,7 @@ impl DashboardServer {
                         paths.clone(),
                     );
                 }
+                TelemetryEvent::CellRf { .. } => {} // handled above
             }
         }
         if let Some(json) = msg {
@@ -2458,6 +2463,20 @@ impl DashboardServer {
                     }
                 }
             }
+        }
+    }
+
+    /// An additional cell's RF event: the same message as the primary's, tagged with `cell`.
+    fn handle_cell_rf(&self, cell: u8, rf: &CellRfEvent) {
+        let Some(v) = cell_rf_ws_value(cell, rf) else { return };
+        let kind = match rf {
+            CellRfEvent::TxVisual { .. } => "tx_visual",
+            CellRfEvent::TxQuality { .. } => "tx_quality",
+            CellRfEvent::SdrHealth { .. } => "sdr_health",
+        };
+        self.state.write().unwrap().cell_rf.insert((cell, kind), v.clone());
+        if let Ok(json) = serde_json::to_string(&v) {
+            self.broadcast(&json);
         }
     }
 
@@ -2485,10 +2504,18 @@ impl DashboardServer {
     }
 }
 
+/// WebSocket message for an additional cell's RF event: the primary's message plus `"cell"`.
+fn cell_rf_ws_value(cell: u8, rf: &CellRfEvent) -> Option<serde_json::Value> {
+    let mut v: serde_json::Value = serde_json::from_str(&event_to_ws_msg(&rf.to_event())?).ok()?;
+    v.as_object_mut()?.insert("cell".into(), cell.into());
+    Some(v)
+}
+
 fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
     let v = match event {
         TelemetryEvent::MsRegistration { issi } => serde_json::json!({"type":"ms_registered","issi":issi}),
         TelemetryEvent::MsCell { issi, cell } => serde_json::json!({"type":"ms_cell","issi":issi,"cell":cell}),
+        TelemetryEvent::CellRf { cell, event } => return cell_rf_ws_value(*cell, event).and_then(|v| serde_json::to_string(&v).ok()),
         TelemetryEvent::MsDeregistration { issi } => serde_json::json!({"type":"ms_deregistered","issi":issi}),
         TelemetryEvent::MsTimeoutDrop { issi } => serde_json::json!({"type":"ms_deregistered","issi":issi,"reason":"t351"}),
         TelemetryEvent::MsGroupAttach { issi, gssis } => serde_json::json!({"type":"ms_groups","issi":issi,"groups":gssis}),
@@ -4323,6 +4350,7 @@ fn handle_ws(
         let last_tx_visual = s.last_tx_visual.clone();
         let last_tx_quality = s.last_tx_quality.clone();
         let last_sdr_health = s.last_sdr_health.clone();
+        let cell_rf: Vec<serde_json::Value> = s.cell_rf.values().cloned().collect();
         let last_sys_health = s.last_sys_health.clone();
         let last_health = s.last_health.clone();
         let dgna_log: Vec<_> = s.dgna_log.iter().rev().cloned().collect();
@@ -4349,6 +4377,7 @@ fn handle_ws(
             "last_tx_visual": last_tx_visual,
             "last_tx_quality": last_tx_quality,
             "last_sdr_health": last_sdr_health,
+            "cell_rf": cell_rf,
             "last_sys_health": last_sys_health,
             "health": last_health,
             "dgna_log": dgna_log,

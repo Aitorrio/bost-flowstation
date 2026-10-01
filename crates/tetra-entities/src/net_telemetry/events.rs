@@ -233,6 +233,155 @@ pub enum TelemetryEvent {
     /// data as the dashboard Cells card. Emitted periodically. Appended last for bitcode
     /// wire-stability.
     CellsSnapshot { site_linked: bool, cells: Vec<CellInfo> },
+    /// Multi-cell: an RF event (`TxVisual`, `TxQuality`, `SdrHealth`) from an additional cell's
+    /// SDR, so the RF page can show every cell. The primary's are sent untagged, as before.
+    /// Appended last for bitcode wire-stability.
+    CellRf { cell: u8, event: CellRfEvent },
+}
+
+/// The RF events an additional cell's SDR reports, mirroring the `TelemetryEvent` variants of the
+/// same name (bitcode cannot encode a boxed `TelemetryEvent` inside itself).
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+pub enum CellRfEvent {
+    TxVisual {
+        sample_rate: f32,
+        center_freq_hz: f64,
+        rms_dbfs: f32,
+        peak_dbfs: f32,
+        spectrum_db_tenths: Vec<i16>,
+        constellation_iq: Vec<i16>,
+        carriers: Vec<(u16, f64)>,
+        constellation_carrier: Option<(u16, f64)>,
+    },
+    TxQuality {
+        papr_db: f32,
+        evm_pct: f32,
+        dc_offset_i: f32,
+        dc_offset_q: f32,
+        iq_amplitude_imbalance_db: f32,
+        iq_phase_imbalance_deg: f32,
+        carrier_leakage_db: f32,
+        occupied_bandwidth_hz: f32,
+        evm_carrier: Option<(u16, f64)>,
+    },
+    SdrHealth {
+        temperature_c: Option<f32>,
+        tx_gains: Vec<(String, f32)>,
+        rx_gains: Vec<(String, f32)>,
+    },
+}
+
+impl CellRfEvent {
+    /// The RF part of `event`, or `event` back unchanged if it is not an RF event.
+    pub fn from_event(event: TelemetryEvent) -> Result<Self, TelemetryEvent> {
+        Ok(match event {
+            TelemetryEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            } => CellRfEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            },
+            TelemetryEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            } => CellRfEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            },
+            TelemetryEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            } => CellRfEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            },
+            other => return Err(other),
+        })
+    }
+
+    /// The equivalent untagged `TelemetryEvent`.
+    pub fn to_event(&self) -> TelemetryEvent {
+        match self.clone() {
+            CellRfEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            } => TelemetryEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            },
+            CellRfEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            } => TelemetryEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            },
+            CellRfEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            } => TelemetryEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            },
+        }
+    }
 }
 
 /// One cell's settings and live state, for [`TelemetryEvent::CellsSnapshot`].

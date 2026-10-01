@@ -240,9 +240,10 @@ fn spawn_extra_cells(
         let link = links.remove(&id);
         let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
             tetra_entities::cell_context::set_current(id);
+            let phy_sink = cell_sink.clone();
             let mut router = build_cell_router(&cell_cfg, link, cell_sink);
             eprintln!(" -> {id}: opening SDR…");
-            if !try_attach_phy(&mut router, &cell_cfg, None) {
+            if !try_attach_phy(&mut router, &cell_cfg, phy_sink) {
                 // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
                 tracing::error!("{id}: no PHY — cell not started");
                 return;

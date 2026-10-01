@@ -3394,6 +3394,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .cell-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;}
 .cell-row .cell-name{font-weight:600;min-width:64px;}
 .cell-row .cell-meta{flex:1 1 220px;min-width:0;font-size:12px;color:var(--text2);overflow-wrap:anywhere;}
+.rf-cell-tabs{display:flex;flex-wrap:wrap;gap:6px;}
+.rf-cell-tab{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--text2);font:inherit;font-size:12px;line-height:1.5;cursor:pointer;white-space:nowrap;}
+.rf-cell-tab:hover{border-color:var(--text3);color:var(--text);}
+.rf-cell-tab.active{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 14%,transparent);}
+.rf-cell-tab .rf-cell-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);flex:none;}
+.rf-cell-tab .rf-cell-dot.online{background:var(--success,#2ecc71);}
+.rf-cell-tab .rf-cell-dot.error{background:var(--danger);}
+.rf-cell-tab .rf-cell-freq{font-family:var(--mono,monospace);font-size:11px;color:var(--text3);}
+.rf-cell-detail{margin-top:8px;font-size:12px;color:var(--text2);overflow-wrap:anywhere;}
 .cell-rf{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);}
 .cell-rf.online{color:var(--success,#2ecc71);border-color:currentColor;}
 .cell-rf.error{color:var(--danger);border-color:currentColor;}
@@ -4817,8 +4826,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="card-actions"><span id="rf-cells-link" class="bts-chip">—</span></div>
         </div>
         <div class="card-body">
-          <div class="cells-list" id="rf-cells-list"></div>
-          <div class="help-text" data-i18n="rf_cells_note">The spectrum and quality metrics below are from the primary cell's SDR.</div>
+          <div class="rf-cell-tabs" id="rf-cells-list" role="tablist"></div>
+          <div class="rf-cell-detail" id="rf-cell-detail"></div>
+          <div class="help-text" data-i18n="rf_cells_note">Pick a cell to show its SDR on this page.</div>
         </div>
       </div>
 
@@ -7023,7 +7033,7 @@ const LANGS={
     registered_terminals:'Registered Radios',
     cells_title:'Cells',cells_help:"Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.",
     cells_carrier:'Carrier',cells_cc:'Colour code',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',cells_radios:'{n} radio(s)',
-    cells_single:'Single cell',rf_cells_note:"The spectrum and quality metrics below are from the primary cell's SDR.",cells_linked:'Cells linked',cells_independent:'Independent cells',
+    cells_single:'Single cell',rf_cells_note:'Pick a cell to show its SDR on this page.',cells_linked:'Cells linked',cells_independent:'Independent cells',
     cells_need_fields:'Device and carrier are required.',cells_confirm_add:'Add this cell? The station restarts.',cells_confirm_remove:'Remove cell {n}? The station restarts.',
     bts_details:'TETRA BTS Details',bts_tx:'TX Freq',bts_rx:'RX Freq',bts_shift:'Duplex Shift',bts_rate:'Sample Rate',
     dual_carrier:'Dual Carrier',dc_on_sub:'On',dc_off_sub:'Off',
@@ -7538,7 +7548,7 @@ const LANGS={
   es:{
     cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
     cells_carrier:'Portadora',cells_cc:'Código de color',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',cells_radios:'{n} radio(s)',
-    cells_single:'Celda única',rf_cells_note:'El espectro y las métricas de calidad de abajo son del SDR de la celda principal.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
+    cells_single:'Celda única',rf_cells_note:'Elige una celda para ver su SDR en esta página.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
     cells_need_fields:'Hacen falta el dispositivo y la portadora.',cells_confirm_add:'¿Añadir esta celda? La estación se reinicia.',cells_confirm_remove:'¿Quitar la celda {n}? La estación se reinicia.',
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',reconnecting:'RECONECTANDO',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
@@ -10338,9 +10348,10 @@ function handleMsg(msg){
       if(msg.fallback_config_active){showFallbackBanner(msg.fallback_config_reason||'');}
       // If the server already has recent RF snapshots, paint them instantly
       // so the RF page has data before the next emit cycle.
-      if(msg.last_tx_visual){handleTxVisual(msg.last_tx_visual);}
-      if(msg.last_tx_quality){handleTxQuality(msg.last_tx_quality);}
-      if(msg.last_sdr_health){handleSdrHealth(msg.last_sdr_health);}
+      if(msg.last_tx_visual){rfIngest('tx_visual',msg.last_tx_visual);}
+      if(msg.last_tx_quality){rfIngest('tx_quality',msg.last_tx_quality);}
+      if(msg.last_sdr_health){rfIngest('sdr_health',msg.last_sdr_health);}
+      (msg.cell_rf||[]).forEach(m=>rfIngest(m.type,m));
       if(msg.last_sys_health){handleSysHealth(msg.last_sys_health);}
       if(msg.health){handleHealth(msg.health);}
       syncDgnaAttachmentModePicker();
@@ -10455,9 +10466,7 @@ function handleMsg(msg){
       state.dapnetLog.unshift({ts:nowStamp(),direction:msg.direction,id:msg.id,callsign:msg.callsign,recipient:msg.recipient,text:msg.text,priority:msg.priority,paths:msg.paths||[]});
       if(state.dapnetLog.length>500)state.dapnetLog.pop();
       renderDapnetLog();break;
-    case 'tx_visual':handleTxVisual(msg);break;
-    case 'tx_quality':handleTxQuality(msg);break;
-    case 'sdr_health':handleSdrHealth(msg);break;
+    case 'tx_visual':case 'tx_quality':case 'sdr_health':rfIngest(msg.type,msg);break;
     case 'sys_health':handleSysHealth(msg);break;
     case 'emergency_added':
       state.emergencies[msg.issi]={issi:msg.issi,dest_ssi:msg.dest_ssi,started_secs_ago:0};
@@ -14295,26 +14304,34 @@ async function loadCells(){
     }).join('');
   }catch(e){}
 }
-// RF page: one row per cell (state, SDR, carriers). Hidden on a single-cell station.
+// RF page: a compact tab per cell (state dot, name, main TX frequency) that picks whose SDR the
+// page shows, plus one detail line for the picked cell. Hidden on a single-cell station.
+let rfCellsCache = null;
 function renderRfCells(cells,siteLinked){
+  rfCellsCache = {cells, siteLinked};
   const card=document.getElementById('rf-cells-card');
   const list=document.getElementById('rf-cells-list');
   if(!card||!list)return;
   card.style.display=cells.length>1?'':'none';
-  if(cells.length<2)return;
+  if(cells.length<2){if(rfSelCell!==0)rfSelectCell(0);return;}
+  if(!cells.some(c=>c.id===rfSelCell)){rfSelectCell(0);return;}
   setText('rf-cells-link',siteLinked?t('cells_linked'):t('cells_independent'));
   const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4)+' MHz':'—';
   list.innerHTML=cells.map(c=>{
     const rf=c.rf_state||'starting';
-    const carriers=(c.carriers||[]).map(k=>'<div class="cell-meta">#'+escHtml(String(k.carrier_num))+
-      ' · TX '+escHtml(mhz(k.tx_freq_hz))+' · RX '+escHtml(mhz(k.rx_freq_hz))+'</div>').join('');
-    const meta=['CC '+c.colour_code,'LA '+c.location_area,t('cells_radios',{n:c.registered_radios}),
-      c.device?('SDR '+c.device):''].filter(Boolean).join(' — ');
-    return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
-      '<span class="cell-rf '+escHtmlAttr(rf)+'">'+escHtml(rf)+'</span>'+
-      '<span class="cell-meta">'+escHtml(meta)+(c.rf_detail?' — '+escHtml(c.rf_detail):'')+'</span>'+
-      '<div style="flex-basis:100%">'+carriers+'</div></div>';
+    const main=(c.carriers||[])[0];
+    const sel=c.id===rfSelCell;
+    return '<button type="button" role="tab" aria-selected="'+sel+'" class="rf-cell-tab'+(sel?' active':'')+'"'+
+      ' title="'+escHtmlAttr(rf+(c.rf_detail?' — '+c.rf_detail:''))+'" onclick="rfSelectCell('+c.id+')">'+
+      '<span class="rf-cell-dot '+escHtmlAttr(rf)+'"></span>'+
+      escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+
+      (main?'<span class="rf-cell-freq">'+escHtml((main.tx_freq_hz/1e6).toFixed(3))+'</span>':'')+'</button>';
   }).join('');
+  const c=cells.find(c=>c.id===rfSelCell);
+  const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' TX '+mhz(k.tx_freq_hz)+' / RX '+mhz(k.rx_freq_hz));
+  const detail=[c.rf_state||'starting','CC '+c.colour_code,'LA '+c.location_area,t('cells_radios',{n:c.registered_radios}),
+    c.device?('SDR '+c.device):''].concat(carriers).filter(Boolean).join(' · ');
+  setText('rf-cell-detail',detail);
 }
 // Keep the per-cell grid and RF list fresh (cell state, radio counts) while either page is open.
 setInterval(()=>{
@@ -15000,6 +15017,60 @@ const rfState = {
   waterfallMaxRows: 200,
 };
 
+// Multi-cell: each cell's SDR reports its own RF messages (tagged "cell"; the primary's are
+// untagged = 0). Every cell keeps its latest messages and its own waterfall history; the page
+// shows the cell picked in the Cells card.
+let rfSelCell = 0;
+const rfCellData = {};
+function rfCell(id){
+  return rfCellData[id] || (rfCellData[id] = {last:{}, waterfall:[]});
+}
+const RF_HANDLERS = {tx_visual: m=>handleTxVisual(m), tx_quality: m=>handleTxQuality(m), sdr_health: m=>handleSdrHealth(m)};
+function rfIngest(type, msg){
+  const id = msg.cell|0;
+  const d = rfCell(id);
+  d.last[type] = msg;
+  if(type === 'tx_visual') pushWaterfall((msg.spectrum_db_tenths || []).map(v => v / 10), d.waterfall);
+  if(id === rfSelCell) RF_HANDLERS[type](msg);
+}
+function rfSelectCell(id){
+  if(id === rfSelCell) return;
+  rfSelCell = id;
+  const d = rfCell(id);
+  rfState.waterfall = d.waterfall;
+  for(const k in rfSmooth) rfSmooth[k].length = 0;
+  rfResetView();
+  for(const type of ['tx_visual','tx_quality','sdr_health']){
+    if(d.last[type]) RF_HANDLERS[type](d.last[type]);
+  }
+  drawRfWaterfall();
+  if(rfCellsCache) renderRfCells(rfCellsCache.cells, rfCellsCache.siteLinked);
+}
+// Blank every RF readout and canvas, for a cell that has not reported yet.
+function rfResetView(){
+  rfState.lastTs = 0; rfState.lastHwTs = 0;
+  rfState.sampleRate = 0; rfState.centerFreq = 0;
+  rfState.carriers = []; rfState.constellationCarrier = null; rfState.evmCarrier = null;
+  for(const id of ['rf-freq','rf-rate','rf-rms','rf-peak','rf-hero-freq','rf-hero-evm','rf-temp','rf-temp-state',
+    'rf-tx-gains','rf-rx-gains','rf-hw-age']) setText(id, '—');
+  for(const [v, w] of [['rf-evm','rf-q-evm-wrap'],['rf-papr','rf-q-papr-wrap'],['rf-carrier','rf-q-cl-wrap'],['rf-obw','rf-q-obw-wrap']]){
+    setText(v, '—');
+    const el = document.getElementById(w);
+    if(el) { el.classList.remove('rf-q-good','rf-q-warn','rf-q-bad'); const g = el.querySelector('.gauge'); if(g) g.classList.remove('is-warn','is-danger'); }
+  }
+  for(const b of ['rf-evm-bar','rf-papr-bar','rf-carrier-bar','rf-obw-bar','rf-temp-bar']){
+    const el = document.getElementById(b);
+    if(el) el.style.width = '0%';
+  }
+  setText('rf-age', t('rf_waiting')); setText('rf-hero-sub', t('rf_waiting'));
+  const rhd = document.getElementById('rf-hero-dot');
+  if(rhd) rhd.className = 'hero-dot is-idle';
+  for(const c of ['rf-spectrum','rf-constellation','rf-waterfall']){
+    const r = rfResizeCanvas(c);
+    if(r){ r.ctx.fillStyle = rfThemeColors().bg; r.ctx.fillRect(0, 0, r.w, r.h); }
+  }
+}
+
 function rfThemeColors(){
   // Read theme variables from CSS so colors track theme switches.
   const cs = getComputedStyle(document.documentElement);
@@ -15188,7 +15259,6 @@ function handleTxVisual(msg){
   const spec = (msg.spectrum_db_tenths || []).map(v => v / 10);
   drawRfSpectrum(spec, rfState.sampleRate, rfState.centerFreq, rfState.carriers);
   drawRfConstellation(msg.constellation_iq || []);
-  pushWaterfall(spec);
   drawRfWaterfall();
 }
 
@@ -15815,7 +15885,7 @@ function drawRfConstellation(iqInt16){
 // top of the canvas; older rows scroll down. Colours come from a viridis-style
 // palette so the contrast works for daltonism (no red-green dependence).
 
-function pushWaterfall(specDb){
+function pushWaterfall(specDb, rows){
   if(!specDb || !specDb.length) return;
   // Normalize to [0..1] using a fixed reference window so colours don't shift wildly.
   // We keep a moving reference of the maximum to anchor the bright end.
@@ -15828,9 +15898,9 @@ function pushWaterfall(specDb){
     if(v > 1) v = 1;
     normalized[i] = v;
   }
-  rfState.waterfall.unshift(normalized);
-  if(rfState.waterfall.length > rfState.waterfallMaxRows){
-    rfState.waterfall.length = rfState.waterfallMaxRows;
+  rows.unshift(normalized);
+  if(rows.length > rfState.waterfallMaxRows){
+    rows.length = rfState.waterfallMaxRows;
   }
 }
 

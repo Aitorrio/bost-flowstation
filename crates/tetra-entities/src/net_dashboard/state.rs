@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -163,6 +163,9 @@ pub struct DashboardStateInner {
     pub last_tx_quality: Option<TxQualitySnapshot>,
     /// Most recent SDR hardware health snapshot.
     pub last_sdr_health: Option<SdrHealthSnapshot>,
+    /// Multi-cell: the latest `tx_visual` / `tx_quality` / `sdr_health` WebSocket message of each
+    /// additional cell, keyed by (cell, message type). Replayed on init like the primary's.
+    pub cell_rf: BTreeMap<(u8, &'static str), serde_json::Value>,
     /// Most recent host system health snapshot (temps, voltages, power).
     pub last_sys_health: Option<SysHealthSnapshot>,
     /// Most recent lite stack-health roll-up (Service/Backhaul/Radios/Congestion). Sent on init
@@ -320,6 +323,7 @@ impl DashboardStateInner {
             last_tx_visual: None,
             last_tx_quality: None,
             last_sdr_health: None,
+            cell_rf: BTreeMap::new(),
             last_sys_health: None,
             last_health: None,
             boot_id: uuid::Uuid::new_v4().to_string(),
