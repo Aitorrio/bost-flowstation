@@ -218,7 +218,10 @@ encrypted radio says is ever sent in clear.
   (github.com/MidnightBlueLabs/TETRA_crypto, Apache-2.0): the two in its `tests.c` plus six
   generated with it.
 - **TB5** and the **IV** (`aie::tb5`, `aie::iv`) checked against the same implementation.
-- Still off: `MAC_ENCRYPTION_READY = false` keeps the cell at class 1. Next: TA61 (ESI), then
+- **TA61** (`aie/ta61.rs`): BC block cipher, EXP4, K-strings and permutation P, plus the inverse
+  (ESI → SSI) the BS needs on the uplink. Passes the four operator-supplied vectors and six
+  generated with the Midnight Blue implementation, both directions.
+- Still off: `MAC_ENCRYPTION_READY = false` keeps the cell at class 1. Next:
   MAC-RESOURCE / MAC-END / uplink encryption (KSS allocation per TS 100 392-7 clause 6.4.2.2),
   SYSINFO SCK-VN broadcast, then voice.
 - Reminder: TEA1 keeps 32 bits of key state (TS 104 053-1 clause 5.2.2).

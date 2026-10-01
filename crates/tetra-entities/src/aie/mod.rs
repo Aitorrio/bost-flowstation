@@ -5,6 +5,7 @@
 //! generator, TB5 and the IV (phase 2). The MAC layer does not encrypt yet, so the cell keeps
 //! advertising class 1 and a configured `[security.aie]` is reported and otherwise ignored.
 
+pub mod ta61;
 pub mod tea1;
 
 use tetra_config::bluestation::{CfgAie, StackConfig};
