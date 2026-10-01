@@ -697,7 +697,7 @@ impl UmacBs {
         // Decrypt the TM-SDU (the header stays clear) with this slot's uplink key stream.
         if pdu.encrypted {
             let msg_time = self.dltime.add_timeslots(-2);
-            let offset = Self::ul_kss_offset(prim.block_num);
+            let offset = Self::ul_kss_offset(prim.logical_channel, prim.block_num);
             if !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_time, offset) {
                 return;
             }
@@ -901,7 +901,7 @@ impl UmacBs {
         // Decrypt the TM-SDU (the header stays clear) with this slot's uplink key stream.
         if pdu.encrypted {
             let msg_time = self.dltime.add_timeslots(-2);
-            let offset = Self::ul_kss_offset(prim.block_num);
+            let offset = Self::ul_kss_offset(prim.logical_channel, prim.block_num);
             if !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_time, offset) {
                 return;
             }
@@ -992,8 +992,6 @@ impl UmacBs {
         Some(TetraAddress { ssi: cipher.ssi(addr.ssi), ..addr })
     }
 
-    /// Where an uplink block starts in its slot's key stream: KSS(216) for the second half slot
-    /// or subslot, else KSS(0) (TS 100 392-7 clause 6.4.2.2).
     /// Whether a downlink PDU to `addr` is encrypted: non-zero marks it for the fragger, which
     /// writes the real encryption mode. Individual addresses follow the radio's registration;
     /// groups are encrypted unless configured as clear groups; the broadcast address stays clear
@@ -1014,8 +1012,28 @@ impl UmacBs {
         encrypted as u8
     }
 
-    fn ul_kss_offset(block: PhyBlockNum) -> usize {
-        if block == PhyBlockNum::Block2 { crate::aie::cipher::SECOND_HALF_SLOT_KSS_OFFSET } else { 0 }
+    /// Where an uplink block starts in its slot's key stream (TS 100 392-7 Table 6.4): KSS(216)
+    /// for the second half of a half-slot channel (STCH, SCH/HD), KSS(0) otherwise — including both
+    /// SCH/HU subslots, which use KSS(0 to 91) whichever half they are in.
+    /// A channel allocation sent encrypted (or clear) makes the allocated traffic timeslots carry
+    /// an encrypted (or clear) call: on a class 2 cell every party of a call is in the same mode.
+    fn note_traffic_encryption(&mut self, chan_alloc: &tetra_saps::lcmc::fields::chan_alloc_req::CmceChanAllocReq, encrypted: bool) {
+        if self.cipher.is_none() {
+            return;
+        }
+        let carrier = chan_alloc.carrier.unwrap_or_else(|| self.main_carrier());
+        for (i, &used) in chan_alloc.timeslots.iter().enumerate() {
+            if used {
+                self.scheduler_for_mut(carrier).set_tch_encrypted(i as u8 + 1, encrypted);
+            }
+        }
+    }
+
+    fn ul_kss_offset(lchan: LogicalChannel, block: PhyBlockNum) -> usize {
+        match (lchan, block) {
+            (LogicalChannel::Stch | LogicalChannel::SchHd, PhyBlockNum::Block2) => crate::aie::cipher::SECOND_HALF_SLOT_KSS_OFFSET,
+            _ => 0,
+        }
     }
 
     /// Decrypts the rest of an uplink block (from its position to its end) with the uplink key
@@ -1081,7 +1099,7 @@ impl UmacBs {
 
         // Continuation of an encrypted PDU: this fragment is encrypted with its own slot's key stream.
         let encrypted = self.defrag.get_aie_info(slot_owner, msg_dltime).is_some();
-        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.block_num)) {
+        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.logical_channel, prim.block_num)) {
             return;
         }
 
@@ -1150,7 +1168,7 @@ impl UmacBs {
         };
         // Continuation of an encrypted PDU: this fragment is encrypted with its own slot's key stream.
         let encrypted = self.defrag.get_aie_info(slot_owner, msg_dltime).is_some();
-        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.block_num)) {
+        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.logical_channel, prim.block_num)) {
             return;
         }
 
@@ -1279,7 +1297,7 @@ impl UmacBs {
         };
         // Continuation of an encrypted PDU: this fragment is encrypted with its own subslot's key stream.
         let encrypted = self.defrag.get_aie_info(slot_owner, msg_dltime).is_some();
-        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.block_num)) {
+        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.logical_channel, prim.block_num)) {
             return;
         }
 
@@ -1548,6 +1566,10 @@ impl UmacBs {
         }
 
         // ── Normal signaling path (MCCH / SCH/F) ────────────────────────
+        let encryption_mode = self.dl_encryption_mode(prim.main_address);
+        if let Some(chan_alloc) = &prim.chan_alloc {
+            self.note_traffic_encryption(chan_alloc, encryption_mode != 0);
+        }
         let (usage_marker, mac_chan_alloc) = if let Some(chan_alloc) = prim.chan_alloc {
             let carrier_num = self.config.config().cell.main_carrier;
             let Some(mac_chan_alloc) = self.cmce_to_mac_chanalloc(&chan_alloc, carrier_num) else {
@@ -1569,7 +1591,7 @@ impl UmacBs {
         let mut pdu = MacResource {
             fill_bits: false, // Updated later
             pos_of_grant: 0,
-            encryption_mode: self.dl_encryption_mode(prim.main_address),
+            encryption_mode,
             random_access_flag: is_random_access_response,
             length_ind: 0, // Updated later
             addr: Some(prim.main_address),
@@ -1669,6 +1691,10 @@ impl UmacBs {
             }
         }
 
+        let encryption_mode = self.dl_encryption_mode(prim.main_address);
+        if let Some(chan_alloc) = &prim.chan_alloc {
+            self.note_traffic_encryption(chan_alloc, encryption_mode != 0);
+        }
         let (usage_marker, mac_chan_alloc) = if let Some(chan_alloc) = prim.chan_alloc {
             let carrier_num = chan_alloc.carrier.unwrap_or(preferred_carrier);
             let Some(mac_chan_alloc) = self.cmce_to_mac_chanalloc(&chan_alloc, carrier_num) else {
@@ -1686,7 +1712,7 @@ impl UmacBs {
         let mut pdu = MacResource {
             fill_bits: false,
             pos_of_grant: 0,
-            encryption_mode: self.dl_encryption_mode(prim.main_address),
+            encryption_mode,
             random_access_flag: is_random_access_response,
             length_ind: 0,
             addr: Some(prim.main_address),
@@ -1754,7 +1780,16 @@ impl UmacBs {
             SapMsgInner::TmdCircuitDataInd(prim) => {
                 let carrier_num = prim.carrier_num;
                 let ts = prim.ts;
-                let data = prim.data;
+                let mut data = prim.data;
+
+                // Encrypted call: undo the uplink key stream (one bit per byte, codec order).
+                if (1..=4).contains(&ts)
+                    && let Some(kss) = self.scheduler_for(carrier_num).tch_kss(ts, self.dltime.add_timeslots(-2), true)
+                {
+                    for (bit, k) in data.iter_mut().zip(kss) {
+                        *bit ^= k;
+                    }
+                }
 
                 // Track last UL voice frame time for inactivity detection
                 if (1..=4).contains(&ts) {
@@ -2089,6 +2124,14 @@ impl UmacBs {
                 return;
             }
         };
+
+        // The next call on this timeslot sets its own encryption state with its channel allocation.
+        if (1..=4).contains(&ts) {
+            let sched = self.scheduler_for_mut(carrier_num);
+            if !sched.circuit_is_active(Direction::Dl, ts) || !sched.circuit_is_active(Direction::Ul, ts) || dir == Direction::Both {
+                sched.set_tch_encrypted(ts, false);
+            }
+        }
 
         for d in dirs {
             match self.scheduler_for_mut(carrier_num).close_circuit(d, ts) {

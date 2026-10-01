@@ -35,6 +35,15 @@ impl Kss {
     }
 }
 
+/// TCH/S speech: KSS(0 to 273) applies to the 274 type-1 bits in channel order (TS 100 392-7
+/// Table 6.4). The stack carries speech in codec order and LMAC sorts it into channel order
+/// (EN 300 395-2 Table 4), so the key stream is returned permuted into codec order: XORing it onto
+/// codec-order speech is the same as XORing KSS onto the channel-order bits. One bit per byte.
+pub fn tch_s_kss_codec_order(kss: &Kss) -> [u8; 274] {
+    let channel: [u8; 274] = std::array::from_fn(|i| kss.bit(i));
+    crate::lmac::components::tch_reorder::channel_to_codec(&channel)
+}
+
 /// Class 2 encryption context of one cell.
 pub struct CellCipher {
     sck_vn: u16,
@@ -125,6 +134,27 @@ mod tests {
         assert_ne!(buf.dump_bin(), original);
         kss.apply(&mut buf, 13, 150, 0);
         assert_eq!(buf.dump_bin(), original);
+    }
+
+    /// XOR in codec order with the permuted key stream equals XOR in channel order with KSS.
+    #[test]
+    fn tch_key_stream_in_codec_order_matches_channel_order() {
+        use crate::lmac::components::tch_reorder::codec_to_channel;
+        let c = cipher();
+        let kss = c.kss(3681, TdmaTime { t: 2, f: 4, m: 9, h: 1 }, false);
+        let codec_kss = tch_s_kss_codec_order(&kss);
+        let channel = codec_to_channel(&codec_kss);
+        for (i, &b) in channel.iter().enumerate() {
+            assert_eq!(b, kss.bit(i), "channel bit {i}");
+        }
+
+        let speech: [u8; 274] = std::array::from_fn(|i| (i % 3 == 0) as u8);
+        let encrypted_codec: [u8; 274] = std::array::from_fn(|i| speech[i] ^ codec_kss[i]);
+        let via_channel = codec_to_channel(&speech);
+        let encrypted_channel = codec_to_channel(&encrypted_codec);
+        for i in 0..274 {
+            assert_eq!(encrypted_channel[i], via_channel[i] ^ kss.bit(i));
+        }
     }
 
     #[test]

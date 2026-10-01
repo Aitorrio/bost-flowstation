@@ -136,6 +136,9 @@ pub struct BsChannelScheduler {
 
     /// Air interface encryption (class 2), when the cell runs it.
     cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
+    /// Per timeslot: the traffic channel carries an encrypted call (set when its channel
+    /// allocation is sent, cleared when the circuit closes).
+    tch_encrypted: [bool; 4],
 
     /// Per-timeslot rotating cursor for allocating usage markers to multi-slot
     /// uplink reservations. Wraps in the valid range [4, 62] (0 = unallocated,
@@ -213,6 +216,7 @@ impl BsChannelScheduler {
             pending_ra_acks: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             mcch_chan_alloc_sent_this_frame: false,
             cipher: None,
+            tch_encrypted: [false; 4],
             // Start each timeslot's marker cursor at 4 (first valid value).
             next_usage_marker: [4, 4, 4, 4],
         }
@@ -224,6 +228,22 @@ impl BsChannelScheduler {
 
     pub fn set_cipher(&mut self, cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>) {
         self.cipher = cipher;
+    }
+
+    /// Marks the traffic channel on `ts` as carrying an encrypted (or clear) call.
+    pub fn set_tch_encrypted(&mut self, ts: u8, encrypted: bool) {
+        if let Some(slot) = self.tch_encrypted.get_mut(ts as usize - 1) {
+            *slot = encrypted && self.cipher.is_some();
+        }
+    }
+
+    /// The speech key stream of `ts` at `t` in codec order, when that traffic channel is encrypted.
+    pub fn tch_kss(&self, ts: u8, t: TdmaTime, uplink: bool) -> Option<[u8; 274]> {
+        let cipher = self.cipher.as_ref()?;
+        if !self.tch_encrypted.get(ts as usize - 1).copied().unwrap_or(false) {
+            return None;
+        }
+        Some(crate::aie::cipher::tch_s_kss_codec_order(&cipher.kss(self.carrier_num, t, uplink)))
     }
 
     pub fn set_downlink_mode(&mut self, downlink_mode: CarrierDownlinkMode) {
@@ -1250,7 +1270,7 @@ impl BsChannelScheduler {
     /// Also reports transmission, if a TxReporter was attached to the DlSchedElem::Stealing element
     fn dl_build_traffic_block(&mut self, ts: TdmaTime) -> (BitBuffer, Option<BitBuffer>) {
         // Get speech data or silence
-        let tch_buf = if let Some(block) = self.circuits.take_block(self.carrier_num, ts.t) {
+        let mut tch_buf = if let Some(block) = self.circuits.take_block(self.carrier_num, ts.t) {
             // Raw ACELP speech (274 bits for TCH/S). The Vec may be LARGER (e.g. 280
             // bits) and is clamped down to TCH_S_CAP. But a SHORTER block (e.g. a
             // truncated/garbage frame off the network) must not be clamped UP — that
@@ -1296,6 +1316,21 @@ impl BsChannelScheduler {
         // If desired, report transmission
         if let Some(tx_reporter) = tx_reporter_opt {
             tx_reporter.mark_transmitted();
+        }
+
+        // Encrypted call: XOR the speech with KSS(0 to 273). A stolen slot (STCH + TCH/S half,
+        // KSS(216 to 352) for speech frame B) is not encrypted yet, so its speech half is replaced
+        // by silence rather than sent in clear.
+        if let Some(kss) = self.tch_kss(ts.t, ts, false) {
+            if stch_opt.is_some() {
+                tch_buf = BitBuffer::new(TCH_S_CAP);
+            } else {
+                tch_buf.seek(0);
+                for &k in &kss {
+                    tch_buf.xor_bit(k);
+                }
+                tch_buf.seek(0);
+            }
         }
 
         (tch_buf, stch_opt)
@@ -1865,6 +1900,27 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn traffic_slot_encryption_follows_its_allocation() {
+        let aie = tetra_config::bluestation::CfgAie {
+            ksg: 1,
+            sckn: 1,
+            sck: tetra_config::bluestation::CipherKey([7; 10]),
+            sck_vn: 0,
+            clear_groups: vec![],
+        };
+        let mut sched = get_testing_slotter();
+        let t = TdmaTime { t: 2, f: 1, m: 1, h: 0 };
+        sched.set_tch_encrypted(2, true);
+        assert!(sched.tch_kss(2, t, false).is_none(), "no cipher: never encrypted");
+        sched.set_cipher(Some(std::sync::Arc::new(crate::aie::cipher::CellCipher::new(&aie, &[sched.carrier_num()], 1, 1))));
+        sched.set_tch_encrypted(2, true);
+        assert!(sched.tch_kss(2, t, false).is_some());
+        assert!(sched.tch_kss(3, t, false).is_none());
+        sched.set_tch_encrypted(2, false);
+        assert!(sched.tch_kss(2, t, false).is_none());
+    }
 
     #[test]
     fn sysinfo_alternates_hyperframe_and_sck_vn_on_a_class2_cell() {

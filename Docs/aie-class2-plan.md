@@ -221,7 +221,29 @@ encrypted radio says is ever sent in clear.
 - **TA61** (`aie/ta61.rs`): BC block cipher, EXP4, K-strings and permutation P, plus the inverse
   (ESI → SSI) the BS needs on the uplink. Passes the four operator-supplied vectors and six
   generated with the Midnight Blue implementation, both directions.
-- Still off: `MAC_ENCRYPTION_READY = false` keeps the cell at class 1. Next:
-  MAC-RESOURCE / MAC-END / uplink encryption (KSS allocation per TS 100 392-7 clause 6.4.2.2),
-  SYSINFO SCK-VN broadcast, then voice.
+- **MAC layer** (`aie/cipher.rs`, `umac/subcomp/bs_frag.rs`, `umac_bs.rs`, `bs_sched.rs`):
+  - `CellCipher`: ECK per carrier, TA61, key stream segment per slot and direction.
+  - Downlink: MAC-RESOURCE encrypted from the channel allocation element on, MAC-FRAG / MAC-END
+    TM-SDUs, ESI in the address, encryption mode 10/11 by SCK-VN parity; at most one encrypted
+    PDU per slot (TEA set A restarts the KSS per PDU); an encrypted PDU never goes out clear.
+  - Which PDUs: individual addresses of radios registered encrypted, groups not listed in
+    `clear_groups`; the broadcast address stays clear (mixed cell).
+  - Uplink: ESI → SSI before any use, TM-SDU decrypted (MAC-ACCESS, MAC-DATA, and continuation
+    fragments). KSS offsets per Table 6.4: SCH/HU uses KSS(0..91) in either subslot, the
+    second half of STCH / SCH/HD uses KSS(216..).
+  - SYSINFO: SCK-VN instead of the hyperframe in one multiframe out of four.
+  - Voice: a traffic slot is encrypted when its channel allocation was sent encrypted; TCH/S
+    speech XORed with KSS(0..273) in channel (class-sorted) order — the key stream is permuted
+    into codec order (EN 300 395-2 Table 4) because the stack carries speech in codec order.
+  - Tests: KATs for every algorithm, fragger round trip, UMAC end-to-end uplink decryption and
+    downlink encryption, traffic slot state.
+- **Not done / to check on air**:
+  - FACCH (stealing) signalling is sent in clear, and on an encrypted call the speech half of a
+    stolen slot is replaced by silence (STCH + TCH/S half needs KSS(216..352) for speech frame B).
+  - Uplink MAC-U-SIGNAL (STCH during a call) is not decrypted.
+  - Assumptions to confirm with a radio: KSS bit order (KSS(0) = msb of the first TEA1 byte),
+    TCH/S type-1 bits = class-sorted order, the uplink TDMA time used for the IV (the stack's
+    usual "downlink time − 2 slots" label).
+  - Multi-cell: the clear/encrypted rule is not applied across cells yet (phase 4).
+- Switch: `MAC_ENCRYPTION_READY` in `aie/mod.rs`.
 - Reminder: TEA1 keeps 32 bits of key state (TS 104 053-1 clause 5.2.2).
