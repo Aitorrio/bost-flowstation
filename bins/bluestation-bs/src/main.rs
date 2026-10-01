@@ -908,6 +908,15 @@ fn main() {
     // Start the stack
     router.run_stack(None, Some(is_running));
 
+    // The extra cells stop on the same `is_running` flag. Wait for them to close their SDRs before
+    // this thread exits or closes its own: libiio segfaults in closeStream when two Pluto streams
+    // close concurrently, or when the process exits while a cell is still closing.
+    for handle in extra_cell_threads {
+        if handle.join().is_err() {
+            tracing::error!("cell thread panicked during shutdown");
+        }
+    }
+
     // Keep `router` alive while we may enter soft standby so the dashboard thread
     // (and SharedConfig) remain available for Arrancar / config / OTA.
     match tetra_entities::service_control::requested_exit_code() {
