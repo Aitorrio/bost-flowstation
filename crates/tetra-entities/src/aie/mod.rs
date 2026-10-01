@@ -1,25 +1,53 @@
 //! Air interface encryption, security class 2 (EN 300 392-7 clause 6). Design and phases:
 //! `Docs/aie-class2-plan.md`.
 //!
-//! Phase 1 (this module today): the policy and signalling around AIE, with no cipher. Nothing
-//! is encrypted and the cell keeps advertising class 1 until a key stream generator is built in
-//! ([`ksg_available`]), so a configured `[security.aie]` is reported and otherwise ignored.
+//! Built so far: the policy and signalling around AIE (phase 1), and the TEA1 key stream
+//! generator, TB5 and the IV (phase 2). The MAC layer does not encrypt yet, so the cell keeps
+//! advertising class 1 and a configured `[security.aie]` is reported and otherwise ignored.
+
+pub mod tea1;
 
 use tetra_config::bluestation::{CfgAie, StackConfig};
 use tetra_pdus::mm::enums::reject_cause::RejectCause;
 use tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters;
 use tetra_pdus::umac::fields::sysinfo_ext_services::SysinfoExtendedServices;
 
-/// True when this build carries the key stream generator for TEA`tea`. None does yet; the TB5 /
-/// TEA primitives arrive in phase 2 as a separate, replaceable module.
-pub fn ksg_available(_tea: u8) -> bool {
-    false
+/// True when this build carries the key stream generator for TEA`tea`.
+pub fn ksg_available(tea: u8) -> bool {
+    tea == 1
+}
+
+/// Whether the MAC layer encrypts and decrypts yet. Until it does (phase 2, with TA61 for the
+/// addresses), the cell must not advertise class 2, whatever key stream generators exist.
+const MAC_ENCRYPTION_READY: bool = false;
+
+/// TB5 (TS 104 053-3 clause 5.23): the encryption key of one carrier, ECK = CK XOR
+/// [LA:14 CN:12 CC:6 CN:12 CC:6 CN:12 CC:6 CN:12] (TS 100 392-7 clause 6.3.2.2).
+pub fn tb5(ck: &[u8; 10], carrier: u16, location_area: u16, colour_code: u8) -> [u8; 10] {
+    let (cn, la, cc) = (carrier as u128 & 0xFFF, location_area as u128 & 0x3FFF, colour_code as u128 & 0x3F);
+    let mut mask = la;
+    for _ in 0..3 {
+        mask = (mask << 12 | cn) << 6 | cc;
+    }
+    mask = mask << 12 | cn;
+    let mut ck_bits = 0u128;
+    for &b in ck {
+        ck_bits = ck_bits << 8 | b as u128;
+    }
+    let eck = ck_bits ^ mask;
+    std::array::from_fn(|i| (eck >> (8 * (9 - i))) as u8)
+}
+
+/// The 29-bit IV of TEA set A (TS 100 392-7 clause 6.3.2.1): IV(0) is the lsb. `tn` is the
+/// timeslot 1..=4, `fn_` the frame 1..=18, `mn` the multiframe 1..=60, `hn` the hyperframe.
+pub fn iv(tn: u8, fn_: u8, mn: u8, hn: u16, uplink: bool) -> u32 {
+    (tn as u32 - 1) | (fn_ as u32) << 2 | (mn as u32) << 7 | (hn as u32 & 0x7FFF) << 13 | (uplink as u32) << 28
 }
 
 /// The AIE settings this cell actually runs with: the configured class 2 settings when the KSG
-/// they name is available, else `None` (class 1, clear).
+/// they name is available and the MAC can use it, else `None` (class 1, clear).
 pub fn effective(cfg: &StackConfig) -> Option<&CfgAie> {
-    cfg.security.aie.as_ref().filter(|a| ksg_available(a.ksg))
+    cfg.security.aie.as_ref().filter(|a| MAC_ENCRYPTION_READY && ksg_available(a.ksg))
 }
 
 /// One startup line describing the AIE posture, so an operator sees why a configured key is not
@@ -33,9 +61,13 @@ pub fn posture(cfg: &StackConfig) -> String {
             a.sckn,
             a.clear_groups.len()
         ),
-        (Some(a), None) => format!(
+        (Some(a), None) if !ksg_available(a.ksg) => format!(
             "class 1 (clear) — [security.aie] asks for class 2 with TEA{}, but this build has no TEA{} key stream generator",
             a.ksg, a.ksg
+        ),
+        (Some(a), None) => format!(
+            "class 1 (clear) — [security.aie] asks for class 2 with TEA{}, but MAC-layer encryption is not finished yet",
+            a.ksg
         ),
     }
 }
@@ -193,6 +225,22 @@ mod tests {
         assert!(may_use_group(None, false, 200));
     }
 
+    /// Known answers from MidnightBlueLabs/TETRA_crypto `tb5()`.
+    #[test]
+    fn tb5_known_answers() {
+        let ck = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23];
+        assert_eq!(tb5(&ck, 3681, 2, 1), [0x01, 0x28, 0xDD, 0x26, 0x6F, 0xBB, 0xB4, 0x6B, 0x1F, 0x42]);
+        assert_eq!(tb5(&ck, 1521, 1, 1), [0x01, 0x26, 0x39, 0x26, 0xD6, 0xBB, 0x9A, 0x2B, 0x14, 0xD2]);
+        assert_eq!(tb5(&ck, 4095, 16383, 63), [0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10, 0xFE, 0xDC]);
+    }
+
+    #[test]
+    fn iv_layout() {
+        assert_eq!(iv(1, 1, 1, 0, false), 1 << 2 | 1 << 7);
+        assert_eq!(iv(4, 18, 60, 0x7FFF, true), 3 | 18 << 2 | 60 << 7 | 0x7FFF << 13 | 1 << 28);
+        assert_eq!(iv(1, 1, 1, 0x8001, false) >> 13, 1, "only the 15 lsbs of the hyperframe");
+    }
+
     #[test]
     fn configured_aie_stays_off_without_a_ksg() {
         let toml = r#"
@@ -222,6 +270,6 @@ clear_groups = [100]
         let cfg = tetra_config::bluestation::parsing::from_toml_str(toml).unwrap();
         assert_eq!(cfg.security.aie.as_ref().map(|a| a.clear_groups.clone()), Some(vec![100]));
         assert!(effective(&cfg).is_none());
-        assert!(posture(&cfg).contains("no TEA1"));
+        assert!(posture(&cfg).contains("not finished"));
     }
 }

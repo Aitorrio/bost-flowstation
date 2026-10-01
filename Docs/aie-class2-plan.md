@@ -207,3 +207,18 @@ encrypted radio says is ever sent in clear.
   other-mode groups until it re-attaches.
 - Note for phase 2: an uplink burst says itself whether it is encrypted (MAC `encryption_mode`),
   so UL decryption keys off the MAC header; the registered mode decides DL encryption.
+
+## 9. Phase 2 — progress
+
+- Algorithms: ETSI TS 104 053-1 V1.2.1 (TEA set A) and TS 104 053-3 V1.1.1 (TAA1: TB5, TA61),
+  local copies in `Docs/spec/`. TS 101 053-1 describes ETSI's distribution rules for TEA1.
+- **TEA1** (`aie/tea1.rs`) written from TS 104 053-1 clause 5. Its tables only exist as scanned
+  figures; the byte permutation is checked to be a permutation and every f1/f2 S-box balanced.
+  It reproduces all known-answer vectors of Midnight Blue's independent implementation
+  (github.com/MidnightBlueLabs/TETRA_crypto, Apache-2.0): the two in its `tests.c` plus six
+  generated with it.
+- **TB5** and the **IV** (`aie::tb5`, `aie::iv`) checked against the same implementation.
+- Still off: `MAC_ENCRYPTION_READY = false` keeps the cell at class 1. Next: TA61 (ESI), then
+  MAC-RESOURCE / MAC-END / uplink encryption (KSS allocation per TS 100 392-7 clause 6.4.2.2),
+  SYSINFO SCK-VN broadcast, then voice.
+- Reminder: TEA1 keeps 32 bits of key state (TS 104 053-1 clause 5.2.2).
