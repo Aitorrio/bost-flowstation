@@ -98,6 +98,10 @@ pub struct CfgAie {
     /// Static cipher key number advertised in SYSINFO, 1..=32.
     pub sckn: u8,
     pub sck: CipherKey,
+    /// SCK version number (16 bits, EN 300 392-7 Table A.102). Broadcast in SYSINFO in turn with
+    /// the hyperframe number; its least significant bit is sent in every encrypted MAC-RESOURCE.
+    /// Must match the version loaded into the radios with the key.
+    pub sck_vn: u16,
     /// Talkgroups used by clear radios. Every other group is encrypted.
     pub clear_groups: Vec<u32>,
 }
@@ -185,6 +189,8 @@ pub struct CfgAieDto {
     #[serde(default)]
     pub sck: Option<String>,
     #[serde(default)]
+    pub sck_vn: Option<u16>,
+    #[serde(default)]
     pub clear_groups: Vec<u32>,
 }
 
@@ -194,6 +200,7 @@ impl std::fmt::Debug for CfgAieDto {
             .field("class", &self.class)
             .field("ksg", &self.ksg)
             .field("sckn", &self.sckn)
+            .field("sck_vn", &self.sck_vn)
             .field("clear_groups", &self.clear_groups)
             .finish_non_exhaustive()
     }
@@ -225,6 +232,7 @@ fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
         ksg,
         sckn,
         sck,
+        sck_vn: dto.sck_vn.unwrap_or(0),
         clear_groups: dto.clear_groups,
     }))
 }

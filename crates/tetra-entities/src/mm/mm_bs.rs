@@ -579,9 +579,13 @@ impl MmBs {
 
         // Air interface encryption (EN 300 392-7 clause 6.5): class 2 radios register with the
         // cell's SCK; radios without AIE register in clear (mixed cell).
-        let ciphering = {
+        let (ciphering, preferred) = {
             let cfg = self.config.config();
-            crate::aie::registration_decision(crate::aie::effective(&cfg), pdu.cipher_control, pdu.ciphering_parameters)
+            let aie = crate::aie::effective(&cfg);
+            (
+                crate::aie::registration_decision(aie, pdu.cipher_control, pdu.ciphering_parameters),
+                aie.map(crate::aie::preferred_parameters),
+            )
         };
         let ciphering = match ciphering {
             crate::aie::CipherDecision::Clear => None,
@@ -593,7 +597,15 @@ impl MmBs {
                     pdu.ciphering_parameters.map(tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters::from_bits),
                     cause
                 );
-                Self::send_d_location_update_reject_cause(queue, issi, handle, pdu.location_update_type, pdu.address_extension, cause);
+                Self::send_d_location_update_reject_ciphering(
+                    queue,
+                    issi,
+                    handle,
+                    pdu.location_update_type,
+                    pdu.address_extension,
+                    cause,
+                    preferred,
+                );
                 return;
             }
             crate::aie::CipherDecision::Unsupported => {
@@ -2231,11 +2243,25 @@ impl MmBs {
         address_extension: Option<u64>,
         reject_cause: RejectCause,
     ) {
+        Self::send_d_location_update_reject_ciphering(queue, issi, handle, location_update_type, address_extension, reject_cause, None);
+    }
+
+    /// D-LOCATION UPDATE REJECT that, for a ciphering refusal, carries the cell's preferred
+    /// ciphering parameters (EN 300 392-7 clause 6.6.2.1.2).
+    fn send_d_location_update_reject_ciphering(
+        queue: &mut MessageQueue,
+        issi: u32,
+        handle: u32,
+        location_update_type: LocationUpdateType,
+        address_extension: Option<u64>,
+        reject_cause: RejectCause,
+        preferred: Option<tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters>,
+    ) {
         let pdu = DLocationUpdateReject {
             location_update_type,
             reject_cause: reject_cause as u8,
-            cipher_control: false,
-            ciphering_parameters: None,
+            cipher_control: preferred.is_some(),
+            ciphering_parameters: preferred.map(|p| p.to_bits()),
             address_extension,
             cell_type_control: None,
             proprietary: None,

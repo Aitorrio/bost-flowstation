@@ -2,10 +2,35 @@
 
 Status: **design draft**, nothing implemented. Target radios: Motorola MTH800 / MTH850.
 
-Normative reference: ETSI EN 300 392-7 (TETRA V+D security), clause 6 (air interface
-encryption), with the PDU encodings in EN 300 392-2 (clause 16 MM, clause 21 MAC). Every item
-marked **[verify]** below is from memory or from the existing parsers and must be checked against
-the spec text before it is coded — a single wrong bit means the radio silently fails to decode.
+Normative reference: **ETSI TS 100 392-7 V4.2.1 (2026-04)** (TETRA V+D security), clause 6
+(air interface encryption) and Annex A, with the PDU encodings in EN 300 392-2 (clause 16 MM,
+clause 21 MAC). Local copy (not committed): `Docs/spec/ts_10039207v040201p.pdf`. The MAC PDU
+field positions come from EN 300 392-2 and the existing parsers; they are not checked here.
+
+## 0. Checked against TS 100 392-7 V4.2.1
+
+| Item | Spec | Result |
+|---|---|---|
+| Ciphering parameters, 10 bits | Table A.46 | KSG number (4), security class (1: 0 = class 2), SCK number (5) — as built |
+| KSG number | Table 6.2 | 0 = TEA1 … 3 = TEA4 (set A, 80-bit CK); 4–6 = TEA5–7 (set B, 192-bit CKX); 8–11 proprietary |
+| SCK number | Table A.96 | 0 = SCK 1 … 31 = SCK 32 — as built |
+| SCK-VN | Table A.102, cl. 4.2.4.0b | 16 bits; LSB carried in every encrypted MAC-RESOURCE |
+| Negotiation | cl. 6.6.2.1.2, 6.7.4 | Every registration on a class 2 cell carries cipher control = 1 + parameters; mixed class 1/2 cells are allowed (radio registers at the highest class it can). A refusal is a D-LOCATION UPDATE REJECT with cause 13–16 or 18 **that carries the cell's preferred parameters** — now done |
+| Encrypted registration | cl. 6.6.2.2 | A radio that holds the broadcast SCKN may encrypt its very first registration (ITSI attach). The BS must therefore be able to decrypt an uplink before the radio is known |
+| IV (TEA set A) | cl. 6.3.2.1 | 29 bits, numbered from the LSB: IV(0..1) = TN−1, IV(2..6) = FN (1–18), IV(7..12) = MN (1–60), IV(13..27) = 15 LSBs of the hyperframe, IV(28) = 0 DL / 1 UL |
+| ECK | cl. 6.3.2.2, fig. 6.2 | ECK = TB5(CK, CN, LA-id, CC) — per carrier, so each cell and each carrier gets its own |
+| Broadcast | cl. 6.3.2.0a | Hyperframe (IV(13..27)) is broadcast in SYSINFO **in turn with SCK-VN** on a schedule chosen by the SwMI |
+| DL encryption mode | Table 6.6 | 00 clear, 01 reserved, 10 encrypted SCK-VN even, 11 encrypted SCK-VN odd |
+| UL | cl. 6.5.2 | One "encrypted" bit in every uplink MAC header |
+| Never encrypted | cl. 6.7.1.1 | SYNC, SYSINFO (TMB-SAP), ACCESS-DEFINE |
+| What is encrypted | cl. 6.7.1.2 | MAC-RESOURCE and DL MAC-END: everything after the channel allocation flag (and the TM-SDU); KSS is per timeslot (max 432 bits on π/4-DQPSK) |
+| Address | cl. 4.2.6, 6.7.1.2 | With TEA set A, whenever a MAC PDU is encrypted its SSI is replaced by the **ESI = TA61(SSI, SCK)** — for individual, group and broadcast addresses. Event label, usage marker, USSI and SMI are not encrypted |
+| Key changes | cl. 6.3.2.0 | Change the SCK within 23 days to avoid IV reuse (recommendation) |
+
+**Consequence for phase 2:** besides TB5 and TEA1, the station needs **TA61** (ESI). The BS
+keeps an ESI ↔ SSI table for every registered ISSI, every group in use and the broadcast address,
+recomputed when the SCK changes, and uses it to recognise encrypted uplink addresses. TB5, TA61
+and TEA1 are ETSI-confidential and are not in this specification.
 
 ## 1. What class 2 is
 
@@ -15,14 +40,12 @@ the spec text before it is coded — a single wrong bit means the radio silently
 - Signalling and traffic (voice) on the air are encrypted; the backhaul (site switch, Brew,
   Asterisk, LST) stays in clear, because each cell decrypts at its own MAC.
 
-## 2. Crypto chain (EN 300 392-7 clause 6.2) [verify]
+## 2. Crypto chain (TS 100 392-7 clause 6.3)
 
-1. **ECK = TB5(SCK, CC, CN, LA)** — the encryption key is modified per cell by colour code, carrier
-   number and location area, so every cell of a multi-cell station gets its own ECK from the same
-   SCK. Computed once per cell at start-up.
-2. **IV (29 bits)** from TDMA time: timeslot − 1 (2), frame number (5), multiframe number (6),
-   low 15 bits of the hyperframe number, direction bit (DL/UL). The hyperframe count must
-   therefore be exact on both ends (see §4).
+1. **ECK = TB5(SCK, CN, LA-id, CC)** — the encryption key is modified per carrier by colour
+   code, carrier number and location area, so every cell (and carrier) of a station gets its own
+   ECK from the same SCK. Computed once per carrier at start-up.
+2. **IV (29 bits)**, see §0. The hyperframe count must be exact on both ends.
 3. **Keystream = KSG(ECK, IV)** — TEA*n* chosen by the KSG number (TEA1 = 1 … TEA4 = 4).
 4. Ciphertext = plaintext XOR keystream, applied per burst/slot to the encrypted part of the
    MAC block (§5) or to the TCH bits (voice).
@@ -52,6 +75,7 @@ class = 2                 # 1 = clear (default), 2 = SCK
 ksg = 1                   # TEA1
 sckn = 1                  # 1..32
 sck = "0123456789ABCDEF0123"   # 80 bits hex — never shown in dashboard/telemetry/logs
+sck_vn = 0                # SCK version number loaded with the key (16 bits)
 ```
 Validation: sck exactly 20 hex digits, sckn 1–32, ksg 1–4. Extra cells inherit it. The key is
 redacted from every serialisation path (dashboard config view, telemetry, profiles export).
@@ -67,12 +91,14 @@ redacted from every serialisation path (dashboard config view, telemetry, profil
 
 ### MM (registration)
 - U-LOCATION-UPDATE-DEMAND: read the **ciphering parameters** (KSG number, security class,
-  SCKN) the radio proposes. [verify field layout]
-- D-LOCATION-UPDATE-ACCEPT: return the agreed ciphering parameters in the security element.
-  The registration exchange itself goes in clear; encryption starts after accept. [verify the
-  exact switch-on point, EN 300 392-7 clause 6.5]
+  SCKN) the radio proposes (Table A.46).
+- Accepted parameters need no echo in D-LOCATION-UPDATE-ACCEPT for TEA set A (the "Security
+  downlink" element is only needed for TEA set B identity encryption, cl. 4.2.6). A radio that
+  holds the SCK may already send the registration encrypted (cl. 6.6.2.2); the uplink MAC
+  "encrypted" bit says so, and the BS decrypts on that bit, not on the registry.
 - Per-ISSI state in the client registry: `encrypted: bool`, KSG, SCKN.
-- Reject (or fall back to clear, per `allow_clear`) a radio proposing another SCKN or KSG.
+- Reject a radio proposing another SCKN or KSG, sending the cell's own parameters in the
+  D-LOCATION UPDATE REJECT (cl. 6.6.2.1.2).
 
 ### 4a. Mixed-cell policy (decided)
 
@@ -81,7 +107,7 @@ talk only with encrypted radios. The station never bridges between the two, so n
 encrypted radio says is ever sent in clear.
 
 - **Individual calls**: refused when caller and called differ in mode (D-RELEASE, cause
-  "requested service not available" [verify cause code]).
+  "requested service not available" (EN 300 392-2 disconnect cause) ).
 - **SDS / status**: same rule, the station rejects delivery across modes.
 - **Groups**: a group call goes out on one channel to every member of the GSSI, so it cannot be
   half clear and half encrypted. Each talkgroup therefore gets a mode in config
@@ -97,14 +123,16 @@ encrypted radio says is ever sent in clear.
 ### LLC / MLE / CMCE plumbing
 - Fill the existing `air_interface_encryption` fields (`tla`, `tma` SAPs; `TODO FIXME`s in
   `llc_bs_ms.rs`) from the destination's state: encrypted for a class-2 ISSI or any group once
-  AIE is on; clear for broadcast-to-all control PDUs that must stay readable (sync, sysinfo,
-  D-NWRK-BROADCAST — confirm which are exempt). [verify]
+  AIE is on. Only SYNC, SYSINFO and ACCESS-DEFINE are always clear (cl. 6.7.1.1); other
+  broadcasts (D-NWRK-BROADCAST, home-mode SDS) are encrypted on a class-2-only cell, but on a
+  mixed cell they must stay clear so class 1 radios can read them.
 
 ### UMAC (signalling)
-- MAC-RESOURCE / MAC-DATA / MAC-FRAG / MAC-END: set `encryption_mode`, encrypt the TM-SDU
-  (header and, per the spec, possibly the address via ESI) with the slot's keystream, before
-  channel coding. Fragmented PDUs: every fragment uses its own slot's IV. [verify what is
-  covered — header vs SDU, and whether class 2 uses ESI for addresses]
+- MAC-RESOURCE / DL MAC-END: set `encryption_mode` (10/11 by SCK-VN parity), replace the SSI
+  with its ESI (TA61), encrypt everything after the channel allocation flag plus the TM-SDU with
+  the slot's KSS, before channel coding (cl. 6.7.1.2). MAC-FRAG / MAC-DATA: TM-SDU. Fragmented
+  PDUs: every fragment uses its own slot's IV. KSS allocation within a slot (PDU association,
+  half slots): cl. 6.4.2.2 — read before coding.
 - Uplink: decrypt the TM-SDU of a MAC-ACCESS/MAC-DATA from an encrypted ISSI before LLC.
 - Stealing (FACCH) on traffic slots follows the same rule.
 
@@ -157,7 +185,7 @@ encrypted radio says is ever sent in clear.
   `sysinfo_security()` (unchanged broadcast without AIE), `registration_decision()`,
   `may_communicate()`, `may_use_group()`.
 - Ciphering parameters decoded by `tetra_pdus::mm::fields::ciphering_parameters`. KSG number is
-  sent as TEA*n* − 1 and SCK number as SCKN − 1. [verify]
+  sent as TEA*n* − 1 and SCK number as SCKN − 1 (confirmed, §0).
 - MM: decision at U-LOCATION UPDATE DEMAND (reject causes 13–16 for a wrong KSG / key type /
   SCKN); per-radio mode in the client registry and in `SubscriberRegistry::encrypted`; attach
   requests for other-mode groups dropped (registration and U-ATTACH).

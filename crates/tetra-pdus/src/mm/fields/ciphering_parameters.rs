@@ -1,18 +1,20 @@
 use core::fmt;
 
-/// EN 300 392-7 clause A.8 Ciphering parameters, 10 bits, carried in U-LOCATION UPDATE DEMAND and
-/// D-LOCATION UPDATE COMMAND when "Cipher control" is 1.
+/// EN 300 392-7 clause A.8.12 Ciphering parameters (Table A.46), 10 bits, carried in
+/// U-LOCATION UPDATE DEMAND, D-LOCATION UPDATE COMMAND and D-LOCATION UPDATE REJECT when
+/// "Cipher control" is 1.
 ///
-/// Layout (MSB first): KSG number (4), security class (1: 0 = class 2, 1 = class 3), then 5 bits
-/// that are the SCK number for class 2 or reserved for class 3.
-/// [verify] against the EN 300 392-7 text before AIE goes on air (Docs/aie-class2-plan.md).
+/// Layout (MSB first): KSG number (4, Table 6.2), security class (1: 0 = class 2, 1 = class 3),
+/// then 5 bits: the SCK number (Table A.96) for class 2, or five capability flags for class 3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CipheringParameters {
-    /// KSG number as sent: 0 = TEA1, 1 = TEA2, 2 = TEA3, 3 = TEA4, 8..=15 proprietary.
+    /// KSG number as sent: 0 = TEA1 … 6 = TEA7 (TEA set A is 0..=3, set B 4..=6), 8..=11
+    /// proprietary.
     pub ksg_number: u8,
     /// True for security class 3 (DCK), false for class 2 (SCK).
     pub class3: bool,
-    /// Class 2: SCK number as sent (0 = SCK 1 … 31 = SCK 32). Class 3: the 5 reserved bits.
+    /// Class 2: SCK number as sent (0 = SCK 1 … 31 = SCK 32). Class 3: the OTAR / GCK / security
+    /// information protocol support flags.
     pub sckn_field: u8,
 }
 
@@ -38,9 +40,9 @@ impl CipheringParameters {
         }
     }
 
-    /// The TEA algorithm number (1..=4), or `None` for a proprietary KSG.
+    /// The TEA algorithm number (1..=7), or `None` for a proprietary or reserved KSG.
     pub fn tea(self) -> Option<u8> {
-        (self.ksg_number < 4).then_some(self.ksg_number + 1)
+        (self.ksg_number < 7).then_some(self.ksg_number + 1)
     }
 
     /// The SCK number (1..=32) for class 2.

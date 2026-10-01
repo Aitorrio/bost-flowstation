@@ -63,9 +63,15 @@ pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices)
         return (false, ext);
     };
     // Mixed cell: class 1 stays advertised so radios without AIE still register in clear.
-    // SCK number field: 0 = SCK 1 … 31 = SCK 32. [verify]
+    // SCK number field: 0 = SCK 1 … 31 = SCK 32 (EN 300 392-7 Table A.96).
     ext.sck_n = Some(aie.sckn - 1);
     (true, ext)
+}
+
+/// The ciphering parameters this cell prefers, sent back in a D-LOCATION UPDATE REJECT that
+/// refuses a radio's proposal (EN 300 392-7 clause 6.6.2.1.2).
+pub fn preferred_parameters(aie: &CfgAie) -> CipheringParameters {
+    CipheringParameters::class2(aie.ksg, aie.sckn)
 }
 
 /// Outcome of the ciphering part of a U-LOCATION UPDATE DEMAND.
@@ -81,7 +87,8 @@ pub enum CipherDecision {
     Unsupported,
 }
 
-/// Decide how a registering radio is ciphered from what it asked for (EN 300 392-7 clause 6.5).
+/// Decide how a registering radio is ciphered from what it asked for (EN 300 392-7 clause
+/// 6.6.2.1: in a class 2 cell the radio proposes KSG and SCKN; unacceptable ones are rejected).
 /// `aie` is the cell's effective setting ([`effective`]).
 pub fn registration_decision(aie: Option<&CfgAie>, cipher_control: bool, params: Option<u64>) -> CipherDecision {
     if !cipher_control {
@@ -134,6 +141,7 @@ mod tests {
             ksg: 1,
             sckn: 3,
             sck: CipherKey([0; 10]),
+            sck_vn: 0,
             clear_groups: vec![100],
         }
     }
