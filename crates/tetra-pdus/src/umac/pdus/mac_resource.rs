@@ -243,7 +243,8 @@ impl MacResource {
         match addr_type {
             MacResourceAddrType::NullPdu => {}
             MacResourceAddrType::Ssi | MacResourceAddrType::Ussi | MacResourceAddrType::Smi => {
-                assert!((self.addr.unwrap().ssi_type == SsiType::Esi) == (self.encryption_mode != 0));
+                // With encryption on, the caller has already replaced an SSI by its ESI
+                // (TS 100 392-7 clause 4.2.6); the address type stays SSI.
                 buf.write_bits(self.addr.unwrap().ssi as u64, 24);
             }
             MacResourceAddrType::EventLabel => {

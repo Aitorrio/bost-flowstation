@@ -134,6 +134,9 @@ pub struct BsChannelScheduler {
     /// the next frame to avoid exceeding the 216-bit slot capacity (DConnect+DConnectAck=223 bits).
     mcch_chan_alloc_sent_this_frame: bool,
 
+    /// Air interface encryption (class 2), when the cell runs it.
+    cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
+
     /// Per-timeslot rotating cursor for allocating usage markers to multi-slot
     /// uplink reservations. Wraps in the valid range [4, 62] (0 = unallocated,
     /// 1-3 reserved, 63 = common linearisation; per ETSI TS 100 392-2 §23.5.1).
@@ -199,6 +202,7 @@ impl BsChannelScheduler {
             force_ul_traffic_decode: [false, false, false, false],
             pending_ra_acks: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             mcch_chan_alloc_sent_this_frame: false,
+            cipher: None,
             // Start each timeslot's marker cursor at 4 (first valid value).
             next_usage_marker: [4, 4, 4, 4],
         }
@@ -206,6 +210,10 @@ impl BsChannelScheduler {
 
     pub fn set_carrier_num(&mut self, carrier_num: u16) {
         self.carrier_num = carrier_num;
+    }
+
+    pub fn set_cipher(&mut self, cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>) {
+        self.cipher = cipher;
     }
 
     pub fn set_downlink_mode(&mut self, downlink_mode: CarrierDownlinkMode) {
@@ -1144,6 +1152,14 @@ impl BsChannelScheduler {
 
     fn dl_build_block_from_signalling_schedule(&mut self, ts: TdmaTime) -> Option<BitBuffer> {
         let mut buf_opt = None;
+        // Key stream of this slot, for at most one encrypted PDU (TS 100 392-7 clause 6.4.2.2).
+        let cipher = self.cipher.clone();
+        let mut slot_cipher = cipher.as_deref().map(|c| crate::umac::subcomp::bs_frag::SlotCipher {
+            cipher: c,
+            kss: c.kss(self.carrier_num, ts, false),
+            kss_offset: 0,
+            used: false,
+        });
 
         while !self.dltx_queues[ts.t as usize - 1].is_empty() {
             let opt = self.dl_take_prioritized_sched_item(ts);
@@ -1160,7 +1176,7 @@ impl BsChannelScheduler {
                             let mut buf = buf_opt.unwrap_or_else(|| BitBuffer::new(SCH_F_CAP));
                             // Create fragger, either to send the whole PDU or to start fragmentation
                             let mut fragger = BsFragger::new(pdu, sdu, tx_reporter);
-                            if !fragger.get_next_chunk(&mut buf) {
+                            if !fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()) {
                                 // Fragmentation was started and we have more chunks to send
                                 // Enqueue fragger with remaining data for retrieval next frame
                                 self.dl_enqueue_tma_frag_next_frame(fragger);
@@ -1171,7 +1187,7 @@ impl BsChannelScheduler {
                         DlSchedElem::FragBuf(mut fragger) => {
                             // Allocate bitbuf if not already done
                             let mut buf = buf_opt.unwrap_or_else(|| BitBuffer::new(SCH_F_CAP));
-                            if !fragger.get_next_chunk(&mut buf) {
+                            if !fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()) {
                                 // Fragmentation was continued and we still have more chunks to send
                                 // Re-enqueue fragger with remaining data for retrieval next frame
                                 self.dl_enqueue_tma_frag_next_frame(fragger);

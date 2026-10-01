@@ -72,6 +72,8 @@ pub struct UmacBs {
     /// has had a scheduler turn to leave the BS.
     pending_circuit_closes: HashMap<(u16, u8), PendingCircuitClose>,
     telemetry: Option<TelemetrySink>,
+    /// Air interface encryption (class 2), shared with the schedulers; `None` = clear cell.
+    cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
 }
 
 /// Watch UL while hangtime is held so CMCE can defer network talk-permit.
@@ -105,13 +107,21 @@ impl UmacBs {
         let scrambling_code = scrambler::tetra_scramb_get_init(c.net.mcc, c.net.mnc, c.cell.colour_code);
         let system_wide_services = Self::get_system_wide_services_state(&config);
         let precomps = Self::generate_precomps(&config);
+        // Air interface encryption (class 2): one cipher context for every carrier of the cell.
+        let cipher = crate::aie::effective(&c).map(|aie| {
+            let carriers: Vec<u16> = [Some(c.cell.main_carrier), c.cell.secondary_carrier].into_iter().flatten().collect();
+            std::sync::Arc::new(crate::aie::cipher::CellCipher::new(aie, &carriers, c.cell.location_area, c.cell.colour_code))
+        });
         let mut secondary_channel_schedulers = Vec::new();
         if let Some(secondary_carrier) = c.cell.secondary_carrier {
             let mut sched = BsChannelScheduler::new(scrambling_code, precomps.clone());
             sched.set_carrier_num(secondary_carrier);
             sched.set_downlink_mode(CarrierDownlinkMode::SecondaryBcchNoMcch);
+            sched.set_cipher(cipher.clone());
             secondary_channel_schedulers.push(sched);
         }
+        let mut channel_scheduler = BsChannelScheduler::new(scrambling_code, precomps);
+        channel_scheduler.set_cipher(cipher.clone());
         Self {
             self_component: TetraEntity::Umac,
             config,
@@ -121,8 +131,9 @@ impl UmacBs {
             defrag: BsDefrag::new(),
             pending_stch: None,
             // event_label_store: EventLabelStore::new(),
-            channel_scheduler: BsChannelScheduler::new(scrambling_code, precomps),
+            channel_scheduler,
             secondary_channel_schedulers,
+            cipher,
             last_ul_voice: HashMap::new(),
             hangtime_ul_watch: HashMap::new(),
             ul_signal_owner: HashMap::new(),
