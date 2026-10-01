@@ -9,6 +9,7 @@ LED RX y oferta de interrupción (doble PTT) solo cuando otro interlocutor tiene
 - `OngoingGroupCall` con `tx_active=false`: ignorado (sin `rx` / sin LED).
 - `CallEnded`: limpia RX de inmediato.
 - Fin de PTT propio (`NetworkCallEnd`): limpia RX/preempt del TG TX.
+- Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
 
 ## v0.4.5 — LST: sin double-PTT tras cambio de TG en hangtime
 
