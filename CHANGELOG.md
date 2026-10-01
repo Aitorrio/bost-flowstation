@@ -2,6 +2,14 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.7 — Copia de estación (.bptbs) y pack de perfiles (.ptbs)
+
+Respaldar o clonar una estación sin copiar a mano `/etc/flowstation`, y compartir solo perfiles Cell/Brew entre Pis.
+
+- **Sistema → Copia de seguridad**: exportar/importar `.bptbs` (config viva, perfiles, setup/fallback, TOMLs hermanos, Wi-Fi SSID+PSK). Al importar se conserva el canal OTA local, se limpia `source_dir` inválido, se fusionan redes Wi-Fi por SSID y se reinicia.
+- **Config → perfiles TMO**: exportar/importar `.ptbs` (solo árbol de perfiles). Sin reinicio automático — usa Aplicar y reiniciar para ponerlos al aire.
+- APIs autenticadas `GET/POST /api/station|profiles/export|import` (ZIP, hasta 32 MiB en estación).
+
 ## v0.4.6 — LST: RX verde / double-PTT solo con tráfico real
 
 LED RX y oferta de interrupción (doble PTT) solo cuando otro interlocutor tiene el suelo vivo en el TG TX. Late-entry en hangtime ya no pinta verde ni deja el TG “pillado”.

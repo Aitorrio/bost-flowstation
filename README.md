@@ -193,7 +193,7 @@ If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/inst
 | **Calls / Last Heard / Log** | Live traffic and diagnostics |
 | **RF / Health** | Spectrum / constellation and subsystem health |
 | **Config** | TMO profiles (sheets), live settings, Cell ISSI whitelist, remote U-STATUS, advanced TOML |
-| **System** | Host metrics, service control, OTA, panel account |
+| **System** | Host metrics, service control, OTA, panel account, station backup (`.bptbs`) |
 | **Setup** | Re-run first-boot helper anytime |
 
 ---
@@ -213,6 +213,13 @@ Restart, suspend, full power-off and OTA live in the **System** hero (top-right 
 - **Actualizar** — OTA on the selected channel: `git fetch` + `reset --hard` to that branch (keeps `target/` for incremental builds), rebuild only if the running binary is behind, install, restart
 
 When a newer commit is on GitHub for the **active channel**, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).
+
+### Station backup (`.bptbs`) and profile packs (`.ptbs`)
+
+- **System → Backup** — export/import a full station file (`.bptbs`): live `config.toml`, Cell/Brew profiles, setup/fallback siblings, and saved Wi-Fi passwords (NetworkManager). Import replaces the destination station, **keeps** local `[dashboard] ota_channel`, scrapes bad `source_dir` paths, merges Wi-Fi by SSID (does not delete networks absent from the backup), then restarts.
+- **Config → TMO profiles** — export/import Cell/Brew profiles only (`.ptbs`). Does **not** change live config or restart; use **Apply & Restart** when you want them on air.
+
+Treat `.bptbs` as sensitive (Wi-Fi PSKs + dashboard credentials inside config).
 
 The OTA dialog is a three-step flow (channel → what's new → progress). Expand **Ver todo** only if you need the full build log:
 

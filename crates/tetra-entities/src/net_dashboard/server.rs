@@ -3727,6 +3727,18 @@ fn handle_connection(
     } else if req_line.contains("POST /api/dashboard-ports") {
         let (inner, body_str) = read_post_body(stream);
         serve_dashboard_ports_post(inner, &config_path, &body_str);
+    } else if req_line.contains("GET /api/station/export") {
+        drain_http_headers(&mut stream);
+        serve_station_export(stream, &config_path);
+    } else if req_line.contains("POST /api/station/import") {
+        let body = read_http_body(&mut stream);
+        serve_station_import(stream, &config_path, &body);
+    } else if req_line.contains("GET /api/profiles/export") {
+        drain_http_headers(&mut stream);
+        serve_profiles_export(stream, &config_path);
+    } else if req_line.contains("POST /api/profiles/import") {
+        let body = read_http_body(&mut stream);
+        serve_profiles_import(stream, &config_path, &body);
     } else if req_line.contains("GET /api/wx") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -5674,6 +5686,97 @@ fn serve_dashboard_ports_post(stream: PrefixedConn, config_path: &str, body: &st
     http_json_response(stream, 200, &body);
 }
 
+fn serve_station_export(mut stream: PrefixedConn, config_path: &str) {
+    match crate::net_dashboard::station_bundle::build_station_bptbs(config_path) {
+        Ok(bytes) => {
+            let fname = format!(
+                "station-{}.bptbs",
+                chrono::Local::now().format("%Y%m%d-%H%M")
+            );
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Disposition: attachment; filename=\"{fname}\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&bytes);
+        }
+        Err(e) => http_response(stream, 500, &e),
+    }
+}
+
+fn serve_station_import(stream: PrefixedConn, config_path: &str, body: &[u8]) {
+    if body.is_empty() {
+        http_response(stream, 400, "empty body — POST the .bptbs file");
+        return;
+    }
+    if body.len() > 32 * 1024 * 1024 {
+        http_response(stream, 413, "file too large (max 32 MiB)");
+        return;
+    }
+    match crate::net_dashboard::station_bundle::import_station_bptbs(config_path, body) {
+        Ok(res) => {
+            tracing::info!(
+                "Dashboard: station .bptbs imported ({} warning(s)) — restarting",
+                res.warnings.len()
+            );
+            crate::service_control::schedule_service_action(
+                crate::service_control::ServiceAction::Restart,
+                std::time::Duration::from_millis(800),
+            );
+            let warn_json = serde_json::to_string(&res.warnings).unwrap_or_else(|_| "[]".into());
+            http_json_response(
+                stream,
+                200,
+                &format!(r#"{{"ok":true,"restarting":true,"warnings":{warn_json}}}"#),
+            );
+        }
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
+fn serve_profiles_export(mut stream: PrefixedConn, config_path: &str) {
+    match crate::net_dashboard::station_bundle::build_profiles_ptbs(config_path) {
+        Ok(bytes) => {
+            let fname = format!(
+                "profiles-{}.ptbs",
+                chrono::Local::now().format("%Y%m%d-%H%M")
+            );
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Disposition: attachment; filename=\"{fname}\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(&bytes);
+        }
+        Err(e) => http_response(stream, 500, &e),
+    }
+}
+
+fn serve_profiles_import(stream: PrefixedConn, config_path: &str, body: &[u8]) {
+    if body.is_empty() {
+        http_response(stream, 400, "empty body — POST the .ptbs file");
+        return;
+    }
+    if body.len() > 16 * 1024 * 1024 {
+        http_response(stream, 413, "file too large (max 16 MiB)");
+        return;
+    }
+    match crate::net_dashboard::station_bundle::import_profiles_ptbs(config_path, body) {
+        Ok(res) => {
+            tracing::info!("Dashboard: profiles .ptbs imported");
+            let warn_json = serde_json::to_string(&res.warnings).unwrap_or_else(|_| "[]".into());
+            http_json_response(
+                stream,
+                200,
+                &format!(
+                    r#"{{"ok":true,"restarting":false,"warnings":{warn_json},"hint":"Apply & Restart to put profiles on air"}}"#
+                ),
+            );
+        }
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // WX/METAR service config (dashboard-editable). See net_dashboard::wx_service.
 // ---------------------------------------------------------------------------
@@ -6802,7 +6905,7 @@ fn read_http_body(stream: &mut PrefixedConn) -> Vec<u8> {
     if content_length == 0 {
         return Vec::new();
     }
-    let mut body = vec![0u8; content_length.min(512 * 1024)];
+    let mut body = vec![0u8; content_length.min(32 * 1024 * 1024)];
     let _ = stream.read_exact(&mut body);
     body
 }

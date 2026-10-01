@@ -48,6 +48,11 @@ fn profiles_root(config_path: &str) -> PathBuf {
         .join("profiles")
 }
 
+/// Directory containing Cell/Brew profile JSON (`…/profiles`).
+pub fn profiles_dir(config_path: &str) -> PathBuf {
+    profiles_root(config_path)
+}
+
 fn cell_dir(config_path: &str) -> PathBuf {
     profiles_root(config_path).join("cell")
 }

@@ -5471,6 +5471,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <button type="button" class="btn btn-sm" onclick="deleteSelectedBrewProfile()"><span data-i18n="cfg_del_brew">Delete</span></button>
             </div>
           </div>
+          <div class="help-text" style="margin:14px 0 10px" data-i18n="cfg_profiles_pack_help">
+            Export or import Cell/Brew profiles only (.ptbs). Does not change live config or restart — use Apply &amp; Restart after importing if you want them on air.
+          </div>
+          <div class="sys-auth-actions" style="flex-wrap:wrap;gap:8px;margin-bottom:4px">
+            <button type="button" class="btn btn-sm" onclick="exportProfilesPack()"><span data-i18n="cfg_profiles_export">Export .ptbs</span></button>
+            <button type="button" class="btn btn-sm" onclick="document.getElementById('cfg-ptbs-file').click()"><span data-i18n="cfg_profiles_import">Import .ptbs</span></button>
+            <input type="file" id="cfg-ptbs-file" accept=".ptbs,application/zip" style="display:none" onchange="importProfilesPack(this)">
+          </div>
           <div class="config-msg" id="vc-profiles-msg"></div>
         </div>
       </div>
@@ -6418,6 +6426,25 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <!-- Station backup (.bptbs) -->
+      <div class="section-label" data-i18n="sys_sec_backup">Backup</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="sys_backup_title">Station backup</div>
+        </div>
+        <div class="card-body" style="padding:14px 18px">
+          <div class="help-text" style="margin-bottom:14px" data-i18n="sys_backup_help">
+            Download a full station file (.bptbs): live config, Cell/Brew profiles, setup/fallback siblings, and saved Wi-Fi passwords. Import replaces this station (OTA channel kept) and restarts.
+          </div>
+          <div class="sys-auth-actions" style="flex-wrap:wrap;gap:8px">
+            <button type="button" class="btn btn-primary" onclick="exportStationBackup()"><span data-i18n="sys_backup_export">Export .bptbs</span></button>
+            <button type="button" class="btn" onclick="document.getElementById('sys-bptbs-file').click()"><span data-i18n="sys_backup_import">Import .bptbs</span></button>
+            <input type="file" id="sys-bptbs-file" accept=".bptbs,application/zip" style="display:none" onchange="importStationBackup(this)">
+            <span id="sys-backup-msg" class="sys-auth-msg"></span>
+          </div>
+        </div>
+      </div>
+
       <!-- Config profiles -->
       <div class="section-label" data-i18n="sys_sec_profiles">Profiles</div>
       <div class="card">
@@ -7061,6 +7088,11 @@ const LANGS={
     svc_standby_will_start:'The service is on standby. “{action}” will start it again. Continue?',
     saved:'✓ Saved — restart to apply.',save_fail:'✗ Save failed',conn_error:'Connection error.',
     cfg_sec_profiles:'Profiles',cfg_profiles_title:'TMO profiles',cfg_profiles_help:'Use profiles to save your preferred TMO and Brew server setups and switch between them quickly.',
+    cfg_profiles_pack_help:'Export or import Cell/Brew profiles only (.ptbs). Does not change live config or restart — use Apply & Restart after importing if you want them on air.',
+    cfg_profiles_export:'Export .ptbs',cfg_profiles_import:'Import .ptbs',
+    cfg_profiles_export_ok:'Profiles exported',cfg_profiles_export_err:'Could not export profiles',
+    cfg_profiles_import_confirm:'Replace Cell/Brew profiles on this station with the .ptbs file? Live config.toml is not changed and the service will not restart.',
+    cfg_profiles_import_ok:'Profiles imported',cfg_profiles_import_err:'Could not import profiles',
     cfg_cell_profile:'TMO Cell',cfg_brew_profile:'Core Net (Brew)',cfg_apply_restart:'Apply & Restart',
     cfg_add:'Add',cfg_edit:'Edit',cfg_profile_name:'Profile name',
     cfg_cell_sheet_add:'Add TMO Cell',cfg_cell_sheet_edit:'Edit TMO Cell',
@@ -7227,6 +7259,12 @@ const LANGS={
     sys_title:'System',sys_sec_control:'Control',sys_control_title:'Service control',sys_control_help:'Restart the station, suspend the radio stack (dashboard stays up), power off the whole Pi, or pull and rebuild from GitHub (OTA).',sys_sec_status:'Status',sys_sec_host:'Host',sys_sec_radio:'Radio Hardware',sys_sec_sensors:'Sensors',sys_sec_profiles:'Profiles',sys_sec_sds:'SDS Broadcast',sys_refresh:'Refresh',sys_probe:'Probe',sys_soapy_idle:'Press Probe to scan SoapySDR devices.',sys_temp_hot:'HOT',sys_temp_warm:'Warm',sys_temp_ok:'OK',
     sys_sec_account:'Account',sys_account_title:'Panel access',sys_account_help:'Change the dashboard login here. One station account — not part of Cell/Brew profiles.',sys_account_user:'Username',sys_account_change:'Change credentials',sys_account_current_pass:'Current password',sys_account_new_user:'New username (optional)',sys_account_new_pass:'New password (optional)',sys_account_new_pass_req:'New password',sys_account_confirm:'Confirm new password',sys_account_save:'Save',sys_account_enable_title:'Enable login',sys_account_enable_help:'Dashboard access is currently open. Set a username and password to require sign-in.',sys_account_enable_btn:'Enable login',sys_account_open:'OPEN',sys_account_protected:'PROTECTED',sys_account_ok:'Saved — sign in again',sys_account_err:'Could not save',sys_account_need_cur:'Current password required',sys_account_need_change:'Set a new username and/or password',sys_account_mismatch:'Passwords do not match',
     sys_ports_title:'Dashboard ports',sys_ports_help:'HTTPS is required for LST microphone access. Standard uses port 443 (HTTP 80 redirects). High port uses only HTTPS 8443 when 80/443 are taken by other services. Changing ports restarts the station.',sys_ports_preset:'Preset',sys_ports_standard:'Standard (80 → 443)',sys_ports_high:'High port (HTTPS 8443 only)',sys_ports_apply:'Apply & Restart',sys_ports_confirm:'After restart open {url}. Continue?',sys_ports_ok:'Saved — restarting…',sys_ports_err:'Could not change ports',sys_ports_custom:'Custom ports in config — choose a preset to switch.',
+    sys_sec_backup:'Backup',sys_backup_title:'Station backup',
+    sys_backup_help:'Download a full station file (.bptbs): live config, Cell/Brew profiles, setup/fallback siblings, and saved Wi-Fi passwords. Import replaces this station (OTA channel kept) and restarts.',
+    sys_backup_export:'Export .bptbs',sys_backup_import:'Import .bptbs',
+    sys_backup_export_ok:'Backup downloaded',sys_backup_export_err:'Could not export backup',
+    sys_backup_import_confirm:'Replace this station with the .bptbs backup? Live config and profiles will be overwritten. OTA channel on this Pi is kept. The station will restart.',
+    sys_backup_import_ok:'Imported — restarting…',sys_backup_import_err:'Could not import backup',
     sys_bts:'BTS Connection',
     cr_original:'© 2026 Razvan Zeces — YO6RZV',
     cr_enhanced:'Enhanced version by Aitor, EA4HBL',
@@ -7506,6 +7544,11 @@ const LANGS={
     tg_test:'Enviar prueba',tg_testing:'Enviando prueba…',tg_test_ok:'✓ Prueba enviada a {n} chat(s)',
     cfg_sec_profiles:'Perfiles',cfg_profiles_title:'Perfiles de TMO',cfg_apply_restart:'Aplicar y reiniciar',
     cfg_profiles_help:'Utiliza los perfiles para guardar tus configuraciones preferidas de TMO y Servidor Brew y poder alternar rápidamente entre ellas.',
+    cfg_profiles_pack_help:'Exporta o importa solo perfiles Cell/Brew (.ptbs). No cambia el config.toml vivo ni reinicia — usa Aplicar y reiniciar tras importar si quieres ponerlos al aire.',
+    cfg_profiles_export:'Exportar .ptbs',cfg_profiles_import:'Importar .ptbs',
+    cfg_profiles_export_ok:'Perfiles exportados',cfg_profiles_export_err:'No se pudieron exportar los perfiles',
+    cfg_profiles_import_confirm:'¿Sustituir los perfiles Cell/Brew de esta estación por el archivo .ptbs? El config.toml vivo no se modifica y el servicio no se reinicia.',
+    cfg_profiles_import_ok:'Perfiles importados',cfg_profiles_import_err:'No se pudieron importar los perfiles',
     cfg_cell_profile:'TMO Cell',cfg_brew_profile:'Core Net (Brew)',cfg_add:'Añadir',cfg_edit:'Editar',cfg_profile_name:'Nombre del perfil',
     cfg_cell_sheet_add:'Añadir TMO Cell',cfg_cell_sheet_edit:'Editar TMO Cell',
     cfg_brew_sheet_add:'Añadir Core Net (Brew)',cfg_brew_sheet_edit:'Editar Core Net (Brew)',
@@ -7762,6 +7805,12 @@ const LANGS={
     sys_title:'Sistema',sys_sec_control:'Control',sys_control_title:'Control del servicio',sys_control_help:'Reinicia la estación, suspende el stack de radio (el dashboard sigue), apaga toda la Pi, o descarga y recompila desde GitHub (OTA).',sys_sec_status:'Estado',sys_sec_host:'Host',sys_sec_radio:'Hardware de radio',sys_sec_sensors:'Sensores',sys_sec_profiles:'Perfiles',sys_sec_sds:'Difusión SDS',sys_refresh:'Actualizar',sys_probe:'Sondear',sys_soapy_idle:'Pulsa Sondear para escanear dispositivos SoapySDR.',sys_temp_hot:'CALIENTE',sys_temp_warm:'Templado',sys_temp_ok:'OK',
     sys_sec_account:'Cuenta',sys_account_title:'Acceso al panel',sys_account_help:'Cambia el login del panel aquí. Una sola cuenta de estación — no forma parte de los perfiles Cell/Brew.',sys_account_user:'Usuario',sys_account_change:'Cambiar credenciales',sys_account_current_pass:'Contraseña actual',sys_account_new_user:'Nuevo usuario (opcional)',sys_account_new_pass:'Nueva contraseña (opcional)',sys_account_new_pass_req:'Nueva contraseña',sys_account_confirm:'Confirmar nueva contraseña',sys_account_save:'Guardar',sys_account_enable_title:'Activar acceso',sys_account_enable_help:'El dashboard está abierto. Define usuario y contraseña para exigir inicio de sesión.',sys_account_enable_btn:'Activar acceso',sys_account_open:'ABIERTO',sys_account_protected:'PROTEGIDO',sys_account_ok:'Guardado — vuelve a iniciar sesión',sys_account_err:'No se pudo guardar',sys_account_need_cur:'Contraseña actual obligatoria',sys_account_need_change:'Indica un nuevo usuario y/o contraseña',sys_account_mismatch:'Las contraseñas no coinciden',
     sys_ports_title:'Puertos del panel',sys_ports_help:'HTTPS es necesario para el micrófono LST. Estándar usa el puerto 443 (HTTP 80 redirige). Puerto alto usa solo HTTPS 8443 si 80/443 están ocupados. Cambiar puertos reinicia la estación.',sys_ports_preset:'Preset',sys_ports_standard:'Estándar (80 → 443)',sys_ports_high:'Puerto alto (solo HTTPS 8443)',sys_ports_apply:'Aplicar y reiniciar',sys_ports_confirm:'Tras el reinicio abre {url}. ¿Continuar?',sys_ports_ok:'Guardado — reiniciando…',sys_ports_err:'No se pudieron cambiar los puertos',sys_ports_custom:'Puertos personalizados en config — elige un preset para cambiar.',
+    sys_sec_backup:'Copia de seguridad',sys_backup_title:'Copia de la estación',
+    sys_backup_help:'Descarga un archivo completo de estación (.bptbs): config viva, perfiles Cell/Brew, setup/fallback hermanos y contraseñas Wi-Fi guardadas. Importar sustituye esta estación (se conserva el canal OTA) y reinicia.',
+    sys_backup_export:'Exportar .bptbs',sys_backup_import:'Importar .bptbs',
+    sys_backup_export_ok:'Copia descargada',sys_backup_export_err:'No se pudo exportar la copia',
+    sys_backup_import_confirm:'¿Sustituir esta estación por la copia .bptbs? Se sobrescribirán config y perfiles. El canal OTA de esta Pi se conserva. La estación se reiniciará.',
+    sys_backup_import_ok:'Importado — reiniciando…',sys_backup_import_err:'No se pudo importar la copia',
     sys_bts:'Conexión BTS',
   },
   hu:{
@@ -14377,6 +14426,67 @@ async function saveDashboardPorts(){
     setAuthMsg(msg,t('sys_ports_ok'),'ok');
     beginServiceRestartWait();
   }catch(e){setAuthMsg(msg,t('sys_ports_err'),'err');}
+}
+
+function bundleDownloadFilename(cd,fallback){
+  const m=(cd||'').match(/filename\*?=(?:UTF-8''|")?([^";]+)"?/i);
+  if(m&&m[1])return decodeURIComponent(m[1].trim());
+  return fallback;
+}
+async function downloadBundleApi(url,fallbackName){
+  const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});
+  if(!r.ok)throw new Error(await r.text()||('HTTP '+r.status));
+  const blob=await r.blob();
+  const fname=bundleDownloadFilename(r.headers.get('Content-Disposition'),fallbackName);
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=fname;
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
+}
+async function exportStationBackup(){
+  const msg=document.getElementById('sys-backup-msg');
+  setAuthMsg(msg,'…');
+  try{
+    await downloadBundleApi('/api/station/export','station.bptbs');
+    setAuthMsg(msg,t('sys_backup_export_ok'),'ok');
+  }catch(e){setAuthMsg(msg,(e&&e.message)||t('sys_backup_export_err'),'err');}
+}
+async function importStationBackup(input){
+  const msg=document.getElementById('sys-backup-msg');
+  const file=input&&input.files&&input.files[0];
+  if(input)input.value='';
+  if(!file)return;
+  const ok=await dashConfirm(t('sys_backup_title')||'Station backup',t('sys_backup_import_confirm')||'',{confirmLabel:t('sys_backup_import')||'Import'});
+  if(!ok)return;
+  setAuthMsg(msg,'…');
+  try{
+    const r=await fetch('/api/station/import',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream'},body:file});
+    const text=await r.text();
+    if(!r.ok){setAuthMsg(msg,text||t('sys_backup_import_err'),'err');return;}
+    setAuthMsg(msg,t('sys_backup_import_ok'),'ok');
+    beginServiceRestartWait();
+  }catch(e){setAuthMsg(msg,t('sys_backup_import_err'),'err');}
+}
+async function exportProfilesPack(){
+  try{
+    await downloadBundleApi('/api/profiles/export','profiles.ptbs');
+    vcMsg('vc-profiles-msg',t('cfg_profiles_export_ok'),true);
+  }catch(e){vcMsg('vc-profiles-msg',(e&&e.message)||t('cfg_profiles_export_err'),false);}
+}
+async function importProfilesPack(input){
+  const file=input&&input.files&&input.files[0];
+  if(input)input.value='';
+  if(!file)return;
+  const ok=await dashConfirm(t('cfg_profiles_title')||'Profiles',t('cfg_profiles_import_confirm')||'',{confirmLabel:t('cfg_profiles_import')||'Import'});
+  if(!ok)return;
+  try{
+    const r=await fetch('/api/profiles/import',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream'},body:file});
+    const text=await r.text();
+    if(!r.ok){vcMsg('vc-profiles-msg',text||t('cfg_profiles_import_err'),false);return;}
+    vcMsg('vc-profiles-msg',t('cfg_profiles_import_ok'),true);
+    if(typeof loadVisualConfig==='function')loadVisualConfig();
+  }catch(e){vcMsg('vc-profiles-msg',t('cfg_profiles_import_err'),false);}
 }
 
 function setAuthMsg(el,text,kind){
