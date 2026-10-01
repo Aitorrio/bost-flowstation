@@ -185,6 +185,16 @@ const EMPTY_SCHED_ELEM: TimeslotSchedule = TimeslotSchedule {
 const EMPTY_SCHED_CHANNEL: [TimeslotSchedule; MACSCHED_NUM_FRAMES] = [EMPTY_SCHED_ELEM; MACSCHED_NUM_FRAMES];
 const EMPTY_SCHED: [[TimeslotSchedule; MACSCHED_NUM_FRAMES]; 4] = [EMPTY_SCHED_CHANNEL; 4];
 
+/// The SYSINFO "hyperframe / cipher key" field of slot `ts`: the hyperframe number, or on a class 2
+/// cell the SCK-VN in one multiframe out of four (TS 100 392-7 clause 6.3.2.0a: the hyperframe
+/// part of the IV is broadcast in turn with the SCK-VN; TS 100 392-2 Table 21.65).
+fn sysinfo_key_field(cipher: Option<&crate::aie::cipher::CellCipher>, ts: TdmaTime) -> (Option<u16>, Option<u16>) {
+    match cipher {
+        Some(c) if ts.m % 4 == 0 => (None, Some(c.sck_vn())),
+        _ => (Some(ts.h), None),
+    }
+}
+
 impl BsChannelScheduler {
     pub fn new(scrambling_code: u32, precomps: PrecomputedUmacPdus) -> Self {
         let carrier_num = precomps.mac_sysinfo1.main_carrier;
@@ -1383,8 +1393,11 @@ impl BsChannelScheduler {
         let ts = self.cur_dltime.add_timeslots(MACSCHED_TX_AHEAD as i32);
         let carrier_num = self.carrier_num;
         self.precomps.mac_sync.time = ts;
-        self.precomps.mac_sysinfo1.hyperframe_number = Some(ts.h);
-        self.precomps.mac_sysinfo2.hyperframe_number = Some(ts.h);
+        let (hyperframe, sck_vn) = sysinfo_key_field(self.cipher.as_deref(), ts);
+        for sysinfo in [&mut self.precomps.mac_sysinfo1, &mut self.precomps.mac_sysinfo2] {
+            sysinfo.hyperframe_number = hyperframe;
+            sysinfo.cck_id = sck_vn;
+        }
 
         let dl_circuit_active = self.circuits.is_active(Direction::Dl, self.carrier_num, ts.t) && ts.f != 18;
         let ul_circuit_active = self.circuits.is_active(Direction::Ul, self.carrier_num, ts.t) && ts.f != 18;
@@ -1852,6 +1865,22 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn sysinfo_alternates_hyperframe_and_sck_vn_on_a_class2_cell() {
+        let aie = tetra_config::bluestation::CfgAie {
+            ksg: 1,
+            sckn: 1,
+            sck: tetra_config::bluestation::CipherKey([0; 10]),
+            sck_vn: 0x1234,
+            clear_groups: vec![],
+        };
+        let cipher = crate::aie::cipher::CellCipher::new(&aie, &[1521], 1, 1);
+        let t = |m| TdmaTime { t: 1, f: 18, m, h: 77 };
+        assert_eq!(sysinfo_key_field(None, t(4)), (Some(77), None), "clear cell: always the hyperframe");
+        assert_eq!(sysinfo_key_field(Some(&cipher), t(3)), (Some(77), None));
+        assert_eq!(sysinfo_key_field(Some(&cipher), t(4)), (None, Some(0x1234)));
+    }
 
     pub fn get_testing_slotter() -> BsChannelScheduler {
         let _guard = setup_logging_default(None);
