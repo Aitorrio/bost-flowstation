@@ -19,6 +19,7 @@ _Last updated: 2026-09-30, release v0.5.0 (branch `bost`)._
 | Type 1 | Forward registration inside U-PREPARE → D-NEW-CELL | `5ac4f6a` |
 | Reselection | Types = 3, carrier extension, max power, `[cell_info.cell_reselect]` | `268bf79` |
 | Release | README, CHANGELOG, version 0.5.0 | `6079855`, `c980acf`, `fcb0b7e` |
+| Dashboard | BTS Details shows every cell + carrier (timeslots from `/api/cells`); RF page Cells card. Not yet in CHANGELOG / no version bump | `5df20cd` |
 
 ## Not validated — next step is an on-air test
 
