@@ -1293,3 +1293,88 @@ fn test_dl_block_queue_is_bounded_under_burst() {
         marker
     );
 }
+
+/// Air interface encryption: an encrypted MAC-ACCESS (ESI address, TM-SDU encrypted with the
+/// uplink key stream of its slot) reaches LLC with the real ISSI and the clear TM-SDU.
+#[test]
+fn test_encrypted_mac_access_is_decrypted() {
+    use tetra_config::bluestation::{CfgAie, CipherKey};
+    use tetra_entities::aie::cipher::CellCipher;
+
+    debug::setup_logging_verbose();
+    let dltime = TdmaTime::default().add_timeslots(2);
+    let ul_time = dltime.add_timeslots(-2);
+    let issi = 2200699;
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    let cfg = test.get_shared_config();
+    let c = cfg.config();
+    let aie = CfgAie {
+        ksg: 1,
+        sckn: 1,
+        sck: CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]),
+        sck_vn: 0,
+        clear_groups: vec![],
+    };
+    let cipher = std::sync::Arc::new(CellCipher::new(&aie, &[c.cell.main_carrier], c.cell.location_area, c.cell.colour_code));
+    let carrier = c.cell.main_carrier;
+    drop(c);
+    let mut umac = UmacBs::new(cfg, None);
+    umac.set_cipher(Some(cipher.clone()));
+    test.register_entity(umac);
+    test.populate_entities(vec![], vec![TetraEntity::Llc]);
+
+    // MAC-ACCESS of 8 octets: header with the ESI, then an encrypted TM-SDU.
+    let mut uplink = BitBuffer::new_autoexpand(64);
+    MacAccess {
+        fill_bits: false,
+        encrypted: true,
+        addr: Some(TetraAddress { ssi: cipher.esi(issi), ssi_type: SsiType::Esi }),
+        event_label: None,
+        length_ind: Some(8),
+        frag_flag: None,
+        reservation_req: None,
+    }
+    .to_bitbuf(&mut uplink);
+    let hdr_len = uplink.get_pos();
+    let sdu_len = 64 - hdr_len;
+    let clear_sdu: Vec<u8> = (0..sdu_len).map(|i| ((i * 7 + 3) % 5 == 0) as u8).collect();
+    for &b in &clear_sdu {
+        uplink.write_bit(b);
+    }
+    cipher.kss(carrier, ul_time, true).apply(&mut uplink, hdr_len, sdu_len, 0);
+    uplink.seek(0);
+
+    test.submit_message(SapMsg {
+        sap: Sap::TmvSap,
+        src: TetraEntity::Lmac,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmvUnitdataInd(TmvUnitdataInd {
+            carrier_num: carrier,
+            pdu: uplink,
+            block_num: PhyBlockNum::Block1,
+            logical_channel: LogicalChannel::SchHu,
+            crc_pass: true,
+            scrambling_code: 864282631,
+            rssi_dbfs: f32::NEG_INFINITY,
+        }),
+    });
+    test.run_stack(Some(1));
+
+    let delivered: Vec<TmaUnitdataInd> = test
+        .dump_sinks()
+        .into_iter()
+        .filter_map(|m| match m.msg {
+            SapMsgInner::TmaUnitdataInd(ind) => Some(ind),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(delivered.len(), 1, "one TM-SDU for LLC");
+    let ind = &delivered[0];
+    assert_eq!(ind.main_address.ssi, issi, "ESI mapped back to the ISSI");
+    assert_eq!(ind.air_interface_encryption, 1);
+    let mut sdu = BitBuffer::from_bitbuffer(ind.pdu.as_ref().unwrap());
+    sdu.seek(0);
+    let got: Vec<u8> = (0..sdu_len).map(|_| sdu.read_bit().unwrap()).collect();
+    assert_eq!(got, clear_sdu, "TM-SDU decrypted");
+}

@@ -142,6 +142,16 @@ impl UmacBs {
         }
     }
 
+    /// Replaces the cell's encryption context on UMAC and every scheduler. `new` sets it from the
+    /// configuration; this is for tests and for a future key change at run time.
+    pub fn set_cipher(&mut self, cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>) {
+        self.channel_scheduler.set_cipher(cipher.clone());
+        for sched in &mut self.secondary_channel_schedulers {
+            sched.set_cipher(cipher.clone());
+        }
+        self.cipher = cipher;
+    }
+
     fn main_carrier(&self) -> u16 {
         self.config.config().cell.main_carrier
     }
@@ -607,6 +617,10 @@ impl UmacBs {
             tracing::warn!("UMAC: rx_mac_data: PDU has neither addr nor event_label; dropping");
             return;
         };
+        // An encrypted PDU carries the ESI instead of the SSI (TS 100 392-7 clause 4.2.6).
+        let Some(addr) = self.ul_resolve_esi(addr, pdu.encrypted) else {
+            return;
+        };
 
         let (mut pdu_len_bits, is_frag_start, second_half_stolen, is_null_pdu) = {
             if let Some(len_ind) = pdu.length_ind {
@@ -680,10 +694,13 @@ impl UmacBs {
             return;
         }
 
-        // Decrypt if needed
+        // Decrypt the TM-SDU (the header stays clear) with this slot's uplink key stream.
         if pdu.encrypted {
-            unimplemented_log!("rx_mac_data: Encryption mode > 0");
-            return;
+            let msg_time = self.dltime.add_timeslots(-2);
+            let offset = Self::ul_kss_offset(prim.block_num);
+            if !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_time, offset) {
+                return;
+            }
         }
 
         // Handle reservation if present
@@ -703,7 +720,7 @@ impl UmacBs {
         tracing::debug!("rx_mac_data: {}", prim.pdu.dump_bin_full(true));
         if is_frag_start {
             // Fragmentation start, add to defragmenter
-            self.defrag.insert_first(&mut prim.pdu, msg_dltime, addr, None);
+            self.defrag.insert_first(&mut prim.pdu, msg_dltime, addr, pdu.encrypted.then_some(1));
         } else {
             // Pass directly to LLC
             let sdu = {
@@ -783,6 +800,10 @@ impl UmacBs {
             addr
         } else {
             tracing::error!("BUG: unexpected message or state -- routing error");
+            return;
+        };
+        // An encrypted PDU carries the ESI instead of the SSI (TS 100 392-7 clause 4.2.6).
+        let Some(addr) = self.ul_resolve_esi(addr, pdu.encrypted) else {
             return;
         };
 
@@ -877,10 +898,13 @@ impl UmacBs {
             });
         }
 
-        // Decrypt if needed
+        // Decrypt the TM-SDU (the header stays clear) with this slot's uplink key stream.
         if pdu.encrypted {
-            unimplemented_log!("rx_mac_access: Encryption mode > 0");
-            return;
+            let msg_time = self.dltime.add_timeslots(-2);
+            let offset = Self::ul_kss_offset(prim.block_num);
+            if !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_time, offset) {
+                return;
+            }
         }
 
         // Handle reservation if present
@@ -899,7 +923,7 @@ impl UmacBs {
         // tracing::debug!("rx_mac_access: {}", prim.pdu.dump_bin_full(true));
         if pdu.is_frag_start() {
             // Fragmentation start, add to defragmenter
-            self.defrag.insert_first(&mut prim.pdu, msg_dltime, addr, None);
+            self.defrag.insert_first(&mut prim.pdu, msg_dltime, addr, pdu.encrypted.then_some(1));
         } else {
             // Pass directly to LLC
             if prim.pdu.get_len_remaining() == 0 {
@@ -955,6 +979,41 @@ impl UmacBs {
         prim.pdu.set_raw_start(prim.pdu.get_raw_pos());
     }
 
+    /// Uplink: maps an encrypted PDU's ESI back to the SSI. `None` (PDU dropped) when the PDU is
+    /// encrypted but the cell runs no encryption.
+    fn ul_resolve_esi(&self, addr: TetraAddress, encrypted: bool) -> Option<TetraAddress> {
+        if !encrypted || !matches!(addr.ssi_type, SsiType::Ssi | SsiType::Issi | SsiType::Gssi) {
+            return Some(addr);
+        }
+        let Some(cipher) = &self.cipher else {
+            tracing::warn!("UMAC: encrypted uplink PDU from ESI {} but this cell runs no encryption; dropping", addr.ssi);
+            return None;
+        };
+        Some(TetraAddress { ssi: cipher.ssi(addr.ssi), ..addr })
+    }
+
+    /// Where an uplink block starts in its slot's key stream: KSS(216) for the second half slot
+    /// or subslot, else KSS(0) (TS 100 392-7 clause 6.4.2.2).
+    fn ul_kss_offset(block: PhyBlockNum) -> usize {
+        if block == PhyBlockNum::Block2 { crate::aie::cipher::SECOND_HALF_SLOT_KSS_OFFSET } else { 0 }
+    }
+
+    /// Decrypts the rest of an uplink block (from its position to its end) with the uplink key
+    /// stream of timeslot `t`. False when the cell has no cipher.
+    fn ul_decrypt(&self, pdu: &mut BitBuffer, carrier_num: u16, t: TdmaTime, kss_offset: usize) -> bool {
+        let Some(cipher) = &self.cipher else {
+            tracing::warn!("UMAC: encrypted uplink PDU but this cell runs no encryption; dropping");
+            return false;
+        };
+        let len = pdu.get_len_remaining();
+        if kss_offset + len > crate::aie::cipher::KSS_BITS {
+            tracing::warn!("UMAC: encrypted uplink PDU longer than the key stream ({} + {}); dropping", kss_offset, len);
+            return false;
+        }
+        cipher.kss(carrier_num, t, true).apply(pdu, pdu.get_pos(), len, kss_offset);
+        true
+    }
+
     fn rx_mac_frag_ul(&mut self, _queue: &mut MessageQueue, message: &mut SapMsg) {
         tracing::trace!("rx_mac_frag_ul");
         let SapMsgInner::TmvUnitdataInd(prim) = &mut message.msg else {
@@ -1000,8 +1059,9 @@ impl UmacBs {
             return;
         };
 
-        if let Some(_aie_info) = self.defrag.get_aie_info(slot_owner, msg_dltime) {
-            unimplemented_log!("rx_mac_frag_ul: Encryption not supported");
+        // Continuation of an encrypted PDU: this fragment is encrypted with its own slot's key stream.
+        let encrypted = self.defrag.get_aie_info(slot_owner, msg_dltime).is_some();
+        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.block_num)) {
             return;
         }
 
@@ -1068,8 +1128,9 @@ impl UmacBs {
             tracing::debug!("rx_mac_end_ul: Received MAC-END-UL for unassigned block {:?}", prim.block_num);
             return;
         };
-        if let Some(_aie_info) = self.defrag.get_aie_info(slot_owner, msg_dltime) {
-            unimplemented_log!("rx_mac_end_ul: Encryption not supported");
+        // Continuation of an encrypted PDU: this fragment is encrypted with its own slot's key stream.
+        let encrypted = self.defrag.get_aie_info(slot_owner, msg_dltime).is_some();
+        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.block_num)) {
             return;
         }
 
@@ -1111,7 +1172,7 @@ impl UmacBs {
                 endpoint_id: 0,              // TODO FIXME
                 new_endpoint_id: None,       // TODO FIXME
                 css_endpoint_id: None,       // TODO FIXME
-                air_interface_encryption: 0, // TODO FIXME implement
+                air_interface_encryption: encrypted as Todo,
                 chan_change_response_req: false,
                 chan_change_handle: None,
                 chan_info: None,
@@ -1196,8 +1257,9 @@ impl UmacBs {
             self.scheduler_for(carrier_num).dump_ul_schedule_full(true);
             return;
         };
-        if let Some(_aie_info) = self.defrag.get_aie_info(slot_owner, msg_dltime) {
-            unimplemented_log!("rx_mac_end_hu: Encryption not supported");
+        // Continuation of an encrypted PDU: this fragment is encrypted with its own subslot's key stream.
+        let encrypted = self.defrag.get_aie_info(slot_owner, msg_dltime).is_some();
+        if encrypted && !self.ul_decrypt(&mut prim.pdu, carrier_num, msg_dltime, Self::ul_kss_offset(prim.block_num)) {
             return;
         }
 
@@ -1239,7 +1301,7 @@ impl UmacBs {
                 endpoint_id: 0,              // TODO FIXME
                 new_endpoint_id: None,       // TODO FIXME
                 css_endpoint_id: None,       // TODO FIXME
-                air_interface_encryption: 0, // TODO FIXME implement
+                air_interface_encryption: encrypted as Todo,
                 chan_change_response_req: false,
                 chan_change_handle: None,
                 chan_info: None,

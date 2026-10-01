@@ -251,12 +251,10 @@ impl MacResource {
                 buf.write_bits(self.event_label.unwrap() as u64, 10);
             }
             MacResourceAddrType::SsiAndEventLabel | MacResourceAddrType::SmiAndEventLabel => {
-                assert!((self.addr.unwrap().ssi_type == SsiType::Esi) == (self.encryption_mode != 0));
                 buf.write_bits(self.addr.unwrap().ssi as u64, 24);
                 buf.write_bits(self.event_label.unwrap() as u64, 10);
             }
             MacResourceAddrType::SsiAndUsageMarker => {
-                assert!((self.addr.unwrap().ssi_type == SsiType::Esi) == (self.encryption_mode != 0));
                 buf.write_bits(self.addr.unwrap().ssi as u64, 24);
                 buf.write_bits(self.usage_marker.unwrap() as u64, 6);
             }

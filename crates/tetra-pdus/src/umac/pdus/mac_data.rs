@@ -120,9 +120,9 @@ impl MacData {
 
         // If addr is given; we write one of three address types followed by the 24-bit addr
         if let Some(addr) = &self.addr {
-            assert!((addr.ssi_type == SsiType::Esi) == self.encrypted);
             match addr.ssi_type {
-                SsiType::Ssi | SsiType::Issi | SsiType::Gssi => {
+                // An ESI (encrypted PDU, TS 100 392-7 clause 4.2.6) is sent as an SSI address.
+                SsiType::Ssi | SsiType::Issi | SsiType::Gssi | SsiType::Esi => {
                     buf.write_bits(0, 2);
                     buf.write_bits(addr.ssi as u64, 24);
                 }
