@@ -2,6 +2,14 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.4.6 — LST: RX verde / double-PTT solo con tráfico real
+
+LED RX y oferta de interrupción (doble PTT) solo cuando otro interlocutor tiene el suelo vivo en el TG TX. Late-entry en hangtime ya no pinta verde ni deja el TG “pillado”.
+
+- `OngoingGroupCall` con `tx_active=false`: ignorado (sin `rx` / sin LED).
+- `CallEnded`: limpia RX de inmediato.
+- Fin de PTT propio (`NetworkCallEnd`): limpia RX/preempt del TG TX.
+
 ## v0.4.5 — LST: sin double-PTT tras cambio de TG en hangtime
 
 Si un MS entra por late-entry durante hangtime (`tx_active=false`), el despacho armaba RX “verde” que `tx_gssi_busy` trataba como suelo ocupado; al liberar la llamada Network no llegaba `CallEnded` a LST → primer PTT denied / hace falta preempt.
