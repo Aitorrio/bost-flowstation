@@ -994,6 +994,26 @@ impl UmacBs {
 
     /// Where an uplink block starts in its slot's key stream: KSS(216) for the second half slot
     /// or subslot, else KSS(0) (TS 100 392-7 clause 6.4.2.2).
+    /// Whether a downlink PDU to `addr` is encrypted: non-zero marks it for the fragger, which
+    /// writes the real encryption mode. Individual addresses follow the radio's registration;
+    /// groups are encrypted unless configured as clear groups; the broadcast address stays clear
+    /// because class 1 radios share the cell (TS 100 392-7 clause 4.2.3.1 note 3).
+    fn dl_encryption_mode(&self, addr: TetraAddress) -> u8 {
+        if self.cipher.is_none() {
+            return 0;
+        }
+        let encrypted = match addr.ssi_type {
+            SsiType::Issi | SsiType::Ssi => self.config.state_read().subscribers.encrypted(addr.ssi).unwrap_or(false),
+            SsiType::Gssi if addr.ssi == 0xFF_FFFF => false,
+            SsiType::Gssi => {
+                let cfg = self.config.config();
+                crate::aie::effective(&cfg).is_some_and(|aie| !aie.is_clear_group(addr.ssi))
+            }
+            _ => false,
+        };
+        encrypted as u8
+    }
+
     fn ul_kss_offset(block: PhyBlockNum) -> usize {
         if block == PhyBlockNum::Block2 { crate::aie::cipher::SECOND_HALF_SLOT_KSS_OFFSET } else { 0 }
     }
@@ -1549,7 +1569,7 @@ impl UmacBs {
         let mut pdu = MacResource {
             fill_bits: false, // Updated later
             pos_of_grant: 0,
-            encryption_mode: 0,
+            encryption_mode: self.dl_encryption_mode(prim.main_address),
             random_access_flag: is_random_access_response,
             length_ind: 0, // Updated later
             addr: Some(prim.main_address),
@@ -1666,7 +1686,7 @@ impl UmacBs {
         let mut pdu = MacResource {
             fill_bits: false,
             pos_of_grant: 0,
-            encryption_mode: 0,
+            encryption_mode: self.dl_encryption_mode(prim.main_address),
             random_access_flag: is_random_access_response,
             length_ind: 0,
             addr: Some(prim.main_address),

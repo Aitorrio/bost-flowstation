@@ -1378,3 +1378,109 @@ fn test_encrypted_mac_access_is_decrypted() {
     let got: Vec<u8> = (0..sdu_len).map(|_| sdu.read_bit().unwrap()).collect();
     assert_eq!(got, clear_sdu, "TM-SDU decrypted");
 }
+
+/// Air interface encryption, downlink: signalling to a radio registered encrypted goes out with
+/// its ESI, a non-zero encryption mode and an encrypted TM-SDU; the same PDU to a clear radio
+/// stays clear.
+#[test]
+fn test_downlink_to_encrypted_radio_is_encrypted() {
+    use tetra_config::bluestation::{CfgAie, CipherKey};
+    use tetra_entities::aie::cipher::CellCipher;
+
+    debug::setup_logging_verbose();
+    let encrypted_issi = 2200701;
+    let clear_issi = 2200702;
+    let sdu_bits = "1010101011110000110011001010101011110000";
+
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    let cfg = test.get_shared_config();
+    {
+        let mut state = cfg.state_write();
+        for issi in [encrypted_issi, clear_issi] {
+            state.subscribers.register(issi);
+        }
+        state.subscribers.set_encrypted(encrypted_issi, true);
+    }
+    let c = cfg.config();
+    let aie = CfgAie {
+        ksg: 1,
+        sckn: 1,
+        sck: CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]),
+        sck_vn: 1,
+        clear_groups: vec![],
+    };
+    let cipher = std::sync::Arc::new(CellCipher::new(&aie, &[c.cell.main_carrier], c.cell.location_area, c.cell.colour_code));
+    drop(c);
+    let mut umac = UmacBs::new(cfg, None);
+    umac.set_cipher(Some(cipher.clone()));
+    test.register_entity(umac);
+    test.populate_entities(vec![], vec![TetraEntity::Lmac]);
+
+    for issi in [encrypted_issi, clear_issi] {
+        test.submit_message(SapMsg {
+            sap: Sap::TmaSap,
+            src: TetraEntity::Llc,
+            dest: TetraEntity::Umac,
+            msg: SapMsgInner::TmaUnitdataReq(TmaUnitdataReq {
+                req_handle: 0,
+                pdu: BitBuffer::from_bitstr(sdu_bits),
+                main_address: TetraAddress::issi(issi),
+                link_id: 1,
+                endpoint_id: 0,
+                stealing_permission: false,
+                subscriber_class: 0,
+                air_interface_encryption: None,
+                stealing_repeats_flag: None,
+                data_category: None,
+                carrier_num: None,
+                chan_alloc: None,
+                tx_reporter: None,
+            }),
+        });
+    }
+    test.run_stack(Some(16));
+
+    let mut encrypted_seen = None;
+    let mut clear_seen = None;
+    let esi = cipher.esi(encrypted_issi);
+    for msg in test.dump_sinks() {
+        let slots = match msg.msg {
+            SapMsgInner::TmvUnitdataReq(slot) => vec![slot],
+            SapMsgInner::TmvUnitdataReqSlots(slots) => slots.slots,
+            _ => continue,
+        };
+        for slot in slots {
+            let Some(blk) = &slot.blk1 else { continue };
+            // Walk every MAC-RESOURCE of the block.
+            let mut start = 0;
+            while start + 16 <= blk.mac_block.get_len() {
+                let mut b = blk.mac_block.clone();
+                b.seek(start);
+                if b.peek_bits(2) != Some(0) {
+                    break;
+                }
+                let Ok(pdu) = MacResource::from_bitbuf(&mut b) else { break };
+                if pdu.length_ind == 0 || pdu.length_ind > 0b111000 {
+                    break;
+                }
+                match pdu.addr.map(|a| a.ssi) {
+                    Some(ssi) if ssi == esi => encrypted_seen = Some((pdu.clone(), blk.mac_block.clone(), start, slot.ts, slot.carrier_num)),
+                    Some(ssi) if ssi == clear_issi => clear_seen = Some(pdu.clone()),
+                    _ => {}
+                }
+                start += pdu.length_ind as usize * 8;
+            }
+        }
+    }
+
+    let clear = clear_seen.expect("PDU to the clear radio sent with its ISSI");
+    assert_eq!(clear.encryption_mode, 0);
+
+    let (pdu, mut block, start, ts, carrier) = encrypted_seen.expect("PDU to the encrypted radio sent with its ESI");
+    assert_eq!(pdu.encryption_mode, 0b11, "encrypted, odd SCK-VN");
+    let sdu_start = start + pdu.compute_header_len();
+    cipher.kss(carrier, ts, false).apply(&mut block, sdu_start, sdu_bits.len(), 0);
+    block.seek(sdu_start);
+    let clear_sdu: String = (0..sdu_bits.len()).map(|_| if block.read_bit().unwrap() == 1 { '1' } else { '0' }).collect();
+    assert_eq!(clear_sdu, sdu_bits, "TM-SDU decrypts with the slot's key stream");
+}
