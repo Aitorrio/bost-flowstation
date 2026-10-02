@@ -49,10 +49,19 @@ pub struct RxTxDevSoapySdr {
     rx_dsp: Option<RxDsp>,
     tx_dsp: Option<TxDsp>,
     health: Option<SdrHealthMonitor>,
-    /// Timeslots the uplink demodulators skipped over lost samples and the stack has not yet
-    /// ticked through. Each pending one makes `rxtx_timeslot` return an empty slot without
-    /// waiting for RX, so the stack's clock catches up with the air again.
-    pending_skipped_slots: u32,
+    /// Rate limit for the stack catch-up warning.
+    catch_up_log_next: std::time::Instant,
+}
+
+/// Rate-limit helper for the catch-up warning: true at most once every 5 s.
+fn may_warn_catch_up(next: &mut std::time::Instant) -> bool {
+    let now = std::time::Instant::now();
+    if now >= *next {
+        *next = now + std::time::Duration::from_secs(5);
+        true
+    } else {
+        false
+    }
 }
 
 type FftPlanner = rustfft::FftPlanner<RealSample>;
@@ -195,7 +204,7 @@ impl RxTxDevSoapySdr {
             },
 
             health: health_telemetry.map(SdrHealthMonitor::new),
-            pending_skipped_slots: 0,
+            catch_up_log_next: std::time::Instant::now(),
 
             sdr: Some(sdr),
         })
@@ -266,12 +275,18 @@ impl RxTxDev for RxTxDevSoapySdr {
         // First generate as much TX signal as possible at the moment.
         while self.process_tx_block(tx_slot)? {}
 
-        // Lost RX samples made the demodulators skip slots: tick the stack through them
-        // without waiting for RX, otherwise its clock stays behind the air for good and
-        // every TX block from then on is "too late" (the cell goes silent).
-        if self.pending_skipped_slots > 0 {
-            self.pending_skipped_slots -= 1;
-            return Ok(Vec::new());
+        // If the stack's clock has fallen behind the SDR (lost RX samples, a stall), the slot it
+        // is handing us can no longer be sent, and since the stack only advances one slot per
+        // RX slot it would stay behind for good: every TX block "too late", the cell silent.
+        // Tick it forward with empty slots, without waiting for RX, until it is back in front.
+        if let (Some(tx_dsp), Some(sdr)) = (self.tx_dsp.as_ref(), self.sdr.as_ref()) {
+            let behind = tx_dsp.stack_slots_behind(sdr, tx_slot)?;
+            if behind > 0 {
+                if may_warn_catch_up(&mut self.catch_up_log_next) {
+                    tracing::warn!("Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up", behind);
+                }
+                return Ok(Vec::new());
+            }
         }
 
         while self.process_rx_block()? {
@@ -289,11 +304,6 @@ impl RxTxDev for RxTxDevSoapySdr {
         }
 
         if let Some(rx_dsp) = &mut self.rx_dsp {
-            let skipped = rx_dsp.take_skipped_slots();
-            if skipped > 0 {
-                tracing::warn!("RX skipped {} slots over lost samples, advancing the stack to match", skipped);
-                self.pending_skipped_slots += skipped;
-            }
             Ok(rx_dsp.take_slot_bits())
         } else {
             Ok(Default::default())
@@ -463,16 +473,6 @@ impl RxDsp {
         }
     }
 
-    /// Slots skipped over lost samples, as seen by the uplink demodulators (they share timing,
-    /// so take the largest count rather than summing per carrier).
-    fn take_skipped_slots(&mut self) -> u32 {
-        self.ul_demodulators
-            .iter_mut()
-            .map(|d| d.demodulator.take_skipped_slots())
-            .max()
-            .unwrap_or(0)
-    }
-
     fn take_slot_bits<'a>(&'a mut self) -> Vec<Option<RxSlotBits<'a>>> {
         // TODO: avoid dynamic allocation here?
         let mut slot_bits = Vec::with_capacity(2 * self.monitors.len() + self.ul_demodulators.len());
@@ -549,6 +549,28 @@ impl TxDsp {
         }
     }
 
+    /// How many timeslots the stack's next TX slot lies before the earliest slot the SDR can
+    /// still take (`dmin` blocks after its current time). 0 when on time or not yet started.
+    fn stack_slots_behind(&self, sdr: &soapyio::SoapyIo, tx_slot: &[TxSlotBits]) -> Result<i64, RxTxDevError> {
+        let (Some(slot), Some(modulator)) = (tx_slot.first(), self.modulators.first()) else {
+            return Ok(0);
+        };
+        // Nothing is anchored until TX has produced its first block.
+        if !sdr.tx_possible() || self.block_count == 0 {
+            return Ok(0);
+        }
+        let current_block = sdr.tx_current_count()?.div_euclid(self.fcfb.output_block_size() as SampleCount);
+        // Same sample scale the modulator uses: block * input block length, slot * SAMPLES_SLOT.
+        let earliest = (current_block + Self::DMIN) * modulator.block_len as SampleCount;
+        let earliest_slot = earliest.div_euclid(modulator::SAMPLES_SLOT);
+        let behind = earliest_slot - slot.time.to_int() as SampleCount;
+        // A huge gap means the clocks are not comparable (e.g. a re-anchor); don't spin on it.
+        Ok(if (1..=4 * 18).contains(&behind) { behind } else { 0 })
+    }
+
+    /// How many blocks in the future TX blocks must be produced, minimum.
+    const DMIN: fcfb::BlockCount = 2;
+
     fn process_block(
         &mut self,
         sdr: &mut soapyio::SoapyIo,
@@ -561,7 +583,7 @@ impl TxDsp {
 
         let d = self.block_count - current_block;
         // Skip TX blocks in the past or in too near future
-        let dmin = 2; // how many blocks in future minimum
+        let dmin = Self::DMIN;
         if d < dmin {
             let new_block_count = current_block + dmin;
             tracing::warn!(
@@ -693,6 +715,8 @@ struct ModulatorChannel {
     buffer: fcfb::InputBuffer,
     /// How much of buffer is filled
     buffer_i: usize,
+    /// Modulator-rate samples per TX block.
+    block_len: usize,
 }
 
 impl ModulatorChannel {
@@ -709,9 +733,12 @@ impl ModulatorChannel {
             frequency,
             Some(25000.0),
         );
+        let mut buffer = upconverter.make_input_buffer();
+        let block_len = buffer.buffer_in().len();
         Self {
-            buffer: upconverter.make_input_buffer(),
+            buffer,
             buffer_i: 0,
+            block_len,
             upconverter,
             modulator: modulator::Modulator::new(mode),
         }
