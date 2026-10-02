@@ -4397,9 +4397,21 @@ fn handle_ws(
 
     loop {
         // Drain outbound broadcast messages first
-        while let Ok(msg) = broadcast_rx.try_recv() {
-            if ws.send(Message::Text(msg)).is_err() {
-                return;
+        loop {
+            match broadcast_rx.try_recv() {
+                Ok(msg) => {
+                    if ws.send(Message::Text(msg)).is_err() {
+                        return;
+                    }
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                // broadcast() pruned this client (its queue filled up). Close the socket so the
+                // browser reconnects and resyncs instead of sitting on a silent, "alive" link.
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    let _ = ws.close(None);
+                    let _ = ws.flush();
+                    return;
+                }
             }
         }
 

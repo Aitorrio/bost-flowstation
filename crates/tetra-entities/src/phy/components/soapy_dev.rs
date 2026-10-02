@@ -49,6 +49,10 @@ pub struct RxTxDevSoapySdr {
     rx_dsp: Option<RxDsp>,
     tx_dsp: Option<TxDsp>,
     health: Option<SdrHealthMonitor>,
+    /// Timeslots the uplink demodulators skipped over lost samples and the stack has not yet
+    /// ticked through. Each pending one makes `rxtx_timeslot` return an empty slot without
+    /// waiting for RX, so the stack's clock catches up with the air again.
+    pending_skipped_slots: u32,
 }
 
 type FftPlanner = rustfft::FftPlanner<RealSample>;
@@ -191,6 +195,7 @@ impl RxTxDevSoapySdr {
             },
 
             health: health_telemetry.map(SdrHealthMonitor::new),
+            pending_skipped_slots: 0,
 
             sdr: Some(sdr),
         })
@@ -261,6 +266,14 @@ impl RxTxDev for RxTxDevSoapySdr {
         // First generate as much TX signal as possible at the moment.
         while self.process_tx_block(tx_slot)? {}
 
+        // Lost RX samples made the demodulators skip slots: tick the stack through them
+        // without waiting for RX, otherwise its clock stays behind the air for good and
+        // every TX block from then on is "too late" (the cell goes silent).
+        if self.pending_skipped_slots > 0 {
+            self.pending_skipped_slots -= 1;
+            return Ok(Vec::new());
+        }
+
         while self.process_rx_block()? {
             // Continue producing TX signal if possible.
             while self.process_tx_block(tx_slot)? {}
@@ -276,6 +289,11 @@ impl RxTxDev for RxTxDevSoapySdr {
         }
 
         if let Some(rx_dsp) = &mut self.rx_dsp {
+            let skipped = rx_dsp.take_skipped_slots();
+            if skipped > 0 {
+                tracing::warn!("RX skipped {} slots over lost samples, advancing the stack to match", skipped);
+                self.pending_skipped_slots += skipped;
+            }
             Ok(rx_dsp.take_slot_bits())
         } else {
             Ok(Default::default())
@@ -443,6 +461,16 @@ impl RxDsp {
                 }
             }
         }
+    }
+
+    /// Slots skipped over lost samples, as seen by the uplink demodulators (they share timing,
+    /// so take the largest count rather than summing per carrier).
+    fn take_skipped_slots(&mut self) -> u32 {
+        self.ul_demodulators
+            .iter_mut()
+            .map(|d| d.demodulator.take_skipped_slots())
+            .max()
+            .unwrap_or(0)
     }
 
     fn take_slot_bits<'a>(&'a mut self) -> Vec<Option<RxSlotBits<'a>>> {

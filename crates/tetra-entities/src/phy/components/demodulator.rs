@@ -65,6 +65,10 @@ pub struct Demodulator {
     /// Timeslot of latest demodulated slot
     demodulated_slot_time: TdmaTime,
     demodulated_slot_available: bool,
+    /// Slots skipped over lost samples since the last `take_skipped_slots`. The stack advances
+    /// one timeslot per demodulated slot, so the PHY must replay these as empty ticks or the
+    /// stack's clock falls behind the air and every TX block ends up in the past.
+    skipped_slots: u32,
 
     full_slot: SlotBurstFinder,
     subslot1: SlotBurstFinder,
@@ -93,6 +97,7 @@ impl Demodulator {
 
             demodulated_slot_time: Default::default(),
             demodulated_slot_available: false,
+            skipped_slots: 0,
 
             full_slot: SlotBurstFinder::new(),
             subslot1: SlotBurstFinder::new(),
@@ -177,6 +182,9 @@ impl Demodulator {
             let slots_to_skip = -(-tdiff).div_euclid(SAMPLES_SLOT) as i32;
             tracing::warn!("Skipping demodulation of {} slots due to lost samples", slots_to_skip);
             self.add_slots(slots_to_skip);
+            if self.mode == Mode::Ul && slots_to_skip > 0 {
+                self.skipped_slots += slots_to_skip as u32;
+            }
         }
 
         if sample_counter == self.slot_ready_time {
@@ -413,6 +421,11 @@ impl Demodulator {
 
             self.mode = Mode::Ul;
         }
+    }
+
+    /// Slots skipped over lost samples since the previous call; resets the count.
+    pub fn take_skipped_slots(&mut self) -> u32 {
+        std::mem::take(&mut self.skipped_slots)
     }
 
     pub fn demodulated_slot_available(&self) -> bool {
