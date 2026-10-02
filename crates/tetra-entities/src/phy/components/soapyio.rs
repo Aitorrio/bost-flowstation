@@ -353,6 +353,22 @@ impl SoapyIo {
         }
     }
 
+    /// Read and throw away about `n` RX samples. Returns how many were dropped. The next read
+    /// sees the gap through its count and resyncs like after any lost samples.
+    pub fn discard_rx(&mut self, n: SampleCount) -> Result<SampleCount, RxTxDevError> {
+        let mut scratch = vec![StreamType::default(); 4096];
+        let mut dropped: SampleCount = 0;
+        while dropped < n {
+            let want = ((n - dropped) as usize).min(scratch.len());
+            let result = self.receive(&mut scratch[..want])?;
+            if result.len == 0 {
+                break;
+            }
+            dropped += result.len as SampleCount;
+        }
+        Ok(dropped)
+    }
+
     pub fn transmit(&mut self, buffer: &[StreamType], count: Option<SampleCount>) -> Result<(), RxTxDevError> {
         if let Some(tx) = &mut self.tx {
             if let Some(initial_time) = self.initial_time {
