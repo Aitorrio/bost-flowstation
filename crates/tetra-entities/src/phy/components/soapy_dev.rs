@@ -51,8 +51,6 @@ pub struct RxTxDevSoapySdr {
     health: Option<SdrHealthMonitor>,
     /// Rate limit for the stack catch-up warning.
     catch_up_log_next: std::time::Instant,
-    /// Earliest time RX may be drained again after TX was late.
-    rx_drain_next: std::time::Instant,
 }
 
 /// Rate-limit helper for the catch-up warning: true at most once every 5 s.
@@ -207,7 +205,6 @@ impl RxTxDevSoapySdr {
 
             health: health_telemetry.map(SdrHealthMonitor::new),
             catch_up_log_next: std::time::Instant::now(),
-            rx_drain_next: std::time::Instant::now(),
 
             sdr: Some(sdr),
         })
@@ -289,24 +286,6 @@ impl RxTxDev for RxTxDevSoapySdr {
                     tracing::warn!("Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up", behind);
                 }
                 return Ok(Vec::new());
-            }
-        }
-
-        // TX blocks came out late but by less than a slot: RX (and so the stack, which runs one
-        // slot per RX slot) is lagging the SDR by stale buffered samples, and since RX only ever
-        // reads as fast as samples arrive that backlog never drains on its own. Drop that much
-        // RX (plus a couple of blocks of margin); the lost-sample resync realigns RX and the
-        // catch-up above re-steps the stack if a whole slot went by.
-        let late = self.tx_dsp.as_mut().map(|t| t.take_late_samples()).unwrap_or(0);
-        // At most once a second: if lateness had another cause (CPU), dropping RX every slot
-        // would only wreck the uplink.
-        let now = std::time::Instant::now();
-        if late > 0 && self.rx_dsp.is_some() && now >= self.rx_drain_next {
-            self.rx_drain_next = now + std::time::Duration::from_secs(1);
-            if let (Some(tx_dsp), Some(sdr)) = (self.tx_dsp.as_ref(), self.sdr.as_mut()) {
-                let margin = TxDsp::DMIN as SampleCount * tx_dsp.fcfb.output_block_size() as SampleCount;
-                let dropped = sdr.discard_rx(late + margin)?;
-                tracing::debug!("TX was late, dropped {} stale RX samples to catch up", dropped);
             }
         }
 
@@ -525,8 +504,6 @@ struct TxDsp {
     /// wants to inspect it. Kept on the struct so we don't allocate on every
     /// monitored block; capacity grows once to fcfb output_block_size and stays.
     tx_signal_scratch: Vec<ComplexSample>,
-    /// TX blocks skipped for being late since the last `take_late_samples`.
-    late_blocks: fcfb::BlockCount,
     /// Rate limit for the "too late" warning.
     late_log_next: std::time::Instant,
 }
@@ -571,7 +548,6 @@ impl TxDsp {
             modulators,
             monitor,
             tx_signal_scratch: Vec::new(),
-            late_blocks: 0,
             late_log_next: std::time::Instant::now(),
         }
     }
@@ -589,15 +565,13 @@ impl TxDsp {
         let current_block = sdr.tx_current_count()?.div_euclid(self.fcfb.output_block_size() as SampleCount);
         // Same sample scale the modulator uses: block * input block length, slot * SAMPLES_SLOT.
         let earliest = (current_block + Self::DMIN) * modulator.block_len as SampleCount;
-        let earliest_slot = earliest.div_euclid(modulator::SAMPLES_SLOT);
+        // Round up: a slot that starts before `earliest` would lose its first blocks, so it
+        // counts as behind too. Rounding down left the stack one partial slot short after a
+        // catch-up, and the first TX block of every slot then stayed "too late" for good.
+        let earliest_slot = -(-earliest).div_euclid(modulator::SAMPLES_SLOT);
         let behind = earliest_slot - slot.time.to_int() as SampleCount;
         // A huge gap means the clocks are not comparable (e.g. a re-anchor); don't spin on it.
         Ok(if (1..=4 * 18).contains(&behind) { behind } else { 0 })
-    }
-
-    /// SDR samples' worth of TX blocks skipped for lateness since the last call; resets it.
-    fn take_late_samples(&mut self) -> SampleCount {
-        std::mem::take(&mut self.late_blocks) as SampleCount * self.fcfb.output_block_size() as SampleCount
     }
 
     /// How many blocks in the future TX blocks must be produced, minimum.
@@ -625,7 +599,6 @@ impl TxDsp {
                 tracing::debug!("Too late to produce TX block {}, skipping {} TX blocks", self.block_count, skipped);
             }
             self.block_count = new_block_count;
-            self.late_blocks += skipped;
         }
         // Limit how far into future TX blocks are generated
         let dmax = 60;
