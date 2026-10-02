@@ -322,7 +322,7 @@ impl<D: RxTxDev> PhyBs<D> {
             if let Some(rx_slot) = rx_slot {
                 let mut slot_sent = false;
                 if rx_slot.slot.train_type != TrainingSequence::NotFound {
-                    tracing::info!(ts=%self.dltime, carrier=rx_slot.carrier_num, "rx_tpsap_prim got {:?} in fullslot", rx_slot.slot.train_type);
+                    tracing::debug!(ts=%self.dltime, carrier=rx_slot.carrier_num, "rx_tpsap_prim got {:?} in fullslot", rx_slot.slot.train_type);
 
                     if let Some(ul_rx_sender) = &self.ul_rx_sender {
                         let _ = ul_rx_sender.try_send(FileWriteMsg::WriteHeaderAndBlock(3, self.tick, rx_slot.slot.bits.to_vec()));
@@ -332,7 +332,7 @@ impl<D: RxTxDev> PhyBs<D> {
                     slot_sent = true;
                 }
                 if rx_slot.subslot1.train_type != TrainingSequence::NotFound {
-                    tracing::info!(ts=%self.dltime, carrier=rx_slot.carrier_num, "rx_tpsap_prim got {:?} in subslot1", rx_slot.subslot1.train_type);
+                    tracing::debug!(ts=%self.dltime, carrier=rx_slot.carrier_num, "rx_tpsap_prim got {:?} in subslot1", rx_slot.subslot1.train_type);
                     if slot_sent {
                         tracing::debug!("Multiple candidate bursts detected in one slot; forwarding all (LMAC CRC drops false positives)");
                     }
@@ -344,7 +344,7 @@ impl<D: RxTxDev> PhyBs<D> {
                     slot_sent = true;
                 }
                 if rx_slot.subslot2.train_type != TrainingSequence::NotFound {
-                    tracing::info!(ts=%self.dltime, carrier=rx_slot.carrier_num, "rx_tpsap_prim got {:?} in subslot2", rx_slot.subslot2.train_type);
+                    tracing::debug!(ts=%self.dltime, carrier=rx_slot.carrier_num, "rx_tpsap_prim got {:?} in subslot2", rx_slot.subslot2.train_type);
                     if slot_sent {
                         tracing::debug!("Multiple candidate bursts detected in one slot; forwarding all (LMAC CRC drops false positives)");
                     }

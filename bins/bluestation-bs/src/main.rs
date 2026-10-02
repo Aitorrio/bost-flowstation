@@ -554,7 +554,7 @@ fn main() {
     // If the dashboard OR Telegram alerts are enabled, set up the log capture channel BEFORE
     // logging initialises (Telegram forwards WARN/ERROR lines as its critical-status catch-all).
     let dashboard_log_rx = if cfg.config().dashboard.is_some() || cfg.config().telegram.is_some() {
-        let (tx, rx) = crossbeam_channel::unbounded::<(String, String)>();
+        let (tx, rx) = crossbeam_channel::bounded::<(String, String)>(4096);
         debug::set_dashboard_log_sender(tx);
         Some(rx)
     } else {
