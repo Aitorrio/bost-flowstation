@@ -6,7 +6,6 @@
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use zip::write::SimpleFileOptions;
@@ -535,6 +534,7 @@ pub fn import_profiles_ptbs(config_path: &str, bytes: &[u8]) -> Result<ImportRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use std::fs;
 
     fn tmp_cfg() -> (PathBuf, String) {
@@ -551,6 +551,18 @@ stack_mode = "Bs"
 
 [phy_io]
 backend = "None"
+
+[net_info]
+mcc = 901
+mnc = 9999
+
+[cell_info]
+main_carrier = 1584
+freq_band = 4
+freq_offset = 0
+duplex_spacing = 4
+reverse_operation = false
+location_area = 1
 
 [dashboard]
 port = 80
