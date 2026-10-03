@@ -119,3 +119,4 @@ uuid = { version = "1", features = ["v4"] }
 ctrlc = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
+zip = "2.2"

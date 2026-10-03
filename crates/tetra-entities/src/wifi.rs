@@ -215,6 +215,149 @@ pub fn list_saved() -> Result<Vec<WifiSavedProfile>, WifiError> {
     Ok(profiles)
 }
 
+/// One saved Wi-Fi network with PSK for station backup (`.bptbs`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WifiNetworkExport {
+    pub ssid: String,
+    /// Pre-shared key; empty for open networks.
+    #[serde(default)]
+    pub psk: String,
+    #[serde(default)]
+    pub security: String,
+}
+
+/// Export saved Wi-Fi profiles including secrets (requires root / nmcli `-s`).
+/// Returns an empty list when NetworkManager is unavailable.
+pub fn export_saved_networks() -> Result<Vec<WifiNetworkExport>, WifiError> {
+    let profiles = list_saved()?;
+    let mut out = Vec::with_capacity(profiles.len());
+    for p in profiles {
+        let ssid = run_nmcli(&[
+            "-s",
+            "-t",
+            "-g",
+            "802-11-wireless.ssid",
+            "connection",
+            "show",
+            "uuid",
+            &p.uuid,
+        ])
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+        let ssid = if ssid.is_empty() { p.name.clone() } else { ssid };
+        let psk = run_nmcli(&[
+            "-s",
+            "-t",
+            "-g",
+            "802-11-wireless-security.psk",
+            "connection",
+            "show",
+            "uuid",
+            &p.uuid,
+        ])
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+        let key_mgmt = run_nmcli(&[
+            "-t",
+            "-g",
+            "802-11-wireless-security.key-mgmt",
+            "connection",
+            "show",
+            "uuid",
+            &p.uuid,
+        ])
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+        out.push(WifiNetworkExport {
+            ssid,
+            psk,
+            security: key_mgmt,
+        });
+    }
+    Ok(out)
+}
+
+/// Merge exported networks into NetworkManager (create or update by SSID).
+/// Does not delete destination networks absent from `nets`. Returns human warnings.
+pub fn import_saved_networks(nets: &[WifiNetworkExport]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if !available() {
+        if !nets.is_empty() {
+            warnings.push("NetworkManager (nmcli) not available — WiFi networks not imported".into());
+        }
+        return warnings;
+    }
+    for net in nets {
+        let ssid = net.ssid.trim();
+        if ssid.is_empty() {
+            continue;
+        }
+        if let Some(uuid) = uuid_for_ssid(ssid) {
+            if !net.psk.is_empty() {
+                if let Err(e) = run_nmcli(&[
+                    "connection",
+                    "modify",
+                    "uuid",
+                    &uuid,
+                    "wifi-sec.key-mgmt",
+                    "wpa-psk",
+                    "wifi-sec.psk",
+                    &net.psk,
+                ]) {
+                    warnings.push(format!("WiFi update '{ssid}': {e}"));
+                } else {
+                    ensure_wifi_resilience(&uuid);
+                }
+            }
+            continue;
+        }
+        // Create without forcing an association (operator can Connect later).
+        let result = if net.psk.is_empty() {
+            run_nmcli(&[
+                "connection",
+                "add",
+                "type",
+                "wifi",
+                "con-name",
+                ssid,
+                "ssid",
+                ssid,
+                "autoconnect",
+                "yes",
+            ])
+        } else {
+            run_nmcli(&[
+                "connection",
+                "add",
+                "type",
+                "wifi",
+                "con-name",
+                ssid,
+                "ssid",
+                ssid,
+                "wifi-sec.key-mgmt",
+                "wpa-psk",
+                "wifi-sec.psk",
+                &net.psk,
+                "autoconnect",
+                "yes",
+            ])
+        };
+        match result {
+            Ok(_) => {
+                if let Some(uuid) = uuid_for_ssid(ssid) {
+                    ensure_wifi_resilience(&uuid);
+                }
+            }
+            Err(e) => warnings.push(format!("WiFi create '{ssid}': {e}")),
+        }
+    }
+    warnings
+}
+
 /// Bring up an already-saved profile. Use this for "reconnect to a network
 /// I've used before" — no password is required because nmcli has it stored.
 pub fn connect_saved(uuid: &str) -> Result<(), WifiError> {

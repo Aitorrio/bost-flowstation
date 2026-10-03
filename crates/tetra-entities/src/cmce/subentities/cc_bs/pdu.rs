@@ -1089,15 +1089,13 @@ impl CcBsSubentity {
             }
 
             // Ensure UMAC clears any hangtime override for this slot even if the circuit close is delayed.
+            // Always notify Brew/LST (IfGroupRoutable): Network-origin hangtime release used to
+            // send Never, leaving LST with a phantom RX after late-entry during hangtime.
             self.notify_call_ended(
                 queue,
                 CallTimeslot { call_id, carrier_num, ts },
                 true,
-                if is_local {
-                    BrewNotification::IfGroupRoutable(dest_ssi)
-                } else {
-                    BrewNotification::Never
-                },
+                BrewNotification::IfGroupRoutable(dest_ssi),
             );
 
             self.release_timeslot_slot(CarrierSlot { carrier_num, ts });

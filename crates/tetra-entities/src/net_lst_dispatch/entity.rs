@@ -71,6 +71,8 @@ struct ActiveRx {
     ts: u8,
     /// When set, FloorReleased already fired; accept DL until this Instant then clear.
     draining_until: Option<Instant>,
+    /// False unless another interlocutor currently holds the floor (FloorGranted / tx_active LE).
+    floor_live: bool,
 }
 
 /// Group TX: console PTT released but `pending_ul` still being aired before NetworkCallEnd.
@@ -263,7 +265,10 @@ impl LstDispatchEntity {
         let Some(g) = self.group.as_ref() else {
             return false;
         };
-        self.rx.as_ref().is_some_and(|r| r.gssi == g.gssi)
+        // Busy / preempt only when another interlocutor holds a live floor on the TX TG.
+        self.rx.as_ref().is_some_and(|r| {
+            r.gssi == g.gssi && r.floor_live && r.draining_until.is_none()
+        })
     }
 
     fn preempt_offer_active(&self) -> bool {
@@ -1175,6 +1180,7 @@ impl LstDispatchEntity {
             carrier_num,
             ts,
             draining_until: None,
+            floor_live: true,
         });
         self.handle.set_status(|s| {
             s.rx_gssi = Some(dest_gssi);
@@ -1354,22 +1360,11 @@ impl TetraEntityTrait for LstDispatchEntity {
                 source_issi,
                 tx_active,
             }) => {
-                // Late-entry snapshot: same as FloorGranted when someone is talking.
+                // Late-entry: engage RX only while someone else is actually talking.
+                // Hangtime (tx_active=false) must not light green or latch "busy"/preempt —
+                // that left the console stuck after MS TG hops with no real traffic.
                 if tx_active {
                     self.on_floor_granted(call_id, source_issi, gssi, carrier_num, ts);
-                } else if self.listen_gssis.contains(&gssi) {
-                    // Hangtime: mark RX so the TG shows green; audio arrives on next floor.
-                    self.rx = Some(ActiveRx {
-                        gssi,
-                        call_id,
-                        carrier_num,
-                        ts,
-                        draining_until: None,
-                    });
-                    self.handle.set_status(|s| {
-                        s.rx_gssi = Some(gssi);
-                        s.rx_draining = false;
-                    });
                 }
             }
             SapMsgInner::CmceCallControl(CallControl::FloorReleased {
@@ -1384,7 +1379,13 @@ impl TetraEntityTrait for LstDispatchEntity {
                 carrier_num,
                 ts,
             }) => {
-                self.on_floor_released(call_id, carrier_num, ts);
+                // Teardown: drop RX immediately (no drain latch) so green / busy cannot stick
+                // after hangtime release when no interlocutor is talking.
+                if self.rx.as_ref().is_some_and(|r| {
+                    r.call_id == call_id || (r.carrier_num == carrier_num && r.ts == ts)
+                }) {
+                    self.clear_rx();
+                }
             }
             SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }) => {
                 self.on_call_end_or_release(brew_uuid, 1);
@@ -1472,6 +1473,12 @@ impl LstDispatchEntity {
                 g.carrier_num = None;
                 g.ts = None;
             }
+            // Own TX ended: drop any latch/preempt offer; green RX only returns with live floor.
+            let tx_gssi = self.group.as_ref().map(|g| g.gssi);
+            if self.rx.as_ref().is_some_and(|r| Some(r.gssi) == tx_gssi) {
+                self.clear_rx();
+            }
+            self.clear_preempt_offer();
             self.handle.set_status(|s| {
                 s.ptt = false;
                 s.ptt_pending = false;

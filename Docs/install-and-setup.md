@@ -101,6 +101,15 @@ sudo BOST_SKIP_BUILD=0 ./contrib/install/install-bost.sh
 
 The script **does not overwrite** an existing `/etc/flowstation/config.toml`. To force wizard again, set `"setup_complete": false` in `/etc/flowstation/setup.json`.
 
+## Station backup & profile packs
+
+| Format | Where | Contents | Restart |
+|--------|--------|----------|---------|
+| `.bptbs` | **System → Backup** | Live config, profiles, setup/fallback, sibling TOMLs, Wi-Fi SSIDs+PSKs | Yes (import) |
+| `.ptbs` | **Config → TMO profiles** | Cell/Brew profile tree only | No |
+
+On station import the destination **OTA channel** is preserved; invalid `source_dir` from another machine is scrubbed. Wi-Fi networks are merged by SSID (existing PSKs updated; nothing deleted). Prefer a maintenance window before importing `.bptbs` onto a live cell.
+
 ## Upgrading from v0.2.x to v0.3.0
 
 1. Prefer **System → Update** on the dashboard (channel **Estable**), or re-run `install-bost.sh` on the Pi.
