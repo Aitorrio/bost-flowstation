@@ -112,9 +112,9 @@ impl MacAccess {
 
         // Derive addr_type from addr and write type and field
         if let Some(addr) = self.addr {
-            assert!((addr.ssi_type == SsiType::Esi) == self.encrypted);
             match addr.ssi_type {
-                SsiType::Ssi | SsiType::Issi | SsiType::Gssi => {
+                // An ESI (encrypted PDU, TS 100 392-7 clause 4.2.6) is sent as an SSI address.
+                SsiType::Ssi | SsiType::Issi | SsiType::Gssi | SsiType::Esi => {
                     buf.write_bits(0, 2);
                     buf.write_bits(addr.ssi as u64, 24);
                 }

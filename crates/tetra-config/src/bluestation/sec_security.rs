@@ -54,6 +54,63 @@ pub struct CfgSecurity {
     pub max_registered_clients: usize,
     /// Accepted registrations per minute per source ISSI (0 = disabled).
     pub registration_rate_limit_per_min: u32,
+    /// Air interface encryption (EN 300 392-7 clause 6). `None` = security class 1 (clear).
+    pub aie: Option<CfgAie>,
+}
+
+/// An 80-bit TETRA cipher key. `Debug` never prints the key, so a config dump or a log line
+/// cannot leak it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CipherKey(pub [u8; 10]);
+
+impl std::fmt::Debug for CipherKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CipherKey(<redacted>)")
+    }
+}
+
+impl CipherKey {
+    /// Parses 20 hex digits (spaces, `:` and `-` allowed as separators).
+    pub fn from_hex(s: &str) -> Option<Self> {
+        let digits: Vec<u8> = s
+            .chars()
+            .filter(|c| !matches!(c, ' ' | ':' | '-'))
+            .map(|c| c.to_digit(16).map(|d| d as u8))
+            .collect::<Option<_>>()?;
+        if digits.len() != 20 {
+            return None;
+        }
+        let mut key = [0u8; 10];
+        for (i, pair) in digits.chunks(2).enumerate() {
+            key[i] = (pair[0] << 4) | pair[1];
+        }
+        Some(CipherKey(key))
+    }
+}
+
+/// Security class 2: one static cipher key shared by the infrastructure and every radio
+/// (EN 300 392-7 clause 6.2). Radios without AIE still register in clear; the station never
+/// bridges clear and encrypted radios (see Docs/aie-class2-plan.md §4a).
+#[derive(Debug, Clone)]
+pub struct CfgAie {
+    /// Key stream generator: 1 = TEA1 … 4 = TEA4.
+    pub ksg: u8,
+    /// Static cipher key number advertised in SYSINFO, 1..=32.
+    pub sckn: u8,
+    pub sck: CipherKey,
+    /// SCK version number (16 bits, EN 300 392-7 Table A.102). Broadcast in SYSINFO in turn with
+    /// the hyperframe number; its least significant bit is sent in every encrypted MAC-RESOURCE.
+    /// Must match the version loaded into the radios with the key.
+    pub sck_vn: u16,
+    /// Talkgroups used by clear radios. Every other group is encrypted.
+    pub clear_groups: Vec<u32>,
+}
+
+impl CfgAie {
+    /// True when the group belongs to the clear (class 1) radios.
+    pub fn is_clear_group(&self, gssi: u32) -> bool {
+        self.clear_groups.contains(&gssi)
+    }
 }
 
 impl Default for CfgSecurity {
@@ -64,6 +121,7 @@ impl Default for CfgSecurity {
             honour_unauthenticated_detach: true,
             max_registered_clients: DEFAULT_MAX_REGISTERED_CLIENTS,
             registration_rate_limit_per_min: DEFAULT_REGISTRATION_RATE_LIMIT_PER_MIN,
+            aie: None,
         }
     }
 }
@@ -115,9 +173,71 @@ pub struct CfgSecurityDto {
     pub max_registered_clients: Option<usize>,
     #[serde(default)]
     pub registration_rate_limit_per_min: Option<u32>,
+    #[serde(default)]
+    pub aie: Option<CfgAieDto>,
 }
 
-pub fn apply_security_patch(dto: CfgSecurityDto) -> CfgSecurity {
+#[derive(Clone, Default, Deserialize)]
+pub struct CfgAieDto {
+    /// 1 = clear (no AIE), 2 = static cipher key. Class 3 is not supported.
+    #[serde(default)]
+    pub class: Option<u8>,
+    #[serde(default)]
+    pub ksg: Option<u8>,
+    #[serde(default)]
+    pub sckn: Option<u8>,
+    #[serde(default)]
+    pub sck: Option<String>,
+    #[serde(default)]
+    pub sck_vn: Option<u16>,
+    #[serde(default)]
+    pub clear_groups: Vec<u32>,
+}
+
+impl std::fmt::Debug for CfgAieDto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CfgAieDto")
+            .field("class", &self.class)
+            .field("ksg", &self.ksg)
+            .field("sckn", &self.sckn)
+            .field("sck_vn", &self.sck_vn)
+            .field("clear_groups", &self.clear_groups)
+            .finish_non_exhaustive()
+    }
+}
+
+fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
+    match dto.class.unwrap_or(1) {
+        1 => return Ok(None),
+        2 => {}
+        3 => return Err("security.aie: class 3 (authentication, DCK) is not supported; use class 2".into()),
+        _ => return Err("security.aie.class must be 1 or 2".into()),
+    }
+    let ksg = dto.ksg.unwrap_or(1);
+    if !(1..=4).contains(&ksg) {
+        return Err("security.aie.ksg must be 1-4 (TEA1-TEA4)".into());
+    }
+    let sckn = dto.sckn.unwrap_or(1);
+    if !(1..=32).contains(&sckn) {
+        return Err("security.aie.sckn must be 1-32".into());
+    }
+    let Some(sck) = dto.sck.as_deref() else {
+        return Err("security.aie.sck is required for class 2".into());
+    };
+    let sck = CipherKey::from_hex(sck).ok_or("security.aie.sck must be 20 hex digits (80 bits)")?;
+    if dto.clear_groups.iter().any(|&g| g == 0 || g > 0xFF_FFFF) {
+        return Err("security.aie.clear_groups: each GSSI must be 1-16777215".into());
+    }
+    Ok(Some(CfgAie {
+        ksg,
+        sckn,
+        sck,
+        sck_vn: dto.sck_vn.unwrap_or(0),
+        clear_groups: dto.clear_groups,
+    }))
+}
+
+pub fn apply_security_patch(dto: CfgSecurityDto) -> Result<CfgSecurity, String> {
     let defaults = CfgSecurity::default();
     // An unrecognised mode falls back to "auto"; the effective posture is logged at startup
     // (see access_control_posture) so a typo can't silently pass for a lockdown.
@@ -126,7 +246,8 @@ pub fn apply_security_patch(dto: CfgSecurityDto) -> CfgSecurity {
         .as_deref()
         .map(|s| WhitelistMode::parse(s).unwrap_or(WhitelistMode::Auto))
         .unwrap_or(WhitelistMode::Auto);
-    CfgSecurity {
+    Ok(CfgSecurity {
+        aie: apply_aie_patch(dto.aie.unwrap_or_default())?,
         issi_whitelist: dto.issi_whitelist,
         whitelist_mode,
         honour_unauthenticated_detach: dto.honour_unauthenticated_detach.unwrap_or(defaults.honour_unauthenticated_detach),
@@ -134,7 +255,7 @@ pub fn apply_security_patch(dto: CfgSecurityDto) -> CfgSecurity {
         registration_rate_limit_per_min: dto
             .registration_rate_limit_per_min
             .unwrap_or(defaults.registration_rate_limit_per_min),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -170,5 +291,30 @@ mod tests {
 
         cfg.whitelist_mode = WhitelistMode::Enforce;
         assert!(!cfg.allows(9, Some(&[])), "empty override under enforce = deny-all");
+    }
+
+    fn aie(class: u8, sck: Option<&str>) -> Result<Option<CfgAie>, String> {
+        apply_aie_patch(CfgAieDto {
+            class: Some(class),
+            sck: sck.map(str::to_string),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn aie_class2_parses_key_and_defaults() {
+        let a = aie(2, Some("01 23 45 67 89 AB CD EF 01 23")).unwrap().unwrap();
+        assert_eq!(a.sck.0, [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]);
+        assert_eq!((a.ksg, a.sckn), (1, 1));
+        assert!(!format!("{a:?}").contains("23"), "key must not appear in Debug output");
+    }
+
+    #[test]
+    fn aie_rejects_bad_settings() {
+        assert!(aie(1, None).unwrap().is_none(), "class 1 = clear");
+        assert!(aie(2, None).is_err(), "class 2 needs a key");
+        assert!(aie(2, Some("0123")).is_err(), "short key");
+        assert!(aie(2, Some("0123456789ABCDEF012G")).is_err(), "non-hex key");
+        assert!(aie(3, Some("0123456789ABCDEF0123")).is_err(), "class 3 unsupported");
     }
 }

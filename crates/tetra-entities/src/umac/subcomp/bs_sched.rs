@@ -134,6 +134,12 @@ pub struct BsChannelScheduler {
     /// the next frame to avoid exceeding the 216-bit slot capacity (DConnect+DConnectAck=223 bits).
     mcch_chan_alloc_sent_this_frame: bool,
 
+    /// Air interface encryption (class 2), when the cell runs it.
+    cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
+    /// Per timeslot: the traffic channel carries an encrypted call (set when its channel
+    /// allocation is sent, cleared when the circuit closes).
+    tch_encrypted: [bool; 4],
+
     /// Per-timeslot rotating cursor for allocating usage markers to multi-slot
     /// uplink reservations. Wraps in the valid range [4, 62] (0 = unallocated,
     /// 1-3 reserved, 63 = common linearisation; per ETSI TS 100 392-2 §23.5.1).
@@ -182,6 +188,16 @@ const EMPTY_SCHED_ELEM: TimeslotSchedule = TimeslotSchedule {
 const EMPTY_SCHED_CHANNEL: [TimeslotSchedule; MACSCHED_NUM_FRAMES] = [EMPTY_SCHED_ELEM; MACSCHED_NUM_FRAMES];
 const EMPTY_SCHED: [[TimeslotSchedule; MACSCHED_NUM_FRAMES]; 4] = [EMPTY_SCHED_CHANNEL; 4];
 
+/// The SYSINFO "hyperframe / cipher key" field of slot `ts`: the hyperframe number, or on a class 2
+/// cell the SCK-VN in one multiframe out of four (TS 100 392-7 clause 6.3.2.0a: the hyperframe
+/// part of the IV is broadcast in turn with the SCK-VN; TS 100 392-2 Table 21.65).
+fn sysinfo_key_field(cipher: Option<&crate::aie::cipher::CellCipher>, ts: TdmaTime) -> (Option<u16>, Option<u16>) {
+    match cipher {
+        Some(c) if ts.m % 4 == 0 => (None, Some(c.sck_vn())),
+        _ => (Some(ts.h), None),
+    }
+}
+
 impl BsChannelScheduler {
     pub fn new(scrambling_code: u32, precomps: PrecomputedUmacPdus) -> Self {
         let carrier_num = precomps.mac_sysinfo1.main_carrier;
@@ -199,6 +215,8 @@ impl BsChannelScheduler {
             force_ul_traffic_decode: [false, false, false, false],
             pending_ra_acks: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             mcch_chan_alloc_sent_this_frame: false,
+            cipher: None,
+            tch_encrypted: [false; 4],
             // Start each timeslot's marker cursor at 4 (first valid value).
             next_usage_marker: [4, 4, 4, 4],
         }
@@ -206,6 +224,26 @@ impl BsChannelScheduler {
 
     pub fn set_carrier_num(&mut self, carrier_num: u16) {
         self.carrier_num = carrier_num;
+    }
+
+    pub fn set_cipher(&mut self, cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>) {
+        self.cipher = cipher;
+    }
+
+    /// Marks the traffic channel on `ts` as carrying an encrypted (or clear) call.
+    pub fn set_tch_encrypted(&mut self, ts: u8, encrypted: bool) {
+        if let Some(slot) = self.tch_encrypted.get_mut(ts as usize - 1) {
+            *slot = encrypted && self.cipher.is_some();
+        }
+    }
+
+    /// The speech key stream of `ts` at `t` in codec order, when that traffic channel is encrypted.
+    pub fn tch_kss(&self, ts: u8, t: TdmaTime, uplink: bool) -> Option<[u8; 274]> {
+        let cipher = self.cipher.as_ref()?;
+        if !self.tch_encrypted.get(ts as usize - 1).copied().unwrap_or(false) {
+            return None;
+        }
+        Some(crate::aie::cipher::tch_s_kss_codec_order(&cipher.kss(self.carrier_num, t, uplink)))
     }
 
     pub fn set_downlink_mode(&mut self, downlink_mode: CarrierDownlinkMode) {
@@ -1144,6 +1182,14 @@ impl BsChannelScheduler {
 
     fn dl_build_block_from_signalling_schedule(&mut self, ts: TdmaTime) -> Option<BitBuffer> {
         let mut buf_opt = None;
+        // Key stream of this slot, for at most one encrypted PDU (TS 100 392-7 clause 6.4.2.2).
+        let cipher = self.cipher.clone();
+        let mut slot_cipher = cipher.as_deref().map(|c| crate::umac::subcomp::bs_frag::SlotCipher {
+            cipher: c,
+            kss: c.kss(self.carrier_num, ts, false),
+            kss_offset: 0,
+            used: false,
+        });
 
         while !self.dltx_queues[ts.t as usize - 1].is_empty() {
             let opt = self.dl_take_prioritized_sched_item(ts);
@@ -1160,7 +1206,7 @@ impl BsChannelScheduler {
                             let mut buf = buf_opt.unwrap_or_else(|| BitBuffer::new(SCH_F_CAP));
                             // Create fragger, either to send the whole PDU or to start fragmentation
                             let mut fragger = BsFragger::new(pdu, sdu, tx_reporter);
-                            if !fragger.get_next_chunk(&mut buf) {
+                            if !fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()) {
                                 // Fragmentation was started and we have more chunks to send
                                 // Enqueue fragger with remaining data for retrieval next frame
                                 self.dl_enqueue_tma_frag_next_frame(fragger);
@@ -1171,7 +1217,7 @@ impl BsChannelScheduler {
                         DlSchedElem::FragBuf(mut fragger) => {
                             // Allocate bitbuf if not already done
                             let mut buf = buf_opt.unwrap_or_else(|| BitBuffer::new(SCH_F_CAP));
-                            if !fragger.get_next_chunk(&mut buf) {
+                            if !fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()) {
                                 // Fragmentation was continued and we still have more chunks to send
                                 // Re-enqueue fragger with remaining data for retrieval next frame
                                 self.dl_enqueue_tma_frag_next_frame(fragger);
@@ -1224,7 +1270,7 @@ impl BsChannelScheduler {
     /// Also reports transmission, if a TxReporter was attached to the DlSchedElem::Stealing element
     fn dl_build_traffic_block(&mut self, ts: TdmaTime) -> (BitBuffer, Option<BitBuffer>) {
         // Get speech data or silence
-        let tch_buf = if let Some(block) = self.circuits.take_block(self.carrier_num, ts.t) {
+        let mut tch_buf = if let Some(block) = self.circuits.take_block(self.carrier_num, ts.t) {
             // Raw ACELP speech (274 bits for TCH/S). The Vec may be LARGER (e.g. 280
             // bits) and is clamped down to TCH_S_CAP. But a SHORTER block (e.g. a
             // truncated/garbage frame off the network) must not be clamped UP — that
@@ -1270,6 +1316,21 @@ impl BsChannelScheduler {
         // If desired, report transmission
         if let Some(tx_reporter) = tx_reporter_opt {
             tx_reporter.mark_transmitted();
+        }
+
+        // Encrypted call: XOR the speech with KSS(0 to 273). A stolen slot (STCH + TCH/S half,
+        // KSS(216 to 352) for speech frame B) is not encrypted yet, so its speech half is replaced
+        // by silence rather than sent in clear.
+        if let Some(kss) = self.tch_kss(ts.t, ts, false) {
+            if stch_opt.is_some() {
+                tch_buf = BitBuffer::new(TCH_S_CAP);
+            } else {
+                tch_buf.seek(0);
+                for &k in &kss {
+                    tch_buf.xor_bit(k);
+                }
+                tch_buf.seek(0);
+            }
         }
 
         (tch_buf, stch_opt)
@@ -1367,8 +1428,11 @@ impl BsChannelScheduler {
         let ts = self.cur_dltime.add_timeslots(MACSCHED_TX_AHEAD as i32);
         let carrier_num = self.carrier_num;
         self.precomps.mac_sync.time = ts;
-        self.precomps.mac_sysinfo1.hyperframe_number = Some(ts.h);
-        self.precomps.mac_sysinfo2.hyperframe_number = Some(ts.h);
+        let (hyperframe, sck_vn) = sysinfo_key_field(self.cipher.as_deref(), ts);
+        for sysinfo in [&mut self.precomps.mac_sysinfo1, &mut self.precomps.mac_sysinfo2] {
+            sysinfo.hyperframe_number = hyperframe;
+            sysinfo.cck_id = sck_vn;
+        }
 
         let dl_circuit_active = self.circuits.is_active(Direction::Dl, self.carrier_num, ts.t) && ts.f != 18;
         let ul_circuit_active = self.circuits.is_active(Direction::Ul, self.carrier_num, ts.t) && ts.f != 18;
@@ -1836,6 +1900,43 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn traffic_slot_encryption_follows_its_allocation() {
+        let aie = tetra_config::bluestation::CfgAie {
+            ksg: 1,
+            sckn: 1,
+            sck: tetra_config::bluestation::CipherKey([7; 10]),
+            sck_vn: 0,
+            clear_groups: vec![],
+        };
+        let mut sched = get_testing_slotter();
+        let t = TdmaTime { t: 2, f: 1, m: 1, h: 0 };
+        sched.set_tch_encrypted(2, true);
+        assert!(sched.tch_kss(2, t, false).is_none(), "no cipher: never encrypted");
+        sched.set_cipher(Some(std::sync::Arc::new(crate::aie::cipher::CellCipher::new(&aie, &[sched.carrier_num()], 1, 1))));
+        sched.set_tch_encrypted(2, true);
+        assert!(sched.tch_kss(2, t, false).is_some());
+        assert!(sched.tch_kss(3, t, false).is_none());
+        sched.set_tch_encrypted(2, false);
+        assert!(sched.tch_kss(2, t, false).is_none());
+    }
+
+    #[test]
+    fn sysinfo_alternates_hyperframe_and_sck_vn_on_a_class2_cell() {
+        let aie = tetra_config::bluestation::CfgAie {
+            ksg: 1,
+            sckn: 1,
+            sck: tetra_config::bluestation::CipherKey([0; 10]),
+            sck_vn: 0x1234,
+            clear_groups: vec![],
+        };
+        let cipher = crate::aie::cipher::CellCipher::new(&aie, &[1521], 1, 1);
+        let t = |m| TdmaTime { t: 1, f: 18, m, h: 77 };
+        assert_eq!(sysinfo_key_field(None, t(4)), (Some(77), None), "clear cell: always the hyperframe");
+        assert_eq!(sysinfo_key_field(Some(&cipher), t(3)), (Some(77), None));
+        assert_eq!(sysinfo_key_field(Some(&cipher), t(4)), (None, Some(0x1234)));
+    }
 
     pub fn get_testing_slotter() -> BsChannelScheduler {
         let _guard = setup_logging_default(None);

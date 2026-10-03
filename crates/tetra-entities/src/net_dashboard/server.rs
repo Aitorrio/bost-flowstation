@@ -17,6 +17,7 @@ use crate::net_dashboard::dashboard_ports::{LEGACY_HTTP_PORT, LEGACY_HTTPS_PORT}
 use crate::net_dashboard::html::DASHBOARD_HTML;
 use crate::net_dashboard::state::{CallEntry, DashboardState, DashboardStateInner, MsEntry, MsGroupState};
 use crate::net_telemetry::TelemetryEvent;
+use crate::net_telemetry::events::CellRfEvent;
 use crate::tpg2200::build_tpg2200_callout_payload;
 
 type CmdSender = crossbeam_channel::Sender<ControlCommand>;
@@ -2035,6 +2036,9 @@ impl DashboardServer {
     }
 
     pub fn handle_telemetry(&self, event: TelemetryEvent) {
+        if let TelemetryEvent::CellRf { cell, event: rf } = &event {
+            return self.handle_cell_rf(*cell, rf);
+        }
         let mut msg = event_to_ws_msg(&event);
         // Emergency banner add/remove broadcasts are transition-gated (only on enter/clear, not on
         // every re-send), so they can't ride the generic `event_to_ws_msg` path. Collect them under
@@ -2055,10 +2059,17 @@ impl DashboardServer {
                             registered_at: Instant::now(),
                             last_seen: Instant::now(),
                             energy_saving_mode: 0,
+                            cell: None,
                         },
                     );
                     s.push_log("INFO", format!("MS {} registered", issi));
                 }
+                TelemetryEvent::MsCell { issi, cell } => {
+                    if let Some(e) = s.ms_map.get_mut(issi) {
+                        e.cell = Some(*cell);
+                    }
+                }
+                TelemetryEvent::CellsSnapshot { .. } => {}
                 TelemetryEvent::MsDeregistration { issi } => {
                     s.ms_map.remove(issi);
                     s.push_log("INFO", format!("MS {} deregistered", issi));
@@ -2429,6 +2440,8 @@ impl DashboardServer {
                         paths.clone(),
                     );
                 }
+                TelemetryEvent::CellRf { .. } => {} // handled above
+                TelemetryEvent::StationVersion { .. } => {}
             }
         }
         if let Some(json) = msg {
@@ -2451,6 +2464,20 @@ impl DashboardServer {
                     }
                 }
             }
+        }
+    }
+
+    /// An additional cell's RF event: the same message as the primary's, tagged with `cell`.
+    fn handle_cell_rf(&self, cell: u8, rf: &CellRfEvent) {
+        let Some(v) = cell_rf_ws_value(cell, rf) else { return };
+        let kind = match rf {
+            CellRfEvent::TxVisual { .. } => "tx_visual",
+            CellRfEvent::TxQuality { .. } => "tx_quality",
+            CellRfEvent::SdrHealth { .. } => "sdr_health",
+        };
+        self.state.write().unwrap().cell_rf.insert((cell, kind), v.clone());
+        if let Ok(json) = serde_json::to_string(&v) {
+            self.broadcast(&json);
         }
     }
 
@@ -2478,9 +2505,18 @@ impl DashboardServer {
     }
 }
 
+/// WebSocket message for an additional cell's RF event: the primary's message plus `"cell"`.
+fn cell_rf_ws_value(cell: u8, rf: &CellRfEvent) -> Option<serde_json::Value> {
+    let mut v: serde_json::Value = serde_json::from_str(&event_to_ws_msg(&rf.to_event())?).ok()?;
+    v.as_object_mut()?.insert("cell".into(), cell.into());
+    Some(v)
+}
+
 fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
     let v = match event {
         TelemetryEvent::MsRegistration { issi } => serde_json::json!({"type":"ms_registered","issi":issi}),
+        TelemetryEvent::MsCell { issi, cell } => serde_json::json!({"type":"ms_cell","issi":issi,"cell":cell}),
+        TelemetryEvent::CellRf { cell, event } => return cell_rf_ws_value(*cell, event).and_then(|v| serde_json::to_string(&v).ok()),
         TelemetryEvent::MsDeregistration { issi } => serde_json::json!({"type":"ms_deregistered","issi":issi}),
         TelemetryEvent::MsTimeoutDrop { issi } => serde_json::json!({"type":"ms_deregistered","issi":issi,"reason":"t351"}),
         TelemetryEvent::MsGroupAttach { issi, gssis } => serde_json::json!({"type":"ms_groups","issi":issi,"groups":gssis}),
@@ -2614,6 +2650,8 @@ fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
         // Emergency add/remove are broadcast explicitly (transition-gated) from handle_telemetry,
         // so the generic path stays silent — otherwise every periodic re-send would re-broadcast.
         TelemetryEvent::EmergencyAlarm { .. } | TelemetryEvent::EmergencyCancel { .. } => return None,
+        // The Cells card polls /api/cells; this snapshot is for remote telemetry consumers.
+        TelemetryEvent::CellsSnapshot { .. } | TelemetryEvent::StationVersion { .. } => return None,
         TelemetryEvent::DapnetLog {
             direction,
             id,
@@ -3661,6 +3699,20 @@ fn handle_connection(
             }
         }
         serve_bts_info(buf.into_inner(), &shared_config);
+    } else if req_line.contains("GET /api/cells") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let body = match &shared_config {
+            Some(cfg) => crate::net_dashboard::cells::cells_json(cfg).to_string(),
+            None => "{\"cells\":[]}".to_string(),
+        };
+        http_json_response(s, 200, &body);
+    } else if req_line.contains("POST /api/cells/add") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_add(inner, &config_path, &body_str);
+    } else if req_line.contains("POST /api/cells/remove") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_remove(inner, &config_path, &body_str);
     } else if req_line.contains("GET /api/dualcarrier") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4311,6 +4363,7 @@ fn handle_ws(
         let last_tx_visual = s.last_tx_visual.clone();
         let last_tx_quality = s.last_tx_quality.clone();
         let last_sdr_health = s.last_sdr_health.clone();
+        let cell_rf: Vec<serde_json::Value> = s.cell_rf.values().cloned().collect();
         let last_sys_health = s.last_sys_health.clone();
         let last_health = s.last_health.clone();
         let dgna_log: Vec<_> = s.dgna_log.iter().rev().cloned().collect();
@@ -4337,6 +4390,7 @@ fn handle_ws(
             "last_tx_visual": last_tx_visual,
             "last_tx_quality": last_tx_quality,
             "last_sdr_health": last_sdr_health,
+            "cell_rf": cell_rf,
             "last_sys_health": last_sys_health,
             "health": last_health,
             "dgna_log": dgna_log,
@@ -4355,9 +4409,21 @@ fn handle_ws(
 
     loop {
         // Drain outbound broadcast messages first
-        while let Ok(msg) = broadcast_rx.try_recv() {
-            if ws.send(Message::Text(msg)).is_err() {
-                return;
+        loop {
+            match broadcast_rx.try_recv() {
+                Ok(msg) => {
+                    if ws.send(Message::Text(msg)).is_err() {
+                        return;
+                    }
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                // broadcast() pruned this client (its queue filled up). Close the socket so the
+                // browser reconnects and resyncs instead of sitting on a silent, "alive" link.
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    let _ = ws.close(None);
+                    let _ = ws.flush();
+                    return;
+                }
             }
         }
 
@@ -5097,6 +5163,61 @@ fn serve_bts_info(mut stream: PrefixedConn, shared_config: &Option<tetra_config:
     );
     let _ = stream.write_all(header.as_bytes());
     let _ = stream.write_all(body.as_bytes());
+}
+
+/// Write a config produced by the cells editor and restart to apply it.
+fn apply_cells_config(stream: PrefixedConn, config_path: &str, text: &str, what: String) {
+    let backup = format!("{config_path}.cells.bak");
+    let _ = std::fs::copy(config_path, &backup);
+    if let Err(e) = atomic_write(config_path, text) {
+        return http_response(stream, 500, &format!("failed to write config: {e}"));
+    }
+    tracing::info!("Dashboard: {what}; scheduling restart");
+    crate::service_control::schedule_service_action(
+        crate::service_control::ServiceAction::Restart,
+        std::time::Duration::from_secs(2),
+    );
+    http_response(stream, 200, &format!("{what}; the base station is restarting to apply it."));
+}
+
+/// POST /api/cells/add — `{"device": "...", "main_carrier": N, "colour_code": N?}`.
+fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let device = req.get("device").and_then(|v| v.as_str()).unwrap_or("");
+    let Some(main_carrier) = req.get("main_carrier").and_then(|v| v.as_u64()).filter(|n| *n < 4096) else {
+        return http_response(stream, 400, "main_carrier (0-4095) is required");
+    };
+    let colour_code = req.get("colour_code").and_then(|v| v.as_u64()).map(|v| v.min(63) as u8);
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::cells::add_cell_toml(&original, device, main_carrier as u16, colour_code) {
+        Ok((text, id)) => apply_cells_config(stream, config_path, &text, format!("cell {id} added (carrier {main_carrier})")),
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
+/// POST /api/cells/remove — `{"id": N}`.
+fn serve_cells_remove(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let Some(id) = req.get("id").and_then(|v| v.as_u64()).and_then(|v| u8::try_from(v).ok()) else {
+        return http_response(stream, 400, "id is required");
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::cells::remove_cell_toml(&original, id) {
+        Ok(text) => apply_cells_config(stream, config_path, &text, format!("cell {id} removed")),
+        Err(e) => http_response(stream, 400, &e),
+    }
 }
 
 /// GET /api/dualcarrier — Dual-Carrier state for BTS Details + Config form helpers.
@@ -5851,10 +5972,13 @@ fn serve_wx_post(stream: PrefixedConn, shared_config: &Option<tetra_config::blue
         periodic_interval_secs: as_u64(&json, "periodic_interval_secs", cur.periodic_interval_secs),
     };
 
-    // 1) Apply at runtime.
+    // 1) Apply at runtime — on every cell (each runs its own WX responder).
     {
         let mut state = cfg.state_write();
         state.wx_override = Some(ov.clone());
+    }
+    for (_, cell_cfg) in crate::net_site::extra_cells() {
+        cell_cfg.state_write().wx_override = Some(ov.clone());
     }
 
     // 2) Persist to TOML.

@@ -225,6 +225,215 @@ pub enum TelemetryEvent {
         priority: Option<u8>,
         paths: Vec<String>,
     },
+    /// Multi-cell: the MS that just registered is on this cell (0 = primary). Sent right after
+    /// its `MsRegistration`, only by stations running more than one cell. Appended last for
+    /// bitcode wire-stability.
+    MsCell { issi: u32, cell: u8 },
+    /// Every cell the station runs (primary first), with its settings and live state — the same
+    /// data as the dashboard Cells card. Emitted periodically. Appended last for bitcode
+    /// wire-stability.
+    CellsSnapshot { site_linked: bool, cells: Vec<CellInfo> },
+    /// Multi-cell: an RF event (`TxVisual`, `TxQuality`, `SdrHealth`) from an additional cell's
+    /// SDR, so the RF page can show every cell. The primary's are sent untagged, as before.
+    /// Appended last for bitcode wire-stability.
+    CellRf { cell: u8, event: CellRfEvent },
+    /// The station's software version, sent to the telemetry server (e.g. the Brew server) every
+    /// time the link connects so it can show which release each BTS runs. Appended last for
+    /// bitcode wire-stability.
+    StationVersion {
+        /// Bost FlowStation release, e.g. "v0.5.1".
+        version: String,
+        /// Release plus build hash, e.g. "v0.5.1-5a76db7".
+        build: String,
+        /// Upstream FlowStation version the release is based on.
+        upstream: String,
+    },
+}
+
+impl TelemetryEvent {
+    /// This build's [`TelemetryEvent::StationVersion`].
+    pub fn station_version() -> Self {
+        TelemetryEvent::StationVersion {
+            version: tetra_core::PRODUCT_VERSION.to_string(),
+            build: tetra_core::STACK_VERSION.to_string(),
+            upstream: tetra_core::UPSTREAM_VERSION.to_string(),
+        }
+    }
+}
+
+/// The RF events an additional cell's SDR reports, mirroring the `TelemetryEvent` variants of the
+/// same name (bitcode cannot encode a boxed `TelemetryEvent` inside itself).
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+pub enum CellRfEvent {
+    TxVisual {
+        sample_rate: f32,
+        center_freq_hz: f64,
+        rms_dbfs: f32,
+        peak_dbfs: f32,
+        spectrum_db_tenths: Vec<i16>,
+        constellation_iq: Vec<i16>,
+        carriers: Vec<(u16, f64)>,
+        constellation_carrier: Option<(u16, f64)>,
+    },
+    TxQuality {
+        papr_db: f32,
+        evm_pct: f32,
+        dc_offset_i: f32,
+        dc_offset_q: f32,
+        iq_amplitude_imbalance_db: f32,
+        iq_phase_imbalance_deg: f32,
+        carrier_leakage_db: f32,
+        occupied_bandwidth_hz: f32,
+        evm_carrier: Option<(u16, f64)>,
+    },
+    SdrHealth {
+        temperature_c: Option<f32>,
+        tx_gains: Vec<(String, f32)>,
+        rx_gains: Vec<(String, f32)>,
+    },
+}
+
+impl CellRfEvent {
+    /// The RF part of `event`, or `event` back unchanged if it is not an RF event.
+    pub fn from_event(event: TelemetryEvent) -> Result<Self, TelemetryEvent> {
+        Ok(match event {
+            TelemetryEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            } => CellRfEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            },
+            TelemetryEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            } => CellRfEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            },
+            TelemetryEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            } => CellRfEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            },
+            other => return Err(other),
+        })
+    }
+
+    /// The equivalent untagged `TelemetryEvent`.
+    pub fn to_event(&self) -> TelemetryEvent {
+        match self.clone() {
+            CellRfEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            } => TelemetryEvent::TxVisual {
+                sample_rate,
+                center_freq_hz,
+                rms_dbfs,
+                peak_dbfs,
+                spectrum_db_tenths,
+                constellation_iq,
+                carriers,
+                constellation_carrier,
+            },
+            CellRfEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            } => TelemetryEvent::TxQuality {
+                papr_db,
+                evm_pct,
+                dc_offset_i,
+                dc_offset_q,
+                iq_amplitude_imbalance_db,
+                iq_phase_imbalance_deg,
+                carrier_leakage_db,
+                occupied_bandwidth_hz,
+                evm_carrier,
+            },
+            CellRfEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            } => TelemetryEvent::SdrHealth {
+                temperature_c,
+                tx_gains,
+                rx_gains,
+            },
+        }
+    }
+}
+
+/// One cell's settings and live state, for [`TelemetryEvent::CellsSnapshot`].
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+pub struct CellInfo {
+    pub id: u8,
+    pub primary: bool,
+    pub main_carrier: u16,
+    pub secondary_carrier: Option<u16>,
+    pub carriers: Vec<CellCarrierInfo>,
+    pub colour_code: u8,
+    pub location_area: u16,
+    /// Neighbour cells advertised in D-NWRK-BROADCAST.
+    pub neighbours: u16,
+    /// SoapySDR device string, if configured.
+    pub device: Option<String>,
+    pub registered_radios: u32,
+    /// ISSIs registered on this cell, sorted. Lets a consumer that missed registration events
+    /// (e.g. after a telemetry reconnect) resync its list.
+    pub registered_issis: Vec<u32>,
+    /// "online" / "offline" / "error" / "starting"; None before the radio status is known.
+    pub rf_state: Option<String>,
+    pub rf_detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+pub struct CellCarrierInfo {
+    pub carrier_num: u16,
+    pub tx_freq_hz: u32,
+    pub rx_freq_hz: u32,
 }
 
 /// A single host-system sensor reading. Kept flat for easy JSON serialisation

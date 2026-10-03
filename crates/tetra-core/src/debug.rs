@@ -8,6 +8,7 @@ use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::fmt::format::{self, FormatEvent, FormatFields};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt as tracingfmt};
 
 /// Global log sink for the dashboard. Set once before logging is initialised.
@@ -351,7 +352,7 @@ fn setup_logging(stdout_filter: EnvFilter, outfile: Option<(String, EnvFilter)>)
             tracing_subscriber::registry()
                 .with(file_layer.with_filter(outfile_filter))
                 .with(stdout_layer.with_filter(stdout_filter))
-                .with(DashboardLayer)
+                .with(DashboardLayer.with_filter(LevelFilter::INFO))
                 .init();
         });
 
@@ -362,7 +363,7 @@ fn setup_logging(stdout_filter: EnvFilter, outfile: Option<(String, EnvFilter)>)
 
             tracing_subscriber::registry()
                 .with(stdout_layer.with_filter(stdout_filter))
-                .with(DashboardLayer)
+                .with(DashboardLayer.with_filter(LevelFilter::INFO))
                 .init();
         });
         LogGuards::new(vec![stdout_guard])

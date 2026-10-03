@@ -156,7 +156,10 @@ impl SdrSettings {
 
         // Record the resolved device name so the dashboard can display a hardware badge.
         // OnceLock::set is a no-op if already set; safe to call repeatedly.
-        let _ = DETECTED_SDR_NAME.set(settings.name.clone());
+        // Primary cell only: the badge describes the primary SDR.
+        if crate::cell_context::is_primary() {
+            let _ = DETECTED_SDR_NAME.set(settings.name.clone());
+        }
 
         Ok(settings)
     }

@@ -308,6 +308,21 @@ voice_service = true
 ###############################################################################
 
 ###############################################################################
+# OPTIONAL: Cell reselection parameters
+#
+# Sent with the neighbour list in D-NWRK-BROADCAST (only when neighbours are
+# configured, or with multi-cell [[cells]]). A radio starts looking for a better
+# cell when its serving cell drops below the threshold, and moves only to a
+# neighbour better by the hysteresis. dB, 0-30 in 2 dB steps. Defaults shown.
+#
+# [cell_info.cell_reselect]
+# slow_threshold_db = 20
+# fast_threshold_db = 10
+# slow_hysteresis_db = 10
+# fast_hysteresis_db = 6
+###############################################################################
+
+###############################################################################
 # OPTIONAL: Home Mode Display (PID 220)
 #
 # Periodically broadcasts a text string to all MSs on the cell via D-SDS-DATA.
@@ -878,3 +893,35 @@ voice_service = true
 # auth_user = "flowstation"
 # password = ""
 # realm = "asterisk"
+
+###############################################################################
+# OPTIONAL / EXPERIMENTAL: additional cells (multi-cell, one SDR per cell)
+#
+# Each [[cells]] entry adds one more cell driven by its own SDR. Its
+# [cells.cell_info] keys override the primary [cell_info] (anything not set is
+# inherited); neighbor_cells_ca and sds_command_control cannot be set per cell.
+# [cells.soapysdr] takes the same keys as [phy_io.soapysdr].
+# Every cell automatically advertises the other cells as neighbours (no need to
+# list them in neighbor_cells_ca), so radios can reselect between them.
+# Rules: ids 1-7, every carrier unique across all cells, same freq_band, and
+# with SoapySdr every cell (including the primary) must set a unique `device`.
+# NOTE: each extra cell runs its own radio stack on its own SDR. With [brew] or
+# LST dispatch enabled the cells are linked: group calls (from the network or
+# from a radio on any cell) reach every cell with members, one talker per group
+# across all cells, individual calls and SDS work between cells. Talkgroups in
+# local_ssi_ranges link the cells but stay off Brew. Asterisk and WX serve every
+# linked cell; the dashboard shows all cells.
+#
+# [[cells]]
+# id = 1
+# enabled = true                   # optional, default true
+#
+# [cells.cell_info]
+# main_carrier = 1525
+# colour_code = 2
+#
+# [cells.soapysdr]
+# device = "driver=plutosdr,uri=ip:192.168.3.1"
+# tx_freq = 438125000
+# rx_freq = 433125000
+###############################################################################

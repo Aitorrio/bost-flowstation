@@ -288,6 +288,23 @@ impl SdsBsSubentity {
     /// monitoring window (so an unsolicited SDS sent now would be missed — defer it to the window).
     /// Returns false for StayAlive / unknown MSs (absent from the published map) and whenever the
     /// window is open, i.e. those are delivered immediately. (ETSI EN 300 392-2 §16.7.)
+    /// AIE mixed-cell rule: a clear radio and an encrypted one never exchange SDS or status, and
+    /// a radio only sends to groups of its own mode. `dest_ssi` may be an ISSI or a GSSI.
+    fn aie_allows(&self, source_ssi: u32, dest_ssi: u32) -> bool {
+        let state = self.config.state_read();
+        let Some(src_encrypted) = state.subscribers.encrypted(source_ssi) else {
+            return true;
+        };
+        if let Some(dest_encrypted) = state.subscribers.encrypted(dest_ssi) {
+            return crate::aie::may_communicate(Some(src_encrypted), Some(dest_encrypted));
+        }
+        if state.subscribers.has_group_members(dest_ssi) {
+            let cfg = self.config.config();
+            return crate::aie::may_use_group(crate::aie::effective(&cfg), src_encrypted, dest_ssi);
+        }
+        true
+    }
+
     fn ee_window_blocks(&self, dest_ssi: u32) -> bool {
         let state = self.config.state_read();
         match state.ee_monitoring_windows.get(&dest_ssi) {
@@ -361,7 +378,9 @@ impl SdsBsSubentity {
         // Flush SDS that were deferred while their destination was in a call or asleep (EE).
         self.flush_pending_sds(queue);
         // Feed the health monitor's Congestion domain: undelivered/deferred SDS backlog.
-        crate::health::registry().set_sds_queue_depth(self.pending_sds.len());
+        if crate::cell_context::is_primary() {
+            crate::health::registry().set_sds_queue_depth(self.pending_sds.len());
+        }
         if let Some(hmd_tx) = self.home_mode_display_sender.tick_start(&self.config, dltime) {
             self.send_d_sds_data(queue, hmd_tx.source_issi, hmd_tx.dest_gssi, SsiType::Gssi, hmd_tx.payload);
         }
@@ -511,6 +530,11 @@ impl SdsBsSubentity {
             }
         }
 
+        if !self.aie_allows(source_ssi, dest_ssi) {
+            tracing::info!("SDS: {} -> {} dropped: the two use different encryption modes", source_ssi, dest_ssi);
+            return;
+        }
+
         // Route: local delivery (ISSI or GSSI), Brew forward, or drop
         let is_local_issi = self.config.state_read().subscribers.is_registered(dest_ssi);
         let is_local_group = !is_local_issi && self.config.state_read().subscribers.has_group_members(dest_ssi);
@@ -524,6 +548,10 @@ impl SdsBsSubentity {
             });
         } else if is_local_group {
             tracing::info!("SDS: group delivery: {} -> GSSI {}", source_ssi, dest_ssi);
+            if net_brew::is_site_linked(&self.config) {
+                // Linked multi-cell: members on the other cells get it via the site switch.
+                self.push_sds_to_network_slot(queue, source_ssi, dest_ssi, pdu.user_defined_data.clone());
+            }
             self.send_d_sds_data(queue, source_ssi, dest_ssi, SsiType::Gssi, pdu.user_defined_data);
             self.emit(TelemetryEvent::SdsActivity {
                 source_issi: source_ssi,
@@ -535,7 +563,9 @@ impl SdsBsSubentity {
                 "SDS: LIP already Brew-forwarded; skipping original dest {}",
                 dest_ssi
             );
-        } else if net_brew::feature_sds_enabled(&self.config) {
+        } else if net_brew::feature_sds_enabled(&self.config) || net_brew::is_site_linked(&self.config) {
+            // Linked multi-cell: the site switch delivers to a sibling cell, or applies the Brew
+            // rule (feature_sds) before sending it to the network.
             tracing::info!("SDS: forwarding to Brew: {} -> {}", source_ssi, dest_ssi);
             queue.push_back(SapMsg {
                 sap: Sap::Control,
@@ -554,6 +584,9 @@ impl SdsBsSubentity {
 
     /// Handle incoming SDS data from Brew entity (network-originated SDS)
     pub fn rx_sds_from_brew(&mut self, queue: &mut MessageQueue, message: SapMsg) {
+        // Multi-cell: the site switch hands a sibling cell's SDS over with `src` = CMCE. The
+        // sending cell already logged it ("rx"), so logging it here would duplicate it.
+        let from_sibling_cell = message.src == TetraEntity::Cmce;
         let SapMsgInner::CmceSdsData(sds) = message.msg else {
             tracing::error!("SDS: rx_sds_from_brew expected CmceSdsData, got unexpected message type");
             return;
@@ -576,7 +609,9 @@ impl SdsBsSubentity {
         let is_local_group = !is_local_issi && self.config.state_read().subscribers.has_group_members(sds.dest_issi);
 
         // Log the network-originated SDS in the dashboard SDS Log before it is delivered.
-        self.log_sds("net", sds.source_issi, sds.dest_issi, is_local_group, &sds.user_defined_data);
+        if !from_sibling_cell {
+            self.log_sds("net", sds.source_issi, sds.dest_issi, is_local_group, &sds.user_defined_data);
+        }
 
         if is_local_issi {
             // Send D-SDS-DATA downlink to the local MS on the MCCH.
@@ -680,7 +715,16 @@ impl SdsBsSubentity {
         let is_local_issi = !dest_is_group && self.config.state_read().subscribers.is_registered(dest_ssi);
         let is_local_group = dest_is_group && self.config.state_read().subscribers.has_group_members(dest_ssi);
 
-        if source_ssi == DASHBOARD_ISSI && !is_local_issi && !is_local_group && net_brew::feature_sds_enabled(&self.config) {
+        let site_linked = net_brew::is_site_linked(&self.config);
+        if source_ssi == DASHBOARD_ISSI && site_linked && is_local_group {
+            // Linked multi-cell: the group's members on other cells get it via the site switch.
+            self.push_sds_to_network_slot(queue, source_ssi, dest_ssi, sds_data.clone());
+        }
+        if source_ssi == DASHBOARD_ISSI
+            && !is_local_issi
+            && !is_local_group
+            && (net_brew::feature_sds_enabled(&self.config) || site_linked)
+        {
             tracing::info!("SDS: forwarding dashboard SDS to Brew: {} -> {}", source_ssi, dest_ssi);
             queue.push_back(SapMsg {
                 sap: Sap::Control,
@@ -774,7 +818,16 @@ impl SdsBsSubentity {
         let is_local_issi = !dest_is_group && self.config.state_read().subscribers.is_registered(dest_ssi);
         let is_local_group = dest_is_group && self.config.state_read().subscribers.has_group_members(dest_ssi);
 
-        if source_ssi == DASHBOARD_ISSI && !is_local_issi && !is_local_group && net_brew::feature_sds_enabled(&self.config) {
+        let site_linked = net_brew::is_site_linked(&self.config);
+        if source_ssi == DASHBOARD_ISSI && site_linked && is_local_group {
+            // Linked multi-cell: the group's members on other cells get it via the site switch.
+            self.push_sds_to_network_slot(queue, source_ssi, dest_ssi, sds_data.clone());
+        }
+        if source_ssi == DASHBOARD_ISSI
+            && !is_local_issi
+            && !is_local_group
+            && (net_brew::feature_sds_enabled(&self.config) || site_linked)
+        {
             tracing::info!("SDS: forwarding raw Type-4 dashboard SDS to Brew: {} -> {}", source_ssi, dest_ssi);
             queue.push_back(SapMsg {
                 sap: Sap::Control,
@@ -897,6 +950,11 @@ impl SdsBsSubentity {
         // opts in via [emergency] forward_to_brew. Non-emergency statuses keep their normal routing.
         let is_emergency = matches!(pdu.pre_coded_status, PreCodedStatus::Emergency);
         let brew_ok = net_brew::is_active(&self.config) && (!is_emergency || self.config.config().emergency.forward_to_brew);
+
+        if !self.aie_allows(source_ssi, dest_ssi) {
+            tracing::info!("SDS-STATUS: {} -> {} dropped: the two use different encryption modes", source_ssi, dest_ssi);
+            return;
+        }
 
         // Route: local delivery, Brew forward, or drop
         if self.config.state_read().subscribers.is_registered(dest_ssi) {
@@ -1199,6 +1257,14 @@ impl SdsBsSubentity {
         }
         self.last_periodic_wx = Some(std::time::Instant::now());
 
+        // Multi-cell: every cell runs the periodic send for its own radios. A group target is
+        // served by each cell to its members; an ISSI target only by the cell it is registered on.
+        if self.config.config().is_multi_cell() {
+            if !wx.periodic_is_group && !self.config.state_read().subscribers.is_registered(wx.periodic_issi) {
+                return;
+            }
+        }
+
         let Some(tx) = self.wx_cmd_tx.clone() else {
             return;
         };
@@ -1228,6 +1294,20 @@ impl SdsBsSubentity {
                 let _ = tx.send(cmd);
             })
             .ok();
+    }
+
+    /// Hand an SDS to the network slot (Brew / LST, or the multi-cell site switch).
+    fn push_sds_to_network_slot(&self, queue: &mut MessageQueue, source_issi: u32, dest_issi: u32, user_defined_data: SdsUserData) {
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Brew,
+            msg: SapMsgInner::CmceSdsData(CmceSdsData {
+                source_issi,
+                dest_issi,
+                user_defined_data,
+            }),
+        });
     }
 
     /// Build and send a D-SDS-DATA PDU to a local MS.

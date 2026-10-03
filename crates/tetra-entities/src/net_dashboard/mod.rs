@@ -1,4 +1,5 @@
 pub mod callsign;
+pub mod cells;
 pub mod conn_stream;
 pub mod dapnet;
 pub mod dashboard_auth;

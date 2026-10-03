@@ -1,10 +1,11 @@
 use serde::Deserialize;
 use std::sync::{Arc, RwLock};
+use tetra_core::CellId;
 use tetra_core::freqs::FreqInfo;
 
 use crate::bluestation::{
-    CfgAsterisk, CfgCellInfo, CfgControl, CfgDapnet, CfgEmergency, CfgGeoalarm, CfgHealth, CfgNetInfo, CfgPhyIo, CfgRecovery, CfgSecurity,
-    CfgSnomNotify, CfgTpg2200Action, CfgWxService, PhyBackend, StackState,
+    CfgAsterisk, CfgCellInfo, CfgControl, CfgDapnet, CfgEmergency, CfgExtraCell, CfgGeoalarm, CfgHealth, CfgNetInfo, CfgPhyIo, CfgRecovery,
+    CfgSecurity, CfgSnomNotify, CfgSoapySdr, CfgTpg2200Action, CfgWxService, PhyBackend, StackState,
 };
 
 use super::sec_brew::CfgBrew;
@@ -73,6 +74,18 @@ pub struct StackConfig {
     pub net: CfgNetInfo,
     pub cell: CfgCellInfo,
 
+    /// Additional cells from `[[cells]]` (multi-cell: one SDR each). Empty for single-cell
+    /// configs. The primary cell (id 0) is always `cell` + `phy_io.soapysdr`.
+    pub extra_cells: Vec<CfgExtraCell>,
+
+    /// Set on an additional cell's derived config when its network traffic goes through the
+    /// site switch (see [`StackConfig::is_site_linked`]). Always false in parsed configs.
+    pub site_linked: bool,
+
+    /// Which cell of the station this config runs: `CellId::PRIMARY` for the file as parsed, the
+    /// `[[cells]]` id on a derived per-cell config (see [`StackConfig::for_extra_cell`]).
+    pub cell_id: CellId,
+
     /// Brew protocol (TetraPack/BrandMeister) configuration
     pub brew: Option<CfgBrew>,
 
@@ -124,18 +137,48 @@ pub struct StackConfig {
     pub emergency: CfgEmergency,
 }
 
+/// "Cell re-selection types supported" advertised for sibling cells: both announced (U-PREPARE /
+/// D-NEW-CELL, with forward registration) and unannounced reselection are handled between the
+/// station's cells (0 = none, 1 = announced, 2 = unannounced, 3 = both).
+const SIBLING_CELL_RESELECTION_TYPES: u8 = 3;
+
+/// "Main carrier number extension" for a neighbour whose band plan differs from the serving
+/// cell's (otherwise a radio would look for the neighbour's carrier number on the serving cell's
+/// plan): frequency band (4 bits), offset (2), duplex spacing (3), reverse operation (1).
+fn carrier_number_extension(neighbour: &CfgCellInfo, serving: &CfgCellInfo) -> Option<u16> {
+    let same_plan = neighbour.freq_band == serving.freq_band
+        && neighbour.freq_offset_hz == serving.freq_offset_hz
+        && neighbour.duplex_spacing_id == serving.duplex_spacing_id
+        && neighbour.reverse_operation == serving.reverse_operation;
+    if same_plan {
+        return None;
+    }
+    let offset_id = FreqInfo::freq_offset_hz_to_id(neighbour.freq_offset_hz)?;
+    Some(
+        ((neighbour.freq_band as u16 & 0xF) << 6)
+            | ((offset_id as u16 & 0x3) << 4)
+            | ((neighbour.duplex_spacing_id as u16 & 0x7) << 1)
+            | neighbour.reverse_operation as u16,
+    )
+}
+
 impl StackConfig {
     /// Return BS phase-modulated carrier numbers and their DL/UL frequencies.
     pub fn bs_phase_mod_carriers(&self) -> Result<Vec<(u16, u32, u32)>, String> {
-        let mut carriers = Vec::with_capacity(if self.cell.secondary_carrier.is_some() { 2 } else { 1 });
-        for carrier in [Some(self.cell.main_carrier), self.cell.secondary_carrier].into_iter().flatten() {
+        Self::cell_phase_mod_carriers(&self.cell)
+    }
+
+    /// Carrier numbers and DL/UL frequencies of any cell.
+    pub fn cell_phase_mod_carriers(cell: &CfgCellInfo) -> Result<Vec<(u16, u32, u32)>, String> {
+        let mut carriers = Vec::with_capacity(if cell.secondary_carrier.is_some() { 2 } else { 1 });
+        for carrier in [Some(cell.main_carrier), cell.secondary_carrier].into_iter().flatten() {
             let freq_info = FreqInfo::from_components(
-                self.cell.freq_band,
+                cell.freq_band,
                 carrier,
-                self.cell.freq_offset_hz,
-                self.cell.reverse_operation,
-                self.cell.duplex_spacing_id,
-                self.cell.custom_duplex_spacing,
+                cell.freq_offset_hz,
+                cell.reverse_operation,
+                cell.duplex_spacing_id,
+                cell.custom_duplex_spacing,
             )?;
             let (dl_freq, ul_freq) = freq_info.get_freqs();
             carriers.push((carrier, dl_freq, ul_freq));
@@ -148,8 +191,244 @@ impl StackConfig {
         freqs_hz.iter().all(|freq| ((*freq as f64) - center_hz).abs() <= half_bw)
     }
 
+    /// Number of cells (SDRs) this station runs: the primary plus enabled `[[cells]]`.
+    pub fn cell_count(&self) -> usize {
+        1 + self.extra_cells.len()
+    }
+
+    /// All cells, primary first then `[[cells]]` in config order: (id, cell parameters, SDR settings).
+    pub fn cells(&self) -> Vec<(CellId, &CfgCellInfo, Option<&CfgSoapySdr>)> {
+        let mut v = vec![(CellId::PRIMARY, &self.cell, self.phy_io.soapysdr.as_ref())];
+        v.extend(self.extra_cells.iter().map(|c| (c.id, &c.cell, c.soapysdr.as_ref())));
+        v
+    }
+
+    /// Stand-alone config for running one additional cell's radio stack: that cell's
+    /// `cell_info` and SDR, with the station-wide services that run beside the primary stack
+    /// (dashboard, telemetry, control, recovery, alerts) switched off. `brew` / `lst_dispatch`
+    /// and, when the cells are linked, `asterisk` are kept so the cell's CMCE still routes network
+    /// traffic; in the cell's router those slots are links to the primary's entities, not second
+    /// connections. WX runs on every cell (each answers its own radios' requests).
+    pub fn for_extra_cell(&self, id: CellId) -> Option<StackConfig> {
+        let extra = self.extra_cells.iter().find(|c| c.id == id)?;
+        let mut cfg = self.clone();
+        cfg.cell = extra.cell.clone();
+        cfg.phy_io.soapysdr = extra.soapysdr.clone();
+        cfg.site_linked = self.is_site_linked();
+        cfg.cell_id = id;
+        cfg.extra_cells = Vec::new();
+        cfg.asterisk.enabled = self.asterisk.enabled && self.is_site_linked();
+        cfg.dapnet.enabled = false;
+        cfg.geoalarm.enabled = false;
+        cfg.tpg2200_action.enabled = false;
+        cfg.snom_notify.enabled = false;
+        cfg.dashboard = None;
+        cfg.telemetry = None;
+        cfg.control = None;
+        cfg.telegram = None;
+        cfg.recovery.enabled = false;
+        Some(cfg)
+    }
+
+    /// Multi-cell: advertise every sibling cell as a neighbour (D-NWRK-BROADCAST) so radios can
+    /// reselect between the station's cells. Siblings already listed by carrier are left as
+    /// configured; entries are added only while the 7-neighbour limit allows. Each entry says the
+    /// sibling supports announced and unannounced reselection, and carries what a radio needs to
+    /// find and rank it when it differs from the serving cell: the carrier number extension (band
+    /// plan) and the maximum MS transmit power. Also enables the "D-NWRK-BROADCAST supported" bit in
+    /// D-MLE-SYNC on every cell that got neighbours.
+    pub fn add_sibling_neighbours(&mut self) {
+        if self.extra_cells.is_empty() {
+            return;
+        }
+        let siblings: Vec<CfgCellInfo> = self.cells().iter().map(|(_, c, _)| (*c).clone()).collect();
+        let lists = std::iter::once(&mut self.cell).chain(self.extra_cells.iter_mut().map(|c| &mut c.cell));
+        for cell in lists {
+            for sibling in &siblings {
+                let carrier = sibling.main_carrier;
+                if carrier == cell.main_carrier
+                    || cell.neighbor_cells_ca.len() >= 7
+                    || cell.neighbor_cells_ca.iter().any(|n| n.main_carrier_number == carrier)
+                {
+                    continue;
+                }
+                let Some(id) = (0u8..=0x1F).find(|id| !cell.neighbor_cells_ca.iter().any(|n| n.cell_identifier_ca == *id)) else {
+                    break;
+                };
+                cell.neighbor_cells_ca.push(crate::bluestation::CfgNeighborCellCa {
+                    cell_identifier_ca: id,
+                    cell_reselection_types_supported: SIBLING_CELL_RESELECTION_TYPES,
+                    // Separate SDRs: the cells' TDMA timing is independent.
+                    neighbor_cell_synchronized: false,
+                    cell_load_ca: 0,
+                    main_carrier_number: carrier,
+                    main_carrier_number_extension: carrier_number_extension(sibling, cell),
+                    mcc: None,
+                    mnc: None,
+                    location_area: (sibling.location_area != cell.location_area).then_some(sibling.location_area),
+                    maximum_ms_transmit_power: (sibling.ms_txpwr_max_cell != cell.ms_txpwr_max_cell)
+                        .then_some(sibling.ms_txpwr_max_cell),
+                    minimum_rx_access_level: None,
+                    subscriber_class: None,
+                    bs_service_details: None,
+                    timeshare_cell_information_or_security_parameters: None,
+                    tdma_frame_offset: None,
+                });
+            }
+            if !cell.neighbor_cells_ca.is_empty() {
+                cell.neighbor_cell_broadcast |= 0b10;
+            }
+        }
+    }
+
+    /// True for every cell of a station that runs more than one cell.
+    pub fn is_multi_cell(&self) -> bool {
+        !self.extra_cells.is_empty() || !self.cell_id.is_primary()
+    }
+
+    /// True when a network link (Brew, or enabled LST Dispatch) is configured.
+    pub fn has_network_link(&self) -> bool {
+        self.brew.is_some() || self.lst_dispatch.as_ref().is_some_and(|l| l.enabled)
+    }
+
+    /// True when this stack is one cell of a multi-cell station whose cells are linked through
+    /// the site switch. The stack then reports every registration, group floor and call to its
+    /// network slot (the switch applies the Brew routing rules before the real network sees it).
+    pub fn is_site_linked(&self) -> bool {
+        self.site_linked || (!self.extra_cells.is_empty() && self.has_network_link())
+    }
+
     /// Validate that all required configuration fields are properly set.
-    pub fn validate(&self) -> Result<(), &str> {
+    pub fn validate(&self) -> Result<(), String> {
+        self.validate_primary().map_err(String::from)?;
+        self.validate_extra_cells()
+    }
+
+    /// Carrier and SDR passband checks shared by every cell.
+    fn validate_cell_rf(backend: PhyBackend, cell: &CfgCellInfo, soapy: Option<&CfgSoapySdr>) -> Result<(), &'static str> {
+        if let Some(secondary_carrier) = cell.secondary_carrier
+            && secondary_carrier == cell.main_carrier
+        {
+            return Err("cell.secondary_carrier must differ from cell.main_carrier");
+        }
+
+        if backend != PhyBackend::SoapySdr {
+            return Ok(());
+        }
+        let soapy_cfg = soapy.ok_or("soapysdr configuration must be provided for Soapysdr backend")?;
+
+        let carriers = Self::cell_phase_mod_carriers(cell).map_err(|_| "Invalid cell info frequency settings")?;
+        let (main_dl, main_ul) = carriers
+            .iter()
+            .find(|(carrier_num, _, _)| *carrier_num == cell.main_carrier)
+            .map(|(_, dl, ul)| (*dl, *ul))
+            .ok_or("main carrier missing from computed carrier list")?;
+
+        println!("    Derived BS carriers: {:?}\n", carriers);
+
+        if soapy_cfg.dl_freq as u32 != main_dl {
+            return Err("PhyIo DlFrequency does not match computed FreqInfo");
+        };
+        if soapy_cfg.ul_freq as u32 != main_ul {
+            return Err("PhyIo UlFrequency does not match computed FreqInfo");
+        };
+
+        if carriers.len() > 1 {
+            // A secondary carrier is in use: the SDR center + sample rate MUST be proven to cover
+            // both carriers. A missing sample rate fails closed — we cannot prove the passband
+            // fits, and silently skipping the check let an out-of-passband secondary carrier
+            // through (defeating the dashboard toggle's pre-restart validation).
+            let Some(sample_rate_hz) = soapy_cfg.fs else {
+                return Err(
+                    "dual carrier requires phy_io.soapysdr.sample_rate to be set so the secondary carrier can be proven to fit the SDR passband",
+                );
+            };
+            let dl_freqs: Vec<u32> = carriers.iter().map(|(_, dl, _)| *dl).collect();
+            let ul_freqs: Vec<u32> = carriers.iter().map(|(_, _, ul)| *ul).collect();
+            let (tx_center_hz, _) = soapy_cfg.effective_tx_center_freq_corrected();
+            let (rx_center_hz, _) = soapy_cfg.effective_rx_center_freq_corrected();
+
+            if !Self::frequencies_fit_center(tx_center_hz, sample_rate_hz, &dl_freqs) {
+                return Err("configured TX center/sample-rate do not cover all BS downlink carriers");
+            }
+            if !Self::frequencies_fit_center(rx_center_hz, sample_rate_hz, &ul_freqs) {
+                return Err("configured RX center/sample-rate do not cover all BS uplink carriers");
+            }
+        };
+        Ok(())
+    }
+
+    /// Per-cell and cross-cell checks for `[[cells]]`. No-op for single-cell configs.
+    fn validate_extra_cells(&self) -> Result<(), String> {
+        if self.extra_cells.is_empty() {
+            return Ok(());
+        }
+        if self.stack_mode != StackMode::Bs {
+            return Err("[[cells]] is only supported in Bs stack mode".into());
+        }
+
+        let mut seen_ids = std::collections::HashSet::from([CellId::PRIMARY]);
+        for c in &self.extra_cells {
+            if c.id.is_primary() {
+                return Err("cells: id 0 is reserved for the primary [cell_info]".into());
+            }
+            if c.id.0 > CellId::MAX {
+                return Err(format!("cells: id {} out of range (1-{})", c.id.0, CellId::MAX));
+            }
+            if !seen_ids.insert(c.id) {
+                return Err(format!("cells: duplicate id {}", c.id.0));
+            }
+            if c.cell.ms_txpwr_max_cell > 7 {
+                return Err(format!("{}: ms_txpwr_max_cell must be 0-7 (3 bits)", c.id));
+            }
+            Self::validate_cell_rf(self.phy_io.backend, &c.cell, c.soapysdr.as_ref()).map_err(|e| format!("{}: {e}", c.id))?;
+        }
+
+        let cells = self.cells();
+
+        // Every cell broadcasts the same network identity; only RF parameters may differ.
+        let primary = &self.cell;
+        for (id, cell, _) in &cells[1..] {
+            if cell.freq_band != primary.freq_band {
+                return Err(format!("{id}: freq_band must match the primary cell"));
+            }
+            // Neighbour broadcasts can tell radios another offset / duplex setting, but not a
+            // custom (non-standard) duplex spacing.
+            if cell.custom_duplex_spacing != primary.custom_duplex_spacing {
+                return Err(format!("{id}: custom_duplex_spacing must match the primary cell"));
+            }
+        }
+
+        // No carrier may be used by two cells.
+        let mut seen_carriers = std::collections::HashMap::new();
+        for (id, cell, _) in &cells {
+            for carrier in [Some(cell.main_carrier), cell.secondary_carrier].into_iter().flatten() {
+                if let Some(other) = seen_carriers.insert(carrier, *id) {
+                    return Err(format!("carrier {carrier} is used by both {other} and {id}"));
+                }
+            }
+        }
+
+        // With real SDRs every cell must name its device, and no two cells may share one.
+        if self.phy_io.backend == PhyBackend::SoapySdr {
+            let mut seen_devices = std::collections::HashMap::new();
+            for (id, _, soapy) in &cells {
+                let device = soapy
+                    .and_then(|s| s.device.as_deref())
+                    .map(str::trim)
+                    .filter(|d| !d.is_empty())
+                    .ok_or_else(|| format!("{id}: soapysdr.device must be set when running more than one cell"))?;
+                if let Some(other) = seen_devices.insert(device.to_string(), *id) {
+                    return Err(format!("{other} and {id} use the same SDR device '{device}'"));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks for the primary cell and all station-wide settings.
+    fn validate_primary(&self) -> Result<(), &'static str> {
         // Check input device settings
         match self.phy_io.backend {
             PhyBackend::SoapySdr => {
@@ -163,59 +442,7 @@ impl StackConfig {
             }
         };
 
-        if let Some(secondary_carrier) = self.cell.secondary_carrier
-            && secondary_carrier == self.cell.main_carrier
-        {
-            return Err("cell.secondary_carrier must differ from cell.main_carrier");
-        }
-
-        // Sanity check on computed BS carrier frequencies and SDR settings.
-        if self.phy_io.backend == PhyBackend::SoapySdr {
-            let soapy_cfg = self
-                .phy_io
-                .soapysdr
-                .as_ref()
-                .expect("SoapySdr config must be set for SoapySdr PhyIo");
-
-            let carriers = self.bs_phase_mod_carriers().map_err(|_| "Invalid cell info frequency settings")?;
-            let (main_dl, main_ul) = carriers
-                .iter()
-                .find(|(carrier_num, _, _)| *carrier_num == self.cell.main_carrier)
-                .map(|(_, dl, ul)| (*dl, *ul))
-                .ok_or("main carrier missing from computed carrier list")?;
-
-            println!("    Derived BS carriers: {:?}\n", carriers);
-
-            if soapy_cfg.dl_freq as u32 != main_dl {
-                return Err("PhyIo DlFrequency does not match computed FreqInfo");
-            };
-            if soapy_cfg.ul_freq as u32 != main_ul {
-                return Err("PhyIo UlFrequency does not match computed FreqInfo");
-            };
-
-            if carriers.len() > 1 {
-                // A secondary carrier is in use: the SDR center + sample rate MUST be proven to cover
-                // both carriers. A missing sample rate fails closed — we cannot prove the passband
-                // fits, and silently skipping the check let an out-of-passband secondary carrier
-                // through (defeating the dashboard toggle's pre-restart validation).
-                let Some(sample_rate_hz) = soapy_cfg.fs else {
-                    return Err(
-                        "dual carrier requires phy_io.soapysdr.sample_rate to be set so the secondary carrier can be proven to fit the SDR passband",
-                    );
-                };
-                let dl_freqs: Vec<u32> = carriers.iter().map(|(_, dl, _)| *dl).collect();
-                let ul_freqs: Vec<u32> = carriers.iter().map(|(_, _, ul)| *ul).collect();
-                let (tx_center_hz, _) = soapy_cfg.effective_tx_center_freq_corrected();
-                let (rx_center_hz, _) = soapy_cfg.effective_rx_center_freq_corrected();
-
-                if !Self::frequencies_fit_center(tx_center_hz, sample_rate_hz, &dl_freqs) {
-                    return Err("configured TX center/sample-rate do not cover all BS downlink carriers");
-                }
-                if !Self::frequencies_fit_center(rx_center_hz, sample_rate_hz, &ul_freqs) {
-                    return Err("configured RX center/sample-rate do not cover all BS uplink carriers");
-                }
-            };
-        }
+        Self::validate_cell_rf(self.phy_io.backend, &self.cell, self.phy_io.soapysdr.as_ref())?;
 
         if self.cell.ms_txpwr_max_cell > 7 {
             return Err("ms_txpwr_max_cell must be 0-7 (3 bits)");
@@ -253,6 +480,9 @@ impl StackConfig {
                 }
                 if !seen_carriers.insert(cell.main_carrier_number) {
                     return Err("cell.neighbor_cells_ca: duplicate main_carrier_number — each neighbour must be on a different carrier");
+                }
+                if cell.main_carrier_number == self.cell.main_carrier {
+                    return Err("cell.neighbor_cells_ca: main_carrier_number is this cell's own main_carrier — a cell cannot be its own neighbour");
                 }
             }
         }

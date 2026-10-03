@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
@@ -17,6 +17,8 @@ pub struct MsState {
     pub registered_at: u64,
     pub last_seen_secs_ago: u64,
     pub energy_saving_mode: u8, // 0=StayAlive, 1=Eg1..7=Eg7
+    /// Multi-cell: the cell the MS is registered on (None on a single-cell station).
+    pub cell: Option<u8>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -161,6 +163,9 @@ pub struct DashboardStateInner {
     pub last_tx_quality: Option<TxQualitySnapshot>,
     /// Most recent SDR hardware health snapshot.
     pub last_sdr_health: Option<SdrHealthSnapshot>,
+    /// Multi-cell: the latest `tx_visual` / `tx_quality` / `sdr_health` WebSocket message of each
+    /// additional cell, keyed by (cell, message type). Replayed on init like the primary's.
+    pub cell_rf: BTreeMap<(u8, &'static str), serde_json::Value>,
     /// Most recent host system health snapshot (temps, voltages, power).
     pub last_sys_health: Option<SysHealthSnapshot>,
     /// Most recent lite stack-health roll-up (Service/Backhaul/Radios/Congestion). Sent on init
@@ -238,6 +243,7 @@ pub struct MsEntry {
     pub registered_at: Instant,
     pub last_seen: Instant,
     pub energy_saving_mode: u8,
+    pub cell: Option<u8>,
 }
 
 #[derive(Debug)]
@@ -317,6 +323,7 @@ impl DashboardStateInner {
             last_tx_visual: None,
             last_tx_quality: None,
             last_sdr_health: None,
+            cell_rf: BTreeMap::new(),
             last_sys_health: None,
             last_health: None,
             boot_id: uuid::Uuid::new_v4().to_string(),
@@ -506,6 +513,7 @@ impl DashboardStateInner {
                     .saturating_sub(e.registered_at.elapsed().as_secs()),
                 last_seen_secs_ago: e.last_seen.elapsed().as_secs(),
                 energy_saving_mode: e.energy_saving_mode,
+                cell: e.cell,
             })
             .collect()
     }

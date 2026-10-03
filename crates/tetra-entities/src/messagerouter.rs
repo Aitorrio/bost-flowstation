@@ -284,7 +284,10 @@ impl MessageRouter {
             }
 
             // Health watchdog: stamp that the core loop is alive this tick (lock-free atomic).
-            crate::health::registry().note_tick();
+            // Only the primary cell feeds it, so another cell's ticks can't mask a primary stall.
+            if crate::cell_context::is_primary() {
+                crate::health::registry().note_tick();
+            }
 
             // Send tick_start event
             self.tick_start();

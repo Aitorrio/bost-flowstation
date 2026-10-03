@@ -1271,3 +1271,45 @@ fn test_emergency_not_cleared_by_sds_tl_delivery_report() {
         }
     }
 }
+
+/// Multi-cell: in a linked station a group SDS with members on this cell is delivered here AND
+/// handed to the site switch, which copies it to the group's members on the other cells.
+#[test]
+fn test_site_linked_group_sds_also_goes_to_the_site_switch() {
+    debug::setup_logging_verbose();
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
+
+    let gssi = 100;
+    for issi in [1000001, 1000002] {
+        register_subscriber(&mut test, issi);
+        affiliate_subscriber(&mut test, issi, gssi);
+    }
+    test.submit_message(build_u_sds_data_msg(1000001, gssi, 0xBEEF));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+    assert_eq!(count_d_sds_data(&msgs), 1, "delivered on this cell");
+    assert_eq!(count_brew_sds(&msgs), 1, "and handed to the site switch");
+}
+
+/// Without Brew's SDS feature, a linked cell still hands a non-local SDS to the site switch
+/// (the switch decides between a sibling cell and the network).
+#[test]
+fn test_site_linked_sds_to_non_local_issi_goes_to_the_site_switch() {
+    debug::setup_logging_verbose();
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
+
+    register_subscriber(&mut test, 1000001);
+    test.submit_message(build_u_sds_data_msg(1000001, 1000999, 0xBEEF));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+    assert_eq!(count_brew_sds(&msgs), 1);
+    assert_eq!(count_d_sds_data(&msgs), 0);
+}

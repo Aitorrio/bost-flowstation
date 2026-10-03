@@ -13,6 +13,7 @@ use tetra_saps::control::sds::CmceSdsData;
 use uuid::Uuid;
 
 use crate::net_brew::components::jitter_buffer::{JitterFrame, VoiceJitterBuffer};
+use crate::net_site::SharedDirectory;
 use crate::net_telemetry::{TelemetryEvent, channel::TelemetrySink};
 use crate::network::transports::NetworkTransport;
 use crate::{MessageQueue, TetraEntityTrait};
@@ -215,6 +216,9 @@ pub struct BrewEntity {
     brew_version_announced: bool,
     /// Optional telemetry sink for emitting brew status events
     telemetry_sink: Option<TelemetrySink>,
+    /// Multi-cell: where every cell's radios are registered. Radios on an additional cell are
+    /// not in this (primary) stack's subscriber list, so network SDS checks this too.
+    site_directory: Option<SharedDirectory>,
 
     /// Rate limiting for RSSI export: tracks last sent time per ISSI.
     /// Only used when feature_rssi_export is enabled in config.
@@ -271,6 +275,7 @@ impl BrewEntity {
             pending_sysinfo_disconnect_at: None,
             brew_version_announced: false,
             telemetry_sink: None,
+            site_directory: None,
             rssi_last_sent: HashMap::new(),
             worker_handle: Some(handle),
         }
@@ -279,6 +284,20 @@ impl BrewEntity {
     /// Set telemetry sink for emitting brew status events.
     pub fn set_telemetry_sink(&mut self, sink: TelemetrySink) {
         self.telemetry_sink = Some(sink);
+    }
+
+    /// Multi-cell: let network SDS reach radios registered on any cell of the site.
+    pub fn set_site_directory(&mut self, directory: SharedDirectory) {
+        self.site_directory = Some(directory);
+    }
+
+    /// True if `issi` is registered on this stack or, in a multi-cell site, on any of its cells.
+    fn is_registered_on_site(&self, issi: u32) -> bool {
+        self.config.state_read().subscribers.is_registered(issi)
+            || self
+                .site_directory
+                .as_ref()
+                .is_some_and(|d| d.read().expect("site directory").location(issi).is_some())
     }
 
     /// Process pending events from the worker thread, at most MAX_EVENTS_PER_TICK of them.
@@ -2233,7 +2252,7 @@ impl BrewEntity {
         );
 
         // Only forward and acknowledge if destination ISSI is locally registered
-        if !self.config.state_read().subscribers.is_registered(destination) {
+        if !self.is_registered_on_site(destination) {
             tracing::warn!(
                 "BrewEntity: SDS dest ISSI {} not registered, dropping (no report sent) uuid={}",
                 destination,

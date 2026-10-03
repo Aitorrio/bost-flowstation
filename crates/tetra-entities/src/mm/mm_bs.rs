@@ -95,6 +95,7 @@ impl MmBs {
                 "MM: access control posture: {} | air-interface authentication (EN 300 392-7 TEA) is NOT implemented — any radio can claim any ISSI; the whitelist is the only gate",
                 sec.access_control_posture()
             );
+            tracing::warn!("MM: air interface encryption: {}", crate::aie::posture(&cfg));
             if sec.honour_unauthenticated_detach {
                 tracing::warn!(
                     "MM: honouring unauthenticated U-ITSI-DETACH / migration teardown (only from an ISSI registered on the same link) — set [security] honour_unauthenticated_detach = false to refuse it entirely"
@@ -340,7 +341,20 @@ impl MmBs {
         // even when there are no group affiliations yet. The Brew worker
         // decides whether to send REGISTER or REREGISTER based on its own state.
         // Affiliate/Deaffiliate only sent when there are brew-routable groups.
-        if net_brew::is_active(&self.config) {
+        if net_brew::is_site_linked(&self.config) {
+            // Linked multi-cell: the site switch tracks every radio and group for cross-cell
+            // routing, and applies the Brew filters below before anything reaches the network.
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Mm,
+                dest: TetraEntity::Brew,
+                msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+                    issi,
+                    groups: groups.clone(),
+                    action,
+                }),
+            });
+        } else if net_brew::is_active(&self.config) {
             let brew_groups = groups
                 .iter()
                 .filter(|gssi| net_brew::is_brew_gssi_routable(&self.config, **gssi))
@@ -563,6 +577,43 @@ impl MmBs {
             return;
         }
 
+        // Air interface encryption (EN 300 392-7 clause 6.5): class 2 radios register with the
+        // cell's SCK; radios without AIE register in clear (mixed cell).
+        let (ciphering, preferred) = {
+            let cfg = self.config.config();
+            let aie = crate::aie::effective(&cfg);
+            (
+                crate::aie::registration_decision(aie, pdu.cipher_control, pdu.ciphering_parameters),
+                aie.map(crate::aie::preferred_parameters),
+            )
+        };
+        let ciphering = match ciphering {
+            crate::aie::CipherDecision::Clear => None,
+            crate::aie::CipherDecision::Encrypted(params) => Some(params),
+            crate::aie::CipherDecision::Reject(cause) => {
+                tracing::warn!(
+                    "MM: ISSI {} asked for ciphering {:?} the cell does not offer — rejecting with {:?}",
+                    issi,
+                    pdu.ciphering_parameters.map(tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters::from_bits),
+                    cause
+                );
+                Self::send_d_location_update_reject_ciphering(
+                    queue,
+                    issi,
+                    handle,
+                    pdu.location_update_type,
+                    pdu.address_extension,
+                    cause,
+                    preferred,
+                );
+                return;
+            }
+            crate::aie::CipherDecision::Unsupported => {
+                tracing::error!("MM: ISSI {} asked for ciphering but AIE is not active on this cell", issi);
+                return;
+            }
+        };
+
         // Check if we can satisfy this request, print unsupported stuff
         if !Self::feature_check_u_location_update_demand(&pdu) {
             tracing::error!("Unsupported critical features in ULocationUpdateDemand");
@@ -715,7 +766,10 @@ impl MmBs {
 
         // Process optional GroupIdentityLocationDemand field
         let _has_groups = pdu.group_identity_location_demand.is_some();
-        let gila = if let Some(gild) = pdu.group_identity_location_demand {
+        let gila = if let Some(mut gild) = pdu.group_identity_location_demand {
+            gild.group_identity_uplink = gild
+                .group_identity_uplink
+                .map(|giu| self.aie_filter_group_attach(issi, ciphering.is_some(), giu));
             // ETSI Table 16.49 (clause 16.10.17): mode=1 means "detach all currently
             // attached group identities and attach group identities defined in the
             // group identity uplink element."
@@ -816,6 +870,12 @@ impl MmBs {
             .and_then(|c| if c.clch_needed || c.common_scch { Some(0x01u64) } else { None });
 
         let _ = self.client_mgr.set_client_class_of_ms(issi, pdu.class_of_ms);
+        match ciphering {
+            Some(params) => tracing::info!("MS {} registered encrypted ({})", issi, params),
+            None => tracing::debug!("MS {} registered in clear", issi),
+        }
+        let _ = self.client_mgr.set_client_ciphering(issi, ciphering);
+        self.config.state_write().subscribers.set_encrypted(issi, ciphering.is_some());
 
         // Reset periodic registration timer on every successful registration.
         self.client_mgr.reset_registration_timer(issi);
@@ -1131,6 +1191,28 @@ impl MmBs {
         }
     }
 
+    /// AIE mixed cell: drop attach requests for groups of the other encryption mode, so a clear
+    /// radio never joins an encrypted group or the reverse. Detach requests always pass.
+    fn aie_filter_group_attach(&self, issi: u32, encrypted: bool, giu: Vec<GroupIdentityUplink>) -> Vec<GroupIdentityUplink> {
+        let cfg = self.config.config();
+        let aie = crate::aie::effective(&cfg);
+        giu.into_iter()
+            .filter(|g| {
+                let ok = g.group_identity_detachment_uplink.is_some()
+                    || g.gssi.is_none_or(|gssi| crate::aie::may_use_group(aie, encrypted, gssi));
+                if !ok {
+                    tracing::info!(
+                        "MM: ISSI {} ({}) may not attach GSSI {:?}: group of the other encryption mode",
+                        issi,
+                        if encrypted { "encrypted" } else { "clear" },
+                        g.gssi
+                    );
+                }
+                ok
+            })
+            .collect()
+    }
+
     fn rx_u_attach_detach_group_identity(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_attach_detach_group_identity");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
@@ -1271,6 +1353,8 @@ impl MmBs {
             tracing::warn!("rx_u_attach_detach_group_identity: group_identity_uplink missing after feature_check; ignoring");
             return;
         };
+        let encrypted = self.config.state_read().subscribers.encrypted(issi).unwrap_or(false);
+        let giu = self.aie_filter_group_attach(issi, encrypted, giu);
         let requested_n = giu.len();
         let (giu_clamped, dropped_giu) = if requested_n > MAX_GROUPS_PER_ATTACH {
             let (head, tail) = giu.split_at(MAX_GROUPS_PER_ATTACH);
@@ -2159,11 +2243,25 @@ impl MmBs {
         address_extension: Option<u64>,
         reject_cause: RejectCause,
     ) {
+        Self::send_d_location_update_reject_ciphering(queue, issi, handle, location_update_type, address_extension, reject_cause, None);
+    }
+
+    /// D-LOCATION UPDATE REJECT that, for a ciphering refusal, carries the cell's preferred
+    /// ciphering parameters (EN 300 392-7 clause 6.6.2.1.2).
+    fn send_d_location_update_reject_ciphering(
+        queue: &mut MessageQueue,
+        issi: u32,
+        handle: u32,
+        location_update_type: LocationUpdateType,
+        address_extension: Option<u64>,
+        reject_cause: RejectCause,
+        preferred: Option<tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters>,
+    ) {
         let pdu = DLocationUpdateReject {
             location_update_type,
             reject_cause: reject_cause as u8,
-            cipher_control: false,
-            ciphering_parameters: None,
+            cipher_control: preferred.is_some(),
+            ciphering_parameters: preferred.map(|p| p.to_bits()),
             address_extension,
             cell_type_control: None,
             proprietary: None,
@@ -2272,14 +2370,6 @@ impl MmBs {
         }
         if pdu.request_to_append_la == true {
             unimplemented_log!("Unsupported request_to_append_la == true");
-            supported = false;
-        }
-        if pdu.cipher_control == true {
-            unimplemented_log!("Unsupported cipher_control == true");
-            supported = false;
-        }
-        if pdu.ciphering_parameters.is_some() {
-            unimplemented_log!("Unsupported ciphering_parameters present");
             supported = false;
         }
         if pdu.la_information.is_some() {
@@ -2586,6 +2676,28 @@ impl TetraEntityTrait for MmBs {
                             dest: TetraEntity::Brew,
                             msg: SapMsgInner::MsRssiUpdate { issi, rssi_dbfs },
                         });
+                    }
+                    SapMsgInner::MmSubscriberUpdate(update)
+                        if message.src == TetraEntity::Brew && update.action == BrewSubscriberAction::Deregister =>
+                    {
+                        // Multi-cell site switch: the MS registered on a sibling cell. Drop it here
+                        // silently — it no longer listens to this cell, so nothing goes on air.
+                        let issi = update.issi;
+                        tracing::info!("MM: ISSI {} moved to another cell — dropping local registration", issi);
+                        let groups: Vec<u32> = self
+                            .client_mgr
+                            .get_client_by_issi(issi)
+                            .map(|c| c.groups.iter().copied().collect())
+                            .unwrap_or_default();
+                        if !groups.is_empty() {
+                            self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
+                        }
+                        self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
+                        self.client_mgr.remove_client_quiet(issi);
+                        self.config.state_write().subscribers.deregister(issi);
+                        self.group_report_requested_at.remove(&issi);
+                        self.attach_overflow_remainder.remove(&issi);
+                        self.recovery_mark_dirty();
                     }
                     SapMsgInner::MmSubscriberUpdate(update) => {
                         // CMCE can ask MM to deregister an MS (e.g. kick from dashboard)

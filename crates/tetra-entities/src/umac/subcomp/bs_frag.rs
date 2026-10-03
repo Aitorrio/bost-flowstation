@@ -1,10 +1,21 @@
 use std::cmp::min;
 
-use tetra_core::{BitBuffer, TxReporter};
+use tetra_core::{BitBuffer, SsiType, TxReporter};
 
 use tetra_pdus::umac::pdus::{mac_end_dl::MacEndDl, mac_frag_dl::MacFragDl, mac_resource::MacResource};
 
+use crate::aie::cipher::{CellCipher, Kss};
 use crate::umac::subcomp::fillbits;
+
+/// Air interface encryption for one downlink timeslot (TS 100 392-7 clause 6.4.2.2): its key
+/// stream segment and where in it the slot (or half slot) starts. With TEA set A every encrypted
+/// MAC PDU restarts at that point, so a slot carries at most one encrypted PDU — `used` records it.
+pub struct SlotCipher<'a> {
+    pub cipher: &'a CellCipher,
+    pub kss: Kss,
+    pub kss_offset: usize,
+    pub used: bool,
+}
 
 #[derive(Debug)]
 pub struct BsFragger {
@@ -13,6 +24,8 @@ pub struct BsFragger {
     is_fully_transmitted: bool,
     sdu: BitBuffer,
     tx_reporter: Option<TxReporter>,
+    /// The PDU is to be sent encrypted (its MAC-RESOURCE carried a non-zero encryption mode).
+    encrypted: bool,
 }
 
 /// We won't start fragmentation if less than MIN_SLOT_CAP_FOR_FRAG_START bits are free in the slot
@@ -26,20 +39,26 @@ impl BsFragger {
         assert!(sdu.get_pos() == 0, "SDU must be at the start of the buffer");
         // We set the length field now. If we do fragmentation, we'll set it to -1 later.
         // resource.update_len_and_fill_ind(sdu.get_len());
+        let encrypted = resource.encryption_mode != 0;
         BsFragger {
             resource,
             mac_hdr_is_written: false,
             is_fully_transmitted: false,
             sdu,
             tx_reporter,
+            encrypted,
         }
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.encrypted
     }
 
     /// Writes MAC-RESOURCE to dest_buf, starting fragmentation if needed.
     /// Then, writes as many SDU bits as possible.
     /// Returns true if the entire SDU was consumed, false if the PDU is fragmented
     /// and more chunks are needed.
-    fn get_resource_chunk(&mut self, mac_block: &mut BitBuffer) -> bool {
+    fn get_resource_chunk(&mut self, mac_block: &mut BitBuffer, cipher: Option<&mut SlotCipher>) -> bool {
         // Some sanity checks
         assert!(self.sdu.get_pos() == 0, "SDU must be at the start of the buffer");
         assert!(!self.mac_hdr_is_written, "MAC header should not be written yet");
@@ -80,8 +99,10 @@ impl BsFragger {
             );
 
             // Write MAC-RESOURCE header, followed by TM-SDU, to MAC block
-            self.resource.to_bitbuf(mac_block);
+            let start = mac_block.get_pos();
+            self.write_resource_header(mac_block, cipher.as_deref());
             mac_block.copy_bits(&mut self.sdu, sdu_len_bits);
+            self.encrypt_resource(mac_block, start, hdr_len_bits, sdu_len_bits, cipher);
             fillbits::addition::write(mac_block, Some(num_fill_bits));
 
             // We're done with this packet
@@ -111,8 +132,10 @@ impl BsFragger {
                     .raw_dump_bin(false, false, self.sdu.get_pos(), self.sdu.get_pos() + sdu_bits)
             );
 
-            self.resource.to_bitbuf(mac_block);
+            let start = mac_block.get_pos();
+            self.write_resource_header(mac_block, cipher.as_deref());
             mac_block.copy_bits(&mut self.sdu, sdu_bits);
+            self.encrypt_resource(mac_block, start, hdr_len_bits, sdu_bits, cipher);
             fillbits::addition::write(mac_block, None);
 
             // More fragments follow
@@ -126,7 +149,7 @@ impl BsFragger {
     /// MAC-END.
     /// Returns true when MAC-END (DL) was created and no further fragments are needed
     /// TODO FIXME: support adding ChanAlloc element in MAC-END
-    fn get_frag_or_end_chunk(&mut self, mac_block: &mut BitBuffer) -> bool {
+    fn get_frag_or_end_chunk(&mut self, mac_block: &mut BitBuffer, cipher: Option<&mut SlotCipher>) -> bool {
         // Some sanity checks
         assert!(self.mac_hdr_is_written, "MAC header should be previously written");
 
@@ -156,9 +179,12 @@ impl BsFragger {
                     .raw_dump_bin(false, false, self.sdu.get_pos(), self.sdu.get_pos() + sdu_bits)
             );
 
-            // Write MAC-END header followed by TM-SDU
+            // Write MAC-END header followed by TM-SDU. Encrypted: everything after the channel
+            // allocation flag (TS 100 392-7 clause 6.7.1.2), i.e. the TM-SDU here.
             pdu.to_bitbuf(mac_block);
+            let sdu_start = mac_block.get_pos();
             mac_block.copy_bits(&mut self.sdu, sdu_bits);
+            self.encrypt_bits(mac_block, sdu_start, sdu_bits, cipher);
 
             // Write fill bits (if needed)
             if num_fill_bits > 0 {
@@ -190,7 +216,9 @@ impl BsFragger {
             );
 
             pdu.to_bitbuf(mac_block);
+            let sdu_start = mac_block.get_pos();
             mac_block.copy_bits(&mut self.sdu, sdu_bits_in_frag);
+            self.encrypt_bits(mac_block, sdu_start, sdu_bits_in_frag, cipher);
 
             if num_fill_bits > 0 {
                 mac_block.write_bit(1);
@@ -206,7 +234,20 @@ impl BsFragger {
     /// Subsequent chunks are MAC-FRAG or MAC-END.
     /// Returns bool is_fully_transmitted
     pub fn get_next_chunk(&mut self, mac_block: &mut BitBuffer) -> bool {
+        self.get_next_chunk_ciphered(mac_block, None)
+    }
+
+    /// [`Self::get_next_chunk`] for a timeslot that may carry encrypted PDUs. An encrypted PDU is
+    /// held back when the slot has no cipher or already carries an encrypted PDU, so nothing meant
+    /// to be encrypted ever goes out in clear and no key stream is used twice.
+    pub fn get_next_chunk_ciphered(&mut self, mac_block: &mut BitBuffer, cipher: Option<&mut SlotCipher>) -> bool {
         assert!(!self.is_fully_transmitted, "all fragments have already been produced");
+        if self.encrypted && cipher.as_ref().is_none_or(|c| c.used) {
+            if cipher.is_none() {
+                tracing::error!("UMAC: encrypted PDU for {:?} but no cipher on this slot, holding it back", self.resource.addr);
+            }
+            return false;
+        }
         assert!(
             mac_block.get_len_written() % 8 == 0 || mac_block.get_len_remaining() == 0,
             "mac_block must be full or byte aligned before writing"
@@ -214,10 +255,10 @@ impl BsFragger {
 
         self.is_fully_transmitted = if !self.mac_hdr_is_written {
             // First chunk, write MAC-RESOURCE
-            self.get_resource_chunk(mac_block)
+            self.get_resource_chunk(mac_block, cipher)
         } else {
             // Subsequent chunks, write MAC-FRAG or MAC-END
-            self.get_frag_or_end_chunk(mac_block)
+            self.get_frag_or_end_chunk(mac_block, cipher)
         };
 
         // If we're done now, we'll report the PDUs full transmission.
@@ -228,6 +269,44 @@ impl BsFragger {
         }
 
         self.is_fully_transmitted
+    }
+}
+
+impl BsFragger {
+    /// Writes the MAC-RESOURCE header; for an encrypted PDU the SSI is replaced by its ESI
+    /// (TS 100 392-7 clause 4.2.6). USSI and SMI addresses are not encrypted.
+    fn write_resource_header(&self, mac_block: &mut BitBuffer, cipher: Option<&SlotCipher>) {
+        match (self.encrypted, cipher) {
+            (true, Some(c)) => {
+                let mut hdr = self.resource.clone();
+                if let Some(addr) = hdr.addr.as_mut()
+                    && matches!(addr.ssi_type, SsiType::Ssi | SsiType::Issi | SsiType::Gssi)
+                {
+                    addr.ssi = c.cipher.esi(addr.ssi);
+                }
+                hdr.encryption_mode = c.cipher.encryption_mode();
+                hdr.to_bitbuf(mac_block);
+            }
+            _ => self.resource.to_bitbuf(mac_block),
+        }
+    }
+
+    /// Encrypts a MAC-RESOURCE just written at `start`: all information after the channel
+    /// allocation flag (the channel allocation element, if any, then the TM-SDU) — TS 100 392-7
+    /// clause 6.7.1.2.
+    fn encrypt_resource(&self, mac_block: &mut BitBuffer, start: usize, hdr_len: usize, sdu_len: usize, cipher: Option<&mut SlotCipher>) {
+        let chan_alloc_len = self.resource.chan_alloc_element.as_ref().map_or(0, |c| c.compute_len());
+        self.encrypt_bits(mac_block, start + hdr_len - chan_alloc_len, chan_alloc_len + sdu_len, cipher);
+    }
+
+    /// XORs `len` bits at `start` with the slot's key stream, if this PDU is encrypted.
+    fn encrypt_bits(&self, mac_block: &mut BitBuffer, start: usize, len: usize, cipher: Option<&mut SlotCipher>) {
+        if !self.encrypted {
+            return;
+        }
+        let Some(c) = cipher else { return };
+        c.kss.apply(mac_block, start, len, c.kss_offset);
+        c.used = true;
     }
 }
 
@@ -270,6 +349,74 @@ mod tests {
             slot_granting_element: None,
             chan_alloc_element: None,
         }
+    }
+
+    fn test_cipher() -> CellCipher {
+        let aie = tetra_config::bluestation::CfgAie {
+            ksg: 1,
+            sckn: 1,
+            sck: tetra_config::bluestation::CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]),
+            sck_vn: 2,
+            clear_groups: vec![],
+        };
+        CellCipher::new(&aie, &[3681], 2, 1)
+    }
+
+    /// An encrypted MAC-RESOURCE carries the ESI and the encryption mode, and decrypting
+    /// everything after the channel allocation flag gives back the clear TM-SDU.
+    #[test]
+    fn encrypted_resource_round_trip() {
+        let cipher = test_cipher();
+        let t = tetra_core::TdmaTime { t: 1, f: 3, m: 7, h: 42 };
+        let sdu_bits = "1100101011110000101011001100110101010101111000011110000";
+
+        let mut pdu = get_default_resource();
+        pdu.encryption_mode = 1; // any non-zero value marks the PDU for encryption
+        let mut slot = SlotCipher {
+            cipher: &cipher,
+            kss: cipher.kss(3681, t, false),
+            kss_offset: 0,
+            used: false,
+        };
+        let mut block = BitBuffer::new(SCH_F_CAP);
+        assert!(BsFragger::new(pdu, BitBuffer::from_bitstr(sdu_bits), None).get_next_chunk_ciphered(&mut block, Some(&mut slot)));
+        assert!(slot.used);
+
+        block.seek(0);
+        let parsed = MacResource::from_bitbuf(&mut block).unwrap();
+        assert_eq!(parsed.encryption_mode, 0b10, "even SCK-VN");
+        assert_eq!(parsed.addr.unwrap().ssi, cipher.esi(1234));
+        let hdr_len = parsed.compute_header_len();
+
+        // Decrypt the TM-SDU with the same key stream: the clear bits come back.
+        let kss = cipher.kss(3681, t, false);
+        kss.apply(&mut block, hdr_len, sdu_bits.len(), 0);
+        block.seek(hdr_len);
+        let clear: String = (0..sdu_bits.len()).map(|_| if block.read_bit().unwrap() == 1 { '1' } else { '0' }).collect();
+        assert_eq!(clear, sdu_bits);
+    }
+
+    /// A slot carries at most one encrypted PDU, and an encrypted PDU never goes out without a
+    /// cipher.
+    #[test]
+    fn encrypted_pdu_waits_for_a_fresh_slot() {
+        let cipher = test_cipher();
+        let mut pdu = get_default_resource();
+        pdu.encryption_mode = 1;
+        let mut block = BitBuffer::new(SCH_F_CAP);
+        let mut fragger = BsFragger::new(pdu, BitBuffer::from_bitstr("1010"), None);
+        assert!(!fragger.get_next_chunk(&mut block), "no cipher: held back");
+        assert_eq!(block.get_pos(), 0, "nothing written");
+
+        let mut slot = SlotCipher {
+            cipher: &cipher,
+            kss: cipher.kss(3681, tetra_core::TdmaTime { t: 1, f: 1, m: 1, h: 0 }, false),
+            kss_offset: 0,
+            used: true,
+        };
+        assert!(!fragger.get_next_chunk_ciphered(&mut block, Some(&mut slot)), "slot already used");
+        slot.used = false;
+        assert!(fragger.get_next_chunk_ciphered(&mut block, Some(&mut slot)));
     }
 
     #[test]

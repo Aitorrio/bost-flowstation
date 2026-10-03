@@ -10,8 +10,8 @@ use tetra_entities::net_control::{
 };
 
 use tetra_config::bluestation::{SharedConfig, StackConfig, parsing};
-use tetra_core::{TdmaTime, debug};
-use tetra_entities::MessageRouter;
+use tetra_core::{CellId, TdmaTime, debug};
+use tetra_entities::{MessageRouter, TetraEntityTrait};
 #[cfg(feature = "asterisk")]
 use tetra_entities::net_asterisk::entity::AsteriskEntity;
 use tetra_entities::net_brew::entity::BrewEntity;
@@ -20,6 +20,9 @@ use tetra_entities::net_lst_dispatch::{LstDispatchEntity, LstDispatchHandle, cod
 use tetra_entities::net_dapnet::spawn_dapnet_worker;
 use tetra_entities::net_dashboard::DashboardServer;
 use tetra_entities::net_geoalarm::{GeoAlarmSink, spawn_geoalarm_worker};
+use tetra_entities::net_site::{CellLink, SharedDirectory, SitePorts, SiteSwitch, site_links};
+#[cfg(feature = "asterisk")]
+use tetra_entities::net_site::SiteRelay;
 use tetra_entities::net_snom::{snom_notify_channel, spawn_snom_notify_worker};
 use tetra_entities::net_telegram::{TelegramAlertSink, TelegramAlerter, telegram_alert_channel};
 use tetra_entities::net_telemetry::worker::TelemetryWorker;
@@ -178,7 +181,8 @@ fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEnt
 
 /// Attach PHY after the dashboard is running. Never panics on SDR open failure —
 /// degraded mode keeps the web UI / setup wizard available.
-fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<TelemetrySink>) {
+/// Returns true when a PHY was registered.
+fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<TelemetrySink>) -> bool {
     use tetra_config::bluestation::PhyBackend;
     match cfg.config().phy_io.backend {
         PhyBackend::None => {
@@ -186,6 +190,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
                 "phy_io.backend = None (setup mode — complete the Setup wizard to enable RF)",
             );
             eprintln!(" -> RF disabled (setup mode). Dashboard available for configuration.");
+            false
         }
         PhyBackend::SoapySdr => {
             tetra_entities::rf_status::set_starting("SoapySdr");
@@ -196,6 +201,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
                     router.register_entity(Box::new(phy));
                     tetra_entities::rf_status::set_online("SoapySdr", "SDR open, PHY registered");
                     eprintln!(" -> RF online (SoapySDR)");
+                    true
                 }
                 Err(e) => {
                     tracing::error!("RF degraded — continuing without PHY: {e}");
@@ -203,6 +209,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
                     eprintln!(
                         " -> RF offline: {e}\n    Dashboard remains available. Fix the SDR in Setup, then restart."
                     );
+                    false
                 }
             }
         }
@@ -211,15 +218,99 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
             tracing::error!("{msg}");
             tetra_entities::rf_status::set_error("unsupported", msg.clone());
             eprintln!(" -> RF offline: {msg}");
+            false
         }
     }
 }
 
+/// Start one thread per additional cell (`[[cells]]`). Each runs its own radio stack
+/// (PHY → CMCE) on its own SDR with a config from [`StackConfig::for_extra_cell`], so the cells
+/// are fully independent for now: separate registrations, no Brew/LST/dashboard. Threads stop
+/// with the primary via `is_running`.
+fn spawn_extra_cells(
+    cell_cfgs: Vec<(CellId, SharedConfig)>,
+    is_running: Arc<AtomicBool>,
+    mut links: HashMap<CellId, CellLink>,
+    tsink: Option<TelemetrySink>,
+) -> Vec<thread::JoinHandle<()>> {
+    let mut handles = Vec::new();
+    for (id, cell_cfg) in cell_cfgs {
+        let is_running = is_running.clone();
+        let cell_sink = tsink.as_ref().map(|s| s.for_cell(id.0));
+        let link = links.remove(&id);
+        let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
+            tetra_entities::cell_context::set_current(id);
+            let phy_sink = cell_sink.clone();
+            let mut router = build_cell_router(&cell_cfg, link, cell_sink);
+            eprintln!(" -> {id}: opening SDR…");
+            if !try_attach_phy(&mut router, &cell_cfg, phy_sink) {
+                // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
+                tracing::error!("{id}: no PHY — cell not started");
+                return;
+            }
+            tracing::info!("{id}: cell stack running");
+            router.run_stack(None, Some(is_running));
+            tracing::info!("{id}: cell stack stopped");
+        });
+        match spawned {
+            Ok(h) => handles.push(h),
+            Err(e) => tracing::error!("{id}: failed to spawn cell thread: {e}"),
+        }
+    }
+    handles
+}
+
+/// Radio stack of an additional cell: the core entities only, without external control links or
+/// restart recovery. With a network link configured, `link` connects it to the site switch; `tsink` is the
+/// station's telemetry stream tagged for this cell.
+fn build_cell_router(cfg: &SharedConfig, link: Option<CellLink>, tsink: Option<TelemetrySink>) -> MessageRouter {
+    let mut router = MessageRouter::new(cfg.clone());
+    router.register_entity(Box::new(LmacBs::new(cfg.clone())));
+    router.register_entity(Box::new(UmacBs::new(cfg.clone(), tsink.clone())));
+    router.register_entity(Box::new(Llc::new(cfg.clone())));
+    router.register_entity(Box::new(MleBs::new(cfg.clone())));
+    router.register_entity(Box::new(MmBs::new(cfg.clone(), tsink.clone(), None)));
+    router.register_entity(Box::new(Sndcp::new(cfg.clone())));
+    // CMCE gets its own command link so the WX/METAR responder can send its replies.
+    let (c_d, mut c_e) = build_all_control_links();
+    let mut cmce = CmceBs::new(cfg.clone(), tsink, c_e.remove(&TetraEntity::Cmce));
+    if let Some(d) = c_d.get(&TetraEntity::Cmce) {
+        cmce.set_wx_cmd_sender(d.clone_sender());
+    }
+    router.register_entity(Box::new(cmce));
+    if let Some(link) = link {
+        // Linked cells reach the primary's Asterisk bridge through a second link.
+        if cfg.config().asterisk.enabled {
+            router.register_entity(Box::new(link.asterisk_link()));
+        }
+        router.register_entity(Box::new(link));
+    }
+    router.set_dl_time(TdmaTime::default());
+    router
+}
+
 /// Start base station stack
+/// Site switch ports, the additional cells' configs it keeps in sync, and the radio directory it
+/// shares with the Asterisk relay.
+type SiteSetup = (SitePorts, Vec<(CellId, SharedConfig)>, SharedDirectory);
+
+/// In a multi-cell station the network entity is wrapped in the site switch so it serves every
+/// cell; single-cell stations register it directly, exactly as before.
+fn wrap_network_entity(entity: Box<dyn TetraEntityTrait>, cfg: &SharedConfig, site: &mut Option<SiteSetup>) -> Box<dyn TetraEntityTrait> {
+    match site.take() {
+        Some((ports, extra, directory)) => {
+            eprintln!(" -> Site switch: network link shared by {} cells", extra.len() + 1);
+            Box::new(SiteSwitch::new(entity, cfg.clone(), extra, ports, directory))
+        }
+        None => entity,
+    }
+}
+
 fn build_bs_stack(
     cfg: &mut SharedConfig,
     config_path: &str,
     lst_handle: Option<LstDispatchHandle>,
+    mut site: Option<SiteSetup>,
 ) -> (
     MessageRouter,
     Option<TelemetrySource>,
@@ -236,6 +327,8 @@ fn build_bs_stack(
         || cfg.effective_snom_notify().enabled;
     let (tsink, tsource) = if needs_telemetry {
         let (a, b) = telemetry_channel();
+        // Multi-cell: tag the primary's events with its cell (registrations get an MsCell).
+        let a = if cfg.config().extra_cells.is_empty() { a } else { a.for_cell(0) };
         (Some(a), Some(b))
     } else {
         (None, None)
@@ -250,6 +343,7 @@ fn build_bs_stack(
     // (battery). Falls back gracefully if nothing is available.
     if let Some(ref sink) = tsink {
         tetra_entities::sys_telemetry::spawn_sys_health(sink.clone());
+        tetra_entities::net_dashboard::cells::spawn_cells_telemetry(sink.clone(), cfg.clone());
 
         // Background lite stack-health monitor — samples the global health registry and emits a
         // HealthSnapshot through telemetry (→ dashboard tile + Telegram alerts). Tunable via the
@@ -338,6 +432,11 @@ fn build_bs_stack(
         c_d.remove(&entity);
     }
 
+    // Multi-cell: the Asterisk relay's side of the site links (taken before the switch gets them).
+    let asterisk_relay = site
+        .as_mut()
+        .and_then(|(ports, extra, directory)| Some((ports.take_asterisk()?, extra.clone(), directory.clone())));
+
     // Register Brew XOR LST dispatch (same TetraEntity::Brew slot for CMCE routing).
     let lst_enabled = cfg
         .config()
@@ -352,7 +451,7 @@ fn build_bs_stack(
             tracing::warn!("LST handle provided but lst_dispatch not enabled — ignoring");
         } else {
             let entity = LstDispatchEntity::new(cfg.clone(), handle);
-            router.register_entity(Box::new(entity));
+            router.register_entity(wrap_network_entity(Box::new(entity), cfg, &mut site));
             eprintln!(" -> LST Dispatch (local console) enabled");
         }
     } else if let Some(ref brew_cfg) = cfg.config().brew {
@@ -361,7 +460,10 @@ fn build_bs_stack(
         if let Some(ref sink) = tsink {
             brew_entity.set_telemetry_sink(sink.clone());
         }
-        router.register_entity(Box::new(brew_entity));
+        if let Some((_, _, directory)) = &site {
+            brew_entity.set_site_directory(directory.clone());
+        }
+        router.register_entity(wrap_network_entity(Box::new(brew_entity), cfg, &mut site));
         eprintln!(" -> Brew/TetraPack integration enabled");
     } else if lst_enabled {
         eprintln!(" -> WARNING: lst_dispatch.enabled but no handle wired — dispatch inactive");
@@ -373,7 +475,12 @@ fn build_bs_stack(
     if cfg.config().asterisk.enabled {
         match AsteriskEntity::new(cfg.clone()) {
             Ok(asterisk_entity) => {
-                router.register_entity(Box::new(asterisk_entity));
+                // Multi-cell: wrapped so radios on every cell can use the SIP bridge.
+                let entity: Box<dyn TetraEntityTrait> = match asterisk_relay {
+                    Some((ports, extra, directory)) => Box::new(SiteRelay::new(Box::new(asterisk_entity), cfg, &extra, ports, directory)),
+                    None => Box::new(asterisk_entity),
+                };
+                router.register_entity(entity);
                 eprintln!(" -> Asterisk SIP integration enabled");
             }
             Err(err) => {
@@ -381,6 +488,9 @@ fn build_bs_stack(
             }
         }
     }
+
+    #[cfg(not(feature = "asterisk"))]
+    let _ = asterisk_relay;
 
     // Init network time
     router.set_dl_time(TdmaTime::default());
@@ -427,7 +537,7 @@ fn main() {
     }
 
     // Load config — parse+validate primary; on failure try <config>.fallback the same way.
-    let (stack_cfg, fallback_info) = match load_config_with_fallback(&args.config) {
+    let (mut stack_cfg, fallback_info) = match load_config_with_fallback(&args.config) {
         ConfigLoadResult::Primary(c) => (c, None),
         ConfigLoadResult::Fallback {
             config,
@@ -435,6 +545,8 @@ fn main() {
             primary_error,
         } => (config, Some((fallback_path, primary_error))),
     };
+    // Multi-cell: every cell advertises its siblings as neighbours for reselection.
+    stack_cfg.add_sibling_neighbours();
 
     // Build immutable, cheaply clonable SharedConfig and build the base station stack
     let mut cfg = SharedConfig::from_parts(stack_cfg, None);
@@ -442,7 +554,7 @@ fn main() {
     // If the dashboard OR Telegram alerts are enabled, set up the log capture channel BEFORE
     // logging initialises (Telegram forwards WARN/ERROR lines as its critical-status catch-all).
     let dashboard_log_rx = if cfg.config().dashboard.is_some() || cfg.config().telegram.is_some() {
-        let (tx, rx) = crossbeam_channel::unbounded::<(String, String)>();
+        let (tx, rx) = crossbeam_channel::bounded::<(String, String)>(4096);
         debug::set_dashboard_log_sender(tx);
         Some(rx)
     } else {
@@ -469,6 +581,7 @@ fn main() {
         );
     }
 
+
     let lst_handle = {
         let lst_on = cfg
             .config()
@@ -483,10 +596,33 @@ fn main() {
         }
     };
 
+    // Multi-cell with a network link: one site switch in the primary router, one link per
+    // additional cell. Without Brew/LST there is nothing to share and cells stay independent.
+    // Each additional cell's config (derived from its [[cells]] entry) is built here so the
+    // switch can keep the cells' network link state in sync with the primary.
+    let extra_cell_cfgs: Vec<(CellId, SharedConfig)> = {
+        let stack_config = cfg.config();
+        stack_config
+            .extra_cells
+            .iter()
+            .filter_map(|c| Some((c.id, SharedConfig::from_parts(stack_config.for_extra_cell(c.id)?, None))))
+            .collect()
+    };
+    tetra_entities::net_site::register_extra_cells(extra_cell_cfgs.clone());
+    let extra_cell_ids: Vec<CellId> = extra_cell_cfgs.iter().map(|(id, _)| *id).collect();
+    let (site, cell_links) = if cfg.config().is_site_linked() {
+        let (ports, links) = site_links(&extra_cell_ids);
+        (Some((ports, extra_cell_cfgs.clone(), SharedDirectory::default())), links)
+    } else {
+        (None, HashMap::new())
+    };
+
     let (mut router, tsource, cdispatchers, dapnet_telemetry_sink) =
-        build_bs_stack(&mut cfg, &args.config, lst_handle.clone());
+        build_bs_stack(&mut cfg, &args.config, lst_handle.clone(), site);
     // Clone for PHY attach after the dashboard is listening (degraded boot).
     let phy_tsink = dapnet_telemetry_sink.clone();
+    // Additional cells report registrations etc. through the same stream, tagged per cell.
+    let cell_tsink = dapnet_telemetry_sink.clone();
     let dapnet_cmd_tx = cdispatchers.get(&TetraEntity::Cmce).map(|dispatcher| dispatcher.clone_sender());
     let mut dapnet_telegram_sink: Option<TelegramAlertSink> = None;
     #[allow(unused_assignments)]
@@ -760,8 +896,26 @@ fn main() {
     // so a missing radio never blocks the setup wizard.
     try_attach_phy(&mut router, &cfg, phy_tsink);
 
+    // Multi-cell: additional cells run independently for now (multi-cell plan, phase 2).
+    let extra_cell_threads = spawn_extra_cells(extra_cell_cfgs, is_running.clone(), cell_links, cell_tsink);
+    if !extra_cell_threads.is_empty() {
+        tracing::warn!(
+            "{} additional cell(s) started — calls and SDS are routed across cells through the site switch",
+            extra_cell_threads.len()
+        );
+    }
+
     // Start the stack
     router.run_stack(None, Some(is_running));
+
+    // The extra cells stop on the same `is_running` flag. Wait for them to close their SDRs before
+    // this thread exits or closes its own: libiio segfaults in closeStream when two Pluto streams
+    // close concurrently, or when the process exits while a cell is still closing.
+    for handle in extra_cell_threads {
+        if handle.join().is_err() {
+            tracing::error!("cell thread panicked during shutdown");
+        }
+    }
 
     // Keep `router` alive while we may enter soft standby so the dashboard thread
     // (and SharedConfig) remain available for Arrancar / config / OTA.

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod aie;
 pub mod cmce;
 pub mod entity_trait;
 pub mod llc;
@@ -21,11 +22,13 @@ pub mod net_control;
 pub mod net_dapnet;
 pub mod net_dashboard;
 pub mod net_geoalarm;
+pub mod net_site;
 pub mod net_snom;
 pub mod net_telegram;
 pub mod net_telemetry;
 
 pub mod backlight;
+pub mod cell_context;
 pub mod health;
 pub mod host_network;
 pub mod rf_status;

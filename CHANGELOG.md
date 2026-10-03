@@ -2,31 +2,48 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
-## v0.4.7 — Copia de estación (.bptbs) y pack de perfiles (.ptbs)
+## v0.5.2 — Multi-celda: RF de cada celda y versión en la telemetría
 
-Respaldar o clonar una estación sin copiar a mano `/etc/flowstation`, y compartir solo perfiles Cell/Brew entre Pis.
+- **Página RF por celda.** Cada celda adicional envía ahora su espectro, constelación, cascada, calidad de señal (EVM, PAPR, fuga de portadora, ancho de banda) y salud del SDR (temperatura, ganancias). Pestañas compactas arriba de la página RF eligen la celda; cada celda conserva su propio historial de cascada.
+- **Versión de la estación en la telemetría.** Nuevo evento `StationVersion` (versión, build y versión base) al conectar con el servidor de telemetría; brew-server la muestra junto a la IP de la BTS.
+- **Menos tráfico de telemetría.** El espectro y la constelación (~5 KB, cinco veces por segundo y celda) ya no se envían al servidor de telemetría; solo los usa la página RF local. EVM, PAPR y salud del SDR se siguen enviando, por celda (`CellRf`).
 
-- **Sistema → Copia de seguridad**: exportar/importar `.bptbs` (config viva, perfiles, setup/fallback, TOMLs hermanos, Wi-Fi SSID+PSK). Al importar se conserva el canal OTA local, se limpia `source_dir` inválido, se fusionan redes Wi-Fi por SSID y se reinicia.
-- **Config → perfiles TMO**: exportar/importar `.ptbs` (solo árbol de perfiles). Sin reinicio automático — usa Aplicar y reiniciar para ponerlos al aire.
-- APIs autenticadas `GET/POST /api/station|profiles/export|import` (ZIP, hasta 32 MiB en estación).
-- Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
+## v0.5.1 — Multi-celda: SDS de red y telemetría de celdas
 
-## v0.4.6 — LST: RX verde / double-PTT solo con tráfico real
+- **SDS de la red a radios de celdas adicionales.** Un SDS llegado por Brew (incluido el SMS Center de brew-server) para una radio registrada en una celda adicional se descartaba sin respuesta; ahora se entrega en su celda y Brew recibe el `SDS_REPORT`.
+- **SDS entre celdas registrado una sola vez.** La celda que lo recibe de otra celda ya no lo vuelve a anotar como SDS de red en el registro de SDS ni en la telemetría.
+- **Telemetría de celdas.** Nuevo evento `CellsSnapshot` cada 10 s (también en estaciones de una celda): portadoras y frecuencias, código de color, área de localización, vecinas, SDR, estado RF y las radios registradas en cada celda. brew-server lo muestra en su panel de telemetría y resincroniza con él su lista de registros tras una reconexión.
 
-LED RX y oferta de interrupción (doble PTT) solo cuando otro interlocutor tiene el suelo vivo en el TG TX. Late-entry en hangtime ya no pinta verde ni deja el TG “pillado”.
+## v0.5.0 — Multi-celda: una estación, varios SDR
 
-- `OngoingGroupCall` con `tx_active=false`: ignorado (sin `rx` / sin LED).
-- `CallEnded`: limpia RX de inmediato.
-- Fin de PTT propio (`NetworkCallEnd`): limpia RX/preempt del TG TX.
-- Promovido a canal **stable** (`main` / `bost`); `beta` al mismo tip.
+Primera versión multi-celda. Una estación, varios SDR: cada SDR es una celda TETRA más (p. ej. una Pi con dos Pluto+). Completo en código y tests, **aún sin validar en el aire**; las configs de una sola celda funcionan igual que en v0.4.4.
 
-## v0.4.5 — LST: sin double-PTT tras cambio de TG en hangtime
+**Configuración y arranque**
+- Nuevas entradas `[[cells]]` (id 1-7): heredan `[cell_info]`, llevan su propio `[cells.soapysdr]`. Portadoras únicas, mismo `freq_band` y `custom_duplex_spacing`, y `device` obligatorio en cada celda (también la principal). Las configs de una sola celda no cambian.
+- Cada celda corre su propio stack de radio en su propio hilo y SDR.
+- Dashboard: tarjeta **Celdas** en Inicio (estado RF, portadoras, SDR, radios) con escaneo de SDR, alta y baja de celdas (reinicio).
 
-Si un MS entra por late-entry durante hangtime (`tx_active=false`), el despacho armaba RX “verde” que `tx_gssi_busy` trataba como suelo ocupado; al liberar la llamada Network no llegaba `CallEnded` a LST → primer PTT denied / hace falta preempt.
+**Celdas enlazadas (con Brew o LST activos)**
+- Llamadas de grupo, de la red o de cualquier radio, en todas las celdas con miembros; un solo hablante por grupo en todo el sitio; una llamada de emergencia se impone al hablante de otra celda.
+- Llamadas individuales y SDS entre celdas; el SDS de grupo llega a los miembros de todas las celdas. Solo sale a Brew lo que no es para nadie del sitio; los grupos de `local_ssi_ranges` enlazan celdas sin salir a Brew.
+- Asterisk (SIP) y WX/METAR desde todas las celdas; los cambios de WX en el dashboard se aplican a todas.
+- La voz entre celdas pasa por un jitter buffer y sale al ritmo TDMA de la celda que la recibe.
 
-- Hangtime late-entry: LED verde con `floor_live=false` (no bloquea PTT).
-- `release_group_call` notifica siempre `CallEnded` a Brew/LST (`IfGroupRoutable`).
-- `CallEnded` limpia RX hangtime-only.
+**Movilidad**
+- Cada celda anuncia a las demás como vecinas (reselección anunciada y no anunciada), con extensión de portadora y potencia máxima cuando difieren.
+- Al registrarse en otra celda, la radio se da de baja en silencio en la anterior y restaura su llamada de grupo en la nueva.
+- Traspaso anunciado: U-PREPARE → D-NEW-CELL (o D-PREPARE-FAIL); la celda destino se une antes a las llamadas de grupo de la radio; el registro reenviado en U-PREPARE (tipo 1) se procesa en la celda destino y su respuesta va dentro de D-NEW-CELL; U-RESTORE → D-RESTORE-ACK / D-RESTORE-FAIL.
+
+**Dashboard y telemetría**
+- La tabla de radios registradas muestra todas las celdas (insignia C0/C1…) y la página de llamadas incluye las de todas las celdas.
+- Telemetría: nuevo evento `MsCell` (celda de cada registro); las llamadas de celdas adicionales usan identificadores propios de la estación (desde 0x4000).
+
+**Cambios para todas las estaciones (también de una celda)**
+- La estación ignoraba todas las PDU MLE de subida; ahora responde a U-PREPARE (D-PREPARE-FAIL si no hay vecinas) y a U-RESTORE.
+- D-NWRK-BROADCAST con vecinas lleva umbrales/histéresis de reselección configurables (`[cell_info.cell_reselect]`, por defecto 20/10/10/6 dB); antes siempre 0.
+- Tests de `tetra-entities` reparados (import `CallOrigin`, config Brew en el test de preempción) y `Cargo.lock` sincronizado.
+
+**Pendiente de comprobar en el aire:** el orden de bits de los parámetros de reselección y de la extensión de portadora; llamadas individuales que no sobreviven a un cambio de celda; CPU/ancho de banda con varios SDR en una Pi.
 
 ## v0.4.4 — Puertos del dashboard: presets y binds estables
 

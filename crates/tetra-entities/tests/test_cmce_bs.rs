@@ -1168,7 +1168,7 @@ fn test_network_preempts_local_group_speaker() {
     debug::setup_logging_verbose();
 
     let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
-    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(dltime));
     test.populate_entities(
         vec![TetraEntity::Cmce],
         vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
@@ -3043,4 +3043,94 @@ fn test_deaffiliate_last_listener_holds_network_call() {
         )),
         "must not End the Brew session when the last listener leaves the TG"
     );
+}
+
+/// Multi-cell: a radio that reselected from a sibling cell restores the group call with that
+/// cell's call identifier. The linked cell finds the call by GSSI and answers with its own id.
+#[test]
+fn test_site_linked_restore_from_sibling_cell_matches_group() {
+    debug::setup_logging_verbose();
+
+    let mut config = brew_test_config();
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let call_id = first_d_setup_call_id(&test.dump_sinks(), TEST_GSSI);
+
+    const MOVER: u32 = 1_000_777;
+    let sibling_call_id = call_id + 100;
+    test.submit_message(build_u_call_restore_msg(MOVER, sibling_call_id, TEST_GSSI, false));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let (mut sdu, _) = find_lcmc_req(&msgs, MOVER, CmcePduTypeDl::DCallRestore).expect("D-CALL RESTORE, not D-RELEASE");
+    let restore = DCallRestore::from_bitbuf(&mut sdu).expect("Failed to parse DCallRestore");
+    assert_eq!(restore.call_identifier, call_id, "the radio adopts this cell's call id");
+}
+
+/// Without site linking an unknown call identifier is still rejected (single-cell behaviour).
+#[test]
+fn test_restore_with_unknown_call_id_rejected_when_not_site_linked() {
+    debug::setup_logging_verbose();
+
+    let mut test = ComponentTest::from_config(brew_test_config(), Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let call_id = first_d_setup_call_id(&test.dump_sinks(), TEST_GSSI);
+
+    test.submit_message(build_u_call_restore_msg(1_000_777, call_id + 100, TEST_GSSI, false));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+    assert!(find_lcmc_req(&msgs, 1_000_777, CmcePduTypeDl::DCallRestore).is_none());
+}
+
+/// Multi-cell: a raised-priority local group call tells the site switch its priority right before
+/// the floor grant, so the other cells get it as an emergency call too.
+#[test]
+fn test_site_linked_group_call_reports_priority_to_switch() {
+    debug::setup_logging_verbose();
+
+    let mut config = brew_test_config();
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    test.submit_message(build_u_setup_msg_prio(TEST_ISSI, TEST_GSSI, 15));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let to_brew: Vec<&CallControl> = msgs
+        .iter()
+        .filter(|m| m.dest == TetraEntity::Brew)
+        .filter_map(|m| match &m.msg {
+            SapMsgInner::CmceCallControl(cc) => Some(cc),
+            _ => None,
+        })
+        .collect();
+    let prio = to_brew
+        .iter()
+        .position(|cc| matches!(cc, CallControl::SiteCallPriority { priority, .. } if *priority > 0))
+        .expect("SiteCallPriority sent to the switch");
+    let grant = to_brew
+        .iter()
+        .position(|cc| matches!(cc, CallControl::FloorGranted { .. }))
+        .expect("FloorGranted sent to the switch");
+    assert!(prio < grant, "priority comes first");
 }

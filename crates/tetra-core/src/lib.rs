@@ -19,7 +19,7 @@ pub const PRODUCT_NAME_NEXT: &str = "PTBS";
 pub const PRODUCT_NAME_NEXT_LONG: &str = "Personal Tetra Base Station";
 
 /// Our release line (independent of upstream crate package version).
-pub const BOST_VERSION: &str = "0.4.7";
+pub const BOST_VERSION: &str = "0.5.2";
 
 /// Upstream project this fork is based on.
 pub const UPSTREAM_NAME: &str = "FlowStation";
@@ -94,6 +94,7 @@ pub fn is_product_repo_url(url: &str) -> bool {
 
 pub mod address;
 pub mod bitbuffer;
+pub mod cell_id;
 pub mod debug;
 pub mod direction;
 pub mod freqs;
@@ -111,6 +112,7 @@ pub mod typed_pdu_fields;
 // Re-export commonly used items
 pub use address::*;
 pub use bitbuffer::BitBuffer;
+pub use cell_id::CellId;
 pub use direction::Direction;
 pub use pdu_parse_error::PduParseErr;
 pub use phy_types::*;

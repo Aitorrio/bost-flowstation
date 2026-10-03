@@ -49,6 +49,19 @@ pub struct RxTxDevSoapySdr {
     rx_dsp: Option<RxDsp>,
     tx_dsp: Option<TxDsp>,
     health: Option<SdrHealthMonitor>,
+    /// Rate limit for the stack catch-up warning.
+    catch_up_log_next: std::time::Instant,
+}
+
+/// Rate-limit helper for the catch-up warning: true at most once every 5 s.
+fn may_warn_catch_up(next: &mut std::time::Instant) -> bool {
+    let now = std::time::Instant::now();
+    if now >= *next {
+        *next = now + std::time::Duration::from_secs(5);
+        true
+    } else {
+        false
+    }
 }
 
 type FftPlanner = rustfft::FftPlanner<RealSample>;
@@ -191,6 +204,7 @@ impl RxTxDevSoapySdr {
             },
 
             health: health_telemetry.map(SdrHealthMonitor::new),
+            catch_up_log_next: std::time::Instant::now(),
 
             sdr: Some(sdr),
         })
@@ -260,6 +274,20 @@ impl RxTxDev for RxTxDevSoapySdr {
 
         // First generate as much TX signal as possible at the moment.
         while self.process_tx_block(tx_slot)? {}
+
+        // If the stack's clock has fallen behind the SDR (lost RX samples, a stall), the slot it
+        // is handing us can no longer be sent, and since the stack only advances one slot per
+        // RX slot it would stay behind for good: every TX block "too late", the cell silent.
+        // Tick it forward with empty slots, without waiting for RX, until it is back in front.
+        if let (Some(tx_dsp), Some(sdr)) = (self.tx_dsp.as_ref(), self.sdr.as_ref()) {
+            let behind = tx_dsp.stack_slots_behind(sdr, tx_slot)?;
+            if behind > 0 {
+                if may_warn_catch_up(&mut self.catch_up_log_next) {
+                    tracing::warn!("Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up", behind);
+                }
+                return Ok(Vec::new());
+            }
+        }
 
         while self.process_rx_block()? {
             // Continue producing TX signal if possible.
@@ -476,6 +504,8 @@ struct TxDsp {
     /// wants to inspect it. Kept on the struct so we don't allocate on every
     /// monitored block; capacity grows once to fcfb output_block_size and stays.
     tx_signal_scratch: Vec<ComplexSample>,
+    /// Rate limit for the "too late" warning.
+    late_log_next: std::time::Instant,
 }
 
 impl TxDsp {
@@ -518,8 +548,34 @@ impl TxDsp {
             modulators,
             monitor,
             tx_signal_scratch: Vec::new(),
+            late_log_next: std::time::Instant::now(),
         }
     }
+
+    /// How many timeslots the stack's next TX slot lies before the earliest slot the SDR can
+    /// still take (`dmin` blocks after its current time). 0 when on time or not yet started.
+    fn stack_slots_behind(&self, sdr: &soapyio::SoapyIo, tx_slot: &[TxSlotBits]) -> Result<i64, RxTxDevError> {
+        let (Some(slot), Some(modulator)) = (tx_slot.first(), self.modulators.first()) else {
+            return Ok(0);
+        };
+        // Nothing is anchored until TX has produced its first block.
+        if !sdr.tx_possible() || self.block_count == 0 {
+            return Ok(0);
+        }
+        let current_block = sdr.tx_current_count()?.div_euclid(self.fcfb.output_block_size() as SampleCount);
+        // Same sample scale the modulator uses: block * input block length, slot * SAMPLES_SLOT.
+        let earliest = (current_block + Self::DMIN) * modulator.block_len as SampleCount;
+        // Round up: a slot that starts before `earliest` would lose its first blocks, so it
+        // counts as behind too. Rounding down left the stack one partial slot short after a
+        // catch-up, and the first TX block of every slot then stayed "too late" for good.
+        let earliest_slot = -(-earliest).div_euclid(modulator::SAMPLES_SLOT);
+        let behind = earliest_slot - slot.time.to_int() as SampleCount;
+        // A huge gap means the clocks are not comparable (e.g. a re-anchor); don't spin on it.
+        Ok(if (1..=4 * 18).contains(&behind) { behind } else { 0 })
+    }
+
+    /// How many blocks in the future TX blocks must be produced, minimum.
+    const DMIN: fcfb::BlockCount = 2;
 
     fn process_block(
         &mut self,
@@ -533,14 +589,15 @@ impl TxDsp {
 
         let d = self.block_count - current_block;
         // Skip TX blocks in the past or in too near future
-        let dmin = 2; // how many blocks in future minimum
+        let dmin = Self::DMIN;
         if d < dmin {
             let new_block_count = current_block + dmin;
-            tracing::warn!(
-                "Too late to produce TX block {}, skipping {} TX blocks",
-                self.block_count,
-                new_block_count - self.block_count
-            );
+            let skipped = new_block_count - self.block_count;
+            if may_warn_catch_up(&mut self.late_log_next) {
+                tracing::warn!("Too late to produce TX block {}, skipping {} TX blocks", self.block_count, skipped);
+            } else {
+                tracing::debug!("Too late to produce TX block {}, skipping {} TX blocks", self.block_count, skipped);
+            }
             self.block_count = new_block_count;
         }
         // Limit how far into future TX blocks are generated
@@ -665,6 +722,8 @@ struct ModulatorChannel {
     buffer: fcfb::InputBuffer,
     /// How much of buffer is filled
     buffer_i: usize,
+    /// Modulator-rate samples per TX block.
+    block_len: usize,
 }
 
 impl ModulatorChannel {
@@ -681,9 +740,12 @@ impl ModulatorChannel {
             frequency,
             Some(25000.0),
         );
+        let mut buffer = upconverter.make_input_buffer();
+        let block_len = buffer.buffer_in().len();
         Self {
-            buffer: upconverter.make_input_buffer(),
+            buffer,
             buffer_i: 0,
+            block_len,
             upconverter,
             modulator: modulator::Modulator::new(mode),
         }

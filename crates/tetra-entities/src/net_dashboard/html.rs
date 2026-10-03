@@ -2119,6 +2119,11 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   margin:0 18px 14px;padding:0;
 }
 .ts-carrier-group{display:flex;flex-direction:column;gap:8px;}
+.ts-cell-group{display:flex;flex-direction:column;gap:8px;}
+.ts-cell-group+.ts-cell-group{border-top:1px solid var(--border);padding-top:10px;}
+.ts-cell-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:12px;color:var(--text2);}
+.ts-cell-head .cell-name{font-weight:700;color:var(--text);}
+.ts-carrier-head{font-family:var(--mono);font-size:10.5px;color:var(--text3);}
 .ts-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
 .ts-block{
   border:1px solid var(--border);border-radius:8px;
@@ -3384,6 +3389,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .topbar-chips{display:flex;align-items:center;gap:8px;min-width:0;}
 /* ≤700px: second row under title/actions (see mobile topbar rules). Do not hide. */
 
+/* ════ Cells card (multi-cell) ════ */
+.cells-list{display:flex;flex-direction:column;gap:8px;}
+.cell-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;}
+.cell-row .cell-name{font-weight:600;min-width:64px;}
+.cell-row .cell-meta{flex:1 1 220px;min-width:0;font-size:12px;color:var(--text2);overflow-wrap:anywhere;}
+.rf-cell-tabs{display:flex;flex-wrap:wrap;gap:6px;}
+.rf-cell-tab{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--text2);font:inherit;font-size:12px;line-height:1.5;cursor:pointer;white-space:nowrap;}
+.rf-cell-tab:hover{border-color:var(--text3);color:var(--text);}
+.rf-cell-tab.active{border-color:var(--accent);color:var(--text);background:color-mix(in srgb,var(--accent) 14%,transparent);}
+.rf-cell-tab .rf-cell-dot{width:7px;height:7px;border-radius:50%;background:var(--text3);flex:none;}
+.rf-cell-tab .rf-cell-dot.online{background:var(--success,#2ecc71);}
+.rf-cell-tab .rf-cell-dot.error{background:var(--danger);}
+.rf-cell-tab .rf-cell-freq{font-family:var(--mono,monospace);font-size:11px;color:var(--text3);}
+.rf-cell-detail{margin-top:8px;font-size:12px;color:var(--text2);overflow-wrap:anywhere;}
+.cell-rf{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);}
+.cell-rf.online{color:var(--success,#2ecc71);border-color:currentColor;}
+.cell-rf.error{color:var(--danger);border-color:currentColor;}
+.cells-add{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center;}
+.cells-add .form-input{flex:1 1 160px;min-width:0;width:auto;}
+.cells-add .form-input.narrow{flex:0 1 110px;}
+
 /* ════ TETRA BTS Details card ════ */
 .bts-grid{
   display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
@@ -4494,6 +4520,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <!-- Cells — one per SDR (multi-cell) -->
+      <div class="card" id="cells-card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cells_title">Cells</div>
+          <div class="card-actions"><span id="cells-link" class="bts-chip">—</span></div>
+        </div>
+        <div class="card-body">
+          <div class="cells-list" id="cells-list"></div>
+          <div class="help-text" data-i18n="cells_help">Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.</div>
+          <div class="cells-add">
+            <input type="text" class="form-input" id="cells-device" list="cells-device-options" placeholder="driver=plutosdr,uri=ip:192.168.3.1">
+            <datalist id="cells-device-options"></datalist>
+            <input type="number" class="form-input narrow" id="cells-carrier" min="0" max="4095" placeholder="Carrier">
+            <input type="number" class="form-input narrow" id="cells-cc" min="0" max="63" placeholder="Colour code">
+            <button class="btn btn-sm" onclick="cellsScan()" data-i18n="setup_scan">Scan</button>
+            <button class="btn btn-sm" onclick="cellsAdd()" data-i18n="cells_add">Add cell</button>
+          </div>
+          <div class="help-text" id="cells-msg"></div>
+        </div>
+      </div>
+
       <!-- Table -->
       <div class="card">
         <div class="card-head">
@@ -4771,6 +4818,19 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
          complex baseband samples FlowStation generates internally, BEFORE they reach
          the radio. We do not rely on receive-side feedback. -->
     <div class="page" id="page-rf">
+
+      <!-- Cells (multi-cell only): state and carriers of every cell -->
+      <div class="card" id="rf-cells-card" style="display:none">
+        <div class="card-head">
+          <div class="card-title" data-i18n="cells_title">Cells</div>
+          <div class="card-actions"><span id="rf-cells-link" class="bts-chip">—</span></div>
+        </div>
+        <div class="card-body">
+          <div class="rf-cell-tabs" id="rf-cells-list" role="tablist"></div>
+          <div class="rf-cell-detail" id="rf-cell-detail"></div>
+          <div class="help-text" data-i18n="rf_cells_note">Pick a cell to show its SDR on this page.</div>
+        </div>
+      </div>
 
       <!-- Hero summary -->
       <div class="hero">
@@ -6998,6 +7058,10 @@ const LANGS={
     terminals:'Radios',registered:'registered',
     active_calls:'Active Calls',circuits:'circuits in use',
     registered_terminals:'Registered Radios',
+    cells_title:'Cells',cells_help:"Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.",
+    cells_carrier:'Carrier',cells_cc:'Colour code',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',cells_radios:'{n} radio(s)',
+    cells_single:'Single cell',rf_cells_note:'Pick a cell to show its SDR on this page.',cells_linked:'Cells linked',cells_independent:'Independent cells',
+    cells_need_fields:'Device and carrier are required.',cells_confirm_add:'Add this cell? The station restarts.',cells_confirm_remove:'Remove cell {n}? The station restarts.',
     bts_details:'TETRA BTS Details',bts_tx:'TX Freq',bts_rx:'RX Freq',bts_shift:'Duplex Shift',bts_rate:'Sample Rate',
     dual_carrier:'Dual Carrier',dc_on_sub:'On',dc_off_sub:'Off',
     dc_configure:'Configure…',bts_secondary_head:'Secondary carrier',bts_sec_carrier:'Carrier',
@@ -7520,6 +7584,10 @@ const LANGS={
     sys_bts:'BTS-Verbindung',
   },
   es:{
+    cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
+    cells_carrier:'Portadora',cells_cc:'Código de color',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',cells_radios:'{n} radio(s)',
+    cells_single:'Celda única',rf_cells_note:'Elige una celda para ver su SDR en esta página.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
+    cells_need_fields:'Hacen falta el dispositivo y la portadora.',cells_confirm_add:'¿Añadir esta celda? La estación se reinicia.',cells_confirm_remove:'¿Quitar la celda {n}? La estación se reinicia.',
     bts_ip:'IP BTS',offline:'SIN CONEXIÓN',online:'EN LÍNEA',reconnecting:'RECONECTANDO',
     brew_online:'EN LÍNEA',brew_offline:'SIN CONEXIÓN',
     stations:'Inicio',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
@@ -8205,10 +8273,10 @@ function showPage(name,el){
   if(el)el.classList.add('active');
   else{const nav=document.getElementById('nav-'+name);if(nav)nav.classList.add('active');}
   document.getElementById('topbar-title').textContent=t(name)||name;
-  if(name==='stations'){loadBtsInfoLegacy();loadDualCarrier();refreshProfileSelects();}
+  if(name==='stations'){loadBtsInfoLegacy();loadCells();loadDualCarrier();refreshProfileSelects();}
   if(name==='dgna'){syncDgnaAttachmentModePicker();renderDgnaPage();}
   if(name==='sdslog'){loadSdsLog();}
-  if(name==='rf'){
+  if(name==='rf'){loadCells();
     requestAnimationFrame(()=>{
       try{
         rfResizeCanvas('rf-spectrum');
@@ -10329,9 +10397,10 @@ function handleMsg(msg){
       if(msg.fallback_config_active){showFallbackBanner(msg.fallback_config_reason||'');}
       // If the server already has recent RF snapshots, paint them instantly
       // so the RF page has data before the next emit cycle.
-      if(msg.last_tx_visual){handleTxVisual(msg.last_tx_visual);}
-      if(msg.last_tx_quality){handleTxQuality(msg.last_tx_quality);}
-      if(msg.last_sdr_health){handleSdrHealth(msg.last_sdr_health);}
+      if(msg.last_tx_visual){rfIngest('tx_visual',msg.last_tx_visual);}
+      if(msg.last_tx_quality){rfIngest('tx_quality',msg.last_tx_quality);}
+      if(msg.last_sdr_health){rfIngest('sdr_health',msg.last_sdr_health);}
+      (msg.cell_rf||[]).forEach(m=>rfIngest(m.type,m));
       if(msg.last_sys_health){handleSysHealth(msg.last_sys_health);}
       if(msg.health){handleHealth(msg.health);}
       syncDgnaAttachmentModePicker();
@@ -10349,6 +10418,9 @@ function handleMsg(msg){
       renderStations();renderDgnaPage();break;
     case 'ms_deregistered':
       delete state.ms[msg.issi];renderStations();renderDgnaPage();break;
+    case 'ms_cell':
+      if(state.ms[msg.issi]){state.ms[msg.issi].cell=msg.cell;renderStations();}
+      break;
     case 'ms_rssi':
       if(state.ms[msg.issi]){state.ms[msg.issi].rssi_dbfs=msg.rssi_dbfs;state.ms[msg.issi]._last_seen_ts=Date.now();}
       scheduleStationsRender();break;
@@ -10443,9 +10515,7 @@ function handleMsg(msg){
       state.dapnetLog.unshift({ts:nowStamp(),direction:msg.direction,id:msg.id,callsign:msg.callsign,recipient:msg.recipient,text:msg.text,priority:msg.priority,paths:msg.paths||[]});
       if(state.dapnetLog.length>500)state.dapnetLog.pop();
       renderDapnetLog();break;
-    case 'tx_visual':handleTxVisual(msg);break;
-    case 'tx_quality':handleTxQuality(msg);break;
-    case 'sdr_health':handleSdrHealth(msg);break;
+    case 'tx_visual':case 'tx_quality':case 'sdr_health':rfIngest(msg.type,msg);break;
     case 'sys_health':handleSysHealth(msg);break;
     case 'emergency_added':
       state.emergencies[msg.issi]={issi:msg.issi,dest_ssi:msg.dest_ssi,started_secs_ago:0};
@@ -10674,10 +10744,18 @@ const tsCarrierInfo={};
 
 function fmtMhz(hz,dp){return(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'-';}
 function tsCarrierKey(carrierNum,ts){return String(carrierNum)+':'+String(ts);}
+// Cells from /api/cells ({id,primary,main_carrier,carriers:[num],colour_code,location_area,rf_state}).
+// Empty until loaded (or on a single-cell station without the endpoint): the grid then shows the
+// primary's carriers only.
+let tsCells=[];
+function tsIsMainCarrier(carrierNum){
+  if(carrierNum===state.mainCarrierNum)return true;
+  return tsCells.some(c=>c.main_carrier===carrierNum);
+}
 function tsCanRenderAssignedCarrier(carrierNum,ts){
   if(carrierNum==null||!isFinite(carrierNum)||ts==null||!isFinite(ts))return false;
   if(ts<1||ts>4)return false;
-  if(state.mainCarrierNum!=null&&carrierNum===state.mainCarrierNum)return ts>=2&&ts<=4;
+  if(tsIsMainCarrier(carrierNum))return ts>=2&&ts<=4;
   return true;
 }
 function tsCarrierNumbers(){
@@ -10713,17 +10791,51 @@ function tsCarrierBlockHtml(carrierNum,ts){
     <div class="ts-duration-bar"></div>
   </div>`;
 }
+// Every carrier shown in the grid: each cell's carriers in cell order, then any carrier only seen
+// in btsinfo or a call event.
+function tsAllCarriers(){
+  const out=[];
+  tsCells.forEach(c=>c.carriers.forEach(n=>{if(!out.includes(n))out.push(n);}));
+  tsCarrierNumbers().forEach(n=>{if(!out.includes(n))out.push(n);});
+  if(!out.length&&state.mainCarrierNum!=null)out.push(state.mainCarrierNum);
+  return out;
+}
+function tsCarrierHeadHtml(carrierNum){
+  const info=tsCarrierInfo[String(carrierNum)]||{};
+  const role=tsIsMainCarrier(carrierNum)?t('bts_carrier'):t('bts_secondary_head');
+  return `<div class="ts-carrier-head">${escHtml(role)} #${carrierNum} · TX ${fmtMhz(info.tx_freq_hz)} · RX ${fmtMhz(info.rx_freq_hz)}</div>`;
+}
+function tsCarrierGroupHtml(carrierNum,withHead){
+  return `<div class="ts-carrier-group" data-carrier="${carrierNum}">
+      ${withHead?tsCarrierHeadHtml(carrierNum):''}
+      <div class="ts-row">${[1,2,3,4].map(ts=>tsCarrierBlockHtml(carrierNum,ts)).join('')}</div>
+    </div>`;
+}
 function renderTsGridCarrier(){
   const grid=document.getElementById('ts-grid');
   if(!grid)return;
-  let carriers=tsCarrierNumbers();
-  if(!carriers.length&&state.mainCarrierNum!=null)carriers=[state.mainCarrierNum];
-  if(!carriers.length)return;
-  grid.innerHTML=carriers.map(carrierNum=>{
-    return `<div class="ts-carrier-group" data-carrier="${carrierNum}">
-      <div class="ts-row">${[1,2,3,4].map(ts=>tsCarrierBlockHtml(carrierNum,ts)).join('')}</div>
-    </div>`;
-  }).join('');
+  const all=tsAllCarriers();
+  if(!all.length)return;
+  const withHead=all.length>1;
+  if(tsCells.length<2){
+    grid.innerHTML=all.map(n=>tsCarrierGroupHtml(n,withHead)).join('');
+  }else{
+    const shown=new Set();
+    let html=tsCells.map(c=>{
+      c.carriers.forEach(n=>shown.add(n));
+      const rf=c.rf_state||'starting';
+      const meta=['CC '+c.colour_code,'LA '+c.location_area,t('cells_radios',{n:c.registered_radios||0})].join(' · ');
+      return `<div class="ts-cell-group" data-cell="${c.id}">
+        <div class="ts-cell-head"><span class="cell-name">${escHtml(t('cells_cell',{n:c.id}))}${c.primary?' ★':''}</span>
+          <span class="cell-rf ${escHtmlAttr(rf)}" title="${escHtmlAttr(c.rf_detail||'')}">${escHtml(rf)}</span>
+          <span>${escHtml(meta)}</span></div>
+        ${c.carriers.map(n=>tsCarrierGroupHtml(n,true)).join('')}
+      </div>`;
+    }).join('');
+    const rest=all.filter(n=>!shown.has(n));
+    if(rest.length)html+=`<div class="ts-cell-group">${rest.map(n=>tsCarrierGroupHtml(n,true)).join('')}</div>`;
+    grid.innerHTML=html;
+  }
   updateTsBlocksCarrier();
 }
 function tsRandWaveCarrier(carrierNum,ts){
@@ -10828,10 +10940,11 @@ function tsVoiceCarrier(carrierNum,ts,speakerIssi){
 setInterval(updateTsBlocksCarrier, 250);
 
 function tsCarrierBlockHtml(carrierNum,ts){
-  const idleHeights=(carrierNum===state.mainCarrierNum&&ts===1)?[8,14,10,16,8,12,6]:[3,3,3,3,3,3,3];
-  const label=(carrierNum===state.mainCarrierNum&&ts===1)?'MCCH':(ts===1?'BCCH':'-');
-  const sub=(carrierNum===state.mainCarrierNum&&ts===1)?'ACTIVE':(ts===1?'SECONDARY':'Idle');
-  return `<div class="ts-block${carrierNum===state.mainCarrierNum&&ts===1?' mcch':''}" id="ts-block-${carrierNum}-${ts}">
+  const mcch=tsIsMainCarrier(carrierNum)&&ts===1;
+  const idleHeights=mcch?[8,14,10,16,8,12,6]:[3,3,3,3,3,3,3];
+  const label=mcch?'MCCH':(ts===1?'BCCH':'-');
+  const sub=mcch?'ACTIVE':(ts===1?'SECONDARY':'Idle');
+  return `<div class="ts-block${mcch?' mcch':''}" id="ts-block-${carrierNum}-${ts}">
     <div class="ts-num">TS ${ts}</div>
     ${ts===1?'':'<div class="ts-timer"></div>'}
     <div class="ts-led"></div>
@@ -10847,8 +10960,7 @@ function updateTsBlocksCarrier(){
   const page=document.getElementById('page-stations');
   if(!page||!page.classList.contains('active'))return;
   const now=Date.now();
-  const carriers=tsCarrierNumbers().length?tsCarrierNumbers():(state.mainCarrierNum!=null?[state.mainCarrierNum]:[]);
-  for(const carrierNum of carriers){
+  for(const carrierNum of tsAllCarriers()){
     for(let ts=1;ts<=4;ts++){
       const block=document.getElementById(`ts-block-${carrierNum}-${ts}`);
       if(!block)continue;
@@ -10868,7 +10980,7 @@ function updateTsBlocksCarrier(){
         continue;
       }
 
-      if(ts===1&&carrierNum===state.mainCarrierNum){
+      if(ts===1&&tsIsMainCarrier(carrierNum)){
         block.className='ts-block mcch';
         label.textContent='MCCH';
         sub.textContent='ACTIVE';
@@ -10990,7 +11102,7 @@ function renderStations(){
     const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
     const emg=!!state.emergencies[m.issi];
     return`<tr${emg?' class="row-emergency"':''} data-ms-issi="${m.issi}">
-      <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${idCell(m.issi)}</td><td>${grps}</td>
+      <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${idCell(m.issi)}${m.cell!=null?' <span class="badge badge-dim" title="'+escHtmlAttr(t('cells_cell',{n:m.cell}))+'">C'+m.cell+'</span>':''}</td><td>${grps}</td>
       <td class="col-mobile-hide">${eeLabel(m.energy_saving_mode||0)}</td>
       <td><div class="gauge ${gcls}"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%"></div></div><span class="gauge-value">${rL}</span></div></td>
       <td><span class="pill pill-ok">${t('online_badge')}</span></td>
@@ -14211,6 +14323,103 @@ function gotoDualCarrierConfig(){
     el?.scrollIntoView({behavior:'smooth',block:'center'});
   },120);
 }
+async function loadCells(){
+  const list=document.getElementById('cells-list');
+  if(!list)return;
+  try{
+    const r=await fetch('/api/cells',{credentials:'same-origin'});
+    if(!r.ok)return;
+    const d=await r.json();
+    const cells=d.cells||[];
+    const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4):'—';
+    tsCells=cells.map(c=>{
+      (c.carriers||[]).forEach(k=>tsEnsureCarrierInfo(k.carrier_num,k.tx_freq_hz,k.rx_freq_hz));
+      const nums=(c.carriers||[]).map(k=>k.carrier_num).filter(n=>n!=null&&isFinite(n));
+      if(!nums.length&&c.main_carrier!=null)nums.push(c.main_carrier);
+      return Object.assign({},c,{carriers:nums,carrier_list:c.carriers||[]});
+    });
+    renderTsGridCarrier();
+    renderRfCells(cells,d.site_linked);
+    setText('cells-link', cells.length>1?(d.site_linked?t('cells_linked'):t('cells_independent')):t('cells_single'));
+    list.innerHTML=cells.map(c=>{
+      const rf=c.rf_state||'starting';
+      const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' '+mhz(k.tx_freq_hz)+'/'+mhz(k.rx_freq_hz)+' MHz').join(' · ');
+      const meta=[carriers,'CC '+c.colour_code,'LA '+c.location_area,
+        t('cells_radios',{n:c.registered_radios}),c.device?('SDR '+c.device):''].filter(Boolean).join(' — ');
+      const rm=c.primary?'':'<button class="btn btn-sm btn-danger" onclick="cellsRemove('+c.id+')">'+escHtml(t('cells_remove'))+'</button>';
+      return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
+        '<span class="cell-rf '+escHtmlAttr(rf)+'" title="'+escHtmlAttr(c.rf_detail||'')+'">'+escHtml(rf)+'</span>'+
+        '<span class="cell-meta">'+escHtml(meta)+'</span>'+rm+'</div>';
+    }).join('');
+  }catch(e){}
+}
+// RF page: a compact tab per cell (state dot, name, main TX frequency) that picks whose SDR the
+// page shows, plus one detail line for the picked cell. Hidden on a single-cell station.
+let rfCellsCache = null;
+function renderRfCells(cells,siteLinked){
+  rfCellsCache = {cells, siteLinked};
+  const card=document.getElementById('rf-cells-card');
+  const list=document.getElementById('rf-cells-list');
+  if(!card||!list)return;
+  card.style.display=cells.length>1?'':'none';
+  if(cells.length<2){if(rfSelCell!==0)rfSelectCell(0);return;}
+  if(!cells.some(c=>c.id===rfSelCell)){rfSelectCell(0);return;}
+  setText('rf-cells-link',siteLinked?t('cells_linked'):t('cells_independent'));
+  const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4)+' MHz':'—';
+  list.innerHTML=cells.map(c=>{
+    const rf=c.rf_state||'starting';
+    const main=(c.carriers||[])[0];
+    const sel=c.id===rfSelCell;
+    return '<button type="button" role="tab" aria-selected="'+sel+'" class="rf-cell-tab'+(sel?' active':'')+'"'+
+      ' title="'+escHtmlAttr(rf+(c.rf_detail?' — '+c.rf_detail:''))+'" onclick="rfSelectCell('+c.id+')">'+
+      '<span class="rf-cell-dot '+escHtmlAttr(rf)+'"></span>'+
+      escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+
+      (main?'<span class="rf-cell-freq">'+escHtml((main.tx_freq_hz/1e6).toFixed(3))+'</span>':'')+'</button>';
+  }).join('');
+  const c=cells.find(c=>c.id===rfSelCell);
+  const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' TX '+mhz(k.tx_freq_hz)+' / RX '+mhz(k.rx_freq_hz));
+  const detail=[c.rf_state||'starting','CC '+c.colour_code,'LA '+c.location_area,t('cells_radios',{n:c.registered_radios}),
+    c.device?('SDR '+c.device):''].concat(carriers).filter(Boolean).join(' · ');
+  setText('rf-cell-detail',detail);
+}
+// Keep the per-cell grid and RF list fresh (cell state, radio counts) while either page is open.
+setInterval(()=>{
+  const home=document.getElementById('page-stations'),rfp=document.getElementById('page-rf');
+  if((home&&home.classList.contains('active'))||(rfp&&rfp.classList.contains('active')))loadCells();
+},15000);
+async function cellsScan(){
+  const msg=document.getElementById('cells-msg');
+  if(msg)msg.textContent='Scanning…';
+  try{
+    const r=await fetch('/api/setup/scan-sdr',{method:'POST',credentials:'same-origin'});
+    const d=await r.json();
+    const opts=document.getElementById('cells-device-options');
+    if(opts)opts.innerHTML=(d.devices||[]).map(x=>'<option value="'+escHtmlAttr(x.device||'')+'">'+escHtml(x.label||x.driver||'')+'</option>').join('');
+    if(msg)msg.textContent=d.ok?((d.devices||[]).length+' device(s)'):(d.error||'scan failed');
+  }catch(e){if(msg)msg.textContent='scan failed';}
+}
+async function cellsPost(path,body){
+  const msg=document.getElementById('cells-msg');
+  try{
+    const r=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const txt=await r.text();
+    if(msg)msg.textContent=txt;
+  }catch(e){if(msg)msg.textContent=String(e);}
+}
+function cellsAdd(){
+  const device=(document.getElementById('cells-device')||{}).value||'';
+  const carrier=parseInt((document.getElementById('cells-carrier')||{}).value,10);
+  const ccRaw=(document.getElementById('cells-cc')||{}).value;
+  if(!device.trim()||!isFinite(carrier)){setText('cells-msg',t('cells_need_fields'));return;}
+  if(!confirm(t('cells_confirm_add')))return;
+  const body={device:device.trim(),main_carrier:carrier};
+  if(ccRaw!=='')body.colour_code=parseInt(ccRaw,10);
+  cellsPost('/api/cells/add',body);
+}
+function cellsRemove(id){
+  if(!confirm(t('cells_confirm_remove',{n:id})))return;
+  cellsPost('/api/cells/remove',{id:id});
+}
 async function loadBtsInfo(){
   try{
     const r=await fetch('/api/btsinfo',{credentials:'same-origin'});
@@ -14305,6 +14514,7 @@ async function loadBtsInfoLegacy(){
     state.mainCarrierNum=d.main_carrier!=null?d.main_carrier:state.mainCarrierNum;
     if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
     Object.keys(tsCarrierInfo).forEach(key=>delete tsCarrierInfo[key]);
+    tsCells.forEach(c=>c.carrier_list.forEach(k=>tsEnsureCarrierInfo(k.carrier_num,k.tx_freq_hz,k.rx_freq_hz)));
     carriers.forEach(c=>tsEnsureCarrierInfo(c.carrier_num,c.tx_freq_hz,c.rx_freq_hz));
     // Ensure secondary appears in the TS grid even if RF telemetry has not arrived yet.
     if(d.secondary_carrier!=null&&d.dual_carrier_active){
@@ -14917,6 +15127,60 @@ const rfState = {
   waterfallMaxRows: 200,
 };
 
+// Multi-cell: each cell's SDR reports its own RF messages (tagged "cell"; the primary's are
+// untagged = 0). Every cell keeps its latest messages and its own waterfall history; the page
+// shows the cell picked in the Cells card.
+let rfSelCell = 0;
+const rfCellData = {};
+function rfCell(id){
+  return rfCellData[id] || (rfCellData[id] = {last:{}, waterfall:[]});
+}
+const RF_HANDLERS = {tx_visual: m=>handleTxVisual(m), tx_quality: m=>handleTxQuality(m), sdr_health: m=>handleSdrHealth(m)};
+function rfIngest(type, msg){
+  const id = msg.cell|0;
+  const d = rfCell(id);
+  d.last[type] = msg;
+  if(type === 'tx_visual') pushWaterfall((msg.spectrum_db_tenths || []).map(v => v / 10), d.waterfall);
+  if(id === rfSelCell) RF_HANDLERS[type](msg);
+}
+function rfSelectCell(id){
+  if(id === rfSelCell) return;
+  rfSelCell = id;
+  const d = rfCell(id);
+  rfState.waterfall = d.waterfall;
+  for(const k in rfSmooth) rfSmooth[k].length = 0;
+  rfResetView();
+  for(const type of ['tx_visual','tx_quality','sdr_health']){
+    if(d.last[type]) RF_HANDLERS[type](d.last[type]);
+  }
+  drawRfWaterfall();
+  if(rfCellsCache) renderRfCells(rfCellsCache.cells, rfCellsCache.siteLinked);
+}
+// Blank every RF readout and canvas, for a cell that has not reported yet.
+function rfResetView(){
+  rfState.lastTs = 0; rfState.lastHwTs = 0;
+  rfState.sampleRate = 0; rfState.centerFreq = 0;
+  rfState.carriers = []; rfState.constellationCarrier = null; rfState.evmCarrier = null;
+  for(const id of ['rf-freq','rf-rate','rf-rms','rf-peak','rf-hero-freq','rf-hero-evm','rf-temp','rf-temp-state',
+    'rf-tx-gains','rf-rx-gains','rf-hw-age']) setText(id, '—');
+  for(const [v, w] of [['rf-evm','rf-q-evm-wrap'],['rf-papr','rf-q-papr-wrap'],['rf-carrier','rf-q-cl-wrap'],['rf-obw','rf-q-obw-wrap']]){
+    setText(v, '—');
+    const el = document.getElementById(w);
+    if(el) { el.classList.remove('rf-q-good','rf-q-warn','rf-q-bad'); const g = el.querySelector('.gauge'); if(g) g.classList.remove('is-warn','is-danger'); }
+  }
+  for(const b of ['rf-evm-bar','rf-papr-bar','rf-carrier-bar','rf-obw-bar','rf-temp-bar']){
+    const el = document.getElementById(b);
+    if(el) el.style.width = '0%';
+  }
+  setText('rf-age', t('rf_waiting')); setText('rf-hero-sub', t('rf_waiting'));
+  const rhd = document.getElementById('rf-hero-dot');
+  if(rhd) rhd.className = 'hero-dot is-idle';
+  for(const c of ['rf-spectrum','rf-constellation','rf-waterfall']){
+    const r = rfResizeCanvas(c);
+    if(r){ r.ctx.fillStyle = rfThemeColors().bg; r.ctx.fillRect(0, 0, r.w, r.h); }
+  }
+}
+
 function rfThemeColors(){
   // Read theme variables from CSS so colors track theme switches.
   const cs = getComputedStyle(document.documentElement);
@@ -15105,7 +15369,6 @@ function handleTxVisual(msg){
   const spec = (msg.spectrum_db_tenths || []).map(v => v / 10);
   drawRfSpectrum(spec, rfState.sampleRate, rfState.centerFreq, rfState.carriers);
   drawRfConstellation(msg.constellation_iq || []);
-  pushWaterfall(spec);
   drawRfWaterfall();
 }
 
@@ -15732,7 +15995,7 @@ function drawRfConstellation(iqInt16){
 // top of the canvas; older rows scroll down. Colours come from a viridis-style
 // palette so the contrast works for daltonism (no red-green dependence).
 
-function pushWaterfall(specDb){
+function pushWaterfall(specDb, rows){
   if(!specDb || !specDb.length) return;
   // Normalize to [0..1] using a fixed reference window so colours don't shift wildly.
   // We keep a moving reference of the maximum to anchor the bright end.
@@ -15745,9 +16008,9 @@ function pushWaterfall(specDb){
     if(v > 1) v = 1;
     normalized[i] = v;
   }
-  rfState.waterfall.unshift(normalized);
-  if(rfState.waterfall.length > rfState.waterfallMaxRows){
-    rfState.waterfall.length = rfState.waterfallMaxRows;
+  rows.unshift(normalized);
+  if(rows.length > rfState.waterfallMaxRows){
+    rows.length = rfState.waterfallMaxRows;
   }
 }
 
@@ -16003,6 +16266,7 @@ async function boot(){
   // Light host snapshot for SDR badge / RF banner (no SoapySDRUtil spawn).
   loadSystemInfo();
   loadBtsInfoLegacy();  // TETRA BTS Details card on the default (Home) page
+  loadCells();
   loadDualCarrier();    // Dual-Carrier ON/OFF toggle state
   refreshProfileSelects(); // Home quick Cell × Brew selectors
   networkProbeAvailable(); // toggles the Network nav item

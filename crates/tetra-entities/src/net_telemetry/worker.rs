@@ -14,7 +14,7 @@ use crate::{
     net_telemetry::{
         channel::{RecvEvent, TelemetrySource},
         codec::TelemetryCodecJson,
-        events::TelemetryEvent,
+        events::{CellRfEvent, TelemetryEvent},
     },
     network::transports::NetworkTransport,
 };
@@ -51,6 +51,7 @@ impl<T: NetworkTransport> TelemetryWorker<T> {
             // Block for up to POLL_TIMEOUT waiting for an event.
             // On timeout we still run maintenance (heartbeat / reconnect).
             match self.source.recv_timeout(POLL_TIMEOUT) {
+                RecvEvent::Event(event) if is_local_only(&event) => {}
                 RecvEvent::Event(event) => {
                     tracing::debug!("telemetry event received: {:?}", event);
                     self.forward_event(&event);
@@ -137,6 +138,13 @@ impl<T: NetworkTransport> TelemetryWorker<T> {
             Ok(()) => {
                 tracing::info!("Telemetry transport connected");
                 self.connected = true;
+                // Announce the release first so the server can label this BTS. Sent directly, not
+                // via forward_event, which reconnects on failure and would recurse.
+                let payload = TelemetryCodecJson.encode(&TelemetryEvent::station_version());
+                if let Err(e) = self.transport.send_reliable(&payload) {
+                    tracing::warn!("Telemetry version announce failed: {}, will reconnect", e);
+                    self.connected = false;
+                }
             }
             Err(e) => {
                 tracing::warn!("Telemetry transport connection failed: {}, will retry in {:?}", e, RECONNECT_DELAY);
@@ -144,6 +152,20 @@ impl<T: NetworkTransport> TelemetryWorker<T> {
             }
         }
     }
+}
+
+/// Spectrum + constellation snapshots (`TxVisual`, ~5 KB five times a second per cell) only feed
+/// the local RF page; the telemetry server has no use for them, so they stay off the backhaul.
+/// The slow RF metrics (`TxQuality`, `SdrHealth`) are still sent.
+fn is_local_only(event: &TelemetryEvent) -> bool {
+    matches!(
+        event,
+        TelemetryEvent::TxVisual { .. }
+            | TelemetryEvent::CellRf {
+                event: CellRfEvent::TxVisual { .. },
+                ..
+            }
+    )
 }
 
 // ---------------------------------------------------------------------------
