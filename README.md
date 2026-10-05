@@ -6,14 +6,14 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
-[![Branch](https://img.shields.io/badge/branch-bost-00d4a8.svg)](https://github.com/Aitorrio/bost-flowstation/tree/bost)
+[![Branch](https://img.shields.io/badge/branch-main-00d4a8.svg)](https://github.com/Aitorrio/bost-flowstation/tree/main)
 
 </div>
 
 > **Coming soon: PTBS (Personal Tetra Base Station)**  
 > Bost FlowStation evolves into **PTBS** — open source for radio amateurs and professional/commercial use.  
-> **Please run dashboard OTA once** on this bridge release (**v0.3.12+**). Stable now tracks git branch **`main`** (legacy branch `bost` still carries the bridge so existing Pis can update). Full rebrand (repo name, binary, UI) lands as **v0.4.0** after a short migration window.  
-> ES: *Pronto PTBS. Haz OTA una vez (v0.3.12+). Estable → rama `main`. El rename completo llega en 0.4.0.*
+> **Please run dashboard OTA once** on this bridge release (**v0.3.12+**). Stable tracks git branch **`main`**. Full rebrand (repo name, binary, UI) continues toward **PTBS**.  
+> ES: *Pronto PTBS. Haz OTA una vez (v0.3.12+). Estable → rama `main`.*
 
 ---
 
@@ -47,10 +47,10 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 
 ## Installation
 
-On **Raspberry Pi OS / Debian arm64** (always installs from branch **`bost`** / channel Estable unless you override `BOST_BRANCH`):
+On **Raspberry Pi OS / Debian arm64** (always installs from branch **`main`** / channel Estable unless you override `BOST_BRANCH`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/main/contrib/install/install-bost.sh | sudo bash
 ```
 
 When it finishes you should see something like:
@@ -64,7 +64,7 @@ When it finishes you should see something like:
 | Dashboard | `https://<pi-ip>/` (HTTP `:80` redirects to HTTPS) |
 | Default login | `admin` / `1234` |
 | Config on disk | `/etc/flowstation/config.toml` (+ `.fallback` reserve) |
-| Sources | `/opt/bost-flowstation` (branch `bost`) |
+| Sources | `/opt/bost-flowstation` (branch `main`) |
 
 More detail (env vars, force-clean, helper script): [`Docs/install-and-setup.md`](Docs/install-and-setup.md).
 
@@ -236,7 +236,7 @@ sudo cp /etc/flowstation/config.toml /etc/flowstation/config.toml.fallback
 
 **Re-running the installer**
 
-If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented**. It keeps an existing `/etc/flowstation/config.toml` (and may refresh `ota_channel` to match the install branch), creates `.fallback` only when missing (never overwrites your reserve), aligns `/opt/bost-flowstation` to `origin/bost` with `reset --hard` (keeps `target/`), and refreshes the service/helper pieces without wiping your station identity. For a full source re-clone keeping config: `sudo env BOST_FORCE_CLEAN=1 bash` with the same curl one-liner.
+If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented**. It keeps an existing `/etc/flowstation/config.toml` (and may refresh `ota_channel` to match the install branch), creates `.fallback` only when missing (never overwrites your reserve), aligns `/opt/bost-flowstation` to `origin/main` with `reset --hard` (keeps `target/`), and refreshes the service/helper pieces without wiping your station identity. For a full source re-clone keeping config: `sudo env BOST_FORCE_CLEAN=1 bash` with the same curl one-liner.
 
 ---
 
@@ -340,7 +340,7 @@ cargo build --release -p bluestation-bs
 
 ## Upstream & community
 
-- **This fork:** [github.com/Aitorrio/bost-flowstation](https://github.com/Aitorrio/bost-flowstation) (branch `bost`)
+- **This fork:** [github.com/Aitorrio/bost-flowstation](https://github.com/Aitorrio/bost-flowstation) (branch `main`)
 - **Upstream project:** [FlowStation](https://github.com/razvanzeces/flowstation) · [flowstation.dev](https://flowstation.dev) · [Telegram](https://t.me/+fktnT-th7dcxYWNk)
 
 For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream docs — this fork inherits those features but documents the **Pi + dashboard** path here.

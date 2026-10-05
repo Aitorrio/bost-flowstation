@@ -28,7 +28,7 @@ pub struct CfgDashboard {
     /// with the git clone elsewhere), or when auto-detection picks the wrong directory.
     /// OTA pulls from github.com/Aitorrio/bost-flowstation (`ota_channel` selects the branch).
     pub source_dir: Option<String>,
-    /// OTA release channel: `"stable"` → git branch `bost`, `"beta"` → `beta`. Default `stable`.
+    /// OTA release channel: `"stable"` → git branch `main`, `"beta"` → `beta`. Default `stable`.
     pub ota_channel: String,
     /// Optional HTTP Basic Auth credentials.
     /// When both username and password are set, all dashboard requests require authentication.

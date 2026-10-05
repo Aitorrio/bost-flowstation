@@ -5,15 +5,13 @@
 # complete Setup in the dashboard afterward.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/main/contrib/install/install-bost.sh | sudo bash
 #   sudo ./contrib/install/install-bost.sh
 #
 # Env:
 #   BOST_SRC            existing checkout (default: /opt/bost-flowstation)
-#   BOST_BRANCH         git branch (default: bost). Use `beta` for the preview channel.
-#                       Dashboard OTA channel is set to match (stable↔main after v0.3.12 bridge,
-#                       legacy stable↔bost still used by this installer default; `main` for new trunks).
-#                       Product rebrand to PTBS is underway — prefer keeping OTA current.
+#   BOST_BRANCH         git branch (default: main). Use `beta` for the preview channel.
+#                       Dashboard OTA channel is set to match (stable↔main, beta↔beta).
 #   BOST_REPO           git URL (default: https://github.com/Aitorrio/bost-flowstation.git)
 #   BOST_FORCE_CLEAN=1  delete source tree and re-clone (keeps /etc/flowstation)
 #   BOST_USE_DEB=1      prefer .deb asset if available (optional)
@@ -23,7 +21,7 @@
 set -euo pipefail
 
 REPO_URL="${BOST_REPO:-https://github.com/Aitorrio/bost-flowstation.git}"
-BRANCH="${BOST_BRANCH:-bost}"
+BRANCH="${BOST_BRANCH:-main}"
 SRC_ROOT="${BOST_SRC:-/opt/bost-flowstation}"
 CFG_DIR="/etc/flowstation"
 CFG_PATH="${CFG_DIR}/config.toml"

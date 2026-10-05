@@ -7,7 +7,7 @@ Automated install for Raspberry Pi OS / Debian **arm64**, plus a web Setup wizar
 On the Pi:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/bost/contrib/install/install-bost.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Aitorrio/bost-flowstation/main/contrib/install/install-bost.sh | sudo bash
 ```
 
 Or from a local checkout of the `bost` branch:
@@ -19,7 +19,7 @@ sudo ./contrib/install/install-bost.sh
 ### What the script does
 
 1. Installs build tools + SoapySDR tools/libs (and Lime modules if available in apt).
-2. Clones or updates `/opt/bost-flowstation` (branch `bost` by default; set `BOST_BRANCH=beta` for the preview channel), unless `BOST_SRC` points at an existing tree. Updates use `git fetch` + `reset --hard` (same idea as dashboard OTA) and set `[dashboard] ota_channel` accordingly.
+2. Clones or updates `/opt/bost-flowstation` (branch `main` by default; set `BOST_BRANCH=beta` for the preview channel), unless `BOST_SRC` points at an existing tree. Updates use `git fetch` + `reset --hard` (same idea as dashboard OTA) and set `[dashboard] ota_channel` accordingly.
 3. Builds `bluestation-bs` with Cargo and installs it to `/usr/local/bin/bluestation-bs`.
 4. Writes `/etc/flowstation/config.toml` if missing, with:
    - `phy_io.backend = "None"` (web always starts)
@@ -58,7 +58,7 @@ sudo systemctl reload NetworkManager
 | Variable | Meaning |
 |---|---|
 | `BOST_SRC` | Existing source tree (skip clone) |
-| `BOST_BRANCH` | Git branch (default `bost`; use `beta` for previews) |
+| `BOST_BRANCH` | Git branch (default `main`; use `beta` for previews) |
 | `BOST_REPO` | Git URL |
 | `BOST_FORCE_CLEAN=1` | Delete `/opt/bost-flowstation` and re-clone (keeps `/etc/flowstation`) |
 | `BOST_SKIP_BUILD=1` | Reuse an already-built `target/release/bluestation-bs` |

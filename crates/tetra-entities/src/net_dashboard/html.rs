@@ -14067,13 +14067,13 @@ async function checkOtaInModal(){
     });
     if(!saveR.ok)throw new Error('channel save failed');
     const saved=await saveR.json();
-    otaChannelCache={channel:saved.channel||channel,branch:saved.branch||(channel==='beta'?'beta':'bost')};
+    otaChannelCache={channel:saved.channel||channel,branch:saved.branch||(channel==='beta'?'beta':'main')};
 
     const r=await fetch('/api/update/check?refresh=1&notes=1',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)throw new Error('check http '+r.status);
     const d=await r.json();
     if(d&&d.channel){
-      otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
+      otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'main')};
       if(sel)sel.value=otaChannelCache.channel;
     }
     applyUpdateCheckUi(d);
@@ -16154,7 +16154,7 @@ window.addEventListener('resize', () => {
 // Best-effort: query GitHub for the latest OTA tip once at boot (and when System
 // is opened). If a newer version exists, show the sidebar glance badge + System
 // banner and highlight the Update button. Failures are silent.
-let otaChannelCache={channel:'stable',branch:'bost'};
+let otaChannelCache={channel:'stable',branch:'main'};
 let otaLastCheck=null;
 function applyUpdateCheckUi(d){
   if(d)otaLastCheck=d;
@@ -16183,7 +16183,7 @@ async function loadOtaChannel(){
     if(!r.ok)return;
     const d=await r.json();
     if(!d||!d.channel)return;
-    otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
+    otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'main')};
     const sel=document.getElementById('ota-channel-select');
     if(sel)sel.value=otaChannelCache.channel;
   }catch{/* silent */}
@@ -16205,7 +16205,7 @@ async function saveOtaChannel(){
       return;
     }
     const d=await r.json();
-    otaChannelCache={channel:d.channel||channel,branch:d.branch||(channel==='beta'?'beta':'bost')};
+    otaChannelCache={channel:d.channel||channel,branch:d.branch||(channel==='beta'?'beta':'main')};
     const modalOpen=document.getElementById('update-modal')?.classList.contains('open');
     if(!modalOpen){
       setOtaChannelHint(t('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch}),false);
@@ -16233,7 +16233,7 @@ async function checkUpdate(opts){
       if(!r.ok)return;
       const d=await r.json();
       if(d&&d.channel){
-        otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'bost')};
+        otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'main')};
         const sel=document.getElementById('ota-channel-select');
         if(sel)sel.value=otaChannelCache.channel;
       }
