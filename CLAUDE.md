@@ -6,9 +6,10 @@ dashboard, network entities), `bins/bluestation-bs` (the service binary).
 
 ## Where work happens
 
-- **Branch `bost`** is where all work is committed and pushed (it is also the stable OTA branch that
-  installs update from — anything pushed there reaches users). `beta` is not used for this project.
-- Current release: **v0.5.0** (`BOST_VERSION` in `crates/tetra-core/src/lib.rs`, heading in
+- **Branch `bost`** is where all work is committed and pushed. Since v0.5.3 upstream made `main`
+  the stable OTA branch that installs update from; `bost` stays the working branch. `beta` is not
+  used for this project.
+- Current release: **v0.5.4** (`BOST_VERSION` in `crates/tetra-core/src/lib.rs`, heading in
   `CHANGELOG.md`). A release bumps both; the changelog is in Spanish, `## vX.Y.Z — title` headings.
 - Project status and next steps: [`Docs/multi-cell-status.md`](Docs/multi-cell-status.md).
   Design and per-phase "as built" notes: [`Docs/multi-cell-plan.md`](Docs/multi-cell-plan.md).
@@ -32,10 +33,11 @@ cargo check -p bluestation-bs --features asterisk   # Asterisk code only compile
 
 ## Conventions
 
-- Commit messages: imperative summary line, short body, ending with the Co-Authored-By line.
+- Commit messages: imperative summary line, short body. No Claude/Anthropic attribution anywhere
+  (no Co-Authored-By trailer in commits or merges, nothing in PRs, tags or docs).
 - Commits so far used the one-off identity `ysam <ysamouhos@gmail.com>`
   (`git -c user.name=… -c user.email=… commit`) because the first workstation had no git identity.
-- Prefer small, reviewed commits; ask before pushing (pushing `bost` ships to users).
+- Prefer small, reviewed commits; ask before pushing.
 
 ## Multi-cell architecture in one paragraph
 
