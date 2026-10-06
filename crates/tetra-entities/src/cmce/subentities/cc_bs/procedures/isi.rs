@@ -192,7 +192,9 @@ impl CcBsSubentity {
             transmission_grant: setup_transmission_grant,
             transmission_request_permission: false,
             call_priority: call.priority,
-            notification_indicator: None,
+            // Ambience listening: tell the affected radio to connect and key without user
+            // action (EN 300 392-12-21 §5.6.2.2; value from EN 300 392-9).
+            notification_indicator: ambience.then_some(super::ambience::NOTIFICATION_AL_OPERATION),
             temporary_address: None,
             calling_party_address_ssi,
             calling_party_extension,

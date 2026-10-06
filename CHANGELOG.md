@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.7 — Escucha de ambiente: indicador de notificación “AL operation”
+
+- **Escucha de ambiente.** El D-SETUP de la llamada AL lleva ahora el indicador de notificación con el valor “AL operation” (3, según ETSI EN 300 392-9), que indica a la radio afectada que conecte y abra micrófono sin acción del usuario. Sin él, la MTH800 trataba la llamada como una privada normal (sonaba y había que descolgar).
+
 ## v0.5.6 — Escucha de ambiente: D-SETUP estándar
 
 - **Escucha de ambiente.** La radio ignoraba el D-SETUP porque le concedía el turno de palabra antes de conectar. Ahora el D-SETUP es el de una llamada símplex normal (directa, sin timbre) y el turno pasa a la radio al conectar (D-CONNECT ACK).

@@ -5,6 +5,13 @@ use super::*;
 /// `AMBIENCE_LISTENING_SERVICE`. Not a TETRA speech-service code: it never goes on the air.
 pub(in crate::cmce::subentities::cc_bs) const AMBIENCE_LISTENING_SERVICE: u8 = 9;
 
+/// Notification indicator value "AL operation" (ETSI EN 300 392-9 §7.2.2 table 3; a 6-bit
+/// value carried in the D-SETUP notification indicator per EN 300 392-2 §14.8.27). Set by the
+/// SwMI in the ambience-listening D-SETUP so the affected radio connects and keys on its own,
+/// as EN 300 392-12-21 §5.6.2.2 requires. Distinct from value 25 ("AL-call or speech item",
+/// which is presented to the user).
+pub(in crate::cmce::subentities::cc_bs) const NOTIFICATION_AL_OPERATION: u64 = 3;
+
 /// How long a control-channel AmbienceListen waits for the network setup that carries the
 /// speech path. brew-server relays the setup and fires the command right after, so either may
 /// arrive first. (~10 s at 170/12 ms per slot ≈ 706 timeslots.)
