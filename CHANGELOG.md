@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.8 — Escucha de ambiente: no cortar a los 30 s
+
+- **Escucha de ambiente.** La llamada se caía a los 30 s porque el temporizador de inactividad de Brew esperaba audio de red (bajada) y una escucha de ambiente es solo de recepción. Ahora el audio de subida de la radio cuenta como actividad y mantiene la llamada mientras la radio transmite.
+
 ## v0.5.7 — Escucha de ambiente: indicador de notificación “AL operation”
 
 - **Escucha de ambiente.** El D-SETUP de la llamada AL lleva ahora el indicador de notificación con el valor “AL operation” (3, según ETSI EN 300 392-9), que indica a la radio afectada que conecte y abra micrófono sin acción del usuario. Sin él, la MTH800 trataba la llamada como una privada normal (sonaba y había que descolgar).
