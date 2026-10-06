@@ -17,12 +17,12 @@ const AMBIENCE_ARM_TS: i32 = 706;
 /// network-terminated setup path (`isi.rs`) turns into a direct, simplex, floor-to-the-radio
 /// set-up. The radio indicates the call as any other — this is not covert.
 impl CcBsSubentity {
-    /// Clamp an incoming service byte to the 2-bit TETRA speech-service field carried in a
-    /// D-SETUP. The ambience-listening value (9) and any other out-of-range byte collapse to 0
-    /// (TETRA encoded speech) so serialization never panics; the service byte is a
-    /// console/network-side marker, not an over-the-air code.
+    /// Map an incoming service byte to the 2-bit TETRA speech-service field carried in a
+    /// D-SETUP. Only 0 (TETRA encoded speech) and 3 (proprietary) are defined; 1 and 2 are
+    /// reserved and radios refuse them (U-DISCONNECT "requested service not available"). The
+    /// ambience-listening marker (9) and any other value become 0, so serialization never panics.
     pub(in crate::cmce::subentities::cc_bs) fn d_setup_speech_service(service: u8) -> u8 {
-        service & 0x03
+        if service == 3 { 3 } else { 0 }
     }
 
     /// Control-channel `AmbienceListen { issi, enable }`. Returns whether the request was
@@ -82,12 +82,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn speech_service_clamped_to_two_bits() {
-        // The ambience-listening marker (9) and any out-of-range byte must collapse into the
-        // 2-bit D-SETUP speech-service field so serialization never panics.
-        assert_eq!(CcBsSubentity::d_setup_speech_service(AMBIENCE_LISTENING_SERVICE), 1);
+    fn speech_service_maps_to_defined_values() {
+        // Never a reserved code (1, 2) on the air: a radio refuses those with U-DISCONNECT.
+        assert_eq!(CcBsSubentity::d_setup_speech_service(AMBIENCE_LISTENING_SERVICE), 0);
         assert_eq!(CcBsSubentity::d_setup_speech_service(0), 0);
+        assert_eq!(CcBsSubentity::d_setup_speech_service(1), 0);
+        assert_eq!(CcBsSubentity::d_setup_speech_service(2), 0);
         assert_eq!(CcBsSubentity::d_setup_speech_service(3), 3);
-        assert_eq!(CcBsSubentity::d_setup_speech_service(255), 3);
+        assert_eq!(CcBsSubentity::d_setup_speech_service(255), 0);
     }
 }

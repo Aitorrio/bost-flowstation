@@ -478,6 +478,10 @@ impl SdsBsSubentity {
         let mut lip_brew_forwarded = false;
         if is_lip {
             if let Some(fwd_issi) = net_brew::lip_forward_issi(&self.config) {
+                // The copy replaces the original only when it goes to the same ISSI. A report
+                // addressed elsewhere (e.g. the dispatcher that requested it) still follows
+                // normal routing below, or the requester would never see the answer.
+                lip_brew_forwarded = fwd_issi == dest_ssi;
                 tracing::info!(
                     "SDS: LIP sniff-forward to Brew: {} -> {} (orig dest {})",
                     source_ssi,
@@ -494,7 +498,6 @@ impl SdsBsSubentity {
                         user_defined_data: pdu.user_defined_data.clone(),
                     }),
                 });
-                lip_brew_forwarded = true;
             }
         }
 
@@ -558,7 +561,7 @@ impl SdsBsSubentity {
                 dest_issi: dest_ssi,
             });
         } else if lip_brew_forwarded {
-            // Already sent to Brew at the configured LIP dest — do not also forward the original dest.
+            // Original dest is the LIP forward ISSI and the copy already went to Brew.
             tracing::debug!(
                 "SDS: LIP already Brew-forwarded; skipping original dest {}",
                 dest_ssi

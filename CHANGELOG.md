@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.5 — Escucha de ambiente y petición de posición: correcciones
+
+- **Escucha de ambiente.** El D-SETUP llevaba un servicio de voz reservado (1) y la radio rechazaba la llamada («servicio no disponible»). Ahora se envía voz TETRA (0); solo el valor propietario (3) se respeta.
+- **Petición de posición desde el despacho.** Con el reenvío LIP activo, el informe de posición de una radio se enviaba solo al ISSI de reenvío y la consola que lo había pedido no lo recibía. Ahora también llega a su destino original.
+
 ## v0.5.4 — Escucha de ambiente (SS-AL)
 
 - **Escucha de ambiente (experimental).** La estación acepta el comando `AmbienceListen` del canal de control (brew-server) y reconoce el byte de servicio de escucha de ambiente (9) que envía la consola de despacho. La llamada individual que trae la voz se monta directa, símplex y con el turno de palabra en la radio destino, de modo que esta responde y abre micrófono por sí sola. La radio **señaliza la llamada** como cualquier otra (no es encubierta). `enable: false` libera la llamada. Pendiente de prueba al aire con una radio compatible.

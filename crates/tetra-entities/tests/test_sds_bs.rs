@@ -226,6 +226,80 @@ fn test_sds_brew_forward() {
     assert_eq!(d_sds_count, 0, "Should not deliver locally when dest is not registered");
 }
 
+/// LIP short location report (PID 0x0A) as an uplink U-SDS-DATA Type-4.
+fn build_u_sds_lip_msg(source_issi: u32, dest_ssi: u32) -> SapMsg {
+    let payload = vec![0x0A, 0x01, 0x24, 0xDA, 0x52, 0xC4, 0x11, 0xE2, 0x00, 0x02, 0x00];
+    let mut msg = build_u_sds_data_msg(source_issi, dest_ssi, 0);
+    let u_sds = USdsData {
+        area_selection: 0,
+        called_party_type_identifier: PartyTypeIdentifier::Ssi,
+        called_party_short_number_address: None,
+        called_party_ssi: Some(dest_ssi as u64),
+        called_party_extension: None,
+        user_defined_data: SdsUserData::Type4((payload.len() * 8) as u16, payload),
+        external_subscriber_number: None,
+        dm_ms_address: None,
+    };
+    let mut sdu = BitBuffer::new_autoexpand(160);
+    u_sds.to_bitbuf(&mut sdu).expect("Failed to serialize U-SDS-DATA");
+    sdu.seek(0);
+    if let SapMsgInner::LcmcMleUnitdataInd(ref mut ind) = msg.msg {
+        ind.sdu = sdu;
+    }
+    msg
+}
+
+fn brew_lip_test(dest_ssi: u32) -> Vec<u32> {
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.brew = Some(CfgBrew {
+        host: "test.local".into(),
+        port: 3000,
+        tls: false,
+        username: None,
+        password: None,
+        reconnect_delay: Duration::from_secs(1),
+        jitter_initial_latency_frames: 0,
+        feature_sds_enabled: true,
+        feature_rssi_export: false,
+        feature_lip_forward: true,
+        lip_forward_issi: Some(7777),
+        whitelisted_ssis: None,
+        pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
+    });
+    let mut test = ComponentTest::from_config(config, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
+
+    test.submit_message(build_u_sds_lip_msg(1000001, dest_ssi));
+    test.run_stack(Some(1));
+    let mut dests: Vec<u32> = test
+        .dump_sinks()
+        .iter()
+        .filter_map(|m| match &m.msg {
+            SapMsgInner::CmceSdsData(sds) if m.dest == TetraEntity::Brew => Some(sds.dest_issi),
+            _ => None,
+        })
+        .collect();
+    dests.sort();
+    dests
+}
+
+/// A LIP report answering a dispatcher's location request must still reach that dispatcher
+/// when LIP forwarding copies reports to a different ISSI.
+#[test]
+fn test_lip_forward_keeps_original_network_dest() {
+    debug::setup_logging_verbose();
+    assert_eq!(brew_lip_test(5000001), vec![7777, 5000001]);
+}
+
+/// A LIP report addressed to the forward ISSI itself goes to Brew once, not twice.
+#[test]
+fn test_lip_forward_to_same_issi_not_duplicated() {
+    debug::setup_logging_verbose();
+    assert_eq!(brew_lip_test(7777), vec![7777]);
+}
+
 #[test]
 fn test_sds_from_brew_to_local() {
     debug::setup_logging_verbose();
