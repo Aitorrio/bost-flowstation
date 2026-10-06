@@ -14,8 +14,8 @@ const AMBIENCE_ARM_TS: i32 = 706;
 ///
 /// The speech path is the ordinary network individual call the console sets up and Brew relays
 /// to this cell. This base station only marks that call as an ambience call, which the
-/// network-terminated setup path (`isi.rs`) turns into a direct, simplex, floor-to-the-radio
-/// set-up. The radio indicates the call as any other — this is not covert.
+/// network-terminated setup path (`isi.rs`) turns into a direct simplex set-up, with the floor
+/// given to the radio once it connects. The radio indicates the call as any other — this is not covert.
 impl CcBsSubentity {
     /// Map an incoming service byte to the 2-bit TETRA speech-service field carried in a
     /// D-SETUP. Only 0 (TETRA encoded speech) and 3 (proprietary) are defined; 1 and 2 are

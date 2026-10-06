@@ -159,16 +159,17 @@ impl CcBsSubentity {
             msg: SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupAccept { brew_uuid }),
         });
 
-        let setup_transmission_grant = if ambience {
-            TransmissionGrant::Granted
-        } else if simplex_duplex {
+        // Ambience calls use the ordinary simplex setup grant: radios ignore a D-SETUP that
+        // grants the called party before it connects. The floor goes to the radio in the
+        // D-CONNECT ACK (see fsm_on_network_circuit_connect_confirm).
+        let setup_transmission_grant = if simplex_duplex {
             TransmissionGrant::NotGranted
         } else {
             TransmissionGrant::GrantedToOtherUser
         };
         if ambience {
             tracing::info!(
-                "CMCE: ambience listening uuid={} call_id={} src={} dst={} (direct setup, radio granted)",
+                "CMCE: ambience listening uuid={} call_id={} src={} dst={} (direct setup, floor to radio on connect)",
                 brew_uuid,
                 call_id,
                 call.source_issi,

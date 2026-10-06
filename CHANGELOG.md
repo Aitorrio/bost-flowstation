@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.6 — Escucha de ambiente: D-SETUP estándar
+
+- **Escucha de ambiente.** La radio ignoraba el D-SETUP porque le concedía el turno de palabra antes de conectar. Ahora el D-SETUP es el de una llamada símplex normal (directa, sin timbre) y el turno pasa a la radio al conectar (D-CONNECT ACK).
+
 ## v0.5.5 — Escucha de ambiente y petición de posición: correcciones
 
 - **Escucha de ambiente.** El D-SETUP llevaba un servicio de voz reservado (1) y la radio rechazaba la llamada («servicio no disponible»). Ahora se envía voz TETRA (0); solo el valor propietario (3) se respeta.
