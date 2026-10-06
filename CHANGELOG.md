@@ -2,26 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
-## v0.5.8 — Escucha de ambiente: no cortar a los 30 s
+## v0.5.4 — Escucha de ambiente (SS-AL) y petición de posición
 
-- **Escucha de ambiente.** La llamada se caía a los 30 s porque el temporizador de inactividad de Brew esperaba audio de red (bajada) y una escucha de ambiente es solo de recepción. Ahora el audio de subida de la radio cuenta como actividad y mantiene la llamada mientras la radio transmite.
-
-## v0.5.7 — Escucha de ambiente: indicador de notificación “AL operation”
-
-- **Escucha de ambiente.** El D-SETUP de la llamada AL lleva ahora el indicador de notificación con el valor “AL operation” (3, según ETSI EN 300 392-9), que indica a la radio afectada que conecte y abra micrófono sin acción del usuario. Sin él, la MTH800 trataba la llamada como una privada normal (sonaba y había que descolgar).
-
-## v0.5.6 — Escucha de ambiente: D-SETUP estándar
-
-- **Escucha de ambiente.** La radio ignoraba el D-SETUP porque le concedía el turno de palabra antes de conectar. Ahora el D-SETUP es el de una llamada símplex normal (directa, sin timbre) y el turno pasa a la radio al conectar (D-CONNECT ACK).
-
-## v0.5.5 — Escucha de ambiente y petición de posición: correcciones
-
-- **Escucha de ambiente.** El D-SETUP llevaba un servicio de voz reservado (1) y la radio rechazaba la llamada («servicio no disponible»). Ahora se envía voz TETRA (0); solo el valor propietario (3) se respeta.
-- **Petición de posición desde el despacho.** Con el reenvío LIP activo, el informe de posición de una radio se enviaba solo al ISSI de reenvío y la consola que lo había pedido no lo recibía. Ahora también llega a su destino original.
-
-## v0.5.4 — Escucha de ambiente (SS-AL)
-
-- **Escucha de ambiente (experimental).** La estación acepta el comando `AmbienceListen` del canal de control (brew-server) y reconoce el byte de servicio de escucha de ambiente (9) que envía la consola de despacho. La llamada individual que trae la voz se monta directa, símplex y con el turno de palabra en la radio destino, de modo que esta responde y abre micrófono por sí sola. La radio **señaliza la llamada** como cualquier otra (no es encubierta). `enable: false` libera la llamada. Pendiente de prueba al aire con una radio compatible.
+- **Escucha de ambiente (SS-AL, ETSI EN 300 392-12-21).** Nueva función de despacho: la estación acepta el comando `AmbienceListen` del canal de control (brew-server) y reconoce el byte de servicio de escucha de ambiente que envía la consola. Monta una llamada individual directa y símplex hacia la radio destino con el indicador de notificación «AL operation» (valor 3, EN 300 392-9), de modo que una radio compatible conecta y abre micrófono por sí sola, sin acción del usuario. La radio **señaliza la llamada** como cualquier otra (no es encubierta). El audio de la radio llega a la consola y, al ser una llamada solo de recepción, ya no se corta a los 30 s. `enable: false` la libera. Validado al aire con MTH800.
+- **Petición de posición desde el despacho.** Con el reenvío LIP activo, el informe de posición de una radio se enviaba solo al ISSI de reenvío y la consola que lo había pedido no lo recibía; ahora también llega a su destino original.
 
 ## v0.5.2 — Multi-celda: RF de cada celda y versión en la telemetría
 
