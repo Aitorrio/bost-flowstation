@@ -80,8 +80,12 @@ impl CcBsSubentity {
         }
 
         let communication = CommunicationType::try_from(call.communication as u64).unwrap_or(CommunicationType::P2p);
-        let simplex_duplex = call.duplex != 0;
-        let hook_method_selection = call.method != 0;
+        // Ambience listening: requested in-band by the console's service byte, or armed by the
+        // control-channel AmbienceListen command. The radio is set up directly (no hook
+        // signalling), simplex, with the floor, so it answers and transmits on its own.
+        let ambience = call.service == super::ambience::AMBIENCE_LISTENING_SERVICE || self.take_ambience_arm(called_addr.ssi);
+        let simplex_duplex = !ambience && call.duplex != 0;
+        let hook_method_selection = !ambience && call.method != 0;
 
         let circuit_called = {
             let mut state = self.config.state_write();
@@ -155,11 +159,22 @@ impl CcBsSubentity {
             msg: SapMsgInner::CmceCallControl(CallControl::NetworkCircuitSetupAccept { brew_uuid }),
         });
 
-        let setup_transmission_grant = if simplex_duplex {
+        let setup_transmission_grant = if ambience {
+            TransmissionGrant::Granted
+        } else if simplex_duplex {
             TransmissionGrant::NotGranted
         } else {
             TransmissionGrant::GrantedToOtherUser
         };
+        if ambience {
+            tracing::info!(
+                "CMCE: ambience listening uuid={} call_id={} src={} dst={} (direct setup, radio granted)",
+                brew_uuid,
+                call_id,
+                call.source_issi,
+                call.destination
+            );
+        }
 
         let d_setup = DSetup {
             call_identifier: call_id,
@@ -171,7 +186,7 @@ impl CcBsSubentity {
                 encryption_flag: false,
                 communication_type: communication,
                 slots_per_frame: None,
-                speech_service: Some(call.service),
+                speech_service: Some(Self::d_setup_speech_service(call.service)),
             },
             transmission_grant: setup_transmission_grant,
             transmission_request_permission: false,
@@ -237,6 +252,7 @@ impl CcBsSubentity {
                 connect_request_sent: false,
                 floor_holder: None,
                 queued_tx_demand: None,
+                ambience,
             },
         ) {
             match err {
@@ -509,7 +525,11 @@ impl CcBsSubentity {
 
         let is_simplex = call.is_simplex();
         let remote_grant = TransmissionGrant::try_from((grant & 0x03) as u64).unwrap_or(TransmissionGrant::Granted);
-        let local_grant = if is_simplex {
+        // Ambience listening: the console never keys, so the radio keeps the floor whatever
+        // grant the network leg reports.
+        let local_grant = if call.ambience {
+            TransmissionGrant::Granted
+        } else if is_simplex {
             match remote_grant {
                 TransmissionGrant::Granted => TransmissionGrant::GrantedToOtherUser,
                 TransmissionGrant::GrantedToOtherUser => TransmissionGrant::Granted,

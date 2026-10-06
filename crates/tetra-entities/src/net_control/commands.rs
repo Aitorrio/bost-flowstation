@@ -79,6 +79,12 @@ pub enum ControlCommand {
     /// clears the source session so a subsequent emergency re-send raises a fresh alarm.
     ClearEmergency { issi: u32 },
 
+    /// Ambience listening (SS-AL). Set up a receive-only speech call to `issi` in which the
+    /// target radio answers and keys on its own (indicated on the radio — not covert);
+    /// `enable == false` releases it. Wire-compatible with brew-server's
+    /// `AmbienceListen { issi, enable }`, which fires it at the base station hosting the ISSI.
+    AmbienceListen { issi: u32, enable: bool },
+
     /// Placeholder command A.
     CommandA { handle: u32, parameter: u32 },
     /// Placeholder command B.
@@ -96,4 +102,5 @@ pub enum ControlResponse {
     CommandAResponse { handle: u32, result: u32 },
     SendSdsResponse { handle: u32, success: bool },
     KickMsResponse { issi: u32, success: bool },
+    AmbienceListenResponse { issi: u32, success: bool },
 }

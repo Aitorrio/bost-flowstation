@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.4 — Escucha de ambiente (SS-AL)
+
+- **Escucha de ambiente (experimental).** La estación acepta el comando `AmbienceListen` del canal de control (brew-server) y reconoce el byte de servicio de escucha de ambiente (9) que envía la consola de despacho. La llamada individual que trae la voz se monta directa, símplex y con el turno de palabra en la radio destino, de modo que esta responde y abre micrófono por sí sola. La radio **señaliza la llamada** como cualquier otra (no es encubierta). `enable: false` libera la llamada. Pendiente de prueba al aire con una radio compatible.
+
 ## v0.5.2 — Multi-celda: RF de cada celda y versión en la telemetría
 
 - **Página RF por celda.** Cada celda adicional envía ahora su espectro, constelación, cascada, calidad de señal (EVM, PAPR, fuga de portadora, ancho de banda) y salud del SDR (temperatura, ganancias). Pestañas compactas arriba de la página RF eligen la celda; cada celda conserva su propio historial de cascada.

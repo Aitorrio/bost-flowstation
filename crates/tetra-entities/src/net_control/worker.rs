@@ -125,6 +125,7 @@ impl<T: NetworkTransport> ControlWorker<T> {
             ControlCommand::DeleteLiveSds { .. } => TetraEntity::Cmce,
             ControlCommand::ClearLiveSds => TetraEntity::Cmce,
             ControlCommand::ClearEmergency { .. } => TetraEntity::Cmce,
+            ControlCommand::AmbienceListen { .. } => TetraEntity::Cmce,
             ControlCommand::CommandA { .. } => TetraEntity::Mm,
             ControlCommand::TestCmdB { .. } => TetraEntity::Cmce,
         }
@@ -196,6 +197,12 @@ mod tests {
             is_group: false,
             payload: vec![],
         });
+        assert_eq!(target, TetraEntity::Cmce);
+    }
+
+    #[test]
+    fn test_route_ambience_listen_to_cmce() {
+        let target = ControlWorker::<MockTransport>::route_control_command(&ControlCommand::AmbienceListen { issi: 2001, enable: true });
         assert_eq!(target, TetraEntity::Cmce);
     }
 

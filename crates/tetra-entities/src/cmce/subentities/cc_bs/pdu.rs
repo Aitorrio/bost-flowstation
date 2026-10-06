@@ -15,6 +15,7 @@ impl CcBsSubentity {
             ul_slot_hot: HashMap::new(),
             ul_slot_preempted_issi: HashMap::new(),
             telemetry: None,
+            ambience_armed: HashMap::new(),
         }
     }
 

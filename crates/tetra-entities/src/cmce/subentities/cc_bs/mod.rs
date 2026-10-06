@@ -84,4 +84,7 @@ pub struct CcBsSubentity {
     ul_slot_preempted_issi: HashMap<(u16, u8), u32>,
     /// Dashboard telemetry sink (call-lifecycle events). `None` when telemetry is disabled.
     telemetry: Option<crate::net_telemetry::TelemetrySink>,
+    /// ISSIs armed for ambience listening by the control channel ahead of the network setup
+    /// that carries the speech path: ISSI -> time the command arrived.
+    ambience_armed: HashMap<u32, TdmaTime>,
 }

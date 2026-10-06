@@ -175,6 +175,13 @@ impl CmceBs {
                 tracing::info!("CMCE: ClearEmergency issi={} (operator)", issi);
                 sds.clear_emergency_command(issi);
             }
+            ControlCommand::AmbienceListen { issi, enable } => {
+                tracing::info!("CMCE: AmbienceListen issi={} enable={}", issi, enable);
+                let success = cc.ambience_listen(queue, issi, enable);
+                if let Some(cep) = responder {
+                    cep.respond(ControlResponse::AmbienceListenResponse { issi, success });
+                }
+            }
             _ => {
                 tracing::warn!("CMCE: ignoring unsupported control command {:?}", cmd);
             }
