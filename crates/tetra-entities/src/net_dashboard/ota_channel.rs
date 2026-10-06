@@ -1,7 +1,7 @@
 //! Persist and read `[dashboard].ota_channel` (`stable` | `beta`).
 //!
 //! Line-oriented edit of the active `config.toml` (same style as dual_carrier): preserves
-//! comments and unrelated keys. Default when absent is `stable` → git branch `bost`.
+//! comments and unrelated keys. Default when absent is `stable` → git branch `main`.
 
 use tetra_core::{normalize_ota_channel, ota_branch_for_channel};
 
@@ -93,7 +93,7 @@ pub fn channel_json(config_path: &str) -> String {
     let branch = ota_branch_for_channel(&channel);
     format!(
         "{{\"channel\":\"{channel}\",\"branch\":\"{branch}\",\"channels\":[\
-{{\"id\":\"stable\",\"branch\":\"bost\",\"label\":\"Estable (Bost)\"}},\
+{{\"id\":\"stable\",\"branch\":\"main\",\"label\":\"Estable (main)\"}},\
 {{\"id\":\"beta\",\"branch\":\"beta\",\"label\":\"Beta\"}}\
 ]}}"
     )
