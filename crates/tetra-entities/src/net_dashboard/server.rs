@@ -2441,7 +2441,7 @@ impl DashboardServer {
                     );
                 }
                 TelemetryEvent::CellRf { .. } => {} // handled above
-                TelemetryEvent::StationVersion { .. } => {}
+                TelemetryEvent::StationVersion { .. } | TelemetryEvent::SiteLocation { .. } => {}
             }
         }
         if let Some(json) = msg {
@@ -2651,7 +2651,7 @@ fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
         // so the generic path stays silent — otherwise every periodic re-send would re-broadcast.
         TelemetryEvent::EmergencyAlarm { .. } | TelemetryEvent::EmergencyCancel { .. } => return None,
         // The Cells card polls /api/cells; this snapshot is for remote telemetry consumers.
-        TelemetryEvent::CellsSnapshot { .. } | TelemetryEvent::StationVersion { .. } => return None,
+        TelemetryEvent::CellsSnapshot { .. } | TelemetryEvent::StationVersion { .. } | TelemetryEvent::SiteLocation { .. } => return None,
         TelemetryEvent::DapnetLog {
             direction,
             id,

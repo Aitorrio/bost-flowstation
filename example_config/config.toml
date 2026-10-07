@@ -618,6 +618,11 @@ voice_service = true
 # Basic Auth is base64 (not encrypted); only safe over the internet with use_tls = true.
 # username = "bts"
 # password = "changeme"
+# OPTIONAL: report this station's position so the telemetry server (Brew server) can plot it on
+# its map. Set both latitude and longitude (decimal degrees); nothing is sent if unset or 0/0.
+# site_name = "Athens Hilltop"
+# latitude = 37.9917
+# longitude = 23.7640
 
 ###############################################################################
 

@@ -248,6 +248,10 @@ pub enum TelemetryEvent {
         /// Upstream FlowStation version the release is based on.
         upstream: String,
     },
+    /// The station's configured position, for the telemetry server's map. Only sent when a
+    /// non-zero latitude/longitude is configured (`[telemetry]`), periodically. Appended last for
+    /// bitcode wire-stability.
+    SiteLocation { name: Option<String>, lat: f64, lon: f64 },
 }
 
 impl TelemetryEvent {
@@ -414,6 +418,9 @@ pub struct CellInfo {
     pub main_carrier: u16,
     pub secondary_carrier: Option<u16>,
     pub carriers: Vec<CellCarrierInfo>,
+    /// Mobile country / network code of the station (`[net_info]`).
+    pub mcc: u16,
+    pub mnc: u16,
     pub colour_code: u8,
     pub location_area: u16,
     /// Neighbour cells advertised in D-NWRK-BROADCAST.
