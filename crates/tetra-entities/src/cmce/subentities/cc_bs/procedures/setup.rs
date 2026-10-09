@@ -776,6 +776,7 @@ impl CcBsSubentity {
                 connect_request_sent: false,
                 floor_holder: None,
                 queued_tx_demand: None,
+                ambience: false,
             },
         ) {
             match err {
@@ -1074,6 +1075,7 @@ impl CcBsSubentity {
                 connect_request_sent: false,
                 floor_holder: None,
                 queued_tx_demand: None,
+                ambience: false,
             },
         ) {
             match err {

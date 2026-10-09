@@ -129,6 +129,24 @@ mod tests {
     }
 
     #[test]
+    fn test_ambience_listen_json_wire_shape() {
+        // Must stay byte-compatible with brew-server's AmbienceListen command and the
+        // AmbienceListenResponse it parses back (externally-tagged, {issi, enable/success}).
+        let codec = ControlCodecJson;
+        let cmd = ControlCommand::AmbienceListen { issi: 2001, enable: true };
+        let json: serde_json::Value = serde_json::from_slice(&codec.encode_command(&cmd)).unwrap();
+        assert_eq!(json, serde_json::json!({"AmbienceListen": {"issi": 2001, "enable": true}}));
+
+        let wire = serde_json::json!({"AmbienceListen": {"issi": 2001, "enable": false}});
+        let decoded = codec.decode_command(&serde_json::to_vec(&wire).unwrap()).unwrap();
+        assert!(matches!(decoded, ControlCommand::AmbienceListen { issi: 2001, enable: false }));
+
+        let resp = ControlResponse::AmbienceListenResponse { issi: 2001, success: true };
+        let rjson: serde_json::Value = serde_json::from_slice(&codec.encode_response(&resp)).unwrap();
+        assert_eq!(rjson, serde_json::json!({"AmbienceListenResponse": {"issi": 2001, "success": true}}));
+    }
+
+    #[test]
     fn test_decode_invalid_bytes() {
         let codec = ControlCodecBitcode;
         // Use truncated bytes that cannot form a valid Command

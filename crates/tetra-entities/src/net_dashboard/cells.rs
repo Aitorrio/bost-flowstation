@@ -30,6 +30,8 @@ fn cell_info(id: CellId, cfg: &SharedConfig, rf: Option<&crate::rf_status::RfSta
         main_carrier: c.cell.main_carrier,
         secondary_carrier: c.cell.secondary_carrier,
         carriers,
+        mcc: c.net.mcc,
+        mnc: c.net.mnc,
         colour_code: c.cell.colour_code,
         location_area: c.cell.location_area,
         neighbours: c.cell.neighbor_cells_ca.len() as u16,
@@ -64,11 +66,25 @@ pub fn cells_json(primary: &SharedConfig) -> JsonValue {
 /// Background worker: sends a [`TelemetryEvent::CellsSnapshot`] every `CELLS_SNAPSHOT_INTERVAL`.
 pub fn spawn_cells_telemetry(sink: TelemetrySink, primary: SharedConfig) {
     let spawned = std::thread::Builder::new().name("cells-telemetry".into()).spawn(move || {
+        let mut last_site: Option<((Option<String>, f64, f64), std::time::Instant)> = None;
         loop {
             sink.send(TelemetryEvent::CellsSnapshot {
                 site_linked: primary.config().is_site_linked(),
                 cells: cell_infos(&primary),
             });
+            // Config is read each round so an edit is picked up; unset/(0,0) sends nothing. Sent
+            // when it changes and re-sent every SITE_LOCATION_RESEND in case the server missed it.
+            let site = primary.config().telemetry.as_ref().and_then(|t| t.site_location.map(|(lat, lon)| (t.site_name.clone(), lat, lon)));
+            match site {
+                Some(cur) => {
+                    let due = last_site.as_ref().is_none_or(|(sent, at)| *sent != cur || at.elapsed() >= SITE_LOCATION_RESEND);
+                    if due {
+                        sink.send(TelemetryEvent::SiteLocation { name: cur.0.clone(), lat: cur.1, lon: cur.2 });
+                        last_site = Some((cur, std::time::Instant::now()));
+                    }
+                }
+                None => last_site = None,
+            }
             std::thread::sleep(CELLS_SNAPSHOT_INTERVAL);
         }
     });
@@ -78,6 +94,8 @@ pub fn spawn_cells_telemetry(sink: TelemetrySink, primary: SharedConfig) {
 }
 
 const CELLS_SNAPSHOT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+/// How often the station position is re-sent when unchanged.
+const SITE_LOCATION_RESEND: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Ids used by `[[cells]]` entries in the file, including disabled ones.
 fn used_ids(toml_text: &str) -> Result<Vec<u8>, String> {

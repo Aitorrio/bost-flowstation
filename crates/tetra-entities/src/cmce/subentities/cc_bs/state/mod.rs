@@ -448,6 +448,9 @@ pub(super) struct IndividualCall {
     pub(super) floor_holder: Option<u32>,
     /// One pending simplex floor request while another party is transmitting.
     pub(super) queued_tx_demand: Option<TetraAddress>,
+    /// Ambience-listening call (SS-AL): the called radio is set up directly with the floor
+    /// and keeps it; the network side only listens.
+    pub(super) ambience: bool,
 }
 
 impl IndividualCall {

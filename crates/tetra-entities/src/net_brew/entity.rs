@@ -2185,6 +2185,13 @@ impl BrewEntity {
         };
 
         fwd.frame_count += 1;
+        // Receive-only calls (ambience listening) carry no downlink network media, so the
+        // inbound-idle reaper would tear them down after 30 s. Uplink speech is activity too:
+        // keep the call alive while the radio is actually transmitting.
+        let fwd_uuid = fwd.uuid;
+        if let Some(call) = self.active_calls.get_mut(&fwd_uuid) {
+            call.last_network_activity = Instant::now();
+        }
 
         // Convert ACELP bits to STE format.
         // Supported inputs:

@@ -2,6 +2,11 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.4 — Escucha de ambiente (SS-AL) y petición de posición
+
+- **Escucha de ambiente (SS-AL, ETSI EN 300 392-12-21).** Nueva función de despacho: la estación acepta el comando `AmbienceListen` del canal de control (brew-server) y reconoce el byte de servicio de escucha de ambiente que envía la consola. Monta una llamada individual directa y símplex hacia la radio destino con el indicador de notificación «AL operation» (valor 3, EN 300 392-9), de modo que una radio compatible conecta y abre micrófono por sí sola, sin acción del usuario. La radio **señaliza la llamada** como cualquier otra (no es encubierta). El audio de la radio llega a la consola y, al ser una llamada solo de recepción, ya no se corta a los 30 s. `enable: false` la libera. Validado al aire con MTH800.
+- **Petición de posición (LIP).** El despacho puede pedir a una radio su posición (una vez o de forma periódica) y el informe LIP llega a la consola que lo solicitó. Antes, con el reenvío LIP activo, el informe se enviaba solo al ISSI de reenvío y la consola que lo había pedido no lo recibía.
+
 ## v0.5.2 — Multi-celda: RF de cada celda y versión en la telemetría
 
 - **Página RF por celda.** Cada celda adicional envía ahora su espectro, constelación, cascada, calidad de señal (EVM, PAPR, fuga de portadora, ancho de banda) y salud del SDR (temperatura, ganancias). Pestañas compactas arriba de la página RF eligen la celda; cada celda conserva su propio historial de cascada.
