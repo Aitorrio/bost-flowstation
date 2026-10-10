@@ -38,12 +38,59 @@ use tetra_pdus::mm::pdus::u_itsi_detach::UItsiDetach;
 use tetra_pdus::mm::pdus::u_location_update_demand::ULocationUpdateDemand;
 use tetra_pdus::mm::pdus::u_mm_status::UMmStatus;
 use tetra_pdus::mm::pdus::u_tei_provide::UTeiProvide;
+use std::time::{Duration, Instant};
+use tetra_config::bluestation::sec_security::AuthenticationMode;
+use tetra_pdus::mm::enums::authentication_reject_reason::AuthenticationRejectReason;
+use tetra_pdus::mm::enums::authentication_sub_type::AuthenticationSubType;
+use tetra_pdus::mm::enums::otar_sub_type::{OtarRejectReason, OtarSubType, ProvisionResult};
+use tetra_pdus::mm::pdus::authentication::{
+    DAuthenticationDemand, DAuthenticationReject, DAuthenticationResponse, DAuthenticationResult, UAuthenticationDemand,
+    UAuthenticationReject, UAuthenticationResponse, UAuthenticationResult, peek_sub_type,
+};
+use tetra_pdus::mm::pdus::otar_sck::{self, DOtarSckProvide, DOtarSckReject, OtarSessionKey, SckKeyAndIdentifier, UOtarSckDemand, UOtarSckResult};
+use tetra_security::auth::{MsChallenge, answer_ms_challenge, derive_dck, random_nonce};
+use tetra_security::keys::AuthKey;
+use tetra_security::taa1::{ta41, ta51};
+
+/// A challenge in flight (EN 300 392-7 clause 4.1.2).
+struct PendingAuth {
+    challenge: MsChallenge,
+    /// L2 handle the challenge went out on.
+    handle: u32,
+    /// The U-LOCATION UPDATE DEMAND that is waiting for the result, if the challenge was part
+    /// of a registration.
+    held: Option<SapMsg>,
+    started: Instant,
+}
+
+struct PendingOtar {
+    sckn: u8,
+    sck_vn: u16,
+    started: Instant,
+}
+
+/// T354: how long the infrastructure waits for the radio's authentication response.
+const T354: Duration = Duration::from_secs(30);
+/// How long a successful authentication stays valid for the held registration to go through.
+const AUTH_PASS_GRACE: Duration = Duration::from_secs(5);
+/// How long to wait for U-OTAR SCK RESULT after an individually addressed provide.
+const T_OTAR_RESULT: Duration = Duration::from_secs(30);
 
 pub struct MmBs {
     config: SharedConfig,
     telemetry: Option<TelemetrySink>,
     control: Option<ControlEndpoint>,
     client_mgr: MmClientMgr,
+
+    // ── Air-interface security (EN 300 392-7) ──────────────────────────────────────────────
+    /// Radios we have challenged and are waiting on (U-AUTHENTICATION RESPONSE / RESULT).
+    auth_pending: HashMap<u32, PendingAuth>,
+    /// Radios that just passed, so the replayed registration is not challenged again.
+    auth_passed: HashMap<u32, Instant>,
+    /// Derived cipher key per authenticated radio (for a future class 3).
+    dck: HashMap<u32, [u8; 10]>,
+    /// SCK deliveries awaiting the radio's U-OTAR SCK RESULT.
+    otar_pending: HashMap<u32, PendingOtar>,
 
     // â”€â”€ Restart recovery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     /// On-disk cache of known terminals. `Some` only after `init_recovery` runs (i.e. when the
@@ -92,8 +139,9 @@ impl MmBs {
             // TOML alone (an empty issi_whitelist means "open" under the legacy default), and the
             // air interface is unauthenticated regardless — so say both, once, unmissably.
             tracing::warn!(
-                "MM: access control posture: {} | air-interface authentication (EN 300 392-7 TEA) is NOT implemented — any radio can claim any ISSI; the whitelist is the only gate",
-                sec.access_control_posture()
+                "MM: access control posture: {} | authentication: {}",
+                sec.access_control_posture(),
+                sec.authentication_posture()
             );
             tracing::warn!("MM: air interface encryption: {}", crate::aie::posture(&cfg));
             if sec.honour_unauthenticated_detach {
@@ -107,6 +155,10 @@ impl MmBs {
             telemetry,
             control,
             client_mgr,
+            auth_pending: HashMap::new(),
+            auth_passed: HashMap::new(),
+            dck: HashMap::new(),
+            otar_pending: HashMap::new(),
             recovery: None,
             recovery_pending: VecDeque::new(),
             recovery_attempts: HashMap::new(),
@@ -491,6 +543,8 @@ impl MmBs {
 
     fn rx_u_location_update_demand(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_location_update_demand");
+        // Kept unparsed so it can be replayed once the radio has authenticated.
+        let unparsed = message.clone();
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
             tracing::error!("BUG: unexpected message or state -- routing error");
             return;
@@ -574,6 +628,12 @@ impl MmBs {
         // silently: answering would itself be an amplifier.
         if !self.client_mgr.allow_registration(issi) {
             tracing::warn!("MM: ISSI {} exceeded the registration rate limit â€” dropping this location update", issi);
+            return;
+        }
+
+        // Authentication (EN 300 392-7 clause 4): challenge the radio first when configured; the
+        // registration is held and replayed here once it has proved its K.
+        if self.authentication_gate(queue, issi, handle, pdu.location_update_type, pdu.address_extension, unparsed) {
             return;
         }
 
@@ -1665,12 +1725,12 @@ impl MmBs {
         };
 
         match pdu_type {
-            MmPduTypeUl::UAuthentication => unimplemented_log!("UAuthentication"),
+            MmPduTypeUl::UAuthentication => self.rx_u_authentication(queue, message),
             MmPduTypeUl::UItsiDetach => self.rx_u_itsi_detach(queue, message),
             MmPduTypeUl::ULocationUpdateDemand => self.rx_u_location_update_demand(queue, message),
             MmPduTypeUl::UMmStatus => self.rx_u_mm_status(queue, message),
             MmPduTypeUl::UCkChangeResult => unimplemented_log!("UCkChangeResult"),
-            MmPduTypeUl::UOtar => unimplemented_log!("UOtar"),
+            MmPduTypeUl::UOtar => self.rx_u_otar(queue, message),
             MmPduTypeUl::UInformationProvide => unimplemented_log!("UInformationProvide"),
             MmPduTypeUl::UAttachDetachGroupIdentity => self.rx_u_attach_detach_group_identity(queue, message),
             MmPduTypeUl::UAttachDetachGroupIdentityAcknowledgement => self.rx_u_attach_detach_group_identity_ack(queue, message),
@@ -2433,6 +2493,8 @@ impl TetraEntityTrait for MmBs {
     }
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
+        self.expire_authentication();
+        self.expire_otar();
         // Drain control commands addressed to the MM entity. We collect into a Vec first so the
         // immutable borrow on `self.control` is released before the handlers run â€” DGNA needs
         // `&mut self` (client registry, subscriber state, telemetry).
@@ -2453,6 +2515,9 @@ impl TetraEntityTrait for MmBs {
                         attach,
                     } => {
                         self.do_dgna(queue, issi, gssi, mnemonic, attachment_mode, attach);
+                    }
+                    ControlCommand::OtarSck { issi } => {
+                        self.otar_sck_provide(queue, issi, "dashboard");
                     }
                     _ => {
                         tracing::warn!("MM: ignoring unsupported control command {:?}", cmd);
@@ -2848,5 +2913,400 @@ mod ee_tests {
         for mode in [EnergySavingMode::Eg1, EnergySavingMode::Eg2, EnergySavingMode::Eg3] {
             assert_eq!(MmBs::grant_energy_saving(42, mode).energy_saving_mode, mode);
         }
+    }
+}
+
+// ─────────────────────── Air-interface authentication (EN 300 392-7) ───────────────────────
+impl MmBs {
+    /// Decide whether a registering radio must authenticate first. Returns true when the
+    /// registration has been taken over (challenge sent and the message held, or rejected).
+    fn authentication_gate(
+        &mut self,
+        queue: &mut MessageQueue,
+        issi: u32,
+        handle: u32,
+        location_update_type: LocationUpdateType,
+        address_extension: Option<u64>,
+        held: SapMsg,
+    ) -> bool {
+        let (mode, k) = {
+            let cfg = self.config.config();
+            (cfg.security.authentication, cfg.security.subscriber_k(issi).copied())
+        };
+        if mode == AuthenticationMode::Off {
+            return false;
+        }
+        // Just authenticated: let the replayed registration through.
+        if self.auth_passed.get(&issi).is_some_and(|t| t.elapsed() < AUTH_PASS_GRACE) {
+            self.auth_passed.remove(&issi);
+            return false;
+        }
+        let Some(k) = k else {
+            if mode == AuthenticationMode::Required {
+                tracing::warn!("MM: ISSI {} has no authentication key and authentication is required — rejecting registration", issi);
+                Self::send_d_location_update_reject_cause(queue, issi, handle, location_update_type, address_extension, RejectCause::IllegalMs);
+                return true;
+            }
+            tracing::debug!("MM: ISSI {} has no authentication key — registering unauthenticated (authentication = optional)", issi);
+            return false;
+        };
+        // A challenge is already out: keep the newest registration to replay, don't re-challenge.
+        if let Some(p) = self.auth_pending.get_mut(&issi)
+            && p.started.elapsed() < T354
+        {
+            p.held = Some(held);
+            return true;
+        }
+        let challenge = MsChallenge::new(&AuthKey(k));
+        let pdu = DAuthenticationDemand { rand1: challenge.rand1, rs: challenge.rs, proprietary: None };
+        tracing::info!("MM: challenging ISSI {} (D-AUTHENTICATION DEMAND)", issi);
+        self.send_auth_pdu(queue, issi, handle, "DAuthenticationDemand", |b| pdu.to_bitbuf(b));
+        self.auth_pending.insert(issi, PendingAuth { challenge, handle, held: Some(held), started: Instant::now() });
+        true
+    }
+
+    /// U-AUTHENTICATION: dispatch on the sub-type that follows the PDU type.
+    fn rx_u_authentication(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
+            tracing::error!("BUG: unexpected message or state -- routing error");
+            return;
+        };
+        let issi = prim.received_address.ssi;
+        let handle = prim.handle;
+        let Some(sub_type) = peek_sub_type(&prim.sdu) else {
+            tracing::warn!("MM: truncated U-AUTHENTICATION from ISSI {}", issi);
+            return;
+        };
+        match sub_type {
+            AuthenticationSubType::Response => match UAuthenticationResponse::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) => self.rx_u_authentication_response(queue, issi, handle, pdu),
+                Err(e) => tracing::warn!("MM: bad U-AUTHENTICATION RESPONSE from ISSI {}: {:?}", issi, e),
+            },
+            AuthenticationSubType::Demand => match UAuthenticationDemand::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) => self.rx_u_authentication_demand(queue, issi, handle, pdu),
+                Err(e) => tracing::warn!("MM: bad U-AUTHENTICATION DEMAND from ISSI {}: {:?}", issi, e),
+            },
+            AuthenticationSubType::Result => match UAuthenticationResult::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) => self.rx_u_authentication_result(queue, issi, handle, pdu),
+                Err(e) => tracing::warn!("MM: bad U-AUTHENTICATION RESULT from ISSI {}: {:?}", issi, e),
+            },
+            AuthenticationSubType::Reject => match UAuthenticationReject::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) => self.rx_u_authentication_reject(queue, issi, handle, pdu),
+                Err(e) => tracing::warn!("MM: bad U-AUTHENTICATION REJECT from ISSI {}: {:?}", issi, e),
+            },
+        }
+    }
+
+    /// The radio answers our challenge (clause 4.1.2), possibly adding its own (4.1.4).
+    /// Tell the dashboard (and other telemetry consumers) that this radio proved its K.
+    fn notify_authenticated(&self, issi: u32) {
+        if let Some(sink) = &self.telemetry {
+            sink.send(crate::net_telemetry::TelemetryEvent::MsSecurity { issi, authenticated: Some(true), encrypting: None });
+        }
+    }
+
+    fn rx_u_authentication_response(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UAuthenticationResponse) {
+        let Some(pending) = self.auth_pending.remove(&issi) else {
+            tracing::warn!("MM: U-AUTHENTICATION RESPONSE from ISSI {} but no challenge is outstanding — ignored", issi);
+            return;
+        };
+        let dck1 = pending.challenge.verify(&pdu.res1);
+        let r1 = dck1.is_some();
+        // Mutual: the radio challenged us with RAND2 under the same RS.
+        let (res2, dck2) = match (pdu.rand2, self.subscriber_key(issi)) {
+            (Some(rand2), Some(k)) => {
+                let r = answer_ms_challenge(&k, &pending.challenge.rs, &rand2);
+                (Some(r.res2), Some(r.dck2))
+            }
+            _ => (None, None),
+        };
+        let result = DAuthenticationResult { r1, res2, proprietary: None };
+        self.send_auth_pdu(queue, issi, handle, "DAuthenticationResult", |b| result.to_bitbuf(b));
+        if r1 {
+            tracing::info!("MM: ISSI {} authenticated{}", issi, if res2.is_some() { " (mutual)" } else { "" });
+            self.dck.insert(issi, derive_dck(dck1.as_ref(), dck2.as_ref()).0);
+            self.auth_passed.insert(issi, Instant::now());
+            self.notify_authenticated(issi);
+            if let Some(held) = pending.held {
+                self.rx_u_location_update_demand(queue, held);
+            }
+        } else {
+            tracing::warn!("MM: ISSI {} FAILED authentication (wrong RES1) — registration rejected", issi);
+            if let Some(held) = pending.held {
+                self.reject_held_registration(queue, issi, handle, held);
+            }
+        }
+    }
+
+    /// The radio challenges us (clause 4.1.3): answer with RES2 and, if configured, challenge
+    /// back so the exchange becomes mutual.
+    fn rx_u_authentication_demand(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UAuthenticationDemand) {
+        let mutual = self.config.config().security.mutual_authentication;
+        let Some(k) = self.subscriber_key(issi) else {
+            tracing::info!("MM: ISSI {} asked us to authenticate but has no key configured — D-AUTHENTICATION REJECT", issi);
+            let reject = DAuthenticationReject { reject_reason: AuthenticationRejectReason::AuthenticationNotSupported };
+            self.send_auth_pdu(queue, issi, handle, "DAuthenticationReject", |b| reject.to_bitbuf(b));
+            return;
+        };
+        let rs = random_nonce();
+        let answer = answer_ms_challenge(&k, &rs, &pdu.rand2);
+        let rand1 = if mutual {
+            let challenge = MsChallenge::with_nonces(&k, rs, random_nonce());
+            let rand1 = challenge.rand1;
+            self.auth_pending.insert(issi, PendingAuth { challenge, handle, held: None, started: Instant::now() });
+            Some(rand1)
+        } else {
+            self.dck.insert(issi, derive_dck(None, Some(&answer.dck2)).0);
+            None
+        };
+        tracing::info!("MM: answering ISSI {}'s challenge (D-AUTHENTICATION RESPONSE{})", issi, if mutual { ", mutual" } else { "" });
+        let response = DAuthenticationResponse { rs, res2: answer.res2, rand1, proprietary: None };
+        self.send_auth_pdu(queue, issi, handle, "DAuthenticationResponse", |b| response.to_bitbuf(b));
+    }
+
+    /// The radio's verdict on our RES2 and, in a mutual exchange it started, its RES1.
+    fn rx_u_authentication_result(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UAuthenticationResult) {
+        if !pdu.r2 {
+            tracing::warn!("MM: ISSI {} reports our authentication FAILED (R2 = false) — its K does not match ours", issi);
+        }
+        let Some(res1) = pdu.res1 else {
+            return;
+        };
+        let Some(pending) = self.auth_pending.remove(&issi) else {
+            tracing::warn!("MM: U-AUTHENTICATION RESULT with RES1 from ISSI {} but no challenge is outstanding", issi);
+            return;
+        };
+        let dck1 = pending.challenge.verify(&res1);
+        let r1 = dck1.is_some();
+        let result = DAuthenticationResult { r1, res2: None, proprietary: None };
+        self.send_auth_pdu(queue, issi, handle, "DAuthenticationResult", |b| result.to_bitbuf(b));
+        if r1 {
+            tracing::info!("MM: ISSI {} authenticated (mutual, radio-initiated)", issi);
+            self.dck.insert(issi, derive_dck(dck1.as_ref(), None).0);
+            self.auth_passed.insert(issi, Instant::now());
+            self.notify_authenticated(issi);
+        } else {
+            tracing::warn!("MM: ISSI {} FAILED our challenge in a radio-initiated exchange", issi);
+        }
+    }
+
+    /// The radio refuses to authenticate.
+    fn rx_u_authentication_reject(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UAuthenticationReject) {
+        let mode = self.config.config().security.authentication;
+        tracing::warn!("MM: ISSI {} rejected authentication ({:?})", issi, pdu.reject_reason);
+        let Some(pending) = self.auth_pending.remove(&issi) else {
+            return;
+        };
+        if let Some(held) = pending.held {
+            if mode == AuthenticationMode::Required {
+                self.reject_held_registration(queue, issi, handle, held);
+            } else {
+                tracing::info!("MM: ISSI {} registers unauthenticated (authentication = optional)", issi);
+                self.auth_passed.insert(issi, Instant::now());
+                self.rx_u_location_update_demand(queue, held);
+            }
+        }
+    }
+
+    /// Give up on exchanges that have outrun T354 and forget stale passes.
+    fn expire_authentication(&mut self) {
+        let expired: Vec<u32> = self.auth_pending.iter().filter(|(_, p)| p.started.elapsed() > T354).map(|(i, _)| *i).collect();
+        for issi in expired {
+            tracing::warn!("MM: authentication of ISSI {} timed out (T354) — no response to the challenge", issi);
+            self.auth_pending.remove(&issi);
+        }
+        self.auth_passed.retain(|_, t| t.elapsed() < AUTH_PASS_GRACE);
+    }
+
+    fn subscriber_key(&self, issi: u32) -> Option<AuthKey> {
+        self.config.config().security.subscriber_k(issi).map(|k| AuthKey(*k))
+    }
+
+    // ───────────── OTAR: static cipher key delivery (EN 300 392-7 clause 4.5.2) ─────────────
+
+    fn notify_otar(&self, issi: u32, sckn: u8, sck_vn: u16, status: &str) {
+        if let Some(sink) = &self.telemetry {
+            sink.send(crate::net_telemetry::TelemetryEvent::OtarSck { issi, sckn, sck_vn, status: status.to_string() });
+        }
+    }
+
+    /// Send the cell's SCK to one radio, sealed under a fresh session key derived from the
+    /// radio's K (clause 4.5.2.2): KSO = TA41(K, RSO), SSCK = TA51(SCK, SCK-VN, KSO, SCKN).
+    /// Works whether or not the cell runs class 2 yet (`class = 1` keeps the key staged), so a fleet
+    /// can be keyed before encryption is switched on.
+    fn otar_sck_provide(&mut self, queue: &mut MessageQueue, issi: u32, why: &str) {
+        let cfg = self.config.config();
+        let Some(aie) = cfg.security.aie.as_ref() else {
+            tracing::warn!("MM: OTAR to ISSI {} ({}) refused — no SCK configured under [security.aie]", issi, why);
+            self.notify_otar(issi, 0, 0, "no SCK configured");
+            return;
+        };
+        let Some(k) = self.subscriber_key(issi) else {
+            tracing::warn!("MM: OTAR to ISSI {} ({}) refused — no authentication key K on file for it", issi, why);
+            self.notify_otar(issi, aie.sckn, aie.sck_vn, "no K on file for this radio");
+            return;
+        };
+        if !self.client_mgr.client_is_known(issi) {
+            tracing::warn!("MM: OTAR to ISSI {} ({}) — radio is not registered on this cell", issi, why);
+            self.notify_otar(issi, aie.sckn, aie.sck_vn, "radio not registered");
+            return;
+        }
+        let rso = random_nonce();
+        let kso = ta41(&k.0, &rso);
+        // SCKN is 0-based on air (clause A.8.70: value 0 = SCK number 1).
+        let sckn_air = aie.sckn.saturating_sub(1) & 0x1f;
+        let ssck = ta51(&aie.sck.0, aie.sck_vn, &kso, sckn_air);
+        let pdu = DOtarSckProvide {
+            ack_required: true,
+            explicit_response: true,
+            max_response_timer: 0,
+            session_key: OtarSessionKey::Individual { rso },
+            keys: vec![SckKeyAndIdentifier { sckn: sckn_air, sck_vn: aie.sck_vn, dmo: false, ssck }],
+            ksg_number: aie.ksg.saturating_sub(1),
+            otar_retry_interval: 0,
+            address_extension: None,
+            proprietary: None,
+        };
+        tracing::info!("MM: OTAR ({}) — sending {} SCK {} v{} to ISSI {}", why, format!("TEA{}", aie.ksg), aie.sckn, aie.sck_vn, issi);
+        self.send_auth_pdu(queue, issi, 0, "DOtarSckProvide", |b| pdu.to_bitbuf(b));
+        self.otar_pending.insert(issi, PendingOtar { sckn: aie.sckn, sck_vn: aie.sck_vn, started: Instant::now() });
+        self.notify_otar(issi, aie.sckn, aie.sck_vn, "sent");
+    }
+
+    fn rx_u_otar(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
+            tracing::error!("BUG: unexpected message or state -- routing error");
+            return;
+        };
+        let issi = prim.received_address.ssi;
+        let handle = prim.handle;
+        let Some(sub_type) = otar_sck::peek_sub_type(&prim.sdu) else {
+            tracing::warn!("MM: truncated U-OTAR from ISSI {}", issi);
+            return;
+        };
+        match sub_type {
+            OtarSubType::SckDemandProvide => match UOtarSckDemand::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) => self.rx_u_otar_sck_demand(queue, issi, handle, pdu),
+                Err(e) => tracing::warn!("MM: bad U-OTAR SCK DEMAND from ISSI {}: {:?}", issi, e),
+            },
+            OtarSubType::SckResultReject => match UOtarSckResult::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) => self.rx_u_otar_sck_result(issi, pdu),
+                Err(e) => tracing::warn!("MM: bad U-OTAR SCK RESULT from ISSI {}: {:?}", issi, e),
+            },
+            other => tracing::info!("MM: U-OTAR {} from ISSI {} not supported (only SCK OTAR is implemented)", other, issi),
+        }
+    }
+
+    /// The radio asks for SCK(s) by number (clause 4.5.2.1): provide ours if it is among
+    /// them, otherwise reject each requested number.
+    fn rx_u_otar_sck_demand(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UOtarSckDemand) {
+        let cfg = self.config.config();
+        let ours = cfg.security.aie.as_ref().map(|a| (a.sckn.saturating_sub(1) & 0x1f, a.ksg.saturating_sub(1)));
+        tracing::info!(
+            "MM: ISSI {} requests SCK(s) {:?} for KSG {}",
+            issi,
+            pdu.sckns.iter().map(|n| n + 1).collect::<Vec<_>>(),
+            pdu.ksg_number
+        );
+        match ours {
+            Some((sckn_air, ksg)) if pdu.sckns.contains(&sckn_air) && pdu.ksg_number == ksg && self.subscriber_key(issi).is_some() => {
+                self.otar_sck_provide(queue, issi, "radio request");
+            }
+            _ => {
+                let reason = match ours {
+                    Some((_, ksg)) if pdu.ksg_number != ksg => OtarRejectReason::KsgNotSupported,
+                    Some(_) if self.subscriber_key(issi).is_none() => OtarRejectReason::InvalidAddress,
+                    Some(_) => OtarRejectReason::InvalidKeyNumber,
+                    None => OtarRejectReason::KeyNotAvailable,
+                };
+                let rejected: Vec<(u8, OtarRejectReason)> = pdu.sckns.iter().take(7).map(|n| (*n, reason)).collect();
+                if rejected.is_empty() {
+                    return;
+                }
+                tracing::info!("MM: rejecting SCK request from ISSI {}: {:?}", issi, reason);
+                let reject = DOtarSckReject { rejected, otar_retry_interval: 0, address_extension: None };
+                self.send_auth_pdu(queue, issi, handle, "DOtarSckReject", |b| reject.to_bitbuf(b));
+            }
+        }
+    }
+
+    /// The radio reports whether it could unseal and store the key.
+    fn rx_u_otar_sck_result(&mut self, issi: u32, pdu: UOtarSckResult) {
+        let pending = self.otar_pending.remove(&issi);
+        for r in &pdu.results {
+            let sckn = r.sckn + 1;
+            let vn = pending.as_ref().map(|p| p.sck_vn).unwrap_or(0);
+            match r.result {
+                ProvisionResult::Accepted => {
+                    tracing::info!("MM: ISSI {} accepted SCK {} (version {})", issi, sckn, vn);
+                    self.notify_otar(issi, sckn, vn, "accepted");
+                }
+                other => {
+                    let detail = match r.current_sck_vn {
+                        Some(cur) => format!("{} (radio holds version {})", other.describe(), cur),
+                        None => other.describe().to_string(),
+                    };
+                    tracing::warn!("MM: ISSI {} did not take SCK {}: {}", issi, sckn, detail);
+                    self.notify_otar(issi, sckn, vn, &format!("failed: {detail}"));
+                }
+            }
+        }
+    }
+
+    fn expire_otar(&mut self) {
+        let expired: Vec<(u32, u8, u16)> = self
+            .otar_pending
+            .iter()
+            .filter(|(_, p)| p.started.elapsed() > T_OTAR_RESULT)
+            .map(|(i, p)| (*i, p.sckn, p.sck_vn))
+            .collect();
+        for (issi, sckn, vn) in expired {
+            tracing::warn!("MM: no U-OTAR SCK RESULT from ISSI {} for SCK {} within {:?}", issi, sckn, T_OTAR_RESULT);
+            self.otar_pending.remove(&issi);
+            self.notify_otar(issi, sckn, vn, "timeout: no result from the radio");
+        }
+    }
+
+    /// Reject the registration that was held for an authentication that failed.
+    fn reject_held_registration(&self, queue: &mut MessageQueue, issi: u32, handle: u32, held: SapMsg) {
+        let SapMsgInner::LmmMleUnitdataInd(prim) = held.msg else {
+            return;
+        };
+        let mut sdu = prim.sdu;
+        let (lut, addr) = match ULocationUpdateDemand::from_bitbuf(&mut sdu) {
+            Ok(p) => (p.location_update_type, p.address_extension),
+            Err(_) => (LocationUpdateType::RoamingLocationUpdating, None),
+        };
+        Self::send_d_location_update_reject_cause(queue, issi, handle, lut, addr, RejectCause::IllegalMs);
+    }
+
+    /// Send one MM PDU to a radio over the acknowledged L2 service.
+    fn send_auth_pdu<F>(&self, queue: &mut MessageQueue, issi: u32, handle: u32, what: &str, write: F)
+    where
+        F: FnOnce(&mut BitBuffer) -> Result<(), tetra_core::pdu_parse_error::PduParseErr>,
+    {
+        let mut sdu = BitBuffer::new_autoexpand(256);
+        if let Err(e) = write(&mut sdu) {
+            tracing::error!("MM: failed to encode {} for ISSI {}: {:?}", what, issi, e);
+            return;
+        }
+        sdu.seek(0);
+        tracing::debug!("-> {} to ISSI {}", what, issi);
+        queue.push_back(SapMsg {
+            sap: Sap::LmmSap,
+            src: TetraEntity::Mm,
+            dest: TetraEntity::Mle,
+            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
+                sdu,
+                handle,
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
+                stealing_permission: false,
+                stealing_repeats_flag: false,
+                encryption_flag: false,
+                is_null_pdu: false,
+                tx_reporter: None,
+            }),
+        });
     }
 }
