@@ -268,6 +268,33 @@ impl SdsBsSubentity {
             is_group,
             protocol_id,
             text: Self::extract_sds_text(data),
+            message_ref: Self::sds_tl_message_reference(data),
+        });
+    }
+
+    /// ISSIs that stand for an operator console on this station: the dashboard's own 9999 and,
+    /// when the LST dispatch console is active, its operator ISSI. Delivery reports a radio
+    /// sends to one of these have no radio to go to; they are turned into telemetry so the
+    /// console can show a "delivered" tick against the message it sent.
+    fn is_console_issi(&self, ssi: u32) -> bool {
+        ssi == 9999 || net_brew::lst_operator_issi(&self.config) == Some(ssi)
+    }
+
+    /// Report delivery of a console-sent message. `delivered` is false for the negative
+    /// SDS-TL outcomes (memory full, protocol or encoding not supported).
+    fn emit_console_report(&self, source_issi: u32, dest_issi: u32, message_ref: u8, delivered: bool) {
+        tracing::info!(
+            "SDS: delivery report from ISSI {} for console {} (MR={}): {}",
+            source_issi,
+            dest_issi,
+            message_ref,
+            if delivered { "delivered" } else { "failed" }
+        );
+        self.emit(TelemetryEvent::SdsReport {
+            source_issi,
+            dest_issi,
+            message_ref,
+            delivered,
         });
     }
 
@@ -509,11 +536,12 @@ impl SdsBsSubentity {
         if let Some(op) = net_brew::lst_operator_issi(&self.config) {
             if dest_ssi == op {
                 if Self::is_sds_tl_report(&pdu.user_defined_data) {
-                    tracing::debug!(
-                        "SDS: absorbing SDS-TL delivery report to LST operator {} from {}",
-                        op,
-                        source_ssi
-                    );
+                    // [0x82, 0x10, delivery status, message reference]: status 0x00 = received
+                    // / consumed, anything else is a failure code (ETSI EN 300 392-2 cl. 29.4.3.11).
+                    let bytes = pdu.user_defined_data.to_arr();
+                    if bytes.len() >= 4 {
+                        self.emit_console_report(source_ssi, op, bytes[3], bytes[2] == 0x00);
+                    }
                     return;
                 }
                 if let Some(mr) = Self::sds_tl_message_reference(&pdu.user_defined_data) {
@@ -956,6 +984,20 @@ impl SdsBsSubentity {
 
         if !self.aie_allows(source_ssi, dest_ssi) {
             tracing::info!("SDS-STATUS: {} -> {} dropped: the two use different encryption modes", source_ssi, dest_ssi);
+            return;
+        }
+
+        // SDS-TL short report (delivery / read receipt) for a message the console sent: there is
+        // no radio behind the console ISSI, so hand it to the dashboard instead of dropping it
+        // as "not locally registered" (the radio otherwise keeps retransmitting the receipt).
+        if let PreCodedStatus::SdsTl(report) = &pdu.pre_coded_status
+            && self.is_console_issi(dest_ssi)
+        {
+            let delivered = matches!(
+                report.short_report_type(),
+                ShortReportType::MessageReceived | ShortReportType::MessageConsumed
+            );
+            self.emit_console_report(source_ssi, dest_ssi, report.message_reference(), delivered);
             return;
         }
 

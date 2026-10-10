@@ -143,6 +143,7 @@ impl SnomNotifyWorker {
                 is_group,
                 protocol_id,
                 text,
+                ..
             }) => {
                 if !cfg.notify_sds || !direction_allowed(cfg, &direction) {
                     return None;

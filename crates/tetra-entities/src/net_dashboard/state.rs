@@ -89,6 +89,13 @@ pub struct SdsLogEntry {
     pub is_group: bool,
     pub protocol_id: u8,
     pub text: String,
+    /// SDS-TL message reference (text messages only), to match delivery reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_ref: Option<u8>,
+    /// For "tx" entries: None = sent, awaiting a report; Some(true) = delivered to the radio;
+    /// Some(false) = the radio refused it (memory full / not supported).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered: Option<bool>,
 }
 
 /// DAPNET Log entry — one inbound RWTH-core message or outbound Hampager API send. Persisted to
@@ -397,7 +404,16 @@ impl DashboardStateInner {
     /// Append one SDS to the log (newest at the back), evicting the oldest past SDS_LOG_MAX,
     /// then persist the whole ring to disk so it survives a restart. The file is small and
     /// SDS traffic is low-volume, so a full rewrite per entry is cheap.
-    pub fn push_sds_log(&mut self, direction: &str, source_issi: u32, dest_issi: u32, is_group: bool, protocol_id: u8, text: String) {
+    pub fn push_sds_log(
+        &mut self,
+        direction: &str,
+        source_issi: u32,
+        dest_issi: u32,
+        is_group: bool,
+        protocol_id: u8,
+        text: String,
+        message_ref: Option<u8>,
+    ) {
         let entry = SdsLogEntry {
             ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             direction: direction.to_string(),
@@ -406,12 +422,40 @@ impl DashboardStateInner {
             is_group,
             protocol_id,
             text,
+            message_ref,
+            delivered: None,
         };
         if self.sds_log.len() >= SDS_LOG_MAX {
             self.sds_log.pop_front();
         }
         self.sds_log.push_back(entry);
         self.persist_sds_log();
+    }
+
+    /// Apply a delivery report from `radio_issi` to the newest matching "tx" entry the console
+    /// `console_issi` sent to that radio: by message reference when the entry has one, else the
+    /// newest still-unreported one. Returns the entry's timestamp when something was updated.
+    pub fn mark_sds_delivered(&mut self, radio_issi: u32, console_issi: u32, message_ref: u8, delivered: bool) -> Option<String> {
+        let idx = self
+            .sds_log
+            .iter()
+            .rposition(|e| {
+                e.direction == "tx"
+                    && !e.is_group
+                    && e.dest_issi == radio_issi
+                    && e.source_issi == console_issi
+                    && e.message_ref == Some(message_ref)
+            })
+            .or_else(|| {
+                self.sds_log.iter().rposition(|e| {
+                    e.direction == "tx" && !e.is_group && e.dest_issi == radio_issi && e.source_issi == console_issi && e.delivered.is_none()
+                })
+            })?;
+        let entry = &mut self.sds_log[idx];
+        entry.delivered = Some(delivered);
+        let ts = entry.ts.clone();
+        self.persist_sds_log();
+        Some(ts)
     }
 
     fn persist_sds_log(&self) {

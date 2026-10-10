@@ -110,6 +110,18 @@ pub enum TelemetryEvent {
         is_group: bool,
         protocol_id: u8,
         text: String,
+        /// SDS-TL message reference of a text message (None for other payloads), used to match a
+        /// later delivery report to this entry.
+        message_ref: Option<u8>,
+    },
+    /// SDS-TL delivery report from a radio for a message the dashboard / dispatch console sent:
+    /// `source_issi` is the radio reporting, `dest_issi` the console ISSI it reports to,
+    /// `delivered` false for "memory full" / "not supported".
+    SdsReport {
+        source_issi: u32,
+        dest_issi: u32,
+        message_ref: u8,
+        delivered: bool,
     },
     /// Voice frame activity on a traffic timeslot (UL or DL)
     TsVoiceActivity {

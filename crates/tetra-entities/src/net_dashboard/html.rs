@@ -574,6 +574,10 @@ body{
 .lst-scan-chip .lst-scan-num{font-weight:700;letter-spacing:0.02em;color:inherit;}
 .lst-scan-chip .lst-scan-name{font-family:var(--font,inherit);font-weight:600;color:inherit;}
 .lst-scan-chip .lst-scan-name+.lst-scan-num{font-weight:500;opacity:0.85;}
+.sds-tick{font-size:12px;font-weight:700;margin-left:4px;letter-spacing:-1px;}
+.sds-tick.is-sent{color:var(--text2);}
+.sds-tick.is-delivered{color:#16a34a;}
+.sds-tick.is-failed{color:#dc2626;}
 .lst-scan-chip .lst-scan-talker{font-family:var(--font,inherit);font-weight:600;opacity:0.95;}
 .lst-scan-chip .lst-scan-talker::before{content:"\25B6\00a0";font-size:10px;}
 .callsign.is-local{font-style:normal;}
@@ -6240,6 +6244,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <select id="lst-sds-filter" class="form-input" style="width:auto;min-width:120px;padding:4px 8px;font-size:11px" onchange="lstRenderSdsInbox()">
                 <option value="private" data-i18n="lst_sds_filter_private">Private</option>
                 <option value="group" data-i18n="lst_sds_filter_group">Group</option>
+                <option value="sent" data-i18n="lst_sds_filter_sent">Sent</option>
               </select>
               <button class="btn btn-sm" onclick="showPage('sdslog',document.getElementById('nav-sdslog'))" data-i18n="lst_open_full">Full log</button>
             </div>
@@ -7362,6 +7367,7 @@ const LANGS={
     lst_scan_name_ph:'Name (optional)',lst_scan_import:'Import file',lst_scan_export:'Export',
     lst_scan_file_hint:'One TG per line: World Wide (91), World Wide,91 or 91,World Wide. CSV, TXT or JSON.',
     lst_scan_imported:'Imported {n} TGs ({added} new)',lst_scan_import_err:'No talkgroups found in that file',
+    sds_sent:'Sent — no delivery report yet',sds_delivered:'Delivered to the radio',sds_failed:'Rejected by the radio (memory full or unsupported)',lst_sds_filter_sent:'Sent',
     radio_name_btn:'Name',radio_name_title:'Radio name',radio_name_prompt:'Name for ISSI {issi}, shown wherever this radio appears. Leave empty to remove.',radio_name_ph:'e.g. Dave MM7FDM',
     lst_scan_hint:'Mark one TG as TX (primary). Other TGs are listened with lower priority.',
     lst_ptt_space:'Spacebar',
@@ -7825,6 +7831,7 @@ const LANGS={
     lst_scan_name_ph:'Nombre (opcional)',lst_scan_import:'Importar archivo',lst_scan_export:'Exportar',
     lst_scan_file_hint:'Un TG por línea: World Wide (91), World Wide,91 o 91,World Wide. CSV, TXT o JSON.',
     lst_scan_imported:'{n} TGs importados ({added} nuevos)',lst_scan_import_err:'No se encontraron grupos en ese archivo',
+    sds_sent:'Enviado — sin informe de entrega todavía',sds_delivered:'Entregado a la radio',sds_failed:'Rechazado por la radio (memoria llena o no soportado)',lst_sds_filter_sent:'Enviados',
     radio_name_btn:'Nombre',radio_name_title:'Nombre de la radio',radio_name_prompt:'Nombre para el ISSI {issi}; se muestra donde aparezca esta radio. Déjalo vacío para quitarlo.',radio_name_ph:'p. ej. Dave MM7FDM',
     lst_scan_hint:'Marca un TG como TX (principal). El resto se escucha con menor prioridad.',
     lst_ptt_space:'Barra espaciadora',
@@ -10147,7 +10154,10 @@ function lstRenderSdsInbox(){
   const mode=(document.getElementById('lst-sds-filter')?.value)||'private';
   const groups=lstSdsSubscribedGroups();
   const all=(state.sdsLog||[]).filter(e=>{
-    if(!e||e.direction==='tx')return false;
+    if(!e)return false;
+    // sent: messages this console sent, with their delivery ticks
+    if(mode==='sent')return e.direction==='tx'&&!!op&&Number(e.source_issi)===op;
+    if(e.direction==='tx')return false;
     const dest=Number(e.dest_issi)||0;
     if(mode==='group'){
       if(!e.is_group)return false;
@@ -10168,7 +10178,7 @@ function lstRenderSdsInbox(){
     const to=e.is_group
       ?`<code>${e.dest_issi}</code>`
       :(typeof idCell==='function'?idCell(e.dest_issi):('<code>'+e.dest_issi+'</code>'));
-    const body=typeof sdsMessageBody==='function'?sdsMessageBody(e):escHtml(e.text||'');
+    const body=(typeof sdsMessageBody==='function'?sdsMessageBody(e):escHtml(e.text||''))+(typeof sdsTicks==='function'?sdsTicks(e):'');
     return`<tr><td class="sds-time num">${escHtml(e.ts||'')}</td><td>${typeof idCell==='function'?idCell(e.source_issi):('<code>'+e.source_issi+'</code>')}</td><td>${to}</td><td class="sds-msg">${body}</td></tr>`;
   }).join('');
   if(typeof applyTableStackLabels==='function')applyTableStackLabels(tb);
@@ -10896,9 +10906,18 @@ function handleMsg(msg){
     case 'log':appendLog(msg);break;
     case 'sds_log':
       if(!state.sdsLog)state.sdsLog=[];
-      state.sdsLog.unshift({ts:nowStamp(),direction:msg.direction,source_issi:msg.source_issi,dest_issi:msg.dest_issi,is_group:msg.is_group,protocol_id:msg.protocol_id,text:msg.text});
+      state.sdsLog.unshift({ts:nowStamp(),direction:msg.direction,source_issi:msg.source_issi,dest_issi:msg.dest_issi,is_group:msg.is_group,protocol_id:msg.protocol_id,text:msg.text,message_ref:msg.message_ref==null?undefined:msg.message_ref});
       if(state.sdsLog.length>500)state.sdsLog.pop();
-      renderSdsLog();refreshCallsigns();break;
+      renderSdsLog();if(typeof lstRenderSdsInbox==='function')lstRenderSdsInbox();refreshCallsigns();break;
+    case 'sds_report':{
+      // Delivery receipt from a radio for a message the console sent: newest matching "tx" entry
+      // (by message reference, else the newest still-unreported one to that radio).
+      const log=state.sdsLog||[];
+      const match=e=>e&&e.direction==='tx'&&!e.is_group&&Number(e.dest_issi)===Number(msg.radio_issi)&&Number(e.source_issi)===Number(msg.console_issi);
+      let e=log.find(x=>match(x)&&x.message_ref!=null&&Number(x.message_ref)===Number(msg.message_ref));
+      if(!e)e=log.find(x=>match(x)&&x.delivered==null);
+      if(e){e.delivered=!!msg.delivered;renderSdsLog();if(typeof lstRenderSdsInbox==='function')lstRenderSdsInbox();}
+      break;}
     case 'dapnet_log':
       if(!state.dapnetLog)state.dapnetLog=[];
       state.dapnetLog.unshift({ts:nowStamp(),direction:msg.direction,id:msg.id,callsign:msg.callsign,recipient:msg.recipient,text:msg.text,priority:msg.priority,paths:msg.paths||[]});
@@ -11627,10 +11646,18 @@ function sdsMessageBody(e){
   }
   return `<span class="sds-empty">[${escHtml(pidLabel(e.protocol_id))}]</span>`;
 }
+// Delivery state of a console-sent SDS: one tick = sent (no report yet), two ticks = the radio
+// confirmed delivery, cross = the radio refused it. Group messages carry no report.
+function sdsTicks(e){
+  if(!e||e.direction!=='tx'||e.is_group)return '';
+  if(e.delivered===true)return ` <span class="sds-tick is-delivered" title="${escHtmlAttr(t('sds_delivered'))}">\u2713\u2713</span>`;
+  if(e.delivered===false)return ` <span class="sds-tick is-failed" title="${escHtmlAttr(t('sds_failed'))}">\u2717</span>`;
+  return ` <span class="sds-tick is-sent" title="${escHtmlAttr(t('sds_sent'))}">\u2713</span>`;
+}
 function sdsRow(e){
   const to=e.is_group?`<code>${e.dest_issi}</code> <span class="sds-empty">grp</span>`:idCell(e.dest_issi);
   const body=sdsMessageBody(e);
-  return `<tr><td class="sds-time num">${escHtml(e.ts||'')}</td><td>${dirBadge(e.direction)}</td><td>${idCell(e.source_issi)}</td><td>${to}</td><td class="sds-msg">${body}</td></tr>`;
+  return `<tr><td class="sds-time num">${escHtml(e.ts||'')}</td><td>${dirBadge(e.direction)}</td><td>${idCell(e.source_issi)}</td><td>${to}</td><td class="sds-msg">${body}${sdsTicks(e)}</td></tr>`;
 }
 function renderSdsLog(){
   const tb=document.getElementById('sdslog-tbody');if(!tb)return;

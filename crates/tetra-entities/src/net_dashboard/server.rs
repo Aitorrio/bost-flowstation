@@ -2345,8 +2345,25 @@ impl DashboardServer {
                     is_group,
                     protocol_id,
                     text,
+                    message_ref,
                 } => {
-                    s.push_sds_log(direction, *source_issi, *dest_issi, *is_group, *protocol_id, text.clone());
+                    s.push_sds_log(direction, *source_issi, *dest_issi, *is_group, *protocol_id, text.clone(), *message_ref);
+                }
+                TelemetryEvent::SdsReport {
+                    source_issi,
+                    dest_issi,
+                    message_ref,
+                    delivered,
+                } => {
+                    s.push_last_heard(*source_issi, "sds", *dest_issi);
+                    if s.mark_sds_delivered(*source_issi, *dest_issi, *message_ref, *delivered).is_none() {
+                        tracing::debug!(
+                            "Dashboard: delivery report from {} for console {} MR={} matched no sent SDS",
+                            source_issi,
+                            dest_issi,
+                            message_ref
+                        );
+                    }
                 }
                 TelemetryEvent::TsVoiceActivity { .. } => {
                     // Handled below with rate limiting — no state update needed
@@ -2692,8 +2709,17 @@ fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
             is_group,
             protocol_id,
             text,
+            message_ref,
         } => {
-            serde_json::json!({"type":"sds_log","direction":direction,"source_issi":source_issi,"dest_issi":dest_issi,"is_group":is_group,"protocol_id":protocol_id,"text":text})
+            serde_json::json!({"type":"sds_log","direction":direction,"source_issi":source_issi,"dest_issi":dest_issi,"is_group":is_group,"protocol_id":protocol_id,"text":text,"message_ref":message_ref})
+        }
+        TelemetryEvent::SdsReport {
+            source_issi,
+            dest_issi,
+            message_ref,
+            delivered,
+        } => {
+            serde_json::json!({"type":"sds_report","radio_issi":source_issi,"console_issi":dest_issi,"message_ref":message_ref,"delivered":delivered})
         }
         TelemetryEvent::TsVoiceActivity {
             carrier_num,
