@@ -46,6 +46,8 @@ pub fn tch_s_kss_codec_order(kss: &Kss) -> [u8; 274] {
 
 /// Class 2 encryption context of one cell.
 pub struct CellCipher {
+    /// 1 = TEA1 (this crate's generator), 2 / 3 = TEA2 / TEA3 from `tetra-security`.
+    ksg: u8,
     sck_vn: u16,
     ta61: Ta61,
     /// ECK per carrier number.
@@ -59,6 +61,7 @@ impl CellCipher {
     pub fn new(aie: &CfgAie, carriers: &[u16], location_area: u16, colour_code: u8) -> Self {
         let sck = aie.sck.0;
         CellCipher {
+            ksg: aie.ksg,
             sck_vn: aie.sck_vn,
             ta61: Ta61::new(&sck),
             eck: carriers.iter().map(|&cn| (cn, tb5(&sck, cn, location_area, colour_code))).collect(),
@@ -90,7 +93,16 @@ impl CellCipher {
     pub fn kss(&self, carrier: u16, t: TdmaTime, uplink: bool) -> Kss {
         let eck = self.eck.get(&carrier).or_else(|| self.eck.get(&self.main_carrier)).expect("main carrier has an ECK");
         let mut out = [0u8; KSS_BITS / 8];
-        Tea1::new(eck, iv(t.t, t.f, t.m, t.h, uplink)).key_bytes(&mut out);
+        let iv = iv(t.t, t.f, t.m, t.h, uplink);
+        match self.ksg {
+            1 => Tea1::new(eck, iv).key_bytes(&mut out),
+            n => {
+                use tetra_security::ksg::{Iv, KsgId, new_ksg};
+                let id = KsgId::from_number(n - 1).expect("ksg checked by ksg_available");
+                let mut g = new_ksg(id, &tetra_security::keys::CipherKey(*eck), Iv::from_raw(iv)).expect("TEA2/TEA3 are provided");
+                g.fill(&mut out);
+            }
+        }
         Kss(out)
     }
 }
@@ -102,6 +114,7 @@ mod tests {
 
     fn cipher() -> CellCipher {
         let aie = CfgAie {
+            enabled: true,
             ksg: 1,
             sckn: 1,
             sck: CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]),
@@ -160,5 +173,25 @@ mod tests {
     #[test]
     fn encryption_mode_follows_sck_vn_parity() {
         assert_eq!(cipher().encryption_mode(), 0b11);
+    }
+
+    /// The in-tree TEA1 and the `tetra-security` generators agree, and TEA2/TEA3 produce a
+    /// different stream from the same key.
+    #[test]
+    fn tea_generators_agree_and_differ() {
+        use tetra_security::ksg::{Iv, KsgId, new_ksg};
+        let eck = tb5(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23], 3681, 2, 1);
+        let t = TdmaTime { t: 2, f: 5, m: 17, h: 300 };
+        let ivv = iv(t.t, t.f, t.m, t.h, false);
+        let mut ours = [0u8; 54];
+        Tea1::new(&eck, ivv).key_bytes(&mut ours);
+        let mut theirs = [0u8; 54];
+        new_ksg(KsgId::Tea1, &tetra_security::keys::CipherKey(eck), Iv::from_raw(ivv)).unwrap().fill(&mut theirs);
+        assert_eq!(ours, theirs, "two independent TEA1 implementations agree");
+        for ksg in [2u8, 3] {
+            let aie = CfgAie { enabled: true, ksg, sckn: 1, sck: CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]), sck_vn: 3, clear_groups: vec![] };
+            let c = CellCipher::new(&aie, &[3681], 2, 1);
+            assert_ne!(c.kss(3681, t, false).0, ours, "TEA{ksg} differs from TEA1");
+        }
     }
 }

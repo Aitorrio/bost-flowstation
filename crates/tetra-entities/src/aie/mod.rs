@@ -14,9 +14,12 @@ use tetra_pdus::mm::enums::reject_cause::RejectCause;
 use tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters;
 use tetra_pdus::umac::fields::sysinfo_ext_services::SysinfoExtendedServices;
 
-/// True when this build carries the key stream generator for TEA`tea`.
+/// True when this build carries the key stream generator for TEA`tea`: TEA1 (this module) and
+/// TEA2 / TEA3 (the `tetra-security` crate, checked against the published reference vectors).
+/// TEA1 keeps only 32 of its 80 key bits (TETRA:BURST, 2023) and is for research and
+/// interoperability with TEA1-only radios; TEA2 or TEA3 are the ones to run.
 pub fn ksg_available(tea: u8) -> bool {
-    tea == 1
+    matches!(tea, 1 | 2 | 3)
 }
 
 /// Whether the MAC layer encrypts and decrypts. On since phase 2; a cell still runs class 2 only
@@ -49,7 +52,7 @@ pub fn iv(tn: u8, fn_: u8, mn: u8, hn: u16, uplink: bool) -> u32 {
 /// The AIE settings this cell actually runs with: the configured class 2 settings when the KSG
 /// they name is available and the MAC can use it, else `None` (class 1, clear).
 pub fn effective(cfg: &StackConfig) -> Option<&CfgAie> {
-    cfg.security.aie.as_ref().filter(|a| MAC_ENCRYPTION_READY && ksg_available(a.ksg))
+    cfg.security.aie.as_ref().filter(|a| a.enabled && MAC_ENCRYPTION_READY && ksg_available(a.ksg))
 }
 
 /// One startup line describing the AIE posture, so an operator sees why a configured key is not
@@ -57,11 +60,16 @@ pub fn effective(cfg: &StackConfig) -> Option<&CfgAie> {
 pub fn posture(cfg: &StackConfig) -> String {
     match (&cfg.security.aie, effective(cfg)) {
         (None, _) => "class 1 (clear) — no [security.aie] configured".to_string(),
+        (Some(a), None) if !a.enabled => format!(
+            "class 1 (clear) — TEA{} SCKN {} configured but class = 1: the key is only used for over-the-air delivery (OTAR)",
+            a.ksg, a.sckn
+        ),
         (Some(a), Some(_)) => format!(
-            "class 2 (EXPERIMENTAL, not yet proven on air) — TEA{} SCKN {}, clear radios allowed on {} clear group(s)",
+            "class 2 (EXPERIMENTAL, not yet proven on air) — TEA{} SCKN {}, clear radios allowed on {} clear group(s){}",
             a.ksg,
             a.sckn,
-            a.clear_groups.len()
+            a.clear_groups.len(),
+            if a.ksg == 1 { " — WARNING: TEA1 keeps only 32 key bits and is NOT secure (research/interop only)" } else { "" }
         ),
         (Some(a), None) if !ksg_available(a.ksg) => format!(
             "class 1 (clear) — [security.aie] asks for class 2 with TEA{}, but this build has no TEA{} key stream generator",
@@ -172,6 +180,7 @@ mod tests {
 
     fn aie() -> CfgAie {
         CfgAie {
+            enabled: true,
             ksg: 1,
             sckn: 3,
             sck: CipherKey([0; 10]),
