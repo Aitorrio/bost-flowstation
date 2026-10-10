@@ -1,6 +1,9 @@
 # Air interface encryption — security class 2 (SCK)
 
-Status: **design draft**, nothing implemented. Target radios: Motorola MTH800 / MTH850.
+Status: phases 1 and 2 built (see §8, §9). Since then: TEA2 and TEA3 key stream generators, TAA1
+authentication, and SCK OTAR were added on top (crate `tetra-security`, MM `authentication_gate` /
+`otar_sck_provide`, dashboard Security page); `class = 1` with a key keeps it staged for OTAR.
+Target radios: Motorola MTH800 / MTH850.
 
 Normative reference: **ETSI TS 100 392-7 V4.2.1 (2026-04)** (TETRA V+D security), clause 6
 (air interface encryption) and Annex A, with the PDU encodings in EN 300 392-2 (clause 16 MM,

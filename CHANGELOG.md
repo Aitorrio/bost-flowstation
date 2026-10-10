@@ -2,6 +2,14 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## Pendiente de publicar — Autenticación, TEA2/TEA3, OTAR y USRP B210
+
+- **Autenticación de radios (TAA1, EN 300 392-7 cláusula 4).** La estación puede desafiar a cada radio con su clave K de 128 bits al registrarse (`[security] authentication = off | optional | required`, con autenticación mutua). Las claves se guardan por ISSI en `[[security.subscribers]]`. Nuevo crate `tetra-security` con HURDLE-II, TA11/TA12/TA21/TA22/TA41/TA51/TA52/TA61 y TB4/TB5, comprobado contra vectores de prueba públicos. Las radios que pasan muestran la insignia **AUTH** en la tabla de radios.
+- **TEA2 y TEA3** además de TEA1 para el cifrado de clase 2 (`ksg = 2 | 3`). TEA1 se mantiene para investigación e interoperabilidad y se marca como débil (solo conserva 32 bits de clave).
+- **OTAR de SCK (cláusula 4.5.2).** Entrega de la clave estática a una radio por el aire, sellada con la K de esa radio (TA41 + TA51); la respuesta de la radio (U-OTAR SCK RESULT) se muestra en el panel. Con `class = 1` y una clave configurada, la clave queda preparada solo para OTAR y la celda sigue en claro, de modo que la flota puede recibir la clave antes de activar el cifrado.
+- **Página Seguridad** en el panel: estado en ejecución frente a guardado con reinicio en un clic, modo de autenticación, tabla de claves de abonado con generador de claves, cifrado (algoritmo, SCK, número, versión, grupos en claro), «Enviar SCK» por radio y a todas las radios conectadas; columna **Seguridad** en la tabla de radios y fila SEGURIDAD en la barra lateral.
+- **USRP B210 (UHD):** opción «Instalar USRP (UHD)» en el asistente y en el instalador, valores por defecto correctos para full-duplex (TX en TX/RX, RX en RX2, PGA 40 dB), imagen FPGA abierta para los clones Kintex-7 (`fx3 is in state 5`), dependencias del paquete .deb y documentación.
+
 ## v0.5.4 — Escucha de ambiente (SS-AL) y petición de posición
 
 - **Escucha de ambiente (SS-AL, ETSI EN 300 392-12-21).** Nueva función de despacho: la estación acepta el comando `AmbienceListen` del canal de control (brew-server) y reconoce el byte de servicio de escucha de ambiente que envía la consola. Monta una llamada individual directa y símplex hacia la radio destino con el indicador de notificación «AL operation» (valor 3, EN 300 392-9), de modo que una radio compatible conecta y abre micrófono por sí sola, sin acción del usuario. La radio **señaliza la llamada** como cualquier otra (no es encubierta). El audio de la radio llega a la consola y, al ser una llamada solo de recepción, ya no se corta a los 30 s. `enable: false` la libera. Validado al aire con MTH800.

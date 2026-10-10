@@ -23,7 +23,7 @@
 
 Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)). Improved by **Aitor, EA4HBL**.
 
-**Tested hardware:** LimeSDR Mini 2.0 · SXceiver · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400
+**Tested hardware:** LimeSDR Mini 2.0 · SXceiver · Ettus USRP B210 (and XC7K325T clones) · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400 · Sepura STP9000 · Sepura SRG3500 · Sepura SRG3900 · Sepura SC2229
 
 > Protocol details, Brew theory, Asterisk/DAPNET/GeoAlarm and upstream bug history live in the [original FlowStation README](https://github.com/razvanzeces/flowstation/blob/main/README.md). This page documents **what this fork adds** and **how to run it**.
 
@@ -69,6 +69,21 @@ When it finishes you should see something like:
 | Sources | `/opt/bost-flowstation` (branch `main`) |
 
 More detail (env vars, force-clean, helper script): [`Docs/install-and-setup.md`](Docs/install-and-setup.md).
+
+### USRP B210 (and B200 / B210 clones)
+
+The installer and the Setup wizard's **Install USRP (UHD)** button put in `uhd-host`, the
+SoapySDR UHD module and the B2xx firmware/FPGA images. Defaults for a B2xx: transmit on
+**TX/RX**, receive on **RX2**, one PGA gain stage at 40 dB (RX 0–76 dB, TX 0–89.8 dB); use a
+duplexer or two antennas with enough isolation. Device string: `driver=uhd,serial=XXXXXXX`.
+
+Many low-cost "B210" boards carry a Kintex-7 XC7K325T and refuse Ettus's FPGA image (`fx3 is in
+state 5` after the image loads). They work with the open replacement image from
+[kingjamez/B210_XC7K325T_Improvements](https://github.com/kingjamez/B210_XC7K325T_Improvements),
+which the helper installs: `bost-setup-helper.sh install-driver uhd <serial>` pins it to the
+board in `/etc/uhd/uhd.conf`, or set
+`device = "driver=uhd,serial=XXXXXXX,fpga=/usr/share/uhd/images/b210_k7.bin"`. A USB 3 port or a
+powered hub is required.
 
 ---
 
@@ -129,6 +144,29 @@ The ISSI whitelist lives inside the **Cell** form (profile sheet) and inside **L
 - **Apply & Restart** on Profiles puts the selected Cell on air, including its saved whitelist.
 
 U-STATUS remote control stays station-wide (not stored in Cell/Brew).
+
+### Authentication and air-interface encryption (Security page)
+
+The **Security** page (SYSTEM → SECURITY, or click the SECURITY row in the sidebar) implements
+the TETRA security procedures of ETSI EN 300 392-7 with the algorithms ETSI published in 2024,
+every one checked against independent test vectors:
+
+- **Authentication (TAA1):** off / optional / required, mutual authentication, and the subscriber
+  key table — one 128-bit K per radio, identical to the key programmed into it. Radios that pass
+  show an **AUTH** badge in the Radios table. Authentication is an access-control handshake and is
+  fine on amateur allocations.
+- **Encryption (class 2):** the static cipher key (SCK), its number and version, the algorithm
+  (**TEA1**, flagged weak — it keeps only 32 of its 80 key bits; **TEA2**; **TEA3**) and the
+  clear talkgroups for radios without encryption (this fork's mixed-cell policy). Radios seen
+  encrypting show a lock badge with the key they use.
+- **Over-the-air rekeying (OTAR):** **Send SCK** next to a radio's key delivers the SCK sealed
+  under that radio's K (clause 4.5.2); the radio's answer appears under the key. Leave
+  **Encrypt the cell** off while you distribute the key — the SCK is then only used for OTAR and
+  the cell stays in clear — and switch it on once every radio reports the key as accepted.
+
+The same settings live under `[security]` in `config.toml` (see the example config). Air-interface
+*encryption* is not permitted under amateur licences — enable it only on a licensed private
+network.
 
 <p align="center">
   <img src="Docs/screenshots/10-access-control.png" alt="Config — ISSI whitelist / access control" width="720"/>
