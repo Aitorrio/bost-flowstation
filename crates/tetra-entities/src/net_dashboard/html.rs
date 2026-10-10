@@ -4101,6 +4101,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <span class="nav-icon" data-icon="config"></span>
       <span class="nav-label" data-i18n="setup">SETUP</span>
     </div>
+    <div class="nav-item" onclick="showPage('security',this)" id="nav-security">
+      <span class="nav-icon" data-icon="security"></span>
+      <span class="nav-label" data-i18n="security">SECURITY</span>
+    </div>
     <div class="nav-item" onclick="showPage('config',this)" id="nav-config">
       <span class="nav-icon" data-icon="config"></span>
       <span class="nav-label" data-i18n="config">CONFIG</span>
@@ -4128,6 +4132,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="brew-info-val" id="brewText" style="color:var(--text3)">—</div>
       </div>
       <div id="brewVerBadge" class="brew-ver-badge" style="display:none"></div>
+    </div>
+    <!-- Air-interface security (EN 300 392-7): cell class, cipher + key, authentication -->
+    <div class="brew-status-row" id="secRow" onclick="showPage('security')" style="cursor:pointer">
+      <div class="brew-led" id="secLed"></div>
+      <div class="brew-info">
+        <div class="brew-info-label">SECURITY</div>
+        <div class="brew-info-val" id="secText">CLASS 1 · CLEAR</div>
+      </div>
+      <div id="secAuthBadge" class="brew-ver-badge" style="display:none"></div>
     </div>
     <!-- Copyright + client info -->
     <div class="sidebar-copyright">
@@ -4555,6 +4568,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <th data-i18n="th_groups">Groups</th>
                 <th class="col-mobile-hide" data-i18n="th_ee">Energy Economy</th>
                 <th data-i18n="th_signal">Signal</th>
+                <th data-i18n="th_security">Security</th>
                 <th data-i18n="th_status">Status</th>
                 <th class="col-mobile-hide" data-i18n="th_last_seen">Last seen</th>
                 <th data-i18n="th_actions">Actions</th>
@@ -5483,6 +5497,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <button class="btn btn-sm" onclick="setupScanSdr()"><span data-i18n="setup_scan">Escanear</span></button>
             <button class="btn" onclick="setupInstallDriver('sx')" data-i18n="setup_install_sx">Instalar SXceiver</button>
             <button class="btn" onclick="setupInstallDriver('lime')" data-i18n="setup_install_lime">Instalar Lime</button>
+            <button class="btn" onclick="setupInstallDriver('uhd')" data-i18n="setup_install_uhd">Instalar USRP (UHD)</button>
           </div>
         </div>
         <div class="card-body">
@@ -5498,6 +5513,117 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     </div>
 
     <!-- ── CONFIG ── -->
+    <!-- ── SECURITY — authentication keys and air-interface encryption (EN 300 392-7). ── -->
+    <div class="page" id="page-security">
+      <div class="section-label" data-i18n="secp_section">Air-interface security</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="secp_status_title">Status</div>
+          <div class="card-actions">
+            <button class="btn btn-sm" onclick="loadSecurity()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="refresh">Refresh</span></button>
+            <button class="btn btn-primary" onclick="saveSecurity()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+            <div><div class="help-text" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase" data-i18n="secp_running">Running now</div><div id="secp-running" style="font-family:var(--mono);font-size:13px;margin-top:4px">—</div></div>
+            <div><div class="help-text" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase" data-i18n="secp_saved">Saved in config</div><div id="secp-saved" style="font-family:var(--mono);font-size:13px;margin-top:4px">—</div></div>
+          </div>
+          <div id="secp-restart" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid rgba(255,178,36,0.4);background:rgba(255,178,36,0.08);border-radius:6px;font-size:13px">
+            <span data-i18n="secp_restart_needed">The saved settings differ from what is running. Restart the station to apply them.</span>
+            <button class="btn btn-sm" style="margin-left:10px" onclick="restartForSecurity()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="secp_restart">Restart station</span></button>
+          </div>
+          <div id="secp-parse-error" style="display:none;margin-top:12px;color:var(--danger);font-size:13px"></div>
+          <div class="config-msg" id="secp-msg"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title" data-i18n="secp_auth_title">Authentication (TAA1)</div></div>
+        <div class="card-body">
+          <div class="help-text" style="margin-bottom:12px" data-i18n="secp_auth_help"></div>
+          <div class="form-row">
+            <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_auth_mode">Mode</label>
+            <select id="secp-auth" class="form-input" style="max-width:520px" onchange="secpDirty()">
+              <option value="off" data-i18n="secp_auth_off">Off — any radio may register</option>
+              <option value="optional" data-i18n="secp_auth_optional">Optional</option>
+              <option value="required" data-i18n="secp_auth_required">Required</option>
+            </select>
+          </div>
+          <label class="sw-row"><span class="sw-text" data-i18n="secp_mutual">Mutual authentication</span><span class="sw"><input type="checkbox" id="secp-mutual" onchange="secpDirty()"><i></i></span></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="secp_keys_title">Subscriber keys</div>
+          <div class="card-actions"><button class="btn btn-sm" onclick="secpSendSckAll()" title="" data-i18n-title="secp_otar_hint"><span data-i18n="secp_otar_send_all">Send SCK to all online radios</span></button></div>
+        </div>
+        <div class="card-body">
+          <div class="help-text" style="margin-bottom:12px" data-i18n="secp_keys_help"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th data-i18n="secp_th_issi">ISSI</th><th data-i18n="secp_th_k">Key K</th><th></th></tr></thead>
+              <tbody id="secp-subs"></tbody>
+            </table>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+            <input type="number" id="secp-sub-issi" class="form-input" placeholder="ISSI" min="1" max="16777215" style="width:140px">
+            <input type="text" id="secp-sub-k" class="form-input" placeholder="32 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px;font-family:var(--mono)">
+            <button class="btn" onclick="secpGenerate('k','secp-sub-k')"><span data-i18n="secp_generate">Generate</span></button>
+            <button class="btn btn-primary" onclick="secpAddSub()"><span class="btn-icon" data-icon="add"></span><span data-i18n="secp_add">Add</span></button>
+          </div>
+          <div id="secp-invalid" class="help-text" style="margin-top:8px;color:var(--warn);display:none"></div>
+          <div class="config-msg" id="secp-subs-msg"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title" data-i18n="secp_aie_title">Air-interface encryption (class 2)</div></div>
+        <div class="card-body">
+          <div class="help-text" style="margin-bottom:8px" data-i18n="secp_aie_help"></div>
+          <label class="sw-row"><span class="sw-text" data-i18n="secp_aie_enable">Encrypt the cell (class 2)</span><span class="sw"><input type="checkbox" id="secp-aie" onchange="secpAieToggle()"><i></i></span></label>
+          <div class="help-text" style="margin-top:6px" data-i18n="secp_aie_staging"></div>
+          <div id="secp-aie-fields" style="margin-top:12px">
+            <div class="form-row">
+              <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_ksg">Algorithm (KSG)</label>
+              <select id="secp-ksg" class="form-input" style="max-width:520px" onchange="secpKsgChanged()"></select>
+              <div id="secp-ksg-note" class="help-text" style="margin-top:6px"></div>
+              <div id="secp-tea1-warn" style="display:none;margin-top:8px;padding:10px 12px;border:1px solid rgba(255,77,109,0.4);background:rgba(255,77,109,0.08);border-radius:6px;font-size:13px" data-i18n="secp_tea1_warn"></div>
+            </div>
+            <div class="form-row">
+              <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sck">Static cipher key (SCK)</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <input type="text" id="secp-sck" class="form-input" placeholder="20 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px;max-width:520px;font-family:var(--mono)" oninput="secpSckDirty=true;secpDirty()">
+                <button class="btn" onclick="secpGenerate('sck','secp-sck');secpSckDirty=true;secpDirty()"><span data-i18n="secp_generate">Generate</span></button>
+              </div>
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <div class="form-row"><label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sckn">SCK number (1-32)</label><input type="number" id="secp-sckn" class="form-input" min="1" max="32" value="1" style="width:120px" onchange="secpDirty()"></div>
+              <div class="form-row"><label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sckvn">SCK version</label><input type="number" id="secp-sckvn" class="form-input" min="0" max="65535" value="1" style="width:120px" onchange="secpDirty()"></div>
+            </div>
+            <div class="form-row">
+              <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_groups">Clear talkgroups (GSSI, comma separated) for radios without encryption</label>
+              <input type="text" id="secp-groups" class="form-input" placeholder="e.g. 900, 901" style="max-width:520px;font-family:var(--mono)" oninput="secpDirty()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title" data-i18n="secp_algo_title">Algorithms in this build</div></div>
+        <div class="card-body">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th data-i18n="secp_th_algo">Algorithm</th><th data-i18n="secp_th_status">Status</th><th data-i18n="secp_th_note">Notes</th></tr></thead>
+              <tbody id="secp-algos"></tbody>
+            </table>
+          </div>
+          <div class="help-text" style="margin-top:12px" data-i18n="secp_classes"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="page-config">
       <div class="section-label" data-i18n="cfg_sec_profiles">Profiles</div>
       <div class="card">
@@ -6888,6 +7014,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="btn btn-sm" onclick="setupScanSdr(true)" data-i18n="setup_scan">Escanear</button>
         <button class="btn btn-sm" onclick="setupInstallDriver('sx',true)" data-i18n="setup_install_sx">Instalar SXceiver</button>
         <button class="btn btn-sm" onclick="setupInstallDriver('lime',true)" data-i18n="setup_install_lime">Instalar Lime</button>
+        <button class="btn btn-sm" onclick="setupInstallDriver('uhd',true)" data-i18n="setup_install_uhd">Instalar USRP (UHD)</button>
       </div>
       <div class="setup-device-list" id="wiz-device-list"></div>
       <label class="field" style="display:block;margin-top:10px"><span data-i18n="wiz_device_args">Argumentos device</span>
@@ -6958,6 +7085,7 @@ const ICONS = {
   rf:'<circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a9 9 0 0 0 0 14M19 5a9 9 0 0 1 0 14"/>',
   health:'<path d="M3 12h3l2-5 3 10 2.5-7 1.5 2h6"/>',
   // nav — integrations / system
+  security:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><circle cx="12" cy="16" r="1"/>',
   config:'<circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8 6 18M18 6l1.8-1.8"/>',
   telegram:'<path d="M20 4 3.5 11.2l6 2.1M20 4l-2.8 14-7-3.6M20 4 9.6 13.6M9.6 13.6V18l2.6-2.6"/>',
   wifi:'<path d="M4.5 9a11 11 0 0 1 15 0M7.5 12.5a6.5 6.5 0 0 1 9 0"/><circle cx="12" cy="16.5" r="1.2" fill="currentColor" stroke="none"/>',
@@ -7006,6 +7134,7 @@ function svgIcon(name, size){
          '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+body+'</svg>';
 }
 // Filled selection marker (▶ in selected-TG rows) — own fill, no stroke.
+const ICON_LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:10px;height:10px;vertical-align:-1px"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
 const ICON_MARKER = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M8 5l11 7-11 7Z"/></svg>';
 // Paint every declarative icon slot ([data-icon="name"]) from the ICONS map.
 // Keeps the nav/header markup DRY; the Tabs phase can drop more [data-icon] slots.
@@ -7022,10 +7151,10 @@ const LANGS={
   en:{
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',reconnecting:'RECONNECTING',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
-    stations:'Home',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
+    security:'Security',stations:'Home',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
     home_quick_title:'Quick profiles',home_more_settings:'More settings',
     setup_sec:'First-run / SDR',setup_title:'Setup',setup_open_wizard:'Open wizard',setup_sdr_title:'SDR devices',
-    setup_scan:'Scan',setup_install_sx:'Install SXceiver',setup_install_lime:'Install Lime',
+    setup_scan:'Scan',setup_install_sx:'Install SXceiver',setup_install_lime:'Install Lime',setup_install_uhd:'Install USRP (UHD)',
     setup_enable_rf:'Enable RF & Restart',setup_autostart:'Ensure autostart',setup_mark_done:'Mark setup done',
     setup_complete_key:'Setup complete',setup_backend_key:'Config backend',setup_device_key:'Device',
     setup_unit_key:'Service unit',setup_helper_key:'Helper',
@@ -7113,6 +7242,29 @@ const LANGS={
     tg_selected:'Selected talkgroup (last keyed up)',
     tg_affiliated_short:'affiliated',tg_affiliated_hint:'Other talkgroups this radio is affiliated to (kept attached on the BS even when scan is off on the device)',
     th_status:'Status',th_last_seen:'Last seen',th_actions:'Actions',
+    th_security:'Security',sec_auth:'AUTH',sec_auth_hint:'Radio proved its authentication key K (TAA1 challenge)',
+    sec_clear:'CLEAR',sec_clear_hint:'No encrypted PDU seen from this radio: its signalling and speech are in clear',
+    sec_enc_hint:'Radio is encrypting with the cell\'s static cipher key',sec_weak_hint:'TEA1 keeps only 32 of its 80 key bits (TETRA:BURST) — research use only',
+    sec_cell_clear:'CLASS 1 · CLEAR',sec_auth_req:'AUTH REQ',sec_auth_opt:'AUTH OPT',sec_auth_off:'NO AUTH',
+    sec_cell_hint_clear:'Security class 1: no air-interface encryption on this cell',sec_cell_hint_enc:'Security class 2: all signalling and speech on this cell are encrypted with SCK {sckn} (version {vn}) using {ksg}',
+    sec_cell_hint_err:'AIE configuration rejected: {err}',sec_subs:'{n} subscriber key(s) loaded',
+    secp_section:'Air-interface security',secp_status_title:'Status',secp_running:'Running now',secp_saved:'Saved in config',
+    secp_restart_needed:'The saved settings differ from what is running. Restart the station to apply them.',secp_restart:'Restart station',
+    secp_restarting:'Restarting… the page will reconnect in a few seconds.',secp_parse_error:'config.toml does not parse — fix it on the Config page first: ',
+    secp_auth_title:'Authentication (TAA1)',secp_auth_help:'Challenge radios with their 128-bit authentication key K when they register (EN 300 392-7 clause 4). Only radios whose K is listed below can pass. Authentication is an access-control handshake and is fine on amateur allocations.',
+    secp_auth_mode:'Mode',secp_auth_off:'Off — any radio may register',secp_auth_optional:'Optional — challenge radios with a key on file, let others in',secp_auth_required:'Required — reject radios that fail or have no key',
+    secp_mutual:'Mutual authentication (answer the radio\'s challenge and challenge back)',secp_keys_title:'Subscriber keys',secp_keys_help:'One K per radio, 32 hex digits, identical to the key programmed into the radio with its KVL / programming software.',
+    secp_th_issi:'ISSI',secp_th_k:'Key K',secp_no_keys:'No subscriber keys',secp_add:'Add',secp_generate:'Generate',secp_remove:'Remove',secp_k_placeholder:'32 hex digits',secp_issi_placeholder:'ISSI',
+    secp_aie_title:'Air-interface encryption (class 2)',secp_aie_help:'Encrypt all signalling and speech on this cell with a static cipher key (SCK) shared by every radio. Radios without the key cannot register or hear traffic. Air-interface encryption is not permitted under amateur licences — enable it only on a licensed private network.',
+    secp_groups:'Clear talkgroups (GSSI, comma separated) for radios without encryption',
+    secp_aie_enable:'Encrypt the cell (class 2)',secp_aie_staging:'Leave this off while you distribute the key: with it off the SCK below is only used for over-the-air delivery and the cell stays in clear. Switch it on once every radio reports the key as accepted.',
+    secp_staged:'(staged for OTAR)',secp_otar_label:'OTAR',secp_otar_send:'Send SCK',secp_otar_send_all:'Send SCK to all online radios',secp_otar_hint:'Deliver the SCK over the air, sealed under this radio\'s K (needs the radio registered and its K on file)',
+    secp_otar_none:'No online radio with a saved key',secp_otar_confirm_all:'Send the SCK to {n} radio(s)?',secp_save_first:'Save your changes first',secp_offline:'offline',secp_ksg:'Algorithm (KSG)',secp_sck:'Static cipher key (SCK)',secp_sck_placeholder:'20 hex digits',secp_sckn:'SCK number (1-32)',secp_sckvn:'SCK version',
+    secp_tea1_warn:'TEA1 is broken: it keeps only 32 of its 80 key bits and the key can be recovered from a few seconds of traffic. Use it for research or to talk to TEA1-only radios, never for protection.',
+    secp_keep:'unchanged',secp_saved_ok:'Saved. Restart the station to apply.',secp_invalid_keys:'Keys on file that could not be parsed (ISSI): ',
+    secp_algo_title:'Algorithms in this build',secp_th_algo:'Algorithm',secp_th_status:'Status',secp_th_note:'Notes',secp_available:'Available',secp_unavailable:'Not available',secp_weak:'Weak — research only',
+    secp_classes:'Security classes: class 1 = clear air interface (optional authentication); class 2 = static cipher key shared by all radios (this page); class 3 = per-radio derived keys with over-the-air rekeying (not implemented).',
+    secp_unsaved:'Unsaved changes',
     th_id:'ID',th_type:'Type',th_caller:'Caller',
     th_dest:'Destination',th_speaker:'Speaker',th_duration:'Duration',
     th_time:'Time',th_activity:'Activity',
@@ -7593,7 +7745,7 @@ const LANGS={
     stations:'Inicio',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
     home_quick_title:'Perfiles rápidos',home_more_settings:'Más ajustes',
     setup_sec:'Primer arranque / SDR',setup_title:'Setup',setup_open_wizard:'Abrir asistente',setup_sdr_title:'Dispositivos SDR',
-    setup_scan:'Escanear',setup_install_sx:'Instalar SXceiver',setup_install_lime:'Instalar Lime',
+    setup_scan:'Escanear',setup_install_sx:'Instalar SXceiver',setup_install_lime:'Instalar Lime',setup_install_uhd:'Instalar USRP (UHD)',
     setup_enable_rf:'Activar RF y reiniciar',setup_autostart:'Asegurar autostart',setup_mark_done:'Marcar setup hecho',
     setup_complete_key:'Setup completo',setup_backend_key:'Backend config',setup_device_key:'Device',
     setup_unit_key:'Unidad systemd',setup_helper_key:'Helper',
@@ -7730,6 +7882,29 @@ const LANGS={
     sds_msg_label:'Mensaje',cancel:'Cancelar',confirm:'Confirmar',ok:'Aceptar',notice:'Aviso',action_failed:'Error',send:'Enviar',
     th_issi:'ISSI',th_issi_cs:'ISSI / Indicativo',th_groups:'Grupos',th_ee:'Ahorro Energía',th_signal:'Señal',
     th_status:'Estado',th_last_seen:'Visto',th_actions:'Acciones',
+    security:'Seguridad',th_security:'Seguridad',sec_auth:'AUTH',sec_auth_hint:'La radio ha demostrado su clave de autenticación K (desafío TAA1)',
+    sec_clear:'CLARO',sec_clear_hint:'No se ha visto ninguna PDU cifrada de esta radio: su señalización y su voz van en claro',
+    sec_enc_hint:'La radio cifra con la clave estática (SCK) de la celda',sec_weak_hint:'TEA1 conserva solo 32 de sus 80 bits de clave (TETRA:BURST): solo para investigación',
+    sec_cell_clear:'CLASE 1 · CLARO',sec_auth_req:'AUTH OBLIG.',sec_auth_opt:'AUTH OPC.',sec_auth_off:'SIN AUTH',
+    sec_cell_hint_clear:'Clase de seguridad 1: sin cifrado del interfaz aire en esta celda',sec_cell_hint_enc:'Clase de seguridad 2: la señalización y la voz de esta celda se cifran con la SCK {sckn} (versión {vn}) usando {ksg}',
+    sec_cell_hint_err:'Configuración AIE rechazada: {err}',sec_subs:'{n} clave(s) de abonado cargada(s)',
+    secp_section:'Seguridad del interfaz aire',secp_status_title:'Estado',secp_running:'En ejecución',secp_saved:'Guardado en la configuración',
+    secp_restart_needed:'La configuración guardada difiere de la que está en ejecución. Reinicia la estación para aplicarla.',secp_restart:'Reiniciar estación',
+    secp_restarting:'Reiniciando… la página se reconectará en unos segundos.',secp_parse_error:'config.toml no se puede analizar; corrígelo primero en la página Config: ',
+    secp_auth_title:'Autenticación (TAA1)',secp_auth_help:'Desafía a las radios con su clave de autenticación K de 128 bits al registrarse (EN 300 392-7 cláusula 4). Solo pasan las radios cuya K figura abajo. La autenticación es un control de acceso y es admisible en bandas de aficionados.',
+    secp_auth_mode:'Modo',secp_auth_off:'Desactivada: cualquier radio puede registrarse',secp_auth_optional:'Opcional: se desafía a las radios con clave y se admite al resto',secp_auth_required:'Obligatoria: se rechazan las radios sin clave o que fallan',
+    secp_mutual:'Autenticación mutua (responder al desafío de la radio y desafiarla a su vez)',secp_keys_title:'Claves de abonado',secp_keys_help:'Una K por radio, 32 dígitos hexadecimales, idéntica a la programada en la radio.',
+    secp_th_issi:'ISSI',secp_th_k:'Clave K',secp_no_keys:'Sin claves de abonado',secp_add:'Añadir',secp_generate:'Generar',secp_remove:'Quitar',secp_k_placeholder:'32 dígitos hex',secp_issi_placeholder:'ISSI',
+    secp_aie_title:'Cifrado del interfaz aire (clase 2)',secp_aie_help:'Cifra la señalización y la voz de esta celda con una clave estática (SCK) compartida por todas las radios. Las radios sin la clave se registran en claro y solo usan los grupos en claro. El cifrado del interfaz aire no está permitido en bandas de aficionados: actívalo solo en una red privada con licencia.',
+    secp_aie_enable:'Cifrar la celda (clase 2)',secp_aie_staging:'Déjalo desactivado mientras distribuyes la clave: con la celda en claro la SCK de abajo solo se usa para enviarla por el aire. Actívalo cuando todas las radios informen de que la han aceptado.',
+    secp_staged:'(preparada para OTAR)',secp_otar_label:'OTAR',secp_otar_send:'Enviar SCK',secp_otar_send_all:'Enviar SCK a todas las radios conectadas',secp_otar_hint:'Entrega la SCK por el aire, sellada con la K de esta radio (la radio debe estar registrada y su K guardada)',
+    secp_otar_none:'Ninguna radio conectada con clave guardada',secp_otar_confirm_all:'¿Enviar la SCK a {n} radio(s)?',secp_save_first:'Guarda los cambios primero',secp_offline:'desconectada',
+    secp_ksg:'Algoritmo (KSG)',secp_sck:'Clave estática (SCK)',secp_sck_placeholder:'20 dígitos hex',secp_sckn:'Número de SCK (1-32)',secp_sckvn:'Versión de SCK',secp_groups:'Grupos en claro (GSSI, separados por comas) para radios sin cifrado',
+    secp_tea1_warn:'TEA1 está roto: conserva solo 32 de sus 80 bits de clave y la clave se recupera con unos segundos de tráfico. Úsalo para investigación o para hablar con radios que solo tengan TEA1, nunca como protección.',
+    secp_keep:'sin cambios',secp_saved_ok:'Guardado. Reinicia la estación para aplicarlo.',secp_invalid_keys:'Claves guardadas que no se pudieron leer (ISSI): ',
+    secp_algo_title:'Algoritmos de esta compilación',secp_th_algo:'Algoritmo',secp_th_status:'Estado',secp_th_note:'Notas',secp_available:'Disponible',secp_unavailable:'No disponible',secp_weak:'Débil: solo investigación',
+    secp_classes:'Clases de seguridad: clase 1 = interfaz aire en claro (autenticación opcional); clase 2 = clave estática compartida por todas las radios (esta página); clase 3 = claves derivadas por radio con rekeying por el aire (no implementada).',
+    secp_unsaved:'Cambios sin guardar',
     th_id:'ID',th_type:'Tipo',th_caller:'Llamante',
     th_dest:'Destino',th_speaker:'Hablante',th_duration:'Duración',
     th_time:'Hora',th_activity:'Actividad',
@@ -8292,6 +8467,7 @@ function showPage(name,el){
   if(name==='geoalarm'){loadGeoalarm();}
   if(name==='setup'){refreshSetupPage();}
   if(name==='config'){loadConfig();loadVisualConfig();loadSdsCommands();loadWx();}
+  if(name==='security'){loadSecurity();}
   if(name==='telegram'){loadTelegram();}
   if(name==='system'){loadSystemInfo();loadConfigProfiles();loadLiveSds();loadBrightness();loadOtaChannel();startServiceStatusPolling();loadDashboardAuth();loadDashboardPorts();
     // Avoid a fresh GitHub stampede on every System visit — badge uses cache ≤90s.
@@ -10158,7 +10334,7 @@ async function wifiCall(url, body){
 function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
 
 // ── State + WS ────────────────────────────────────────────────────────────
-let ws=null,state={ms:{},calls:{},emergencies:{},lastHeard:[],sdsLog:[],dapnetLog:[],geoalarmEvents:[],brewOnline:false,brewVer:0,dgnaDefaultAttachmentMode:0,dgnaAttachmentModePickerEnabled:false},sdsDest=0,lstSdsSource=0;
+let ws=null,state={ms:{},calls:{},emergencies:{},secByIssi:{},cellSec:null,lastHeard:[],sdsLog:[],dapnetLog:[],geoalarmEvents:[],brewOnline:false,brewVer:0,dgnaDefaultAttachmentMode:0,dgnaAttachmentModePickerEnabled:false},sdsDest=0,lstSdsSource=0;
 let dgnaUi={selectedGssi:0,targetChecks:{},statusLog:[],lastByIssi:{}};
 
 // ── RadioID callsigns (indicativ) ──────────────────────────────────────────────
@@ -10251,6 +10427,46 @@ function syncTopbarChips(){
   }
   const emg=document.getElementById('chip-emergency');
   if(emg)emg.style.display=Object.keys(state.emergencies||{}).length?'inline-flex':'none';
+}
+
+function setCellSecurity(cs){
+  state.cellSec=cs||null;
+  const row=document.getElementById('secRow'),led=document.getElementById('secLed'),txt=document.getElementById('secText'),ab=document.getElementById('secAuthBadge');
+  if(!row)return;
+  let hint='';
+  if(cs&&cs.class===2){
+    led.classList.add('on');
+    txt.textContent=`${cs.ksg} · SCK ${cs.sckn} v${cs.sck_vn}`;
+    txt.style.color=cs.weak?'var(--warn)':'var(--accent)';
+    led.style.background=cs.weak?'var(--warn)':'var(--accent)';led.style.boxShadow=cs.weak?'0 0 6px rgba(255,178,36,0.6)':'0 0 6px rgba(0,212,168,0.6)';
+    hint=t('sec_cell_hint_enc',{sckn:cs.sckn,vn:cs.sck_vn,ksg:cs.ksg})+(cs.weak?'. '+t('sec_weak_hint'):'');
+  } else {
+    led.classList.remove('on');led.style.background='';led.style.boxShadow='';
+    txt.textContent=t('sec_cell_clear');txt.style.color='';
+    hint=t('sec_cell_hint_clear');
+    if(cs&&cs.aie_error)hint+='. '+t('sec_cell_hint_err',{err:cs.aie_error});
+  }
+  const auth=cs?cs.authentication:'off';
+  if(auth==='required'||auth==='optional'){
+    ab.textContent=t(auth==='required'?'sec_auth_req':'sec_auth_opt');ab.style.display='inline-block';
+    const ok=auth==='required';
+    ab.style.background=ok?'rgba(0,212,168,0.15)':'rgba(255,178,36,0.15)';ab.style.color=ok?'var(--accent)':'var(--warn)';ab.style.border=ok?'1px solid rgba(0,212,168,0.4)':'1px solid rgba(255,178,36,0.4)';
+    hint+='. '+t('sec_subs',{n:cs.subscribers||0})+(cs.mutual?', mutual':'');
+  } else {ab.style.display='none';}
+  row.title=hint;
+  renderStations();
+}
+// Per-radio security cell: what key the radio is using on this cell (or CLEAR), and whether it
+// authenticated. The cipher/SCK shown is the cell's — a class 2 cell has one static cipher key.
+function secCell(m){
+  const cs=state.cellSec,out=[];
+  if(m.authenticated)out.push(`<span class="badge badge-blue" style="font-size:9px" title="${t('sec_auth_hint')}">${ICON_LOCK} ${t('sec_auth')}</span>`);
+  if(m.encrypting&&cs&&cs.class===2){
+    out.push(`<span class="badge ${cs.weak?'badge-yellow':'badge-green'}" style="font-size:9px" title="${cs.weak?t('sec_weak_hint'):t('sec_enc_hint')}">${ICON_LOCK} ${cs.ksg} SCK${cs.sckn} v${cs.sck_vn}</span>`);
+  } else {
+    out.push(`<span class="badge badge-dim" style="font-size:9px" title="${t('sec_clear_hint')}">${t('sec_clear')}</span>`);
+  }
+  return out.join(' ');
 }
 
 function setBrewStatus(online,version){
@@ -10394,6 +10610,8 @@ function handleMsg(msg){
       });
       if(msg.log&&msg.log.length){document.getElementById('log-container').innerHTML='';msg.log.forEach(e=>appendLog(e));}
       setBrewStatus(!!msg.brew_online,msg.brew_version||0);
+      state.secByIssi={};(msg.ms||[]).forEach(m=>{state.secByIssi[m.issi]={authenticated:!!m.authenticated,encrypting:!!m.encrypting};});
+      setCellSecurity(msg.cell_security||null);
       if(msg.fallback_config_active){showFallbackBanner(msg.fallback_config_reason||'');}
       // If the server already has recent RF snapshots, paint them instantly
       // so the RF page has data before the next emit cycle.
@@ -10414,10 +10632,20 @@ function handleMsg(msg){
       // registered entries must have a defined-but-null selected_group so the equality
       // comparison `g === sel` in renderStations behaves consistently with the server-side
       // None initialiser in server.rs.
-      state.ms[msg.issi]=Object.assign({issi:msg.issi,groups:[],group_catalog:[],selected_group:null,rssi_dbfs:null,energy_saving_mode:0},state.ms[msg.issi]||{},{issi:msg.issi,_last_seen_ts:Date.now()});
+      state.ms[msg.issi]=Object.assign({issi:msg.issi,groups:[],group_catalog:[],selected_group:null,rssi_dbfs:null,energy_saving_mode:0,authenticated:false,encrypting:false},state.ms[msg.issi]||{},state.secByIssi[msg.issi]||{},{issi:msg.issi,_last_seen_ts:Date.now()});
       renderStations();renderDgnaPage();break;
     case 'ms_deregistered':
-      delete state.ms[msg.issi];renderStations();renderDgnaPage();break;
+      delete state.ms[msg.issi];delete state.secByIssi[msg.issi];renderStations();renderDgnaPage();break;
+    case 'otar_sck':
+      secpOtar[msg.issi]=msg.status;if(document.getElementById('page-security').classList.contains('active'))secpRenderSubs();break;
+    case 'ms_security':{
+      // Authentication completes before the registration that creates the MS row, so the
+      // flags are kept per ISSI and merged into the row when it appears.
+      const f=state.secByIssi[msg.issi]||(state.secByIssi[msg.issi]={authenticated:false,encrypting:false});
+      if(msg.authenticated!=null)f.authenticated=!!msg.authenticated;
+      if(msg.encrypting!=null)f.encrypting=!!msg.encrypting;
+      if(state.ms[msg.issi])Object.assign(state.ms[msg.issi],f);
+      renderStations();break;}
     case 'ms_cell':
       if(state.ms[msg.issi]){state.ms[msg.issi].cell=msg.cell;renderStations();}
       break;
@@ -11090,7 +11318,7 @@ function renderStations(){
   if(bc){bc.textContent=callCount;bc.style.display=callCount?'flex':'none';}
   const tb=document.getElementById('ms-tbody');
   if(!ms.length){
-    tb.innerHTML=`<tr><td colspan="7"><div class="empty-state"><span class="empty-ico">${svgIcon('radios')}</span><div class="empty-msg">${t('no_terminals')}</div></div></td></tr>`;
+    tb.innerHTML=`<tr><td colspan="8"><div class="empty-state"><span class="empty-ico">${svgIcon('radios')}</span><div class="empty-msg">${t('no_terminals')}</div></div></td></tr>`;
     if(document.getElementById('page-lst_dispatch')?.classList.contains('active')&&typeof lstRenderRoster==='function')lstRenderRoster();
     else if(typeof lstSyncGroupsPopAfterRender==='function')lstSyncGroupsPopAfterRender();
     return;
@@ -11105,6 +11333,7 @@ function renderStations(){
       <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${idCell(m.issi)}${m.cell!=null?' <span class="badge badge-dim" title="'+escHtmlAttr(t('cells_cell',{n:m.cell}))+'">C'+m.cell+'</span>':''}</td><td>${grps}</td>
       <td class="col-mobile-hide">${eeLabel(m.energy_saving_mode||0)}</td>
       <td><div class="gauge ${gcls}"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%"></div></div><span class="gauge-value">${rL}</span></div></td>
+      <td>${secCell(m)}</td>
       <td><span class="pill pill-ok">${t('online_badge')}</span></td>
       <td class="col-mobile-hide">${lastSeenLabel(ls)}</td>
       <td><button class="btn btn-sm" onclick="openSds(${m.issi})">${t('sds')}</button> <button class="btn btn-sm" onclick="openDgna(${m.issi})" title="${t('dgna_title')}">${t('dgna')}</button> <button class="btn btn-sm btn-danger" onclick="kickMs(${m.issi})">${t('kick')}</button>${emg?` <button class="btn btn-sm btn-danger" onclick="clearEmergency(${m.issi})">${t('emg_clear')}</button>`:''}</td>
@@ -12834,6 +13063,125 @@ let tgTokenDirty=false;    // true once the user edits the token field (so we se
 function tgEsc(s){return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 // The token to send: a freshly-typed value (never the masked placeholder), else '' = keep saved.
 function tgTokenField(){const v=(document.getElementById('tg-token').value||'').trim();return (tgTokenDirty&&v&&!v.includes('…'))?v:'';}
+// ── Security page ─────────────────────────────────────────────────────────────
+let secpData=null,secpSubs=[],secpSckDirty=false,secpChanged=false,secpOtar={};
+function secpEsc(s){return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function secpMsg(txt,ok,id){const el=document.getElementById(id||'secp-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';if(ok)setTimeout(()=>{if(el.textContent===txt)el.textContent='';},6000);}
+function secpDirty(){secpChanged=true;const el=document.getElementById('secp-msg');el.textContent=t('secp_unsaved');el.style.color='var(--warn)';}
+function secpPosture(p){
+  if(!p)return '—';
+  const a={off:t('secp_auth_off').split(' — ')[0],optional:t('secp_auth_optional').split(' — ')[0],required:t('secp_auth_required').split(' — ')[0]}[p.authentication]||p.authentication;
+  const on=!!(p.aie&&p.aie.enabled);
+  const enc=on?`${p.aie.ksg.toUpperCase()} · SCK ${p.aie.sckn} v${p.aie.sck_vn}${p.aie.weak?' ⚠':''}`:(p.aie?`${t('sec_cell_clear')} · ${p.aie.ksg.toUpperCase()} SCK ${p.aie.sckn} v${p.aie.sck_vn} ${t('secp_staged')}`:t('sec_cell_clear'));
+  return `<span style="color:${on?(p.aie.weak?'var(--warn)':'var(--accent)'):'var(--text2)'}">${ICON_LOCK} ${secpEsc(enc)}</span><br><span style="color:var(--text2)">AUTH ${secpEsc(a).toUpperCase()}${p.mutual_authentication&&p.authentication!=='off'?' · mutual':''} · ${(p.subscribers||[]).length} key(s)</span>`;
+}
+function secpRenderSubs(){
+  const tb=document.getElementById('secp-subs');
+  if(!secpSubs.length){tb.innerHTML=`<tr><td colspan="3" class="help-text">${t('secp_no_keys')}</td></tr>`;return;}
+  const canOtar=!!(secpData&&(secpData.saved||secpData.running)&&(secpData.saved||secpData.running).aie);
+  tb.innerHTML=secpSubs.map((s,i)=>{
+    const st=secpOtar[s.issi],ok=st==='accepted',pend=st==='sent';
+    const stHtml=st?`<div style="font-size:11px;margin-top:3px;color:${ok?'var(--accent)':(pend?'var(--text2)':'var(--danger)')}">${ICON_LOCK} ${t('secp_otar_label')}: ${secpEsc(st)}</div>`:'';
+    const online=!!state.ms[s.issi];
+    return `<tr><td>${idCell?idCell(s.issi):s.issi}${online?'':' <span class="badge badge-dim" style="font-size:9px">'+t('secp_offline')+'</span>'}</td><td style="font-family:var(--mono)">${s.k==='keep'?secpEsc(s.k_masked)+' <span class="badge badge-dim" style="font-size:9px">'+t('secp_keep')+'</span>':secpEsc(s.k.slice(0,4))+'…'+secpEsc(s.k.slice(-4))+' <span class="badge badge-green" style="font-size:9px">NEW</span>'}${stHtml}</td><td style="white-space:nowrap"><button class="btn btn-sm" ${(canOtar&&s.k==='keep'&&online)?'':'disabled'} title="${t('secp_otar_hint')}" onclick="secpSendSck(${s.issi})">${ICON_LOCK} ${t('secp_otar_send')}</button> <button class="btn btn-sm btn-danger" onclick="secpRemoveSub(${i})">${t('secp_remove')}</button></td></tr>`;
+  }).join('');
+}
+function secpSendSck(issi){
+  if(secpChanged){secpMsg(t('secp_save_first'),false,'secp-subs-msg');return;}
+  if(!wsSend({type:'otar_sck',issi})){secpMsg(t('conn_error'),false,'secp-subs-msg');return;}
+  secpOtar[issi]='sent';secpRenderSubs();
+}
+function secpSendSckAll(){
+  const targets=secpSubs.filter(s=>s.k==='keep'&&state.ms[s.issi]);
+  if(!targets.length){secpMsg(t('secp_otar_none'),false,'secp-subs-msg');return;}
+  if(!confirm(t('secp_otar_confirm_all',{n:targets.length})))return;
+  targets.forEach((s,i)=>setTimeout(()=>secpSendSck(s.issi),i*1500));
+}
+function secpAddSub(){
+  const issi=parseInt(document.getElementById('secp-sub-issi').value,10);
+  const k=(document.getElementById('secp-sub-k').value||'').trim().toLowerCase();
+  if(!Number.isInteger(issi)||issi<1||issi>16777215){secpMsg(t('secp_issi_placeholder')+' 1-16777215',false,'secp-subs-msg');return;}
+  if(!/^[0-9a-f]{32}$/.test(k)){secpMsg('K: '+t('secp_k_placeholder'),false,'secp-subs-msg');return;}
+  secpSubs=secpSubs.filter(s=>s.issi!==issi);secpSubs.push({issi,k});secpSubs.sort((a,b)=>a.issi-b.issi);
+  document.getElementById('secp-sub-issi').value='';document.getElementById('secp-sub-k').value='';
+  secpRenderSubs();secpDirty();
+}
+function secpRemoveSub(i){secpSubs.splice(i,1);secpRenderSubs();secpDirty();}
+async function secpGenerate(what,inputId){
+  try{const r=await fetch('/api/security/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({what})});
+    if(!r.ok){secpMsg(await r.text(),false);return;}const d=await r.json();document.getElementById(inputId).value=d.hex||'';}
+  catch{secpMsg(t('conn_error'),false);}
+}
+function secpAieToggle(){secpDirty();}
+function secpKsgChanged(){
+  const sel=document.getElementById('secp-ksg'),id=sel.value,k=(secpData&&secpData.ksgs||[]).find(x=>x.id===id);
+  document.getElementById('secp-ksg-note').textContent=k?k.note:'';
+  document.getElementById('secp-tea1-warn').style.display=(k&&k.weak)?'':'none';
+  secpDirty();
+}
+function secpRenderAlgos(){
+  const tb=document.getElementById('secp-algos');
+  tb.innerHTML=(secpData.ksgs||[]).map(k=>`<tr><td style="font-family:var(--mono)">${k.name}</td><td>${k.available?(k.weak?`<span class="badge badge-yellow">${t('secp_weak')}</span>`:`<span class="badge badge-green">${t('secp_available')}</span>`):`<span class="badge badge-dim">${t('secp_unavailable')}</span>`}</td><td class="help-text">${secpEsc(k.note)}</td></tr>`).join('');
+}
+function secpFill(d){
+  secpData=d;
+  document.getElementById('secp-running').innerHTML=secpPosture(d.running);
+  document.getElementById('secp-saved').innerHTML=d.saved?secpPosture(d.saved):'—';
+  document.getElementById('secp-restart').style.display=d.restart_required?'':'none';
+  const pe=document.getElementById('secp-parse-error');
+  if(d.parse_error){pe.style.display='';pe.textContent=t('secp_parse_error')+d.parse_error;}else{pe.style.display='none';}
+  const s=d.saved||d.running;
+  document.getElementById('secp-auth').value=s.authentication||'off';
+  document.getElementById('secp-mutual').checked=!!s.mutual_authentication;
+  secpSubs=(s.subscribers||[]).map(x=>({issi:x.issi,k:'keep',k_masked:x.k_masked}));
+  secpRenderSubs();
+  const inv=document.getElementById('secp-invalid');
+  if((s.invalid_subscriber_keys||[]).length){inv.style.display='';inv.textContent=t('secp_invalid_keys')+s.invalid_subscriber_keys.join(', ');}else{inv.style.display='none';}
+  const sel=document.getElementById('secp-ksg');
+  sel.innerHTML=(d.ksgs||[]).map(k=>`<option value="${k.id}"${k.available?'':' disabled'}>${k.name}${k.weak?' — research only':''}${k.available?'':' — not available'}</option>`).join('');
+  const aie=s.aie;
+  document.getElementById('secp-aie').checked=!!(aie&&aie.enabled);
+  sel.value=aie?aie.ksg:'tea3';
+  document.getElementById('secp-sck').value=aie?aie.sck_masked:'';secpSckDirty=false;
+  document.getElementById('secp-sckn').value=aie?aie.sckn:1;
+  document.getElementById('secp-sckvn').value=aie?aie.sck_vn:1;
+  document.getElementById('secp-groups').value=aie?(aie.clear_groups||[]).join(', '):'';
+  const k=(d.ksgs||[]).find(x=>x.id===sel.value);
+  document.getElementById('secp-ksg-note').textContent=k?k.note:'';
+  document.getElementById('secp-tea1-warn').style.display=(k&&k.weak)?'':'none';
+  secpRenderAlgos();
+  if(s.aie_error){secpMsg(s.aie_error,false);}else if(!secpChanged){document.getElementById('secp-msg').textContent='';}
+  secpChanged=false;
+}
+async function loadSecurity(){
+  try{const r=await fetch('/api/security');if(!r.ok){secpMsg(t('conn_error'),false);return;}secpFill(await r.json());}
+  catch{secpMsg(t('conn_error'),false);}
+}
+async function saveSecurity(){
+  const enabled=document.getElementById('secp-aie').checked;
+  const sck=(document.getElementById('secp-sck').value||'').trim().toLowerCase();
+  const haveKey=secpSckDirty?sck.length>0:!!((secpData.saved||secpData.running).aie);
+  if(secpSckDirty&&sck&&!/^[0-9a-f]{20}$/.test(sck)){secpMsg('SCK: '+t('secp_sck_placeholder'),false);return;}
+  if(enabled&&!haveKey){secpMsg('SCK: '+t('secp_sck_placeholder'),false);return;}
+  const body={
+    authentication:document.getElementById('secp-auth').value,
+    mutual_authentication:document.getElementById('secp-mutual').checked,
+    subscribers:secpSubs.map(s=>({issi:s.issi,k:s.k})),
+    aie:haveKey?{enabled,ksg:document.getElementById('secp-ksg').value,sck:secpSckDirty?sck:'keep',
+      sckn:parseInt(document.getElementById('secp-sckn').value,10)||1,sck_vn:parseInt(document.getElementById('secp-sckvn').value,10)||0,
+      clear_groups:(document.getElementById('secp-groups').value||'').split(/[\s,;]+/).filter(Boolean).map(x=>parseInt(x,10)).filter(n=>Number.isInteger(n)&&n>0)}:{enabled:false}
+  };
+  try{
+    const r=await fetch('/api/security',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){secpMsg(await r.text(),false);return;}
+    secpChanged=false;secpFill(await r.json());secpMsg(t('secp_saved_ok'),true);
+  }catch{secpMsg(t('conn_error'),false);}
+}
+async function restartForSecurity(){
+  try{await fetch('/api/security/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});secpMsg(t('secp_restarting'),true);}
+  catch{secpMsg(t('conn_error'),false);}
+}
+
 async function loadTelegram(){
   try{
     const r=await fetch('/api/telegram');
@@ -16419,6 +16767,7 @@ async function setupInstallDriver(driver,inWizard){
       if(msg)msg.textContent=short;
       if(driver==='sx'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=sx';setupSelectedDevice='driver=sx';}
       if(driver==='lime'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=lime';setupSelectedDevice='driver=lime';}
+      if(driver==='uhd'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=uhd';setupSelectedDevice='driver=uhd';}
       setupScanSdr(inWizard);
     }else{
       if(msg)msg.textContent=d.error||('install failed (HTTP '+r.status+')');

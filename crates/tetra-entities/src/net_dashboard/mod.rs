@@ -11,6 +11,7 @@ pub mod ota_channel;
 pub mod profiles;
 pub mod radioid;
 pub mod sds_commands;
+pub mod security;
 pub mod server;
 pub mod setup;
 pub mod snom_notify;

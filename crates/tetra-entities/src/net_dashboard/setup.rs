@@ -232,8 +232,8 @@ fn run_helper(args: &[&str]) -> Result<String, String> {
 pub fn install_driver(driver: &str) -> Result<String, String> {
     let driver = driver.trim().to_ascii_lowercase();
     match driver.as_str() {
-        "sx" | "lime" => run_helper(&["install-driver", &driver]),
-        _ => Err("unsupported driver (use sx or lime)".into()),
+        "sx" | "lime" | "uhd" => run_helper(&["install-driver", &driver]),
+        _ => Err("unsupported driver (use sx, lime or uhd)".into()),
     }
 }
 
