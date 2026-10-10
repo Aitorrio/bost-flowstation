@@ -252,6 +252,14 @@ pub enum TelemetryEvent {
     /// non-zero latitude/longitude is configured (`[telemetry]`), periodically. Appended last for
     /// bitcode wire-stability.
     SiteLocation { name: Option<String>, lat: f64, lon: f64 },
+    /// A radio's air-interface security state changed. `authenticated` is set once the radio
+    /// passed a TAA1 challenge (EN 300 392-7 clause 4.4); `encrypting` once the MAC first
+    /// decrypted a PDU it sent under the cell's static cipher key. `None` leaves that flag as it
+    /// was. Appended last for bitcode wire-stability.
+    MsSecurity { issi: u32, authenticated: Option<bool>, encrypting: Option<bool> },
+    /// Progress of an over-the-air SCK delivery to a radio: "sent", "accepted", a failure
+    /// text, or "timeout". Appended last for bitcode wire-stability.
+    OtarSck { issi: u32, sckn: u8, sck_vn: u16, status: String },
 }
 
 impl TelemetryEvent {

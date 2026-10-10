@@ -1,0 +1,164 @@
+//! HURDLE-II block cipher (ETSI TS 104 053-3 clause 6): a 16-round Feistel
+//! cipher on 64-bit blocks with a 128-bit key and 96-bit round keys.
+//!
+//! Byte strings follow the specification's notation: most significant byte
+//! first, so `key[0]` is K15 and `block[0]` is P7.
+
+use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// The byte substitution S (Table 1), row-wise S[00] … S[ff]. Also used by TA61.
+#[rustfmt::skip]
+pub(crate) const S: [u8; 256] = [
+    0xf4, 0x65, 0x01, 0x00, 0xba, 0x7a, 0xa7, 0x47, 0x98, 0xdd, 0x9d, 0xad, 0x96, 0x5d, 0xaa, 0x3d,
+    0x58, 0xc0, 0x72, 0xd8, 0x66, 0x4c, 0x3e, 0xe0, 0x80, 0x55, 0xde, 0x90, 0x2a, 0x4b, 0x83, 0xa0,
+    0x51, 0x39, 0xed, 0x6c, 0x8a, 0x2c, 0x56, 0x60, 0x4a, 0x1f, 0xd0, 0x70, 0x6e, 0x33, 0x8b, 0x26,
+    0x2e, 0x6f, 0x89, 0x48, 0x5e, 0x40, 0xc3, 0xa4, 0xa9, 0xcf, 0x22, 0x50, 0xe1, 0x15, 0x0c, 0xab,
+    0xd5, 0xf8, 0x5f, 0x36, 0x04, 0xa6, 0x4e, 0x92, 0x1e, 0x2b, 0x88, 0x30, 0x93, 0x45, 0x67, 0x16,
+    0x8c, 0x68, 0x23, 0x38, 0x61, 0x25, 0x1a, 0x81, 0x63, 0xcb, 0xc1, 0x13, 0x41, 0x37, 0x0e, 0x97,
+    0x5b, 0xca, 0x57, 0x24, 0x4d, 0x17, 0xc4, 0xb9, 0xb3, 0xef, 0x8d, 0x52, 0x32, 0x2f, 0xec, 0x20,
+    0xd9, 0x11, 0xd1, 0x28, 0x79, 0xda, 0xfb, 0xe9, 0xbb, 0x06, 0x77, 0xdb, 0xfc, 0xfe, 0xcd, 0x84,
+    0x1d, 0xa1, 0x54, 0x1b, 0xb0, 0xe4, 0xcc, 0x7c, 0x2d, 0x27, 0x31, 0x49, 0xf5, 0x02, 0x69, 0x53,
+    0x4f, 0x44, 0xdf, 0x18, 0x5c, 0x0f, 0xbc, 0x9b, 0x94, 0xbd, 0xdc, 0x0b, 0xa2, 0xc7, 0x09, 0xac,
+    0xc6, 0x9f, 0x82, 0x1c, 0x05, 0x46, 0xc2, 0x34, 0x3c, 0x0d, 0x3b, 0xce, 0xb7, 0xbe, 0x08, 0x9c,
+    0x6b, 0xee, 0xe5, 0x87, 0xaf, 0xbf, 0xf2, 0xeb, 0x7b, 0x07, 0x64, 0xc5, 0xb6, 0xae, 0x9a, 0x95,
+    0x35, 0xa5, 0x59, 0x12, 0x9e, 0xa3, 0xb8, 0x8e, 0x5a, 0xf7, 0x62, 0xd2, 0x3a, 0xa8, 0x7d, 0x85,
+    0xf6, 0xc8, 0x71, 0x29, 0xd6, 0xd7, 0x43, 0xf9, 0x78, 0x76, 0x73, 0x10, 0x91, 0x19, 0x0a, 0x99,
+    0xf0, 0xe6, 0x3f, 0x14, 0xf1, 0xe2, 0xb1, 0x86, 0xb4, 0xf3, 0x74, 0xfa, 0x6a, 0xb2, 0x21, 0x6d,
+    0xea, 0xb5, 0xe7, 0xe3, 0xc9, 0xd3, 0x8f, 0x03, 0x75, 0xe8, 0xd4, 0x42, 0xfd, 0x7e, 0xff, 0x7f,
+];
+
+/// Inverse of S, built once for TA61's inverse.
+pub(crate) fn s_inverse() -> [u8; 256] {
+    let mut inv = [0u8; 256];
+    for (i, &v) in S.iter().enumerate() {
+        inv[v as usize] = i as u8;
+    }
+    inv
+}
+
+/// Key schedule constant D = D15 … D0 (clause 6.5).
+const D: [u8; 16] = [
+    0x3c, 0xa7, 0xec, 0x25, 0x79, 0x57, 0xdf, 0xc0, 0x38, 0x0a, 0x33, 0x1e, 0xf3, 0x8c, 0xf4, 0xf7,
+];
+
+/// Byte rotation amounts a1 … a16 (clause 6.5).
+const A: [usize; 16] = [5, 5, 5, 5, 3, 7, 5, 5, 5, 5, 7, 3, 5, 5, 5, 5];
+
+/// Data expansion (clause 6.4.1): which input byte X0 … X3 feeds E0 … E11.
+const EXPANSION: [usize; 12] = [0, 1, 2, 3, 0, 2, 1, 3, 2, 0, 3, 1];
+
+/// A HURDLE-II key with its 16 round keys scheduled.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct Hurdle {
+    /// Round keys K^1 … K^16, each K11 … K0 stored least significant byte first.
+    round_keys: [[u8; 12]; 16],
+}
+
+impl Hurdle {
+    /// Schedule the round keys for a 128-bit key given K15 … K0.
+    pub fn new(key: &[u8; 16]) -> Hurdle {
+        // Q^1 = K, kept as q[j] = Q_j (subscript = significance).
+        let mut q = [0u8; 16];
+        for (j, b) in q.iter_mut().enumerate() {
+            *b = key[15 - j];
+        }
+        let mut round_keys = [[0u8; 12]; 16];
+        for i in 0..16 {
+            round_keys[i].copy_from_slice(&q[..12]); // K^i = Q^i_11 … Q^i_0
+            // Q^(i+1) = E^(a_i) Q^i ⊕ D: left shift by a_i bytes, then XOR D.
+            let l = A[i];
+            let mut next = [0u8; 16];
+            for j in 0..16 {
+                next[j] = q[(j + 16 - l) % 16] ^ D[15 - j];
+            }
+            q = next;
+        }
+        Hurdle { round_keys }
+    }
+
+    /// The round function f (clause 6.4) on X3 … X0 (given least significant
+    /// byte first) with round key K11 … K0 (least significant byte first).
+    fn f(x: [u8; 4], k: &[u8; 12]) -> [u8; 4] {
+        let mut t = [0u8; 12];
+        let mut prev = 0u8;
+        for j in 0..12 {
+            let e = x[EXPANSION[j]];
+            t[j] = S[(e.wrapping_add(k[j]) ^ prev) as usize];
+            prev = t[j];
+        }
+        // Nibble selection and the bit permutation π (clauses 6.4.3–6.4.4):
+        // bit m of Y_n is bit n of T_(m+4).
+        let mut y = [0u8; 4];
+        for (n, yn) in y.iter_mut().enumerate() {
+            for m in 0..8 {
+                *yn |= ((t[m + 4] >> n) & 1) << m;
+            }
+        }
+        y
+    }
+
+    fn rounds(&self, block: &[u8; 8], reverse: bool) -> [u8; 8] {
+        // L0 = P7 … P4, R0 = P3 … P0; work least significant byte first.
+        let mut l = [block[3], block[2], block[1], block[0]];
+        let mut r = [block[7], block[6], block[5], block[4]];
+        for i in 0..16 {
+            let k = if reverse { &self.round_keys[15 - i] } else { &self.round_keys[i] };
+            let fx = Hurdle::f(r, k);
+            let next_r = [l[0] ^ fx[0], l[1] ^ fx[1], l[2] ^ fx[2], l[3] ^ fx[3]];
+            l = r;
+            r = next_r;
+        }
+        // C = R16 L16 (halves swapped).
+        [r[3], r[2], r[1], r[0], l[3], l[2], l[1], l[0]]
+    }
+
+    /// Encrypt one block P7 … P0.
+    pub fn encrypt(&self, block: &[u8; 8]) -> [u8; 8] {
+        self.rounds(block, false)
+    }
+
+    /// Decrypt one block C7 … C0 (clause 6.3: the rounds with K^16 … K^1).
+    pub fn decrypt(&self, block: &[u8; 8]) -> [u8; 8] {
+        self.rounds(block, true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn s_is_a_permutation() {
+        let mut seen = [false; 256];
+        for &v in &S {
+            assert!(!seen[v as usize], "duplicate {v:02x}");
+            seen[v as usize] = true;
+        }
+    }
+
+    #[test]
+    fn reference_vectors_round_trip() {
+        // Independent implementation (Midnight Blue, TETRA_crypto, Apache-2.0).
+        let cases: [([u8; 16], [u8; 8], [u8; 8]); 2] = [
+            (
+                [
+                    0xab, 0xcd, 0xef, 0x12, 0xc0, 0x01, 0xf0, 0x0d, 0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe,
+                ],
+                [0xca, 0xfe, 0xba, 0xbe, 0xde, 0xad, 0xbe, 0xef],
+                [0x4b, 0xf1, 0x55, 0x08, 0x81, 0x2e, 0x06, 0xf0],
+            ),
+            (
+                [
+                    0x99, 0x99, 0x00, 0x99, 0x99, 0x11, 0x88, 0x99, 0x22, 0x77, 0x99, 0x33, 0x66, 0x99, 0x44, 0x55,
+                ],
+                [0x22, 0x22, 0x66, 0x66, 0x22, 0x22, 0xee, 0xee],
+                [0xb4, 0xda, 0x66, 0x98, 0xd3, 0x6b, 0x16, 0x52],
+            ),
+        ];
+        for (key, pt, ct) in cases {
+            let h = Hurdle::new(&key);
+            assert_eq!(h.encrypt(&pt), ct);
+            assert_eq!(h.decrypt(&ct), pt);
+        }
+    }
+}

@@ -17,6 +17,10 @@ pub struct MsState {
     pub registered_at: u64,
     pub last_seen_secs_ago: u64,
     pub energy_saving_mode: u8, // 0=StayAlive, 1=Eg1..7=Eg7
+    /// The radio passed a TAA1 authentication challenge in this registration.
+    pub authenticated: bool,
+    /// The MAC has decrypted PDUs from this radio under the cell's SCK.
+    pub encrypting: bool,
     /// Multi-cell: the cell the MS is registered on (None on a single-cell station).
     pub cell: Option<u8>,
 }
@@ -152,6 +156,9 @@ pub struct DashboardStateInner {
     pub config_path: String,
     pub brew_online: bool,
     pub brew_version: u8,
+    /// Per-ISSI security flags (authenticated, encrypting). Kept beside `ms_map` because
+    /// authentication completes *before* the registration that creates the MS entry.
+    pub ms_security: HashMap<u32, (bool, bool)>,
     /// Set when the stack started on the fallback config instead of the primary.
     /// Contains the parse error that caused the primary config to be rejected.
     pub fallback_config_active: bool,
@@ -317,6 +324,7 @@ impl DashboardStateInner {
             lip_positions: HashMap::new(),
             config_path,
             brew_online: false,
+            ms_security: HashMap::new(),
             brew_version: 0,
             fallback_config_active: false,
             fallback_config_reason: String::new(),
@@ -514,6 +522,8 @@ impl DashboardStateInner {
                 last_seen_secs_ago: e.last_seen.elapsed().as_secs(),
                 energy_saving_mode: e.energy_saving_mode,
                 cell: e.cell,
+                authenticated: self.ms_security.get(&e.issi).map(|f| f.0).unwrap_or(false),
+                encrypting: self.ms_security.get(&e.issi).map(|f| f.1).unwrap_or(false),
             })
             .collect()
     }

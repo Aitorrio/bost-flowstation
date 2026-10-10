@@ -2070,14 +2070,35 @@ impl DashboardServer {
                     }
                 }
                 TelemetryEvent::CellsSnapshot { .. } => {}
+                TelemetryEvent::MsSecurity { issi, authenticated, encrypting } => {
+                    let flags = s.ms_security.entry(*issi).or_default();
+                    if let Some(a) = authenticated {
+                        flags.0 = *a;
+                    }
+                    if let Some(e) = encrypting {
+                        flags.1 = *e;
+                    }
+                    if *authenticated == Some(true) {
+                        s.push_log("INFO", format!("MS {} authenticated", issi));
+                    }
+                    if *encrypting == Some(true) {
+                        s.push_log("INFO", format!("MS {} is encrypting (SCK)", issi));
+                    }
+                }
+                TelemetryEvent::OtarSck { issi, sckn, sck_vn, status } => {
+                    let level = if status == "accepted" || status == "sent" { "INFO" } else { "WARN" };
+                    s.push_log(level, format!("OTAR SCK {} v{} to ISSI {}: {}", sckn, sck_vn, issi, status));
+                }
                 TelemetryEvent::MsDeregistration { issi } => {
                     s.ms_map.remove(issi);
+                    s.ms_security.remove(issi);
                     s.push_log("INFO", format!("MS {} deregistered", issi));
                 }
                 TelemetryEvent::MsTimeoutDrop { issi } => {
                     // Same UI effect as a deregistration (the MS is gone from the cell); the
                     // distinct event only matters to alert consumers that report the reason.
                     s.ms_map.remove(issi);
+                    s.ms_security.remove(issi);
                     s.push_log("WARN", format!("MS {} dropped (no response to T351)", issi));
                 }
                 TelemetryEvent::MsGroupAttach { issi, gssis } => {
@@ -2512,6 +2533,96 @@ fn cell_rf_ws_value(cell: u8, rf: &CellRfEvent) -> Option<serde_json::Value> {
     Some(v)
 }
 
+/// The cell's security posture for the dashboard: class 1 (clear) or class 2 with the SCK in
+/// use, and the authentication mode (EN 300 392-7 clauses 4.4 and 6.5).
+fn cell_security_json(sec: &tetra_config::bluestation::sec_security::CfgSecurity) -> serde_json::Value {
+    use tetra_config::bluestation::sec_security::AuthenticationMode;
+    let authentication = match sec.authentication {
+        AuthenticationMode::Off => "off",
+        AuthenticationMode::Optional => "optional",
+        AuthenticationMode::Required => "required",
+    };
+    match &sec.aie {
+        Some(a) if a.enabled => serde_json::json!({
+            "class": 2, "ksg": format!("TEA{}", a.ksg), "sckn": a.sckn, "sck_vn": a.sck_vn,
+            "weak": a.ksg == 1, "clear_groups": a.clear_groups,
+            "authentication": authentication, "mutual": sec.mutual_authentication,
+            "subscribers": sec.subscribers.len(),
+        }),
+        staged => serde_json::json!({
+            "class": 1,
+            "staged": staged.as_ref().map(|a| serde_json::json!({"ksg": format!("TEA{}", a.ksg), "sckn": a.sckn, "sck_vn": a.sck_vn})),
+            "authentication": authentication, "mutual": sec.mutual_authentication,
+            "subscribers": sec.subscribers.len(),
+        }),
+    }
+}
+
+/// GET /api/security — running and saved security posture, keys masked.
+fn serve_security_get(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str) {
+    use crate::net_dashboard::security;
+    let running = match shared_config {
+        Some(cfg) => cfg.config().security.clone(),
+        None => tetra_config::bluestation::sec_security::CfgSecurity::default(),
+    };
+    http_json_response(stream, 200, &security::page_json(&running, security::load_saved(config_path)));
+}
+
+/// POST /api/security — validate and write the settings; they apply on the next restart.
+fn serve_security_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
+    use crate::net_dashboard::security;
+    let current = match security::load_saved(config_path) {
+        Ok(s) => s,
+        Err(e) => {
+            http_response(stream, 500, &e);
+            return;
+        }
+    };
+    let edit = match security::parse_edit(body, &current) {
+        Ok(e) => e,
+        Err(e) => {
+            http_response(stream, 400, &e);
+            return;
+        }
+    };
+    if let Err(e) = security::write_to_toml(config_path, &edit) {
+        http_response(stream, 500, &format!("Could not write config: {e}"));
+        return;
+    }
+    tracing::info!(
+        "Dashboard: security settings saved (authentication {:?}, {} subscriber key(s), encryption {}) — restart to apply",
+        edit.authentication,
+        edit.subscribers.len(),
+        edit.aie.as_ref().map(|a| format!("TEA{} SCK {} v{}", a.ksg, a.sckn, a.sck_vn)).unwrap_or_else(|| "off".into())
+    );
+    let running = match shared_config {
+        Some(cfg) => cfg.config().security.clone(),
+        None => tetra_config::bluestation::sec_security::CfgSecurity::default(),
+    };
+    http_json_response(stream, 200, &security::page_json(&running, security::load_saved(config_path)));
+}
+
+/// POST /api/security/generate {"what":"sck"|"k"} — a fresh random key for the form.
+fn serve_security_generate(stream: PrefixedConn, body: &str) {
+    let what = serde_json::from_str::<serde_json::Value>(body.trim())
+        .ok()
+        .and_then(|v| v.get("what").and_then(|w| w.as_str()).map(|s| s.to_string()))
+        .unwrap_or_default();
+    let n = match what.as_str() {
+        "sck" => 10,
+        "k" => 16,
+        _ => {
+            http_response(stream, 400, "what must be sck or k");
+            return;
+        }
+    };
+    match crate::net_dashboard::security::random_hex(n) {
+        Ok(h) => http_json_response(stream, 200, &format!("{{\"hex\":\"{h}\"}}")),
+        Err(e) => http_response(stream, 500, &format!("no random source: {e}")),
+    }
+}
+
+
 fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
     let v = match event {
         TelemetryEvent::MsRegistration { issi } => serde_json::json!({"type":"ms_registered","issi":issi}),
@@ -2536,6 +2647,12 @@ fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
         }),
         TelemetryEvent::MsRssi { issi, rssi_dbfs } => serde_json::json!({"type":"ms_rssi","issi":issi,"rssi_dbfs":rssi_dbfs}),
         TelemetryEvent::MsEnergySaving { issi, mode } => serde_json::json!({"type":"ms_energy_saving","issi":issi,"mode":mode}),
+        TelemetryEvent::MsSecurity { issi, authenticated, encrypting } => {
+            serde_json::json!({"type":"ms_security","issi":issi,"authenticated":authenticated,"encrypting":encrypting})
+        }
+        TelemetryEvent::OtarSck { issi, sckn, sck_vn, status } => {
+            serde_json::json!({"type":"otar_sck","issi":issi,"sckn":sckn,"sck_vn":sck_vn,"status":status})
+        }
         TelemetryEvent::GroupCallStarted {
             call_id,
             gssi,
@@ -3868,6 +3985,21 @@ fn handle_connection(
     } else if req_line.contains("POST /api/telegram/test") {
         let (inner, body_str) = read_post_body(stream);
         serve_telegram_test(inner, &shared_config, &body_str);
+    } else if req_line.contains("POST /api/security/generate") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_security_generate(inner, &body_str);
+    } else if req_line.contains("POST /api/security/restart") {
+        let (inner, _) = read_post_body(stream);
+        tracing::info!("Dashboard: restart requested from the Security page");
+        crate::service_control::schedule_service_action(crate::service_control::ServiceAction::Restart, std::time::Duration::from_secs(2));
+        http_json_response(inner, 200, "{\"ok\":true}");
+    } else if req_line.contains("GET /api/security") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        serve_security_get(s, &shared_config, &config_path);
+    } else if req_line.contains("POST /api/security") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_security_post(inner, &shared_config, &config_path, &body_str);
     } else if req_line.contains("GET /api/telegram") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4383,8 +4515,10 @@ fn handle_ws(
                 )
             })
             .unwrap_or((0, false));
+        let cell_security = shared_config.as_ref().map(|cfg| cell_security_json(&cfg.config().security));
         if let Ok(json) = serde_json::to_string(&serde_json::json!({
             "type": "snapshot", "ms": ms, "calls": calls, "emergencies": emergencies, "log": logs,
+            "cell_security": cell_security,
             "brew_online": brew_online, "brew_version": brew_version, "last_heard": last_heard,
             "fallback_config_active": fallback_active, "fallback_config_reason": fallback_reason,
             "last_tx_visual": last_tx_visual,
@@ -4488,6 +4622,18 @@ fn handle_ws_command(
     };
 
     match cmd_type {
+        Some("otar_sck") => {
+            let Some(issi) = json_ssi(&v, "issi") else {
+                reject_ws_ssi(state, "otar_sck", "issi", v.get("issi"));
+                return;
+            };
+            tracing::info!("Dashboard: OTAR SCK to ISSI {}", issi);
+            if !send_cmd(ControlCommand::OtarSck { issi }) {
+                tracing::warn!("Dashboard: no control dispatcher for otar_sck");
+            }
+            let mut s = state.write().unwrap();
+            s.push_log("INFO", format!("OTAR: sending SCK to ISSI {}", issi));
+        }
         Some("kick") => {
             let Some(issi) = json_ssi(&v, "issi") else {
                 reject_ws_ssi(state, "kick", "issi", v.get("issi"));
@@ -8889,6 +9035,27 @@ dest_issi = 2632585
             "Open — all ISSI may register"
         );
         assert_eq!(normalize_mojibake_html("waitingÃ¢â‚¬Â¦"), "waiting…");
+    }
+
+    /// Authentication completes before the registration that creates the MS row, and the
+    /// encrypting flag arrives from the MAC later: both must end up on the radio's row, and
+    /// a deregistration must forget them.
+    #[test]
+    fn security_flags_survive_registration_order() {
+        let server = DashboardServer::new("/tmp/fs_sec_flags_test_config.toml".to_string());
+        let snap = |issi: u32| {
+            server.state.read().unwrap().snapshot_ms().into_iter().find(|m| m.issi == issi).map(|m| (m.authenticated, m.encrypting))
+        };
+
+        server.handle_telemetry(TelemetryEvent::MsSecurity { issi: 2358245, authenticated: Some(true), encrypting: None });
+        assert_eq!(snap(2358245), None, "no row before registration");
+        server.handle_telemetry(TelemetryEvent::MsRegistration { issi: 2358245 });
+        assert_eq!(snap(2358245), Some((true, false)));
+        server.handle_telemetry(TelemetryEvent::MsSecurity { issi: 2358245, authenticated: None, encrypting: Some(true) });
+        assert_eq!(snap(2358245), Some((true, true)));
+        server.handle_telemetry(TelemetryEvent::MsDeregistration { issi: 2358245 });
+        server.handle_telemetry(TelemetryEvent::MsRegistration { issi: 2358245 });
+        assert_eq!(snap(2358245), Some((false, false)), "flags are per registration");
     }
 
     /// FH-BUG (brew shown as v0): the transport reports version 0 ("unknown") on every (re)connect

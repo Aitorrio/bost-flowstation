@@ -353,6 +353,7 @@ mod tests {
 
     fn test_cipher() -> CellCipher {
         let aie = tetra_config::bluestation::CfgAie {
+            enabled: true,
             ksg: 1,
             sckn: 1,
             sck: tetra_config::bluestation::CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]),
