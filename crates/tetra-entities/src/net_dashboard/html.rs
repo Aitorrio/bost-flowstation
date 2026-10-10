@@ -572,6 +572,11 @@ body{
 }
 .lst-scan-chip .lst-scan-mic svg{width:14px;height:14px;display:block;}
 .lst-scan-chip .lst-scan-num{font-weight:700;letter-spacing:0.02em;color:inherit;}
+.lst-scan-chip .lst-scan-name{font-family:var(--font,inherit);font-weight:600;color:inherit;}
+.lst-scan-chip .lst-scan-name+.lst-scan-num{font-weight:500;opacity:0.85;}
+.lst-scan-row .lst-scan-name-input{flex:1.4 1 0;}
+.lst-scan-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.lst-scan-tools .help-text{margin:0;}
 /* Soft fill + dark ink for readable colored states (light UI). */
 .lst-scan-chip.is-tx{
   background:#dbeafe;border-color:#93c5fd;color:#1e3a8a;
@@ -6146,9 +6151,17 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
               <div class="lst-scan-row">
                 <input type="number" class="form-input" id="lst-scan-gssi" min="1" max="16777214" placeholder="GSSI">
+                <input type="text" class="form-input lst-scan-name-input" id="lst-scan-name" maxlength="40" placeholder="Name (optional)">
                 <button class="btn btn-sm" onclick="lstScanAdd()" data-i18n="lst_scan_add">Add</button>
               </div>
               <div class="lst-scan-list" id="lst-scan-list"></div>
+              <div class="lst-scan-tools">
+                <input type="file" id="lst-scan-file" accept=".csv,.txt,.json,text/plain,text/csv,application/json" style="display:none" onchange="lstScanImportFile(this)">
+                <button type="button" class="btn btn-sm" onclick="document.getElementById('lst-scan-file').click()" data-i18n="lst_scan_import">Import file</button>
+                <button type="button" class="btn btn-sm" onclick="lstScanExport()" data-i18n="lst_scan_export">Export</button>
+                <span class="help-text" id="lst-scan-msg"></span>
+              </div>
+              <p class="help-text" data-i18n="lst_scan_file_hint">One TG per line: World Wide (91), World Wide,91 or 91,World Wide. CSV, TXT or JSON.</p>
             </div>
             <div class="lst-call-strip" id="lst-call-strip">
               <div class="lst-call-strip-main" onclick="lstOpenStripModal()">
@@ -7343,6 +7356,9 @@ const LANGS={
     lst_cause_error:'Connection error',lst_cause_finished:'Finished',
     lst_scan_list:'Scan list (TGs)',lst_scan_add:'Add',lst_scan_tx:'TX',lst_scan_remove:'Remove',
     lst_scan_empty:'No TGs selected',
+    lst_scan_name_ph:'Name (optional)',lst_scan_import:'Import file',lst_scan_export:'Export',
+    lst_scan_file_hint:'One TG per line: World Wide (91), World Wide,91 or 91,World Wide. CSV, TXT or JSON.',
+    lst_scan_imported:'Imported {n} TGs ({added} new)',lst_scan_import_err:'No talkgroups found in that file',
     lst_scan_hint:'Mark one TG as TX (primary). Other TGs are listened with lower priority.',
     lst_ptt_space:'Spacebar',
     lst_ptt_busy:'Press again to interrupt (3s)',
@@ -7802,6 +7818,9 @@ const LANGS={
     lst_cause_error:'Error de conexión',lst_cause_finished:'Finalizada',
     lst_scan_list:'Lista de escaneo (TGs)',lst_scan_add:'Añadir',lst_scan_tx:'TX',lst_scan_remove:'Quitar',
     lst_scan_empty:'Sin TGs seleccionados',
+    lst_scan_name_ph:'Nombre (opcional)',lst_scan_import:'Importar archivo',lst_scan_export:'Exportar',
+    lst_scan_file_hint:'Un TG por línea: World Wide (91), World Wide,91 o 91,World Wide. CSV, TXT o JSON.',
+    lst_scan_imported:'{n} TGs importados ({added} nuevos)',lst_scan_import_err:'No se encontraron grupos en ese archivo',
     lst_scan_hint:'Marca un TG como TX (principal). El resto se escucha con menor prioridad.',
     lst_ptt_space:'Barra espaciadora',
     lst_ptt_busy:'Pulsa otra vez para interrumpir (3s)',
@@ -8660,6 +8679,7 @@ let lstDlViaWs=false,lstUlNode=null,lstDlNode=null,lstUlSrc=null,lstDlGain=null;
 let lstCallPeer=0,lstCallTab='sx';
 let lstLastStatus=null,lstTimerFrozenSecs=null,lstTimerTick=null;
 let lstScanList=[],lstScanTx=0,lstRxGssi=0,lstSpaceBound=false,lstSpaceDown=false;
+let lstScanNames={};
 const LST_FRAME_SAMPLES=480; // 60 ms @ 8 kHz = one TETRA ACELP block
 function lstScanStorageKey(){return 'fs_lst_scan_'+location.host;}
 function lstLoadScan(){
@@ -8669,11 +8689,107 @@ function lstLoadScan(){
     const j=JSON.parse(raw);
     lstScanList=Array.isArray(j.list)?j.list.map(Number).filter(n=>n>0):[];
     lstScanTx=Number(j.tx)||0;
+    lstScanNames={};
+    if(j.names&&typeof j.names==='object'){
+      Object.keys(j.names).forEach(k=>{const g=Number(k),n=String(j.names[k]||'').trim();if(g>0&&n)lstScanNames[g]=n;});
+    }
     if(lstScanTx&&!lstScanList.includes(lstScanTx))lstScanList.push(lstScanTx);
-  }catch(_){lstScanList=[];lstScanTx=0;}
+  }catch(_){lstScanList=[];lstScanTx=0;lstScanNames={};}
 }
 function lstSaveScan(){
-  try{localStorage.setItem(lstScanStorageKey(),JSON.stringify({list:lstScanList,tx:lstScanTx}));}catch(_){}
+  const names={};
+  lstScanList.forEach(g=>{if(lstScanNames[g])names[g]=lstScanNames[g];});
+  try{localStorage.setItem(lstScanStorageKey(),JSON.stringify({list:lstScanList,tx:lstScanTx,names}));}catch(_){}
+}
+// "World Wide (91)" when the TG has a name, else just the number.
+function lstGssiLabel(g){
+  g=Number(g)||0;
+  if(!g)return '—';
+  const n=lstScanNames[g];
+  return n?(n+' ('+g+')'):String(g);
+}
+// Parse one line of a scan-list file into {gssi,name}: "World Wide (91)", "World Wide,91",
+// "91,World Wide", "91;World Wide", tab-separated, "91 World Wide" or just "91".
+function lstParseScanLine(line){
+  let s=String(line||'').replace(/^\uFEFF/,'').trim();
+  if(!s||s.startsWith('#')||s.startsWith('//'))return null;
+  let m=s.match(/^(.*?)[\s,;]*\(\s*(\d{1,8})\s*\)\s*$/);
+  if(m){const g=Number(m[2]);return g>0?{gssi:g,name:m[1].replace(/^["']|["']$/g,'').trim()}:null;}
+  const parts=s.split(/[,;\t]/).map(x=>x.replace(/^["']|["']$/g,'').trim()).filter(x=>x.length);
+  if(parts.length>=2){
+    const gi=parts.findIndex(x=>/^\d{1,8}$/.test(x));
+    if(gi<0)return null;
+    const g=Number(parts[gi]);
+    const name=parts.filter((_,i)=>i!==gi).join(' ').trim();
+    return g>0?{gssi:g,name}:null;
+  }
+  m=s.match(/^(\d{1,8})(?:\s+(.+))?$/);
+  if(m)return {gssi:Number(m[1]),name:(m[2]||'').trim()};
+  m=s.match(/^(.+?)\s+(\d{1,8})$/);
+  if(m)return {gssi:Number(m[2]),name:m[1].trim()};
+  return null;
+}
+function lstParseScanFile(text){
+  const out=[];
+  const t0=String(text||'').trim();
+  if(t0.startsWith('[')||t0.startsWith('{')){
+    try{
+      let j=JSON.parse(t0);
+      if(j&&!Array.isArray(j)&&Array.isArray(j.list))j=j.list;
+      if(Array.isArray(j)){
+        j.forEach(e=>{
+          if(e==null)return;
+          if(typeof e==='number'||typeof e==='string'){const r=lstParseScanLine(String(e));if(r)out.push(r);return;}
+          const g=Number(e.gssi??e.tg??e.id??e.talkgroup??0);
+          if(g>0&&g<=16777214)out.push({gssi:g,name:String(e.name??e.label??e.channel??'').trim()});
+        });
+        return out;
+      }
+    }catch(_){}
+  }
+  t0.split(/\r?\n/).forEach((line,i)=>{
+    const r=lstParseScanLine(line);
+    if(!r){return;}
+    // Skip a CSV header such as "name,gssi" (never has a numeric token, so parse fails anyway).
+    if(r.gssi>0&&r.gssi<=16777214)out.push(r);
+  });
+  return out;
+}
+function lstScanMsg(msg,ok){
+  const el=document.getElementById('lst-scan-msg');
+  if(!el)return;
+  el.textContent=msg||'';
+  el.style.color=ok===false?'var(--danger,#b91c1c)':'';
+  if(msg)setTimeout(()=>{if(el.textContent===msg)el.textContent='';},6000);
+}
+async function lstScanImportFile(input){
+  const file=input&&input.files&&input.files[0];
+  if(input)input.value='';
+  if(!file)return;
+  let text='';
+  try{text=await file.text();}catch(_){lstScanMsg(t('lst_scan_import_err'),false);return;}
+  const entries=lstParseScanFile(text);
+  if(!entries.length){lstScanMsg(t('lst_scan_import_err'),false);return;}
+  let added=0;
+  entries.forEach(e=>{
+    if(!lstScanList.includes(e.gssi)){lstScanList.push(e.gssi);added++;}
+    if(e.name)lstScanNames[e.gssi]=e.name.slice(0,40);
+  });
+  if(!lstScanTx)lstScanTx=entries[0].gssi;
+  lstSaveScan();lstRenderScan();lstSyncScanToServer();
+  if(typeof lstRenderRoster==='function')lstRenderRoster();
+  lstScanMsg(t('lst_scan_imported',{n:String(entries.length),added:String(added)}),true);
+}
+function lstScanExport(){
+  const lines=['name,gssi'].concat(lstScanList.map(g=>{
+    const n=(lstScanNames[g]||'').replace(/"/g,'""');
+    return (n?('"'+n+'"'):'')+','+g;
+  }));
+  const blob=new Blob([lines.join('\n')+'\n'],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='scan-list.csv';
+  document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
 }
 function lstSyncScanToServer(){
   if(!lstToken)return;
@@ -8695,9 +8811,10 @@ function lstRenderScan(){
     else if(isRx)cls+=' is-rx';
     else if(isTx)cls+=' is-tx';
     const mic=isTx?'<span class="lst-scan-mic" data-icon="mic" aria-hidden="true"></span>':'';
-    return '<span class="'+cls+'" data-gssi="'+g+'" title="'+(isTx?t('lst_scan_tx'):'')+'">'+
-      mic+
-      '<span class="lst-scan-num">'+g+'</span>'+
+    const name=lstScanNames[g]?('<span class="lst-scan-name">'+escapeHtml(lstScanNames[g])+'</span>'):'';
+    const num=name?('<span class="lst-scan-num">('+g+')</span>'):('<span class="lst-scan-num">'+g+'</span>');
+    return '<span class="'+cls+'" data-gssi="'+g+'" title="'+escapeHtml(lstGssiLabel(g))+(isTx?(' · '+t('lst_scan_tx')):'')+'">'+
+      mic+name+num+
       '<button type="button" data-rm="'+g+'" title="'+t('lst_scan_remove')+'">×</button></span>';
   }).join('');
   el.querySelectorAll('.lst-scan-chip').forEach(chip=>{
@@ -8713,15 +8830,20 @@ function lstRenderScan(){
 }
 function lstScanAdd(){
   const inp=document.getElementById('lst-scan-gssi');
+  const nameInp=document.getElementById('lst-scan-name');
   const gssi=Number(inp?.value||0);
   if(!gssi||gssi>16777214)return;
+  const name=String(nameInp?.value||'').trim().slice(0,40);
+  if(name)lstScanNames[gssi]=name;
   if(!lstScanList.includes(gssi))lstScanList.push(gssi);
   if(!lstScanTx)lstScanSetTx(gssi);
   else{lstSaveScan();lstRenderScan();lstSyncScanToServer();}
   if(inp)inp.value='';
+  if(nameInp)nameInp.value='';
 }
 function lstScanRemove(gssi){
   lstScanList=lstScanList.filter(g=>g!==gssi);
+  delete lstScanNames[gssi];
   if(lstScanTx===gssi)lstScanTx=lstScanList[0]||0;
   lstSaveScan();lstRenderScan();lstSyncScanToServer();
 }
@@ -8768,6 +8890,8 @@ function lstOptimisticStatus(patch){
 }
 async function lstPageEnter(){
   lstLoadScan();
+  const nameInp=document.getElementById('lst-scan-name');
+  if(nameInp)nameInp.placeholder=t('lst_scan_name_ph');
   lstRenderScan();
   lstBindPtt();
   lstBindSpacePtt();
@@ -8951,7 +9075,7 @@ function lstUpdateCallUi(j){
     const sph=document.getElementById('lst-strip-phase');
     const st=document.getElementById('lst-strip-timer');
     const sh=document.getElementById('lst-strip-hang');
-    if(sp)sp.textContent=peer!=null?String(peer):'—';
+    if(sp)sp.textContent=peer!=null?((j.call_kind==='group')?lstGssiLabel(peer):String(peer)):'—';
     if(sph){
       sph.textContent=phaseTxt+(sub?(' · '+sub):'');
       sph.classList.toggle('is-failed',phase==='failed');
