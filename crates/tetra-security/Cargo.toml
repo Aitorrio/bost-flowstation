@@ -1,0 +1,17 @@
+[package]
+name = "tetra-security"
+version.workspace = true
+edition.workspace = true
+description = "TETRA air-interface security: TAA1 authentication and key management, TEA key stream generators (ETSI EN 300 392-7, TS 104 053)"
+license = "Apache-2.0"
+
+[dependencies]
+serde = { workspace = true }
+rand = { workspace = true }
+zeroize = { version = "1.8", features = ["derive"] }
+
+[dev-dependencies]
+hex = "0.4"
+
+[lints]
+workspace = true
