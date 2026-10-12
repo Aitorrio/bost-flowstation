@@ -7,15 +7,14 @@
 
 pub mod cipher;
 pub mod ta61;
-pub mod tea1;
 
 use tetra_config::bluestation::{CfgAie, StackConfig};
 use tetra_pdus::mm::enums::reject_cause::RejectCause;
 use tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters;
 use tetra_pdus::umac::fields::sysinfo_ext_services::SysinfoExtendedServices;
 
-/// True when this build carries the key stream generator for TEA`tea`: TEA1 (this module) and
-/// TEA2 / TEA3 (the `tetra-security` crate, checked against the published reference vectors).
+/// True when this build carries the key stream generator for TEA`tea`. TEA1, TEA2 and TEA3 all
+/// come from the `tetra-security` crate, each checked against the published reference vectors.
 /// TEA1 keeps only 32 of its 80 key bits (TETRA:BURST, 2023) and is for research and
 /// interoperability with TEA1-only radios; TEA2 or TEA3 are the ones to run.
 pub fn ksg_available(tea: u8) -> bool {
