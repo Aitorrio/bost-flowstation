@@ -45,6 +45,11 @@ struct Inner {
     /// IDs currently queued / in-flight, to dedup fetch requests.
     pending: HashSet<u32>,
     path: PathBuf,
+    /// Operator-assigned radio names (ISSI → name), shown ahead of any RadioID callsign so
+    /// the dispatcher sees who keyed, not just a number. Persisted in `radio_names.json`
+    /// next to the RadioID cache.
+    names: HashMap<u32, String>,
+    names_path: PathBuf,
 }
 
 /// Cheap-to-clone handle to the shared cache + background fetch worker.
@@ -62,10 +67,17 @@ impl RadioIdCache {
         if !map.is_empty() {
             tracing::info!("RadioID: loaded {} cached callsign(s) from {}", map.len(), path.display());
         }
+        let names_path = path.with_file_name("radio_names.json");
+        let names = load_names(&names_path);
+        if !names.is_empty() {
+            tracing::info!("Radio names: loaded {} name(s) from {}", names.len(), names_path.display());
+        }
         let inner = Arc::new(Mutex::new(Inner {
             map,
             pending: HashSet::new(),
             path,
+            names,
+            names_path,
         }));
         // Bounded so a flood of distinct IDs can't grow the channel without bound; the matching
         // `pending` cap keeps the set bounded too. The capacity matches MAX_PENDING so the set cap is
@@ -77,6 +89,31 @@ impl RadioIdCache {
             .spawn(move || worker_loop(rx, worker_inner))
             .ok();
         Self { inner, tx }
+    }
+
+    /// Operator-assigned name for `issi`, if any.
+    pub fn local_name(&self, issi: u32) -> Option<String> {
+        self.inner.lock().unwrap().names.get(&issi).cloned()
+    }
+
+    /// All operator-assigned names, sorted by ISSI.
+    pub fn local_names(&self) -> Vec<(u32, String)> {
+        let inner = self.inner.lock().unwrap();
+        let mut v: Vec<(u32, String)> = inner.names.iter().map(|(k, v)| (*k, v.clone())).collect();
+        v.sort_by_key(|(k, _)| *k);
+        v
+    }
+
+    /// Set (or, with an empty name, remove) the operator-assigned name for `issi` and persist.
+    pub fn set_local_name(&self, issi: u32, name: &str) {
+        let name: String = name.trim().chars().take(40).collect();
+        let mut inner = self.inner.lock().unwrap();
+        if name.is_empty() {
+            inner.names.remove(&issi);
+        } else {
+            inner.names.insert(issi, name);
+        }
+        persist_names(&inner);
     }
 
     /// Look up `issi`, returning the cached result immediately or [`Lookup::Pending`] after
@@ -211,5 +248,28 @@ fn persist(inner: &Inner) {
         .collect();
     if let Ok(text) = serde_json::to_string(&json) {
         let _ = std::fs::write(&inner.path, text);
+    }
+}
+
+fn load_names(path: &PathBuf) -> HashMap<u32, String> {
+    let mut map = HashMap::new();
+    let Ok(text) = std::fs::read_to_string(path) else { return map };
+    let Ok(json) = serde_json::from_str::<HashMap<String, String>>(&text) else {
+        return map;
+    };
+    for (k, v) in json {
+        if let Ok(id) = k.parse::<u32>()
+            && !v.trim().is_empty()
+        {
+            map.insert(id, v.trim().to_string());
+        }
+    }
+    map
+}
+
+fn persist_names(inner: &Inner) {
+    let json: HashMap<String, String> = inner.names.iter().map(|(k, v)| (k.to_string(), v.clone())).collect();
+    if let Ok(text) = serde_json::to_string(&json) {
+        let _ = std::fs::write(&inner.names_path, text);
     }
 }

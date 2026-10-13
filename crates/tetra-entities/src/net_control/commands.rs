@@ -34,6 +34,11 @@ pub enum ControlCommand {
     /// Forcibly deregister a terminal from the BS
     KickMs { issi: u32 },
 
+    /// Send the cell's static cipher key to one radio over the air (D-OTAR SCK PROVIDE,
+    /// EN 300 392-7 clause 4.5.2.2). The radio must hold the authentication key K listed
+    /// for it under [[security.subscribers]]. Local-only.
+    OtarSck { issi: u32 },
+
     /// Dynamic Group Number Assignment (SS-DGNA, ETSI EN 300 392-2 §16).
     ///
     /// BS-initiated: attach (or detach) a single GSSI on an already-registered

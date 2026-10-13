@@ -119,6 +119,8 @@ impl<T: NetworkTransport> ControlWorker<T> {
             // DGNA is a Mobility Management procedure: group attach/detach state and the
             // D-ATTACH/DETACH GROUP IDENTITY send path both live in the MM entity.
             ControlCommand::Dgna { .. } => TetraEntity::Mm,
+            // SCK OTAR is an MM procedure (D-OTAR SCK PROVIDE), keyed by the subscriber's K.
+            ControlCommand::OtarSck { .. } => TetraEntity::Mm,
             ControlCommand::RestartService => TetraEntity::Cmce,
             ControlCommand::ShutdownService => TetraEntity::Cmce,
             ControlCommand::AddLiveSds { .. } => TetraEntity::Cmce,

@@ -43,7 +43,9 @@ maintainer = "Razvan Zeces <razvan@zeces.ro>"
 copyright = "2026, Razvan Zeces / FlowStation.Dev"
 section = "comm"
 priority = "optional"
-depends = "libc6"
+depends = "libc6, libsoapysdr0.8"
+# The SDR module for the hardware in use; apt installs these by default.
+recommends = "soapysdr0.8-module-lms7, limesuite-udev, soapysdr0.8-module-uhd, uhd-host"
 extended-description = """\
 FlowStation TETRA base station (bluestation-bs) — prebuilt aarch64 binary with a \
 systemd service and a default configuration. Configure it from the web dashboard \

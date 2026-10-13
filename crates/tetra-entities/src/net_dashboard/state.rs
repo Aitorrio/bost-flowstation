@@ -17,6 +17,10 @@ pub struct MsState {
     pub registered_at: u64,
     pub last_seen_secs_ago: u64,
     pub energy_saving_mode: u8, // 0=StayAlive, 1=Eg1..7=Eg7
+    /// The radio passed a TAA1 authentication challenge in this registration.
+    pub authenticated: bool,
+    /// The MAC has decrypted PDUs from this radio under the cell's SCK.
+    pub encrypting: bool,
     /// Multi-cell: the cell the MS is registered on (None on a single-cell station).
     pub cell: Option<u8>,
 }
@@ -85,6 +89,13 @@ pub struct SdsLogEntry {
     pub is_group: bool,
     pub protocol_id: u8,
     pub text: String,
+    /// SDS-TL message reference (text messages only), to match delivery reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_ref: Option<u8>,
+    /// For "tx" entries: None = sent, awaiting a report; Some(true) = delivered to the radio;
+    /// Some(false) = the radio refused it (memory full / not supported).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered: Option<bool>,
 }
 
 /// DAPNET Log entry — one inbound RWTH-core message or outbound Hampager API send. Persisted to
@@ -152,6 +163,9 @@ pub struct DashboardStateInner {
     pub config_path: String,
     pub brew_online: bool,
     pub brew_version: u8,
+    /// Per-ISSI security flags (authenticated, encrypting). Kept beside `ms_map` because
+    /// authentication completes *before* the registration that creates the MS entry.
+    pub ms_security: HashMap<u32, (bool, bool)>,
     /// Set when the stack started on the fallback config instead of the primary.
     /// Contains the parse error that caused the primary config to be rejected.
     pub fallback_config_active: bool,
@@ -317,6 +331,7 @@ impl DashboardStateInner {
             lip_positions: HashMap::new(),
             config_path,
             brew_online: false,
+            ms_security: HashMap::new(),
             brew_version: 0,
             fallback_config_active: false,
             fallback_config_reason: String::new(),
@@ -389,7 +404,16 @@ impl DashboardStateInner {
     /// Append one SDS to the log (newest at the back), evicting the oldest past SDS_LOG_MAX,
     /// then persist the whole ring to disk so it survives a restart. The file is small and
     /// SDS traffic is low-volume, so a full rewrite per entry is cheap.
-    pub fn push_sds_log(&mut self, direction: &str, source_issi: u32, dest_issi: u32, is_group: bool, protocol_id: u8, text: String) {
+    pub fn push_sds_log(
+        &mut self,
+        direction: &str,
+        source_issi: u32,
+        dest_issi: u32,
+        is_group: bool,
+        protocol_id: u8,
+        text: String,
+        message_ref: Option<u8>,
+    ) {
         let entry = SdsLogEntry {
             ts: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             direction: direction.to_string(),
@@ -398,12 +422,40 @@ impl DashboardStateInner {
             is_group,
             protocol_id,
             text,
+            message_ref,
+            delivered: None,
         };
         if self.sds_log.len() >= SDS_LOG_MAX {
             self.sds_log.pop_front();
         }
         self.sds_log.push_back(entry);
         self.persist_sds_log();
+    }
+
+    /// Apply a delivery report from `radio_issi` to the newest matching "tx" entry the console
+    /// `console_issi` sent to that radio: by message reference when the entry has one, else the
+    /// newest still-unreported one. Returns the entry's timestamp when something was updated.
+    pub fn mark_sds_delivered(&mut self, radio_issi: u32, console_issi: u32, message_ref: u8, delivered: bool) -> Option<String> {
+        let idx = self
+            .sds_log
+            .iter()
+            .rposition(|e| {
+                e.direction == "tx"
+                    && !e.is_group
+                    && e.dest_issi == radio_issi
+                    && e.source_issi == console_issi
+                    && e.message_ref == Some(message_ref)
+            })
+            .or_else(|| {
+                self.sds_log.iter().rposition(|e| {
+                    e.direction == "tx" && !e.is_group && e.dest_issi == radio_issi && e.source_issi == console_issi && e.delivered.is_none()
+                })
+            })?;
+        let entry = &mut self.sds_log[idx];
+        entry.delivered = Some(delivered);
+        let ts = entry.ts.clone();
+        self.persist_sds_log();
+        Some(ts)
     }
 
     fn persist_sds_log(&self) {
@@ -514,6 +566,8 @@ impl DashboardStateInner {
                 last_seen_secs_ago: e.last_seen.elapsed().as_secs(),
                 energy_saving_mode: e.energy_saving_mode,
                 cell: e.cell,
+                authenticated: self.ms_security.get(&e.issi).map(|f| f.0).unwrap_or(false),
+                encrypting: self.ms_security.get(&e.issi).map(|f| f.1).unwrap_or(false),
             })
             .collect()
     }

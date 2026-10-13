@@ -49,6 +49,10 @@ pub struct RxTxDevSoapySdr {
     rx_dsp: Option<RxDsp>,
     tx_dsp: Option<TxDsp>,
     health: Option<SdrHealthMonitor>,
+    /// Timeslots the uplink demodulators skipped over lost samples and the stack has not yet
+    /// ticked through. Each pending one makes `rxtx_timeslot` return an empty slot without
+    /// waiting for RX, so the stack's clock catches up with the air again.
+    pending_skipped_slots: u32,
     /// Rate limit for the stack catch-up warning.
     catch_up_log_next: std::time::Instant,
 }
@@ -204,6 +208,7 @@ impl RxTxDevSoapySdr {
             },
 
             health: health_telemetry.map(SdrHealthMonitor::new),
+            pending_skipped_slots: 0,
             catch_up_log_next: std::time::Instant::now(),
 
             sdr: Some(sdr),
@@ -275,15 +280,35 @@ impl RxTxDev for RxTxDevSoapySdr {
         // First generate as much TX signal as possible at the moment.
         while self.process_tx_block(tx_slot)? {}
 
-        // If the stack's clock has fallen behind the SDR (lost RX samples, a stall), the slot it
-        // is handing us can no longer be sent, and since the stack only advances one slot per
-        // RX slot it would stay behind for good: every TX block "too late", the cell silent.
-        // Tick it forward with empty slots, without waiting for RX, until it is back in front.
+        // The stack advances one timeslot per call, and the LMAC labels every uplink burst from
+        // the stack's clock (dltime - 2). So the stack and the uplink demodulators must always
+        // advance together: a tick without an RX slot on one side only is an off-by-one that
+        // mislabels every uplink burst from then on (voice lands on a slot with no circuit, the
+        // UL inactivity timer fires 3 s into every call, SDS from radios is never reassembled).
+        //
+        // 1. Lost RX samples made the uplink demodulators skip slots on their own: tick the
+        //    stack through them without waiting for RX, otherwise its clock stays behind the
+        //    air for good and every TX block from then on is "too late" (the cell goes silent).
+        if self.pending_skipped_slots > 0 {
+            self.pending_skipped_slots -= 1;
+            return Ok(Vec::new());
+        }
+
+        // 2. The stack's clock has fallen behind the SDR for another reason (a stall, RX
+        //    latency): the slot it is handing us can no longer be sent. Tick it forward with an
+        //    empty slot, and skip one slot of air in the uplink demodulators at the same time so
+        //    both clocks move by one.
         if let (Some(tx_dsp), Some(sdr)) = (self.tx_dsp.as_ref(), self.sdr.as_ref()) {
             let behind = tx_dsp.stack_slots_behind(sdr, tx_slot)?;
             if behind > 0 {
                 if may_warn_catch_up(&mut self.catch_up_log_next) {
-                    tracing::warn!("Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up", behind);
+                    tracing::warn!(
+                        "Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up (uplink demodulators skip one slot with it)",
+                        behind
+                    );
+                }
+                if let Some(rx_dsp) = &mut self.rx_dsp {
+                    rx_dsp.skip_ul_slot();
                 }
                 return Ok(Vec::new());
             }
@@ -292,6 +317,14 @@ impl RxTxDev for RxTxDevSoapySdr {
         while self.process_rx_block()? {
             // Continue producing TX signal if possible.
             while self.process_tx_block(tx_slot)? {}
+        }
+
+        if let Some(rx_dsp) = &mut self.rx_dsp {
+            let skipped = rx_dsp.take_skipped_slots();
+            if skipped > 0 {
+                tracing::warn!("RX skipped {} slot(s) over lost samples, advancing the stack to match", skipped);
+                self.pending_skipped_slots += skipped;
+            }
         }
 
         // SDR health: temperature readback, throttled to once every ~10 s.
@@ -470,6 +503,23 @@ impl RxDsp {
                     return Ok(());
                 }
             }
+        }
+    }
+
+    /// Slots skipped over lost samples, as seen by the uplink demodulators (they share timing,
+    /// so take the largest count rather than summing per carrier).
+    fn take_skipped_slots(&mut self) -> u32 {
+        self.ul_demodulators
+            .iter_mut()
+            .map(|d| d.demodulator.take_skipped_slots())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Skip one slot of air in every uplink demodulator (see `rxtx_timeslot`).
+    fn skip_ul_slot(&mut self) {
+        for d in self.ul_demodulators.iter_mut() {
+            d.demodulator.skip_slot();
         }
     }
 

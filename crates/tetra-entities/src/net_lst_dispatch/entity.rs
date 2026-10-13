@@ -124,6 +124,7 @@ impl LstDispatchEntity {
             s.disconnect_cause = None;
             s.call_started_ms = None;
             s.rx_gssi = None;
+            s.rx_issi = None;
         });
         Self {
             config,
@@ -164,6 +165,7 @@ impl LstDispatchEntity {
         self.rx = None;
         self.handle.set_status(|s| {
             s.rx_gssi = None;
+            s.rx_issi = None;
             s.rx_draining = false;
         });
     }
@@ -1184,6 +1186,7 @@ impl LstDispatchEntity {
         });
         self.handle.set_status(|s| {
             s.rx_gssi = Some(dest_gssi);
+            s.rx_issi = Some(source_issi);
             s.rx_draining = false;
         });
         tracing::debug!(

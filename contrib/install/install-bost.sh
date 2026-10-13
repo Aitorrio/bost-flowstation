@@ -128,6 +128,22 @@ for p in soapysdr-module-lms7 soapysdr0.8-module-lms7; do
   fi
 done
 
+# Ettus USRP B200/B210 (UHD) when present in the distro: driver module plus the firmware and
+# FPGA images UHD loads into the board at start-up. Debian's UHD looks in /usr/share/uhd/images;
+# the downloader writes a versioned directory, so link it.
+for p in uhd-host soapysdr0.8-module-uhd soapysdr-module-uhd; do
+  if apt-cache show "$p" >/dev/null 2>&1; then
+    apt-get install -y "$p" || true
+  fi
+done
+if command -v uhd_images_downloader >/dev/null 2>&1; then
+  uhd_images_downloader -t b2xx >/dev/null 2>&1 || true
+  if [[ ! -d /usr/share/uhd/images ]]; then
+    d="$(ls -d /usr/share/uhd/*/images 2>/dev/null | head -n1 || true)"
+    [[ -n "$d" ]] && ln -s "$d" /usr/share/uhd/images || true
+  fi
+fi
+
 # Rust toolchain for the service user (or root if building as root).
 install_rust() {
   local user="$1"

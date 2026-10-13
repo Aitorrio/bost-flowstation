@@ -84,6 +84,11 @@ rx_freq = 433025000
 # If not specified, the first compatible device found is selected automatically.
 # device = "driver=plutosdr,uri=ip:192.168.42.42"
 # device = "driver=lime,serial=123456789"
+# Ettus USRP B200/B210 via UHD (uhd-host + soapysdr0.8-module-uhd, `uhd_images_downloader -t b2xx`).
+# Defaults: TX on TX/RX, RX on RX2, PGA 40 dB each. A Kintex-7 (XC7K325T) "B210" clone refuses
+# Ettus's FPGA image ("fx3 is in state 5") and needs the open replacement image instead:
+# device = "driver=uhd,serial=XXXXXXX"
+# device = "driver=uhd,serial=XXXXXXX,fpga=/usr/share/uhd/images/b210_k7.bin"
 
 # Optional antenna selection (overrides device defaults)
 # rx_antenna = "LNAW"
@@ -412,6 +417,29 @@ voice_service = true
 #
 # [security]
 # issi_whitelist = [2260571, 2260572, 2260575]
+#
+# Authentication (ETSI EN 300 392-7 clause 4, TAA1): challenge radios with their 128-bit key K
+# when they register. off | optional | required. Fine on amateur allocations. Editable from the
+# dashboard (Security page).
+# authentication = "required"
+# mutual_authentication = true
+#
+# One entry per radio — the K programmed into it with its programming software / KVL:
+# [[security.subscribers]]
+# issi = 2260571
+# k = "00112233445566778899aabbccddeeff"
+#
+# Air-interface encryption (class 2, clause 6): one static cipher key shared by the encrypted
+# radios; radios without AIE still register in clear and use only the clear_groups. NOT permitted
+# under amateur licences — licensed private networks only. With class = 1 and a key the key is
+# kept only for over-the-air delivery (dashboard → Security → "Send SCK", clause 4.5.2 OTAR).
+# [security.aie]
+# class = 2                       # 1 = clear cell (key staged for OTAR), 2 = encrypted cell
+# ksg = 3                         # 1 = TEA1 (keeps only 32 key bits — research only), 2 = TEA2, 3 = TEA3
+# sck = "00112233445566778899"    # 80-bit static cipher key, 20 hex digits
+# sckn = 1                        # SCK number 1-32
+# sck_vn = 1                      # SCK version number
+# clear_groups = [900]            # talkgroups left in clear for radios without encryption
 
 ###############################################################################
 

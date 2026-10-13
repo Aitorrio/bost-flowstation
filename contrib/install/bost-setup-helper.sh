@@ -55,6 +55,40 @@ install_driver_lime() {
   SoapySDRUtil --info 2>/dev/null | head -n 20 || true
 }
 
+install_driver_uhd() {
+  # Ettus USRP B200/B210 through UHD: driver module, firmware/FPGA images, and the open
+  # replacement FPGA image for the common Kintex-7 (XC7K325T) "B210" clones, which refuse
+  # Ettus's image ("fx3 is in state 5"). Pass the board serial to pin the clone image to it.
+  local serial="${1:-}"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  local pkgs=()
+  for p in uhd-host soapysdr0.8-module-uhd soapysdr-module-uhd; do
+    if apt-cache show "$p" >/dev/null 2>&1; then
+      pkgs+=("$p")
+    fi
+  done
+  if [[ ${#pkgs[@]} -eq 0 ]]; then
+    die "no UHD Soapy packages found in apt"
+  fi
+  apt-get install -y "${pkgs[@]}"
+  uhd_images_downloader -t b2xx >/dev/null 2>&1 || uhd_images_downloader -t b2xx
+  if [[ ! -d /usr/share/uhd/images ]]; then
+    local d
+    d="$(ls -d /usr/share/uhd/*/images 2>/dev/null | head -n1 || true)"
+    [[ -n "$d" ]] && ln -s "$d" /usr/share/uhd/images
+  fi
+  curl -fsSL -o /usr/share/uhd/images/b210_k7.bin \
+    https://raw.githubusercontent.com/kingjamez/B210_XC7K325T_Improvements/main/release/b210_k7.bin || true
+  if [[ -n "$serial" ]]; then
+    mkdir -p /etc/uhd
+    printf '[serial=%s]\nfpga=/usr/share/uhd/images/b210_k7.bin\n' "$serial" > /etc/uhd/uhd.conf
+    log "UHD: clone FPGA image pinned to serial $serial in /etc/uhd/uhd.conf"
+  fi
+  log "UHD modules installed: ${pkgs[*]}"
+  SoapySDRUtil --find="driver=uhd" 2>/dev/null | head -n 20 || true
+}
+
 sx_module_present() {
   # Module on disk or factory advertised by SoapySDRUtil --info.
   local mod
@@ -162,7 +196,8 @@ case "$ACTION" in
     case "$driver" in
       sx) install_driver_sx ;;
       lime) install_driver_lime ;;
-      *) die "unknown driver '$driver' (sx|lime)" ;;
+      uhd) install_driver_uhd "${2:-}" ;;
+      *) die "unknown driver '$driver' (sx|lime|uhd)" ;;
     esac
     ;;
   enable-service)

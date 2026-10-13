@@ -1,12 +1,15 @@
 //! Per-cell air interface encryption state for security class 2: the SCK modified per carrier
-//! (TB5), the ESI mapping (TA61) and the key stream segment of each timeslot (TEA1).
+//! (TB5), the ESI mapping (TA61) and the key stream segment of each timeslot. The key stream
+//! generators (TEA1/2/3) all live in the `tetra-security` crate; this module only drives them.
 
 use std::collections::HashMap;
 
 use tetra_config::bluestation::CfgAie;
 use tetra_core::{BitBuffer, TdmaTime};
+use tetra_security::keys::CipherKey as SecCipherKey;
+use tetra_security::ksg::{Iv, KsgId, new_ksg};
 
-use super::{iv, ta61::Ta61, tb5, tea1::Tea1};
+use super::{iv, ta61::Ta61, tb5};
 
 /// Bits of key stream per timeslot on a phase modulation channel (TS 100 392-7 clause 6.3): enough
 /// for a TCH/7,2 unprotected traffic channel. The second half slot starts at bit 216.
@@ -46,6 +49,8 @@ pub fn tch_s_kss_codec_order(kss: &Kss) -> [u8; 274] {
 
 /// Class 2 encryption context of one cell.
 pub struct CellCipher {
+    /// 1 = TEA1 (this crate's generator), 2 / 3 = TEA2 / TEA3 from `tetra-security`.
+    ksg: u8,
     sck_vn: u16,
     ta61: Ta61,
     /// ECK per carrier number.
@@ -59,6 +64,7 @@ impl CellCipher {
     pub fn new(aie: &CfgAie, carriers: &[u16], location_area: u16, colour_code: u8) -> Self {
         let sck = aie.sck.0;
         CellCipher {
+            ksg: aie.ksg,
             sck_vn: aie.sck_vn,
             ta61: Ta61::new(&sck),
             eck: carriers.iter().map(|&cn| (cn, tb5(&sck, cn, location_area, colour_code))).collect(),
@@ -90,7 +96,10 @@ impl CellCipher {
     pub fn kss(&self, carrier: u16, t: TdmaTime, uplink: bool) -> Kss {
         let eck = self.eck.get(&carrier).or_else(|| self.eck.get(&self.main_carrier)).expect("main carrier has an ECK");
         let mut out = [0u8; KSS_BITS / 8];
-        Tea1::new(eck, iv(t.t, t.f, t.m, t.h, uplink)).key_bytes(&mut out);
+        let id = KsgId::from_number(self.ksg - 1).expect("ksg checked by ksg_available");
+        let mut g = new_ksg(id, &SecCipherKey(*eck), Iv::from_raw(iv(t.t, t.f, t.m, t.h, uplink)))
+            .expect("ksg_available guarantees a generator for this KSG");
+        g.fill(&mut out);
         Kss(out)
     }
 }
@@ -102,6 +111,7 @@ mod tests {
 
     fn cipher() -> CellCipher {
         let aie = CfgAie {
+            enabled: true,
             ksg: 1,
             sckn: 1,
             sck: CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]),
@@ -118,7 +128,9 @@ mod tests {
         let kss = c.kss(3681, t, false);
         let mut expected = [0u8; 54];
         let eck = tb5(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23], 3681, 2, 1);
-        Tea1::new(&eck, iv(2, 5, 17, 300, false)).key_bytes(&mut expected);
+        new_ksg(KsgId::Tea1, &SecCipherKey(eck), Iv::from_raw(iv(2, 5, 17, 300, false)))
+            .unwrap()
+            .fill(&mut expected);
         assert_eq!(kss.0, expected);
         assert_ne!(kss.0, c.kss(3684, t, false).0, "each carrier has its own ECK");
         assert_ne!(kss.0, c.kss(3681, t, true).0, "uplink and downlink differ");
@@ -160,5 +172,23 @@ mod tests {
     #[test]
     fn encryption_mode_follows_sck_vn_parity() {
         assert_eq!(cipher().encryption_mode(), 0b11);
+    }
+
+    /// Each KSG number selects a distinct generator: TEA1, TEA2 and TEA3 produce different key
+    /// streams from the same ECK, so the dispatch in `kss()` is wired to the right one.
+    #[test]
+    fn each_ksg_produces_a_distinct_stream() {
+        let t = TdmaTime { t: 2, f: 5, m: 17, h: 300 };
+        let sck = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23];
+        let streams: Vec<[u8; KSS_BITS / 8]> = [1u8, 2, 3]
+            .iter()
+            .map(|&ksg| {
+                let aie = CfgAie { enabled: true, ksg, sckn: 1, sck: CipherKey(sck), sck_vn: 3, clear_groups: vec![] };
+                CellCipher::new(&aie, &[3681], 2, 1).kss(3681, t, false).0
+            })
+            .collect();
+        assert_ne!(streams[0], streams[1], "TEA1 and TEA2 differ");
+        assert_ne!(streams[0], streams[2], "TEA1 and TEA3 differ");
+        assert_ne!(streams[1], streams[2], "TEA2 and TEA3 differ");
     }
 }

@@ -56,6 +56,73 @@ pub struct CfgSecurity {
     pub registration_rate_limit_per_min: u32,
     /// Air interface encryption (EN 300 392-7 clause 6). `None` = security class 1 (clear).
     pub aie: Option<CfgAie>,
+    /// Air-interface authentication posture (EN 300 392-7 clause 4, TAA1).
+    pub authentication: AuthenticationMode,
+    /// Answer a radio's own challenge (U-AUTHENTICATION DEMAND) and, when we are challenged first,
+    /// also challenge back so both sides are authenticated (clause 4.1.4).
+    pub mutual_authentication: bool,
+    /// Authentication keys by ISSI.
+    pub subscribers: Vec<SubscriberKey>,
+    /// ISSIs whose `k` could not be parsed (reported at startup, never silently dropped).
+    pub invalid_subscriber_keys: Vec<u32>,
+}
+
+/// Whether and how radios are authenticated when they register. With `Off` the cell trusts the
+/// ISSI a radio claims; with `Optional` radios that have a key on file are challenged and the
+/// rest let in; with `Required` a radio without a key, or one that fails, is rejected.
+///   [security]
+///   authentication = "required"
+///   mutual_authentication = true
+///   [[security.subscribers]]
+///   issi = 2260571
+///   k = "00112233445566778899aabbccddeeff"   # 128-bit K, as loaded into the radio
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AuthenticationMode {
+    #[default]
+    Off,
+    Optional,
+    Required,
+}
+
+impl AuthenticationMode {
+    fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "off" | "none" | "disabled" => Some(AuthenticationMode::Off),
+            "optional" => Some(AuthenticationMode::Optional),
+            "required" | "on" | "enforce" => Some(AuthenticationMode::Required),
+            _ => None,
+        }
+    }
+}
+
+/// A subscriber's 128-bit authentication key K (EN 300 392-7 clause 4.1.5), keyed by ISSI.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SubscriberKey {
+    pub issi: u32,
+    pub k: [u8; 16],
+}
+
+impl std::fmt::Debug for SubscriberKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SubscriberKey {{ issi: {}, k: <redacted> }}", self.issi)
+    }
+}
+
+/// Parses `N` bytes of hex (spaces, `:` and `-` allowed as separators).
+pub fn parse_hex<const N: usize>(s: &str) -> Option<[u8; N]> {
+    let digits: Vec<u8> = s
+        .chars()
+        .filter(|c| !matches!(c, ' ' | ':' | '-'))
+        .map(|c| c.to_digit(16).map(|d| d as u8))
+        .collect::<Option<_>>()?;
+    if digits.len() != N * 2 {
+        return None;
+    }
+    let mut out = [0u8; N];
+    for (i, pair) in digits.chunks(2).enumerate() {
+        out[i] = (pair[0] << 4) | pair[1];
+    }
+    Some(out)
 }
 
 /// An 80-bit TETRA cipher key. `Debug` never prints the key, so a config dump or a log line
@@ -93,6 +160,9 @@ impl CipherKey {
 /// bridges clear and encrypted radios (see Docs/aie-class2-plan.md §4a).
 #[derive(Debug, Clone)]
 pub struct CfgAie {
+    /// `class = 2` in the config. With `class = 1` the key is still kept so it can be sent to
+    /// radios over the air (OTAR) while the cell runs in clear; see `CfgSecurity::aie_staged`.
+    pub enabled: bool,
     /// Key stream generator: 1 = TEA1 … 4 = TEA4.
     pub ksg: u8,
     /// Static cipher key number advertised in SYSINFO, 1..=32.
@@ -122,11 +192,41 @@ impl Default for CfgSecurity {
             max_registered_clients: DEFAULT_MAX_REGISTERED_CLIENTS,
             registration_rate_limit_per_min: DEFAULT_REGISTRATION_RATE_LIMIT_PER_MIN,
             aie: None,
+            authentication: AuthenticationMode::Off,
+            mutual_authentication: true,
+            subscribers: Vec::new(),
+            invalid_subscriber_keys: Vec::new(),
         }
     }
 }
 
 impl CfgSecurity {
+    /// The authentication key K on file for an ISSI.
+    pub fn subscriber_k(&self, issi: u32) -> Option<&[u8; 16]> {
+        self.subscribers.iter().find(|s| s.issi == issi).map(|s| &s.k)
+    }
+
+    /// The SCK configured but not switched on (`class = 1` with a key): available for OTAR only.
+    pub fn aie_staged(&self) -> Option<&CfgAie> {
+        self.aie.as_ref().filter(|a| !a.enabled)
+    }
+
+    /// One-line description of the authentication posture, for the startup log.
+    pub fn authentication_posture(&self) -> String {
+        let n = self.subscribers.len();
+        let bad = if self.invalid_subscriber_keys.is_empty() {
+            String::new()
+        } else {
+            format!(" — IGNORED {} subscriber(s) with an invalid k: {:?}", self.invalid_subscriber_keys.len(), self.invalid_subscriber_keys)
+        };
+        let mutual = if self.mutual_authentication { "mutual" } else { "one-way" };
+        match self.authentication {
+            AuthenticationMode::Off => format!("OFF — radios are not authenticated ({n} key(s) configured but unused){bad}"),
+            AuthenticationMode::Optional => format!("OPTIONAL — {n} radio(s) with a key are challenged ({mutual}), others register unauthenticated{bad}"),
+            AuthenticationMode::Required => format!("REQUIRED — only the {n} radio(s) with a key may register ({mutual}){bad}"),
+        }
+    }
+
     /// Returns true if the given ISSI is allowed to register.
     pub fn is_issi_allowed(&self, issi: u32) -> bool {
         self.allows(issi, None)
@@ -175,6 +275,24 @@ pub struct CfgSecurityDto {
     pub registration_rate_limit_per_min: Option<u32>,
     #[serde(default)]
     pub aie: Option<CfgAieDto>,
+    #[serde(default)]
+    pub authentication: Option<String>,
+    #[serde(default)]
+    pub mutual_authentication: Option<bool>,
+    #[serde(default)]
+    pub subscribers: Vec<SubscriberKeyDto>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+pub struct SubscriberKeyDto {
+    pub issi: u32,
+    pub k: String,
+}
+
+impl std::fmt::Debug for SubscriberKeyDto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SubscriberKeyDto {{ issi: {}, k: <redacted> }}", self.issi)
+    }
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -207,12 +325,14 @@ impl std::fmt::Debug for CfgAieDto {
 }
 
 fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
-    match dto.class.unwrap_or(1) {
-        1 => return Ok(None),
-        2 => {}
+    let enabled = match dto.class.unwrap_or(1) {
+        // Class 1 without a key: plain clear cell. With a key: the key is staged for OTAR.
+        1 if dto.sck.is_none() => return Ok(None),
+        1 => false,
+        2 => true,
         3 => return Err("security.aie: class 3 (authentication, DCK) is not supported; use class 2".into()),
         _ => return Err("security.aie.class must be 1 or 2".into()),
-    }
+    };
     let ksg = dto.ksg.unwrap_or(1);
     if !(1..=4).contains(&ksg) {
         return Err("security.aie.ksg must be 1-4 (TEA1-TEA4)".into());
@@ -229,6 +349,7 @@ fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
         return Err("security.aie.clear_groups: each GSSI must be 1-16777215".into());
     }
     Ok(Some(CfgAie {
+        enabled,
         ksg,
         sckn,
         sck,
@@ -246,8 +367,27 @@ pub fn apply_security_patch(dto: CfgSecurityDto) -> Result<CfgSecurity, String> 
         .as_deref()
         .map(|s| WhitelistMode::parse(s).unwrap_or(WhitelistMode::Auto))
         .unwrap_or(WhitelistMode::Auto);
+    let mut subscribers = Vec::new();
+    let mut invalid_subscriber_keys = Vec::new();
+    for sub in dto.subscribers {
+        match parse_hex::<16>(&sub.k) {
+            Some(k) if sub.issi != 0 && sub.issi <= 0xFF_FFFF => subscribers.push(SubscriberKey { issi: sub.issi, k }),
+            _ => invalid_subscriber_keys.push(sub.issi),
+        }
+    }
+    let authentication = match dto.authentication.as_deref() {
+        None => AuthenticationMode::Off,
+        Some(s) => AuthenticationMode::parse(s).ok_or_else(|| format!("security.authentication = {s:?}: use off, optional or required"))?,
+    };
+    if authentication == AuthenticationMode::Required && subscribers.is_empty() {
+        return Err("security.authentication = \"required\" needs at least one [[security.subscribers]] key, or no radio can register".into());
+    }
     Ok(CfgSecurity {
         aie: apply_aie_patch(dto.aie.unwrap_or_default())?,
+        authentication,
+        mutual_authentication: dto.mutual_authentication.unwrap_or(defaults.mutual_authentication),
+        subscribers,
+        invalid_subscriber_keys,
         issi_whitelist: dto.issi_whitelist,
         whitelist_mode,
         honour_unauthenticated_detach: dto.honour_unauthenticated_detach.unwrap_or(defaults.honour_unauthenticated_detach),
@@ -316,5 +456,25 @@ mod tests {
         assert!(aie(2, Some("0123")).is_err(), "short key");
         assert!(aie(2, Some("0123456789ABCDEF012G")).is_err(), "non-hex key");
         assert!(aie(3, Some("0123456789ABCDEF0123")).is_err(), "class 3 unsupported");
+    }
+
+    #[test]
+    fn authentication_and_staged_key_parse() {
+        let dto: CfgSecurityDto = toml::from_str(
+            "authentication = \"optional\"\n[[subscribers]]\nissi = 7\nk = \"00112233445566778899aabbccddeeff\"\n[[subscribers]]\nissi = 8\nk = \"zz\"\n[aie]\nclass = 1\nksg = 3\nsck = \"00112233445566778899\"\n",
+        )
+        .unwrap();
+        let cfg = apply_security_patch(dto).unwrap();
+        assert_eq!(cfg.authentication, AuthenticationMode::Optional);
+        assert_eq!(cfg.subscribers.len(), 1);
+        assert_eq!(cfg.invalid_subscriber_keys, vec![8]);
+        assert!(cfg.subscriber_k(7).is_some());
+        let staged = cfg.aie_staged().expect("class 1 with a key is staged");
+        assert!(!staged.enabled);
+        assert_eq!(staged.ksg, 3);
+        assert!(cfg.authentication_posture().starts_with("OPTIONAL"));
+        // required without keys is refused at load time
+        let bad: CfgSecurityDto = toml::from_str("authentication = \"required\"\n").unwrap();
+        assert!(apply_security_patch(bad).is_err());
     }
 }

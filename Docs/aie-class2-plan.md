@@ -1,6 +1,9 @@
 # Air interface encryption — security class 2 (SCK)
 
-Status: **design draft**, nothing implemented. Target radios: Motorola MTH800 / MTH850.
+Status: phases 1 and 2 built (see §8, §9). Since then: TEA2 and TEA3 key stream generators, TAA1
+authentication, and SCK OTAR were added on top (crate `tetra-security`, MM `authentication_gate` /
+`otar_sck_provide`, dashboard Security page); `class = 1` with a key keeps it staged for OTAR.
+Target radios: Motorola MTH800 / MTH850.
 
 Normative reference: **ETSI TS 100 392-7 V4.2.1 (2026-04)** (TETRA V+D security), clause 6
 (air interface encryption) and Annex A, with the PDU encodings in EN 300 392-2 (clause 16 MM,
@@ -212,11 +215,13 @@ encrypted radio says is ever sent in clear.
 
 - Algorithms: ETSI TS 104 053-1 V1.2.1 (TEA set A) and TS 104 053-3 V1.1.1 (TAA1: TB5, TA61),
   local copies in `Docs/spec/`. TS 101 053-1 describes ETSI's distribution rules for TEA1.
-- **TEA1** (`aie/tea1.rs`) written from TS 104 053-1 clause 5. Its tables only exist as scanned
-  figures; the byte permutation is checked to be a permutation and every f1/f2 S-box balanced.
-  It reproduces all known-answer vectors of Midnight Blue's independent implementation
+- **TEA1** (`tetra-security::ksg::tea1`, the single implementation used by all three TEA variants)
+  written from TS 104 053-1 clause 5. Its tables only exist as scanned figures; the byte
+  permutation is checked to be a permutation and every f1/f2 S-box balanced. It reproduces all
+  known-answer vectors of Midnight Blue's independent implementation
   (github.com/MidnightBlueLabs/TETRA_crypto, Apache-2.0): the two in its `tests.c` plus six
-  generated with it.
+  generated with it. The MAC layer (`aie/cipher.rs`) drives it, and TEA2/TEA3, through
+  `tetra_security::ksg::new_ksg`.
 - **TB5** and the **IV** (`aie::tb5`, `aie::iv`) checked against the same implementation.
 - **TA61** (`aie/ta61.rs`): BC block cipher, EXP4, K-strings and permutation P, plus the inverse
   (ESI → SSI) the BS needs on the uplink. Passes the four operator-supplied vectors and six

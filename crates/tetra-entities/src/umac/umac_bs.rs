@@ -74,6 +74,8 @@ pub struct UmacBs {
     telemetry: Option<TelemetrySink>,
     /// Air interface encryption (class 2), shared with the schedulers; `None` = clear cell.
     cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
+    /// Radios already reported to telemetry as encrypting (first encrypted uplink PDU seen).
+    encrypting_reported: std::collections::HashSet<u32>,
 }
 
 /// Watch UL while hangtime is held so CMCE can defer network talk-permit.
@@ -139,6 +141,7 @@ impl UmacBs {
             ul_signal_owner: HashMap::new(),
             pending_circuit_closes: HashMap::new(),
             telemetry,
+            encrypting_reported: std::collections::HashSet::new(),
         }
     }
 
@@ -621,6 +624,7 @@ impl UmacBs {
         let Some(addr) = self.ul_resolve_esi(addr, pdu.encrypted) else {
             return;
         };
+        self.note_encrypting(addr, pdu.encrypted);
 
         let (mut pdu_len_bits, is_frag_start, second_half_stolen, is_null_pdu) = {
             if let Some(len_ind) = pdu.length_ind {
@@ -806,6 +810,7 @@ impl UmacBs {
         let Some(addr) = self.ul_resolve_esi(addr, pdu.encrypted) else {
             return;
         };
+        self.note_encrypting(addr, pdu.encrypted);
 
         // Compute len and extract flags
         let mut pdu_len_bits;
@@ -981,6 +986,16 @@ impl UmacBs {
 
     /// Uplink: maps an encrypted PDU's ESI back to the SSI. `None` (PDU dropped) when the PDU is
     /// encrypted but the cell runs no encryption.
+    /// Tell the dashboard the first time a radio is seen sending encrypted.
+    fn note_encrypting(&mut self, addr: TetraAddress, encrypted: bool) {
+        if encrypted && addr.ssi_type == SsiType::Issi && self.encrypting_reported.insert(addr.ssi) {
+            tracing::info!("UMAC: ISSI {} is encrypting (first encrypted PDU under the cell's SCK)", addr.ssi);
+            if let Some(sink) = &self.telemetry {
+                sink.send(TelemetryEvent::MsSecurity { issi: addr.ssi, authenticated: None, encrypting: Some(true) });
+            }
+        }
+    }
+
     fn ul_resolve_esi(&self, addr: TetraAddress, encrypted: bool) -> Option<TetraAddress> {
         if !encrypted || !matches!(addr.ssi_type, SsiType::Ssi | SsiType::Issi | SsiType::Gssi) {
             return Some(addr);

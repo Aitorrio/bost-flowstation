@@ -65,6 +65,10 @@ pub struct Demodulator {
     /// Timeslot of latest demodulated slot
     demodulated_slot_time: TdmaTime,
     demodulated_slot_available: bool,
+    /// Uplink slots skipped over lost samples since the last `take_skipped_slots`. The stack
+    /// advances one timeslot per demodulated slot, so the PHY must tick it through these without
+    /// waiting for RX; otherwise the stack's clock falls behind the air and every TX block is late.
+    skipped_slots: u32,
 
     full_slot: SlotBurstFinder,
     subslot1: SlotBurstFinder,
@@ -93,6 +97,7 @@ impl Demodulator {
 
             demodulated_slot_time: Default::default(),
             demodulated_slot_available: false,
+            skipped_slots: 0,
 
             full_slot: SlotBurstFinder::new(),
             subslot1: SlotBurstFinder::new(),
@@ -177,6 +182,9 @@ impl Demodulator {
             let slots_to_skip = -(-tdiff).div_euclid(SAMPLES_SLOT) as i32;
             tracing::warn!("Skipping demodulation of {} slots due to lost samples", slots_to_skip);
             self.add_slots(slots_to_skip);
+            if self.mode == Mode::Ul && slots_to_skip > 0 {
+                self.skipped_slots += slots_to_skip as u32;
+            }
         }
 
         if sample_counter == self.slot_ready_time {
@@ -415,6 +423,27 @@ impl Demodulator {
         }
     }
 
+    /// Uplink slots skipped over lost samples since the previous call; resets the count.
+    pub fn take_skipped_slots(&mut self) -> u32 {
+        std::mem::take(&mut self.skipped_slots)
+    }
+
+    /// Skip one slot of air: the next slot demodulated is one slot later than it would have
+    /// been. Used when the stack's clock is ticked forward without an RX slot, so that the
+    /// uplink demodulator and the stack keep advancing together — the stack labels every
+    /// uplink burst from its own clock, so moving one without the other mislabels every
+    /// burst from then on. Only meaningful for an uplink demodulator.
+    pub fn skip_slot(&mut self) {
+        if self.mode == Mode::Ul {
+            self.add_slots(1);
+        }
+    }
+
+    /// Slot counter (next slot to be demodulated).
+    pub fn current_slot(&self) -> TdmaTime {
+        self.current_slot
+    }
+
     pub fn demodulated_slot_available(&self) -> bool {
         self.demodulated_slot_available
     }
@@ -614,5 +643,60 @@ impl SlotBurstFinder {
             bits: &self.bits[self.burst_pos..self.burst_pos + self.burst_len],
             rssi_dbfs: self.rssi_dbfs,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn feed(demod: &mut Demodulator, from: SampleCount, to: SampleCount) {
+        for n in from..to {
+            demod.sample(ComplexSample::new(0.0, 0.0), n);
+        }
+    }
+
+    #[test]
+    fn uplink_demodulator_counts_slots_skipped_over_lost_samples() {
+        let mut demod = Demodulator::new(Mode::Ul, 1);
+        feed(&mut demod, 0, 3 * SAMPLES_SLOT);
+        assert_eq!(demod.take_skipped_slots(), 0, "no gap, nothing skipped");
+        let before = demod.current_slot().to_int();
+
+        // A gap of five slots in the sample counter: the demodulator jumps its slot clock
+        // forward and reports the slots it did not demodulate.
+        let resume = 3 * SAMPLES_SLOT + 5 * SAMPLES_SLOT;
+        feed(&mut demod, resume, resume + SAMPLES_SLOT);
+        let skipped = demod.take_skipped_slots();
+        assert!(skipped >= 4 && skipped <= 6, "skipped {skipped} slots over a five-slot gap");
+        assert!(demod.current_slot().to_int() - before >= skipped as i32);
+        assert_eq!(demod.take_skipped_slots(), 0, "count resets once taken");
+    }
+
+    #[test]
+    fn skip_slot_advances_the_uplink_slot_clock_by_one() {
+        let mut demod = Demodulator::new(Mode::Ul, 1);
+        feed(&mut demod, 0, 2 * SAMPLES_SLOT);
+        let before = demod.current_slot().to_int();
+        demod.skip_slot();
+        assert_eq!(demod.current_slot().to_int(), before + 1);
+        // The skip is a deliberate tick, not a lost-sample event.
+        assert_eq!(demod.take_skipped_slots(), 0);
+
+        // The skip consumes a slot of air rather than adding to the count: the next slot of
+        // samples does not fire (its ready time has moved on), so after two more slots of
+        // samples the counter is two ahead of `before`, not three.
+        feed(&mut demod, 2 * SAMPLES_SLOT, 3 * SAMPLES_SLOT);
+        assert_eq!(demod.current_slot().to_int(), before + 1);
+        feed(&mut demod, 3 * SAMPLES_SLOT, 4 * SAMPLES_SLOT);
+        assert_eq!(demod.current_slot().to_int(), before + 2);
+    }
+
+    #[test]
+    fn skip_slot_is_ignored_for_downlink_demodulators() {
+        let mut demod = Demodulator::new(Mode::DlUnsynchronized, 1);
+        let before = demod.current_slot().to_int();
+        demod.skip_slot();
+        assert_eq!(demod.current_slot().to_int(), before);
     }
 }

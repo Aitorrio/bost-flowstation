@@ -310,11 +310,15 @@ impl SdrSettings {
             }
             .to_string(),
 
-            rx_ant: Some("TX/RX".to_string()),
+            // Full duplex on a B2xx needs separate ports: transmit on TX/RX, receive on RX2
+            // (sharing TX/RX for both puts the transmitter straight into the receiver).
+            // One gain stage, PGA: RX 0 … 76 dB, TX 0 … 89.8 dB. Proven on a B210 at
+            // 438/433 MHz into a duplexer; raise from the dashboard as needed.
+            rx_ant: Some("RX2".to_string()),
             tx_ant: Some("TX/RX".to_string()),
 
-            rx_gain: vec![("PGA".to_string(), 50.0)],
-            tx_gain: vec![("PGA".to_string(), 45.0)],
+            rx_gain: vec![("PGA".to_string(), 40.0)],
+            tx_gain: vec![("PGA".to_string(), 40.0)],
 
             ..Self::default(mode)
         }

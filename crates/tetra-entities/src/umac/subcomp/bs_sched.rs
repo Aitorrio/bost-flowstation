@@ -1904,6 +1904,7 @@ mod tests {
     #[test]
     fn traffic_slot_encryption_follows_its_allocation() {
         let aie = tetra_config::bluestation::CfgAie {
+            enabled: true,
             ksg: 1,
             sckn: 1,
             sck: tetra_config::bluestation::CipherKey([7; 10]),
@@ -1925,6 +1926,7 @@ mod tests {
     #[test]
     fn sysinfo_alternates_hyperframe_and_sck_vn_on_a_class2_cell() {
         let aie = tetra_config::bluestation::CfgAie {
+            enabled: true,
             ksg: 1,
             sckn: 1,
             sck: tetra_config::bluestation::CipherKey([0; 10]),
