@@ -22,8 +22,12 @@ jobs:
       - name: Install SoapySDR
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
 
-      - name: Install Rust (stable + clippy)
-        uses: dtolnay/rust-toolchain@stable
+      # Pinned to a fixed toolchain, not `stable`: with `-D warnings` a floating
+      # stable turns every new upstream Clippy lint into a CI failure on unchanged
+      # code. 1.96.0 is what this tree is developed against; bump it deliberately
+      # (and clear any new lints) rather than letting it drift.
+      - name: Install Rust (1.96.0 + clippy)
+        uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: clippy
 
