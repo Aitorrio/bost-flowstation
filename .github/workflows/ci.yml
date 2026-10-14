@@ -17,6 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # soapysdr-sys links against the system SoapySDR library (pkg-config SoapySDR.pc);
+      # without it the whole workspace build fails before anything else runs.
+      - name: Install SoapySDR
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
+
       - name: Install Rust (stable + clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
