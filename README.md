@@ -392,8 +392,9 @@ For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream d
 - **Razvan Zeces / YO6RZV** and the FlowStation community for the base station stack
 - **Mihajlo YU4MSH**, **Torben DJ2TH**, **Joaquin EA5GVK** and others credited upstream
 - **MidnightBlueLabs** — [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)
-- **Aitor, EA4HBL** — this fork (install, Setup, visual config, OTA UX, Spanish UI)
-- **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, and USRP B210 support
+- **Aitor, EA4HBL** — this fork (install, Setup, visual config, OTA UX, Spanish UI).
+- **Yiannis Samouhos, ysamouhos** — Multi-cell support with multiple SDR and AIE.
+- **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, and USRP B210 support.
 
 ---
 
