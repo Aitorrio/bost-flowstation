@@ -7280,7 +7280,7 @@ const LANGS={
     secp_groups:'Clear talkgroups (GSSI, comma separated) for radios without encryption',
     secp_aie_enable:'Encrypt the cell (class 2)',secp_aie_staging:'Leave this off while you distribute the key: with it off the SCK below is only used for over-the-air delivery and the cell stays in clear. Switch it on once every radio reports the key as accepted.',
     secp_staged:'(staged for OTAR)',secp_otar_label:'OTAR',secp_otar_send:'Send SCK',secp_otar_send_all:'Send SCK to all online radios',secp_otar_hint:'Deliver the SCK over the air, sealed under this radio\'s K (needs the radio registered and its K on file)',
-    secp_otar_none:'No online radio with a saved key',secp_otar_confirm_all:'Send the SCK to {n} radio(s)?',secp_otar_accepted:'Accepted',secp_otar_sent:'Sent, waiting for the radio…',secp_otar_timeout:'No reply from the radio',secp_otar_failed:'Failed',secp_otar_no_sck:'No SCK configured',secp_otar_no_k:'No K on file for this radio',secp_otar_not_reg:'Radio not registered',secp_save_first:'Save your changes first',secp_offline:'offline',secp_ksg:'Algorithm (KSG)',secp_sck:'Static cipher key (SCK)',secp_sck_placeholder:'20 hex digits',secp_sckn:'SCK number (1-32)',secp_sckvn:'SCK version',
+    secp_otar_none:'No online radio with a saved key',secp_otar_confirm_all:'Send the SCK to {n} radio(s)?',secp_save_first:'Save your changes first',secp_offline:'offline',secp_ksg:'Algorithm (KSG)',secp_sck:'Static cipher key (SCK)',secp_sck_placeholder:'20 hex digits',secp_sckn:'SCK number (1-32)',secp_sckvn:'SCK version',
     secp_tea1_warn:'TEA1 is broken: it keeps only 32 of its 80 key bits and the key can be recovered from a few seconds of traffic. Use it for research or to talk to TEA1-only radios, never for protection.',
     secp_keep:'unchanged',secp_saved_ok:'Saved. Restart the station to apply.',secp_invalid_keys:'Keys on file that could not be parsed (ISSI): ',
     secp_algo_title:'Algorithms in this build',secp_th_algo:'Algorithm',secp_th_status:'Status',secp_th_note:'Notes',secp_available:'Available',secp_unavailable:'Not available',secp_weak:'Weak — research only',
@@ -7929,7 +7929,7 @@ const LANGS={
     secp_aie_title:'Cifrado del interfaz aire (clase 2)',secp_aie_help:'Cifra la señalización y la voz de esta celda con una clave estática (SCK) compartida por todas las radios. Las radios sin la clave se registran en claro y solo usan los grupos en claro. El cifrado del interfaz aire no está permitido en bandas de aficionados: actívalo solo en una red privada con licencia.',
     secp_aie_enable:'Cifrar la celda (clase 2)',secp_aie_staging:'Déjalo desactivado mientras distribuyes la clave: con la celda en claro la SCK de abajo solo se usa para enviarla por el aire. Actívalo cuando todas las radios informen de que la han aceptado.',
     secp_staged:'(preparada para OTAR)',secp_otar_label:'OTAR',secp_otar_send:'Enviar SCK',secp_otar_send_all:'Enviar SCK a todas las radios conectadas',secp_otar_hint:'Entrega la SCK por el aire, sellada con la K de esta radio (la radio debe estar registrada y su K guardada)',
-    secp_otar_none:'Ninguna radio conectada con clave guardada',secp_otar_confirm_all:'¿Enviar la SCK a {n} radio(s)?',secp_otar_accepted:'Aceptada',secp_otar_sent:'Enviada, esperando a la radio…',secp_otar_timeout:'Sin respuesta de la radio',secp_otar_failed:'Falló',secp_otar_no_sck:'Sin SCK configurada',secp_otar_no_k:'Sin K guardada para esta radio',secp_otar_not_reg:'Radio no registrada',secp_save_first:'Guarda los cambios primero',secp_offline:'desconectada',
+    secp_otar_none:'Ninguna radio conectada con clave guardada',secp_otar_confirm_all:'¿Enviar la SCK a {n} radio(s)?',secp_save_first:'Guarda los cambios primero',secp_offline:'desconectada',
     secp_ksg:'Algoritmo (KSG)',secp_sck:'Clave estática (SCK)',secp_sck_placeholder:'20 dígitos hex',secp_sckn:'Número de SCK (1-32)',secp_sckvn:'Versión de SCK',secp_groups:'Grupos en claro (GSSI, separados por comas) para radios sin cifrado',
     secp_tea1_warn:'TEA1 está roto: conserva solo 32 de sus 80 bits de clave y la clave se recupera con unos segundos de tráfico. Úsalo para investigación o para hablar con radios que solo tengan TEA1, nunca como protección.',
     secp_keep:'sin cambios',secp_saved_ok:'Guardado. Reinicia la estación para aplicarlo.',secp_invalid_keys:'Claves guardadas que no se pudieron leer (ISSI): ',
@@ -13263,24 +13263,13 @@ function secpPosture(p){
   const enc=on?`${p.aie.ksg.toUpperCase()} · SCK ${p.aie.sckn} v${p.aie.sck_vn}${p.aie.weak?' ⚠':''}`:(p.aie?`${t('sec_cell_clear')} · ${p.aie.ksg.toUpperCase()} SCK ${p.aie.sckn} v${p.aie.sck_vn} ${t('secp_staged')}`:t('sec_cell_clear'));
   return `<span style="color:${on?(p.aie.weak?'var(--warn)':'var(--accent)'):'var(--text2)'}">${ICON_LOCK} ${secpEsc(enc)}</span><br><span style="color:var(--text2)">AUTH ${secpEsc(a).toUpperCase()}${p.mutual_authentication&&p.authentication!=='off'?' · mutual':''} · ${(p.subscribers||[]).length} key(s)</span>`;
 }
-function secpOtarLabel(st){
-  if(!st)return '';
-  if(st==='accepted')return t('secp_otar_accepted');
-  if(st==='sent')return t('secp_otar_sent');
-  if(st.indexOf('timeout')===0)return t('secp_otar_timeout');
-  if(st.indexOf('failed')===0){const d=st.slice(st.indexOf(':')+1).trim();return d&&d!==st?t('secp_otar_failed')+': '+d:t('secp_otar_failed');}
-  if(st==='no SCK configured')return t('secp_otar_no_sck');
-  if(st==='no K on file for this radio')return t('secp_otar_no_k');
-  if(st==='radio not registered')return t('secp_otar_not_reg');
-  return st;
-}
 function secpRenderSubs(){
   const tb=document.getElementById('secp-subs');
   if(!secpSubs.length){tb.innerHTML=`<tr><td colspan="3" class="help-text">${t('secp_no_keys')}</td></tr>`;return;}
   const canOtar=!!(secpData&&(secpData.saved||secpData.running)&&(secpData.saved||secpData.running).aie);
   tb.innerHTML=secpSubs.map((s,i)=>{
     const st=secpOtar[s.issi],ok=st==='accepted',pend=st==='sent';
-    const stHtml=st?`<div style="font-size:11px;margin-top:3px;color:${ok?'var(--accent)':(pend?'var(--text2)':'var(--danger)')}">${ICON_LOCK} ${t('secp_otar_label')}: ${secpEsc(secpOtarLabel(st))}</div>`:'';
+    const stHtml=st?`<div style="font-size:11px;margin-top:3px;color:${ok?'var(--accent)':(pend?'var(--text2)':'var(--danger)')}">${ICON_LOCK} ${t('secp_otar_label')}: ${secpEsc(st)}</div>`:'';
     const online=!!state.ms[s.issi];
     return `<tr><td>${idCell?idCell(s.issi):s.issi}${online?'':' <span class="badge badge-dim" style="font-size:9px">'+t('secp_offline')+'</span>'}</td><td style="font-family:var(--mono)">${s.k==='keep'?secpEsc(s.k_masked)+' <span class="badge badge-dim" style="font-size:9px">'+t('secp_keep')+'</span>':secpEsc(s.k.slice(0,4))+'…'+secpEsc(s.k.slice(-4))+' <span class="badge badge-green" style="font-size:9px">NEW</span>'}${stHtml}</td><td style="white-space:nowrap"><button class="btn btn-sm" ${(canOtar&&s.k==='keep'&&online)?'':'disabled'} title="${t('secp_otar_hint')}" onclick="secpSendSck(${s.issi})">${ICON_LOCK} ${t('secp_otar_send')}</button> <button class="btn btn-sm btn-danger" onclick="secpRemoveSub(${i})">${t('secp_remove')}</button></td></tr>`;
   }).join('');
