@@ -9767,7 +9767,7 @@ async function lstStartAudio(){
           lstUlNode=new AudioWorkletNode(lstAudioCtx,'lst-ul');
           lstUlNode.port.onmessage=ev=>{
             if(!lstToken)return;
-            if(!(lstTalkPermit||lstDuplexLive||lstPttHeld))return;
+            if(!(lstTalkPermit||lstDuplexLive))return;
             const samples=ev.data&&ev.data.samples;
             if(!samples||!samples.length)return;
             const pcm=lstResampleTo8k(samples,nativeRate);
@@ -9799,7 +9799,7 @@ async function lstStartAudio(){
       lstUlProc=proc;
       proc.onaudioprocess=ev=>{
         if(!lstToken)return;
-        if(!(lstTalkPermit||lstDuplexLive||lstPttHeld))return;
+        if(!(lstTalkPermit||lstDuplexLive))return;
         const input=ev.inputBuffer.getChannelData(0);
         const pcm=lstResampleTo8k(input,nativeRate);
         lstEnqueueUl(pcm);
