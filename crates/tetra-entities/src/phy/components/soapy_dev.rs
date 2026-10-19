@@ -295,20 +295,18 @@ impl RxTxDev for RxTxDevSoapySdr {
         }
 
         // 2. The stack's clock has fallen behind the SDR for another reason (a stall, RX
-        //    latency): the slot it is handing us can no longer be sent. Tick it forward with an
-        //    empty slot, and skip one slot of air in the uplink demodulators at the same time so
-        //    both clocks move by one.
+        //    latency) while the air kept flowing. The slot it is handing us can no longer be
+        //    sent, so tick it forward with an empty slot until it is back in front of the SDR.
+        //    The uplink demodulators are driven by sample arrival, so here they are already on
+        //    real air-time — do NOT skip them with the stack, or they run one slot ahead of the
+        //    air for every tick and every uplink burst (registration included) lands on the
+        //    wrong slot. Case 1 above is the only situation where the demodulators lead and the
+        //    stack must be ticked to follow them.
         if let (Some(tx_dsp), Some(sdr)) = (self.tx_dsp.as_ref(), self.sdr.as_ref()) {
             let behind = tx_dsp.stack_slots_behind(sdr, tx_slot)?;
             if behind > 0 {
                 if may_warn_catch_up(&mut self.catch_up_log_next) {
-                    tracing::warn!(
-                        "Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up (uplink demodulators skip one slot with it)",
-                        behind
-                    );
-                }
-                if let Some(rx_dsp) = &mut self.rx_dsp {
-                    rx_dsp.skip_ul_slot();
+                    tracing::warn!("Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up", behind);
                 }
                 return Ok(Vec::new());
             }
@@ -514,13 +512,6 @@ impl RxDsp {
             .map(|d| d.demodulator.take_skipped_slots())
             .max()
             .unwrap_or(0)
-    }
-
-    /// Skip one slot of air in every uplink demodulator (see `rxtx_timeslot`).
-    fn skip_ul_slot(&mut self) {
-        for d in self.ul_demodulators.iter_mut() {
-            d.demodulator.skip_slot();
-        }
     }
 
     fn take_slot_bits<'a>(&'a mut self) -> Vec<Option<RxSlotBits<'a>>> {

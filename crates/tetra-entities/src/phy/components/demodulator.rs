@@ -428,17 +428,6 @@ impl Demodulator {
         std::mem::take(&mut self.skipped_slots)
     }
 
-    /// Skip one slot of air: the next slot demodulated is one slot later than it would have
-    /// been. Used when the stack's clock is ticked forward without an RX slot, so that the
-    /// uplink demodulator and the stack keep advancing together — the stack labels every
-    /// uplink burst from its own clock, so moving one without the other mislabels every
-    /// burst from then on. Only meaningful for an uplink demodulator.
-    pub fn skip_slot(&mut self) {
-        if self.mode == Mode::Ul {
-            self.add_slots(1);
-        }
-    }
-
     /// Slot counter (next slot to be demodulated).
     pub fn current_slot(&self) -> TdmaTime {
         self.current_slot
@@ -674,29 +663,20 @@ mod tests {
     }
 
     #[test]
-    fn skip_slot_advances_the_uplink_slot_clock_by_one() {
+    fn uplink_demodulator_slot_clock_only_advances_with_air() {
+        // Regression guard for #62 ("uplink broken, radios cannot register"). The stall
+        // catch-up path ticks the stack's clock forward on its own; the uplink demodulator is
+        // driven purely by sample arrival and must track real air-time only. Nothing outside
+        // the sample stream may advance its slot clock — otherwise it runs ahead of the air and
+        // every uplink burst (registration included) lands on the wrong slot.
         let mut demod = Demodulator::new(Mode::Ul, 1);
-        feed(&mut demod, 0, 2 * SAMPLES_SLOT);
+        // Prime past start-up alignment, then measure.
+        feed(&mut demod, 0, SAMPLES_SLOT);
         let before = demod.current_slot().to_int();
-        demod.skip_slot();
-        assert_eq!(demod.current_slot().to_int(), before + 1);
-        // The skip is a deliberate tick, not a lost-sample event.
-        assert_eq!(demod.take_skipped_slots(), 0);
 
-        // The skip consumes a slot of air rather than adding to the count: the next slot of
-        // samples does not fire (its ready time has moved on), so after two more slots of
-        // samples the counter is two ahead of `before`, not three.
-        feed(&mut demod, 2 * SAMPLES_SLOT, 3 * SAMPLES_SLOT);
-        assert_eq!(demod.current_slot().to_int(), before + 1);
-        feed(&mut demod, 3 * SAMPLES_SLOT, 4 * SAMPLES_SLOT);
-        assert_eq!(demod.current_slot().to_int(), before + 2);
-    }
-
-    #[test]
-    fn skip_slot_is_ignored_for_downlink_demodulators() {
-        let mut demod = Demodulator::new(Mode::DlUnsynchronized, 1);
-        let before = demod.current_slot().to_int();
-        demod.skip_slot();
-        assert_eq!(demod.current_slot().to_int(), before);
+        // Four contiguous slots of air advance the clock by exactly four, no hidden skips.
+        feed(&mut demod, SAMPLES_SLOT, 5 * SAMPLES_SLOT);
+        assert_eq!(demod.current_slot().to_int(), before + 4);
+        assert_eq!(demod.take_skipped_slots(), 0, "contiguous air, nothing skipped");
     }
 }
