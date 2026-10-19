@@ -642,7 +642,17 @@ impl<T: NetworkTransport> BrewWorker<T> {
                     });
                 }
                 BrewMessage::Error(err) => {
-                    tracing::warn!("BrewWorker: server error type={}: {} bytes", err.error_type, err.data.len());
+                    // Log the payload, not just its length: Brew echoes the offending request in
+                    // the error (e.g. f1 03 = CALL_CONTROL/GROUP_IDLE + the 16-byte call UUID + 00),
+                    // which is what you need to tie a rejection to a specific call (#48). Hex is the
+                    // primary view; the lossy text is handy when the payload is actually a string.
+                    tracing::warn!(
+                        "BrewWorker: server error type={}: {} bytes: {:?} | hex={:02x?}",
+                        err.error_type,
+                        err.data.len(),
+                        String::from_utf8_lossy(&err.data),
+                        err.data
+                    );
                     // TODO FIXME we could check whether this call is indeed a brew ssi here
                     self.send_event(BrewEvent::ServerError {
                         error_type: err.error_type,
