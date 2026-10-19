@@ -75,19 +75,22 @@ pub fn build_tpg2200_callout_payload(incident: u16, message: &str) -> Vec<u8> {
 }
 
 /// Build the bare text payload expected by `ControlCommand::SendSds`. CMCE wraps this in the
-/// SDS-TL header and message reference before sending it over RF.
+/// SDS-TL header before sending it over RF — protocol identifier, message type, message
+/// reference and the ISO-8859-1 coding-scheme octet (see `rx_sds_from_control`). So this returns
+/// only the text octets and must NOT prepend its own coding-scheme byte: that byte lands directly
+/// after the header as the first "text" character and shows up as a spurious leading box on the
+/// receiving terminal (issue #55: `□TEST MESSAGE`).
+///
+/// The header the wrapper emits declares ISO-8859-1, so the text is encoded one octet per
+/// character in U+0000..U+00FF. Characters outside that range are replaced with `?` rather than
+/// emitted as UTF-16 (which the wrapper's fixed ISO-8859-1 header cannot describe, so it would
+/// display as garbage); real UTF-16 support would need the coding scheme carried into the header.
 pub fn build_sds_text_payload(text: &str) -> (u16, Vec<u8>) {
-    let all_latin = text.chars().all(|c| c as u32 <= 0xFF);
-    let (coding_scheme, text_bytes): (u8, Vec<u8>) = if all_latin {
-        let bytes: Vec<u8> = text.chars().map(|c| c as u8).collect();
-        (0x01, bytes)
-    } else {
-        let bytes: Vec<u8> = text.encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
-        (0x02, bytes)
-    };
-    let mut payload = vec![coding_scheme];
-    payload.extend_from_slice(&text_bytes);
-    ((payload.len() * 8) as u16, payload)
+    let bytes: Vec<u8> = text
+        .chars()
+        .map(|c| if (c as u32) <= 0xFF { c as u8 } else { b'?' })
+        .collect();
+    ((bytes.len() * 8) as u16, bytes)
 }
 
 #[cfg(test)]
@@ -136,8 +139,14 @@ mod tests {
     }
 
     #[test]
-    fn sds_text_payload_selects_latin_or_utf16() {
-        assert_eq!(build_sds_text_payload("abc"), (32, vec![0x01, b'a', b'b', b'c']));
-        assert_eq!(build_sds_text_payload("日"), (24, vec![0x02, 0x65, 0xE5]));
+    fn sds_text_payload_is_bare_iso_8859_1_text() {
+        // No coding-scheme prefix: the CMCE SendSds wrapper supplies the SDS-TL header and its
+        // ISO-8859-1 coding-scheme octet, so prepending one here is displayed as a leading box
+        // on the radio (issue #55).
+        assert_eq!(build_sds_text_payload("abc"), (24, vec![b'a', b'b', b'c']));
+        // Accented Latin-1 survives as one octet per character.
+        assert_eq!(build_sds_text_payload("é"), (8, vec![0xE9]));
+        // Outside Latin-1 (e.g. CJK) is replaced, not emitted as broken UTF-16.
+        assert_eq!(build_sds_text_payload("日"), (8, vec![b'?']));
     }
 }
