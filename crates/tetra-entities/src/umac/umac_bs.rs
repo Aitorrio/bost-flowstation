@@ -866,18 +866,22 @@ impl UmacBs {
         // Marking those as RA causes the next stolen downlink MAC-RESOURCE to carry
         // random_access_flag=true, which some radios reject during call setup.
         let msg_dltime = self.dltime.add_timeslots(-2); // Msg on uplink was sent two timeslots ago.
-        if msg_dltime.t == 1 && !self.scheduler_for(carrier_num).allow_mcch() {
-            if !self.scheduler_for(carrier_num).circuit_is_active(Direction::Dl, msg_dltime.t) {
-                tracing::info!(
-                    "rx_mac_access: ignoring common-control random access on carrier={} ts1 because this carrier has no MCCH",
-                    carrier_num
-                );
-                return;
-            }
-            tracing::trace!(
-                "rx_mac_access: treating carrier={} ts1 as assigned traffic, not common control",
-                carrier_num
+        // A secondary carrier has no MCCH, so it carries no common control. The two carriers are
+        // adjacent (25 kHz apart) and a single uplink burst leaks into both demodulators, so a
+        // radio's common-control random access (registration, call request) transmitted on the main
+        // carrier is also decoded here, tagged with this carrier. Processing it issues a conflicting
+        // grant on an MCCH-less carrier and the follow-up signalling (e.g. U-LOCATION-UPDATE-DEMAND)
+        // is then dropped for want of a signalling context, so the radio loops re-registering. Only
+        // honour random access on this carrier when it belongs to an active traffic circuit on the
+        // slot (genuine in-call FACCH/STCH signalling), never fresh common control.
+        if !self.scheduler_for(carrier_num).allow_mcch()
+            && !self.scheduler_for(carrier_num).circuit_is_active(Direction::Dl, msg_dltime.t)
+        {
+            tracing::debug!(
+                "rx_mac_access: ignoring common-control random access from {} on carrier={} ts{} (no MCCH, no active circuit)",
+                addr, carrier_num, msg_dltime.t
             );
+            return;
         }
         if !self.scheduler_for(carrier_num).circuit_is_active(Direction::Dl, msg_dltime.t) {
             self.scheduler_for_mut(carrier_num).dl_enqueue_random_access_ack(msg_dltime.t, addr);
