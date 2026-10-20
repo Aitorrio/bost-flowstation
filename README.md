@@ -10,13 +10,6 @@
 
 </div>
 
-> **Coming soon: PTBS (Personal Tetra Base Station)**  
-> Bost FlowStation evolves into **PTBS** — open source for radio amateurs and professional/commercial use.  
-> **Please run dashboard OTA once** on this bridge release (**v0.3.12+**). Stable tracks git branch **`main`**. Full rebrand (repo name, binary, UI) continues toward **PTBS**.  
-> ES: *Pronto PTBS. Haz OTA una vez (v0.3.12+). Estable → rama `main`.*
-
----
-
 ## What is Bost FlowStation?
 
 **Bost FlowStation** is a fork of [FlowStation](https://github.com/razvanzeces/flowstation) focused on **easy Raspberry Pi installs** and **day-to-day operation from the web dashboard** — without living in SSH and `config.toml`.
