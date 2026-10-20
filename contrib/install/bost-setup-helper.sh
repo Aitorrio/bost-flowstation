@@ -12,6 +12,9 @@ SRC_ROOT="${BOST_SRC:-/opt/bost-flowstation}"
 # Official SXceiver software tree (SoapySX lives in sxxcvr/SoapySX).
 SOAPY_SX_GIT="${BOST_SOAPY_SX_GIT:-https://github.com/tejeez/sxxcvr.git}"
 SOAPY_SX_DIR="${BOST_SOAPY_SX_DIR:-/opt/sxxcvr}"
+# µCell BB: SoapyMuCell + device-tree overlay (not the SXceiver module).
+MUCELL_GIT="${BOST_MUCELL_GIT:-https://github.com/Jankyneering/mu-cell-bb-drivers.git}"
+MUCELL_DIR="${BOST_MUCELL_DIR:-/opt/mu-cell-bb-drivers}"
 
 log() { echo "[bost-setup-helper] $*"; }
 
@@ -21,6 +24,18 @@ require_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
     die "must run as root (via sudoers drop-in)"
   fi
+}
+
+ensure_soapysdr_util() {
+  if command -v SoapySDRUtil >/dev/null 2>&1 || [[ -x /usr/bin/SoapySDRUtil || -x /usr/local/bin/SoapySDRUtil ]]; then
+    return 0
+  fi
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y soapysdr-tools \
+    || apt-get install -y soapysdr0.8-tools \
+    || apt-get install -y soapysdr0.7-tools \
+    || die "could not install soapysdr-tools (SoapySDRUtil missing)"
 }
 
 # Resolve a directory that contains SoapySX/CMakeLists.txt (or is SoapySX itself).
@@ -168,6 +183,92 @@ install_driver_sx() {
   echo "OK: driver=sx installed"
 }
 
+mucell_overlay_present() {
+  [[ -f /boot/firmware/overlays/mu-cell-bb_raspberrypi.dtbo || -f /boot/overlays/mu-cell-bb_raspberrypi.dtbo ]]
+}
+
+mucell_module_present() {
+  local mod
+  shopt -s nullglob
+  local found=1
+  for mod in \
+    /usr/local/lib/SoapySDR/modules*/libMuCellSupport.so \
+    /usr/lib/*/SoapySDR/modules*/libMuCellSupport.so \
+    /usr/lib/SoapySDR/modules*/libMuCellSupport.so; do
+    if [[ -f "$mod" ]]; then
+      found=0
+      break
+    fi
+  done
+  shopt -u nullglob
+  [[ "$found" -eq 0 ]] && return 0
+  SoapySDRUtil --info 2>/dev/null | grep -qi 'mucell' && return 0
+  return 1
+}
+
+install_driver_mucell() {
+  ensure_soapysdr_util
+  # Already built, and the Pi has loaded the HAT overlay: nothing to do.
+  # Do not --probe while bluestation-bs may hold the radio.
+  if mucell_module_present && mucell_overlay_present && [[ -d /proc/device-tree/hat ]]; then
+    echo "PHASE install"
+    log "µCell driver and overlay already loaded"
+    echo "OK: driver=mucell ready"
+    return 0
+  fi
+  # Files are in place but the overlay is only read at boot.
+  if mucell_module_present && mucell_overlay_present; then
+    echo "PHASE install"
+    log "µCell driver installed; the Pi still has to reboot"
+    echo "NEED_REBOOT"
+    echo "OK: driver=mucell installed"
+    return 0
+  fi
+
+  echo "PHASE deps"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y --no-install-recommends \
+    git make g++ cmake device-tree-compiler \
+    libsoapysdr-dev soapysdr-tools libasound2-dev python3-soapysdr \
+    libssl-dev clang llvm-dev libclang-dev \
+    || apt-get install -y git make g++ cmake device-tree-compiler \
+      libsoapysdr-dev soapysdr-tools libssl-dev
+
+  echo "PHASE clone"
+  if [[ ! -d "$MUCELL_DIR/.git" ]]; then
+    log "Cloning µCell drivers from $MUCELL_GIT → $MUCELL_DIR"
+    mkdir -p "$(dirname "$MUCELL_DIR")"
+    rm -rf "$MUCELL_DIR"
+    git clone --depth 1 "$MUCELL_GIT" "$MUCELL_DIR"
+  else
+    log "Using existing µCell tree at $MUCELL_DIR"
+    git -C "$MUCELL_DIR" pull --ff-only || true
+  fi
+  [[ -d "$MUCELL_DIR/SoapyMuCell" && -d "$MUCELL_DIR/raspberry-pi-drivers/mu-cell-bb-dts" ]] \
+    || die "µCell tree is missing SoapyMuCell or the device-tree overlay"
+
+  echo "PHASE overlay"
+  log "Building µCell device-tree overlay"
+  make -C "$MUCELL_DIR/raspberry-pi-drivers/mu-cell-bb-dts" overlay
+  make -C "$MUCELL_DIR/raspberry-pi-drivers/mu-cell-bb-dts" install
+  mucell_overlay_present || die "overlay build finished but mu-cell-bb_raspberrypi.dtbo was not installed"
+
+  echo "PHASE build"
+  log "Building SoapyMuCell"
+  cmake -S "$MUCELL_DIR/SoapyMuCell" -B "$MUCELL_DIR/SoapyMuCell/build" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$MUCELL_DIR/SoapyMuCell/build" -j"$(nproc)"
+  echo "PHASE install"
+  cmake --install "$MUCELL_DIR/SoapyMuCell/build"
+  ldconfig || true
+  mucell_module_present || die "SoapyMuCell built but the mucell factory was not found"
+
+  # The overlay is read only at boot. https://github.com/Jankyneering/mu-cell
+  echo "NEED_REBOOT"
+  log "µCell driver installed; reboot the Pi before the board can be opened"
+  echo "OK: driver=mucell installed"
+}
+
 enable_service() {
   # Idempotent: never restart a live station just to flip the enable bit.
   # (`enable --now` can disrupt an already-running unit mid-wizard.)
@@ -196,8 +297,9 @@ case "$ACTION" in
     case "$driver" in
       sx) install_driver_sx ;;
       lime) install_driver_lime ;;
+      mucell) install_driver_mucell ;;
       uhd) install_driver_uhd "${2:-}" ;;
-      *) die "unknown driver '$driver' (sx|lime|uhd)" ;;
+      *) die "unknown driver '$driver' (sx|lime|mucell|uhd)" ;;
     esac
     ;;
   enable-service)

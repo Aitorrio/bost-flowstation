@@ -72,7 +72,7 @@ sudo systemctl reload NetworkManager
    - **High port:** `https://<pi-ip>:8443/`
 2. Log in with `admin` / `1234` (change password in System → Panel access when convenient)
 3. The **Setup** wizard appears if `setup.json` has `setup_complete=false`
-4. Steps: welcome → SDR scan / install driver (SXceiver or Lime) → RF/net/Brew (or defaults) → enable RF + restart → ensure systemd autostart → finish
+4. Steps: welcome → SDR scan / install driver (SXceiver / Lime / µCell / USRP) → RF/net/Brew (or defaults) → enable RF + restart → ensure systemd autostart → finish
 
 You can switch presets later under **System → Panel access → Dashboard ports** (applies config and restarts the service). Existing installs keep their current ports until you change them.
 
@@ -86,9 +86,11 @@ The dashboard never runs free-form shell. Driver install and systemd ensure go t
 
 `/usr/local/sbin/bost-setup-helper.sh`
 
-Allowed actions: `install-driver sx|lime`, `enable-service`, `restart-service`.
+Allowed actions: `install-driver sx|lime|mucell|uhd`, `enable-service`, `restart-service`.
 
 **SXceiver (`sx`):** clones and builds [tejeez/sxxcvr](https://github.com/tejeez/sxxcvr) into `/opt/sxxcvr` (SoapySX module), then `ldconfig`. Override with `BOST_SOAPY_SX_DIR` / `BOST_SOAPY_SX_GIT` if needed. Hardware must be stacked on the Pi HAT for `SoapySDRUtil --find` / `--probe=driver=sx` to see it.
+
+**µCell (`mucell`):** clones and builds [Jankyneering/mu-cell-bb-drivers](https://github.com/Jankyneering/mu-cell-bb-drivers) into `/opt/mu-cell-bb-drivers` (SoapyMuCell module + `mu-cell-bb_raspberrypi` device-tree overlay). Override with `BOST_MUCELL_DIR` / `BOST_MUCELL_GIT`. The overlay is only read at boot, so a successful install prints `NEED_REBOOT`; the wizard applies `device = "driver=mucell"` and offers a host reboot via `POST /api/system/reboot`. Same gain stages as SXceiver (`dac`/`mixer`, `lna`/`pga`).
 
 ## Updating an existing Pi carefully
 

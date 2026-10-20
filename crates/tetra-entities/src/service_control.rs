@@ -158,6 +158,44 @@ fn run_command(program: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
+/// Schedule a full host reboot (`systemctl reboot` / `shutdown -r now`).
+/// Used after µCell driver install (device-tree overlay loads only at boot).
+pub fn schedule_host_reboot(delay: Duration) {
+    tracing::warn!(
+        "Service control: scheduling HOST reboot in {:?} (overlay / driver install)",
+        delay
+    );
+    std::thread::Builder::new()
+        .name("host-reboot".into())
+        .spawn(move || {
+            std::thread::sleep(delay);
+            match run_host_reboot() {
+                Ok(how) => tracing::info!("Service control: host reboot requested via {how}"),
+                Err(e) => tracing::error!("Service control: host reboot failed: {e}"),
+            }
+        })
+        .ok();
+}
+
+fn run_host_reboot() -> Result<&'static str, String> {
+    if run_command("systemctl", &["reboot"]).is_ok() {
+        return Ok("systemctl reboot");
+    }
+    if run_command("sudo", &["-n", "systemctl", "reboot"]).is_ok() {
+        return Ok("sudo systemctl reboot");
+    }
+    if run_command("shutdown", &["-r", "now"]).is_ok() {
+        return Ok("shutdown -r now");
+    }
+    if run_command("sudo", &["-n", "shutdown", "-r", "now"]).is_ok() {
+        return Ok("sudo shutdown -r now");
+    }
+    if run_command("reboot", &[]).is_ok() {
+        return Ok("reboot");
+    }
+    Err("could not reboot host (tried systemctl reboot, shutdown -r now, reboot)".into())
+}
+
 /// Schedule a full host power-off (`systemctl poweroff` / `shutdown -h now`).
 /// Used by System → Apagar. Soft standby remains [`ServiceAction::Stop`].
 pub fn schedule_host_poweroff(delay: Duration) {

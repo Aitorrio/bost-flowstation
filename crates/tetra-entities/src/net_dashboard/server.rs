@@ -3229,6 +3229,12 @@ fn handle_connection(
             std::time::Duration::from_millis(500),
         );
         http_json_response(s, 200, r#"{"ok":true,"action":"shutdown"}"#);
+    } else if req_line.contains("POST /api/system/reboot") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        tracing::warn!("Dashboard: HOST reboot requested via HTTP (µCell overlay / driver install)");
+        crate::service_control::schedule_host_reboot(std::time::Duration::from_millis(800));
+        http_json_response(s, 200, r#"{"ok":true,"action":"reboot"}"#);
     } else if req_line.contains("POST /api/system/poweroff") {
         let mut s = stream;
         drain_http_headers(&mut s);

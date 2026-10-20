@@ -9,7 +9,7 @@ dashboard, network entities), `bins/bluestation-bs` (the service binary).
 - **Branch `bost`** is where all work is committed and pushed. Since v0.5.3 upstream made `main`
   the stable OTA branch that installs update from; `bost` stays the working branch. `beta` is not
   used for this project.
-- Current release: **v0.5.4** (`BOST_VERSION` in `crates/tetra-core/src/lib.rs`, heading in
+- Current release: **v0.5.5** (`BOST_VERSION` in `crates/tetra-core/src/lib.rs`, heading in
   `CHANGELOG.md`). A release bumps both; the changelog is in Spanish, `## vX.Y.Z — title` headings.
 - Project status and next steps: [`Docs/multi-cell-status.md`](Docs/multi-cell-status.md).
   Design and per-phase "as built" notes: [`Docs/multi-cell-plan.md`](Docs/multi-cell-plan.md).

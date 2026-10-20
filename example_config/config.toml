@@ -84,6 +84,8 @@ rx_freq = 433025000
 # If not specified, the first compatible device found is selected automatically.
 # device = "driver=plutosdr,uri=ip:192.168.42.42"
 # device = "driver=lime,serial=123456789"
+# device = "driver=sx"          # SXceiver HAT (SoapySX)
+# device = "driver=mucell"      # µCell BB (SoapyMuCell + DT overlay; reboot after first install)
 # Ettus USRP B200/B210 via UHD (uhd-host + soapysdr0.8-module-uhd, `uhd_images_downloader -t b2xx`).
 # Defaults: TX on TX/RX, RX on RX2, PGA 40 dB each. A Kintex-7 (XC7K325T) "B210" clone refuses
 # Ettus's FPGA image ("fx3 is in state 5") and needs the open replacement image instead:

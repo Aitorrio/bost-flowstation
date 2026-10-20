@@ -16,7 +16,7 @@
 
 Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)). Improved by **Aitor, EA4HBL**.
 
-**Tested hardware:** LimeSDR Mini 2.0 · SXceiver · Ettus USRP B210 (and XC7K325T clones) · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400 · Sepura STP9000 · Sepura SRG3500 · Sepura SRG3900 · Sepura SC2229
+**Tested hardware:** LimeSDR Mini 2.0 · SXceiver · µCell BB · Ettus USRP B210 (and XC7K325T clones) · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400 · Sepura STP9000 · Sepura SRG3500 · Sepura SRG3900 · Sepura SC2229
 
 > Protocol details, Brew theory, Asterisk/DAPNET/GeoAlarm and upstream bug history live in the [original FlowStation README](https://github.com/razvanzeces/flowstation/blob/main/README.md). This page documents **what this fork adds** and **how to run it**.
 
@@ -63,6 +63,13 @@ When it finishes you should see something like:
 
 More detail (env vars, force-clean, helper script): [`Docs/install-and-setup.md`](Docs/install-and-setup.md).
 
+### µCell BB
+
+The Setup wizard's **Install µCell** button builds [SoapyMuCell](https://github.com/Jankyneering/mu-cell-bb-drivers)
+and the `mu-cell-bb_raspberrypi` overlay (not the SXceiver module). Device string: `driver=mucell`.
+Gain stages match SXceiver (`dac`/`mixer`, `lna`/`pga`). After install the Pi must reboot so the
+overlay loads; the wizard offers that reboot automatically.
+
 ### USRP B210 (and B200 / B210 clones)
 
 The installer and the Setup wizard's **Install USRP (UHD)** button put in `uhd-host`, the
@@ -90,7 +97,7 @@ powered hub is required.
 </p>
 
 3. If setup is incomplete, the **Setup** wizard opens automatically (also available from the sidebar).
-4. In **Select SDR**, scan hardware or install the **SXceiver** / **Lime** driver, then continue through RF, network and Brew. Enable RF and restart when ready.
+4. In **Select SDR**, scan hardware or install the **SXceiver** / **Lime** / **µCell** / **USRP** driver, then continue through RF, network and Brew. Enable RF and restart when ready (µCell also needs a Pi reboot so the device-tree overlay loads).
 
 <p align="center">
   <img src="Docs/screenshots/03-setup-sdr.png" alt="Setup wizard — Select SDR" width="640"/>

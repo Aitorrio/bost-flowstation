@@ -2,6 +2,10 @@
 
 Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu versión actual.
 
+## v0.5.5 — Wizard µCell (SoapyMuCell)
+
+- **Wizard µCell.** El asistente y la página Setup pueden instalar el driver `mucell` (placa µCell BB, distinto de SXceiver): clona/compila SoapyMuCell y el overlay `mu-cell-bb_raspberrypi`, escribe `device = "driver=mucell"`, y si el helper imprime `NEED_REBOOT` ofrece reiniciar la Pi (`POST /api/system/reboot`) para cargar el device-tree. Familias de ganancia/antenas alineadas con SXceiver; validación `SoapyDriverFamily::MuCell`.
+
 ## Pendiente de publicar — Autenticación, TEA2/TEA3, OTAR y USRP B210
 
 - **Ticks de entrega de SDS en la consola.** Los informes de entrega SDS-TL que una radio envía al ISSI del despachador (o a 9999) ya no se descartan como «no registrado localmente»: se asocian al mensaje enviado por su referencia de mensaje y el registro SDS y la nueva vista «Enviados» de la consola muestran ✓ enviado, ✓✓ entregado o ✗ rechazado. Las entradas del registro guardan `message_ref` y `delivered`; nuevo evento de telemetría `SdsReport`.

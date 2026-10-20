@@ -10,6 +10,8 @@ use crate::bluestation::CfgSoapySdr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoapyDriverFamily {
     Sxceiver,
+    /// µCell BB. Same gain stages as SXceiver; a different Soapy module (`driver=mucell`).
+    MuCell,
     Lime,
     Pluto,
     Usrp,
@@ -22,6 +24,10 @@ impl SoapyDriverFamily {
         let d = device.unwrap_or("").to_ascii_lowercase();
         if d.is_empty() {
             return Self::Unknown;
+        }
+        // Check mucell before sx — keep families distinct even if strings overlap later.
+        if d.contains("mucell") || d.contains("mu-cell") || d.contains("µcell") {
+            return Self::MuCell;
         }
         if d.contains("sx") || d.contains("sxceiver") {
             return Self::Sxceiver;
@@ -40,7 +46,7 @@ impl SoapyDriverFamily {
 
     pub fn allowed_tx_stages(self) -> Option<&'static [&'static str]> {
         match self {
-            Self::Sxceiver => Some(&["dac", "mixer"]),
+            Self::Sxceiver | Self::MuCell => Some(&["dac", "mixer"]),
             Self::Lime => Some(&["pad", "iamp"]),
             Self::Pluto | Self::Usrp => Some(&["pga"]),
             Self::Unknown => None,
@@ -49,7 +55,7 @@ impl SoapyDriverFamily {
 
     pub fn allowed_rx_stages(self) -> Option<&'static [&'static str]> {
         match self {
-            Self::Sxceiver => Some(&["lna", "pga"]),
+            Self::Sxceiver | Self::MuCell => Some(&["lna", "pga"]),
             Self::Lime => Some(&["lna", "tia", "pga"]),
             Self::Pluto | Self::Usrp => Some(&["pga"]),
             Self::Unknown => None,
@@ -58,7 +64,7 @@ impl SoapyDriverFamily {
 
     pub fn allowed_rx_antennas(self) -> Option<&'static [&'static str]> {
         match self {
-            Self::Sxceiver => Some(&["RX"]),
+            Self::Sxceiver | Self::MuCell => Some(&["RX"]),
             Self::Lime => Some(&["LNAL", "LNAH", "LNAW"]),
             Self::Pluto => Some(&["A_BALANCED", "A_N", "A_P"]),
             Self::Usrp => Some(&["TX/RX", "RX2"]),
@@ -68,7 +74,7 @@ impl SoapyDriverFamily {
 
     pub fn allowed_tx_antennas(self) -> Option<&'static [&'static str]> {
         match self {
-            Self::Sxceiver => Some(&["TX"]),
+            Self::Sxceiver | Self::MuCell => Some(&["TX"]),
             Self::Lime => Some(&["BAND1", "BAND2"]),
             Self::Pluto => Some(&["A"]),
             Self::Usrp => Some(&["TX/RX"]),
@@ -168,6 +174,20 @@ mod tests {
         let cfg = soapy("driver=sx", &[("pad", 24.0)], &[]);
         let err = validate_soapysdr_driver_keys(&cfg).unwrap_err();
         assert!(err.contains("pad"), "{err}");
+    }
+
+    #[test]
+    fn mucell_accepts_sx_stages() {
+        let cfg = soapy("driver=mucell", &[("dac", 9.0)], &[("lna", 42.0)]);
+        validate_soapysdr_driver_keys(&cfg).unwrap();
+    }
+
+    #[test]
+    fn mucell_family_from_device() {
+        assert_eq!(
+            SoapyDriverFamily::from_device_arg(Some("driver=mucell")),
+            SoapyDriverFamily::MuCell
+        );
     }
 
     #[test]
