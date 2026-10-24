@@ -215,7 +215,13 @@ impl UmacBs {
         let c = config.config();
 
         // Security part of the broadcast (AIE service bit, extended services element).
-        let (aie_service, ext_services) = crate::aie::sysinfo_security(crate::aie::effective(&c));
+        let (aie_service, mut ext_services) = crate::aie::sysinfo_security(crate::aie::effective(&c));
+        // Advertise the WAP-IP / data-priority service to Openwave terminals when the packet-data
+        // gateway is enabled: the MSB of the extended-services section_data (spec §6.3). Config
+        // validation ties `sndcp_service` to the WAP-IP profile, so this predicate is sufficient.
+        if c.cell.sndcp_service {
+            ext_services.section_data |= 0x40;
+        }
 
         let def_access = SysinfoDefaultDefForAccessCodeA {
             imm: 8,

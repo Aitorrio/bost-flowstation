@@ -448,6 +448,17 @@ impl StackConfig {
             return Err("ms_txpwr_max_cell must be 0-7 (3 bits)");
         }
 
+        // SNDCP packet-data service and the WAP-IP gateway must agree: the cell either advertises
+        // SNDCP and runs the gateway, or does neither (spec §6.1). A half-enabled profile would
+        // advertise a service with nothing behind it (or run a gateway nothing can reach).
+        let wap_enabled = self.cell.wap_ip.is_some_and(|w| w.enabled);
+        if self.cell.sndcp_service != wap_enabled {
+            return Err("cell.sndcp_service requires [cell_info.wap_ip].enabled = true, and vice versa");
+        }
+        if wap_enabled && !self.cell.advanced_link {
+            return Err("[cell_info.wap_ip].enabled requires cell.advanced_link = true");
+        }
+
         // Validate timezone if configured
         if let Some(ref tz) = self.cell.timezone
             && tz.parse::<chrono_tz::Tz>().is_err()

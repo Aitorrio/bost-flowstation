@@ -157,18 +157,24 @@ impl Sndcp {
         });
     }
 
-    /// The WAP gateway is active only when the cell advertises SNDCP packet-data service. Config
-    /// `[cell_info.wap_ip].enabled` gates this alongside `sndcp_service` (enablement, spec §6).
+    /// The WAP gateway is active only when the cell advertises SNDCP packet-data service *and* the
+    /// WAP-IP profile is enabled. Config validation keeps these two in lock-step (spec §6.1), so
+    /// this single predicate is authoritative.
     fn wap_enabled(&self) -> bool {
-        self.config.config().cell.sndcp_service
+        let c = self.config.config();
+        c.cell.sndcp_service && c.cell.wap_ip.is_some_and(|w| w.enabled)
     }
 
-    /// The BS WAP endpoint responses originate from (source address/port and the TTL to send with).
+    /// The BS WAP endpoint responses originate from (source address/port and the TTL to send with),
+    /// read from `[cell_info.wap_ip]` or falling back to the spec defaults.
     fn wap_endpoint(&self) -> wap_ip::WapEndpoint {
-        wap_ip::WapEndpoint {
-            address: WAP_DEFAULT_ADDRESS,
-            port: WAP_DEFAULT_PORT,
-            response_ttl: WAP_DEFAULT_RESPONSE_TTL,
+        match self.config.config().cell.wap_ip {
+            Some(w) => wap_ip::WapEndpoint { address: w.address, port: w.port, response_ttl: w.response_ttl },
+            None => wap_ip::WapEndpoint {
+                address: WAP_DEFAULT_ADDRESS,
+                port: WAP_DEFAULT_PORT,
+                response_ttl: WAP_DEFAULT_RESPONSE_TTL,
+            },
         }
     }
 

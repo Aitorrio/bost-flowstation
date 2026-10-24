@@ -703,6 +703,42 @@ main_carrier_number = 1586
     }
 
     #[test]
+    fn wap_ip_profile_resolves_with_overrides_and_defaults() {
+        let cfg = from_toml_str(&minimal_toml(
+            "sndcp_service = true\nadvanced_link = true\n\n[cell_info.wap_ip]\nenabled = true\naddress = \"10.0.0.5\"\nport = 9201\nresponse_ttl = 16",
+        ))
+        .expect("a consistent WAP profile must parse");
+        let w = cfg.cell.wap_ip.expect("wap_ip resolved");
+        assert!(w.enabled);
+        assert_eq!(w.address, [10, 0, 0, 5]);
+        assert_eq!(w.port, 9201);
+        assert_eq!(w.response_ttl, 16);
+        assert_eq!(w.max_request_payload_bytes, 1024, "default request cap");
+
+        // Omitted fields fall back to the spec defaults.
+        let cfg = from_toml_str(&minimal_toml("sndcp_service = true\nadvanced_link = true\n\n[cell_info.wap_ip]\nenabled = true")).expect("parse");
+        let w = cfg.cell.wap_ip.unwrap();
+        assert_eq!((w.address, w.port, w.response_ttl), ([10, 0, 0, 1], 9200, 32));
+    }
+
+    #[test]
+    fn wap_profile_and_sndcp_service_must_agree() {
+        // `from_toml_str` resolves without validating; the cross-field rule runs in `validate()`.
+        let validated = |extra: &str| from_toml_str(&minimal_toml(extra)).expect("parses").validate();
+
+        // A consistent profile (SNDCP + gateway + advanced link) validates.
+        assert!(validated("sndcp_service = true\nadvanced_link = true\n\n[cell_info.wap_ip]\nenabled = true").is_ok());
+        // Both off is the default consistent state.
+        assert!(validated("").is_ok(), "both off is consistent");
+        // SNDCP advertised but no gateway behind it.
+        assert!(validated("sndcp_service = true\nadvanced_link = true").is_err(), "sndcp_service without an enabled wap_ip gateway must be rejected");
+        // Gateway running but SNDCP not advertised — no MS would ever reach it.
+        assert!(validated("advanced_link = true\n\n[cell_info.wap_ip]\nenabled = true").is_err(), "wap_ip gateway without sndcp_service must be rejected");
+        // Gateway needs the advanced link.
+        assert!(validated("sndcp_service = true\n\n[cell_info.wap_ip]\nenabled = true").is_err(), "wap_ip gateway requires advanced_link");
+    }
+
+    #[test]
     fn dgna_attachment_mode_defaults_to_permanent_and_clamps() {
         let cfg = from_toml_str(&minimal_toml("")).expect("parse");
         assert_eq!(cfg.cell.dgna_attachment_mode, 0, "absent mode => Attached permanently");
