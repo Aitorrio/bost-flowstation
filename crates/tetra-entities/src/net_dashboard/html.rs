@@ -1088,7 +1088,7 @@ body{
 .prefs-pop .theme-btn{flex:1;padding:8px 6px;font-size:11px;}
 .prefs-pop .lang-picker{display:flex;flex-wrap:wrap;gap:4px;margin:0 4px 6px;padding:0 2px 4px;}
 .prefs-pop .lang-btn{min-width:36px;padding:8px 6px;font-size:11px;}
-@media (max-width:700px){
+@media (max-width:1100px){
   .prefs-wrap{display:flex;}
   .topbar-inline-prefs{display:none!important;}
   .prefs-pop{width:min(248px,calc(100vw - 24px));}
@@ -4009,7 +4009,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </span>
         <span class="hw-live" aria-hidden="true"><span class="hw-live-dot"></span></span>
       </div>
-      <div id="health-badge" class="hw-row" style="display:none" title="Station health">
+      <div id="health-badge" class="hw-row" style="display:none" title="Station health" data-i18n-title="ui_station_health">
         <span class="hw-glyph" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
                stroke-linecap="round" stroke-linejoin="round">
@@ -4017,11 +4017,11 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </svg>
         </span>
         <span class="hw-meta">
-          <span class="hw-key">HEALTH</span>
+          <span class="hw-key"><span data-i18n="ui_health">HEALTH</span></span>
           <span class="hw-val" id="health-badge-label">—</span>
         </span>
       </div>
-      <div id="pwr-badge" class="hw-row hw-row--pwr" style="display:none" title="Host system power draw">
+      <div id="pwr-badge" class="hw-row hw-row--pwr" style="display:none" title="Host system power draw" data-i18n-title="ui_host_system_power_draw">
         <span class="hw-glyph" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
                stroke-linecap="round" stroke-linejoin="round">
@@ -4149,8 +4149,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="brew-status-row" id="secRow" onclick="showPage('security')" style="cursor:pointer">
       <div class="brew-led" id="secLed"></div>
       <div class="brew-info">
-        <div class="brew-info-label">SECURITY</div>
-        <div class="brew-info-val" id="secText">CLASS 1 · CLEAR</div>
+        <div class="brew-info-label"><span data-i18n="ui_security">SECURITY</span></div>
+        <div class="brew-info-val" id="secText"><span data-i18n="sec_cell_clear">CLASS 1 · CLEAR</span></div>
       </div>
       <div id="secAuthBadge" class="brew-ver-badge" style="display:none"></div>
     </div>
@@ -4161,7 +4161,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="cr-line" id="cr-ua">—</div>
     </div>
     <!-- Collapse toggle -->
-    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar"><span class="ico18" data-icon="collapse"></span></button>
+    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar" data-i18n-title="ui_toggle_sidebar" data-i18n-aria-label="ui_toggle_sidebar"><span class="ico18" data-icon="collapse"></span></button>
   </div>
 </nav>
 
@@ -4170,12 +4170,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   <!-- Topbar -->
   <div id="topbar">
     <button id="sidebar-toggle-btn" onclick="openMobileSidebar()" aria-label="Menu"><span class="ico18" data-icon="hamburger"></span></button>
-    <div class="topbar-title" id="topbar-title">Inicio</div>
+    <div class="topbar-title" id="topbar-title"><span data-i18n="ui_inicio">Inicio</span></div>
 
     <!-- Calm always-visible station-state chips (BS / Brew / Emergency-if-active). -->
     <div class="topbar-chips" aria-hidden="false">
-      <span class="pill pill-idle" id="chip-bs" title="Base station link"><span data-i18n="bs_label">BS</span></span>
-      <span class="pill pill-idle" id="chip-brew" title="Brew network"><span>Brew</span></span>
+      <span class="pill pill-idle" id="chip-bs" title="Base station link" data-i18n-title="ui_base_station_link"><span data-i18n="bs_label">BS</span></span>
+      <span class="pill pill-idle" id="chip-brew" title="Brew network" data-i18n-title="ui_brew_network"><span>Brew</span></span>
       <span class="pill pill-danger" id="chip-emergency" style="display:none" title="Emergency active">
         <span class="pill-icon" data-icon="emergency"></span><span data-i18n="emg_chip">EMERGENCY</span>
       </span>
@@ -4185,14 +4185,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <!-- Readability: opens an Apple-style level popover (Small/Medium/High/Ultra). -->
       <div class="eye-wrap">
         <button class="eye-btn" id="read-btn" onclick="toggleReadPop(event)"
-                title="Text size &amp; contrast" aria-haspopup="true" aria-expanded="false" aria-label="Readability">
+                title="Text size &amp; contrast" aria-haspopup="true" aria-expanded="false" aria-label="Readability" data-i18n-title="ui_text_size_contrast" data-i18n-aria-label="readability">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/>
             <circle cx="12" cy="12" r="3"/>
           </svg>
         </button>
-        <div class="read-pop" id="read-pop" role="menu" aria-label="Text size">
+        <div class="read-pop" id="read-pop" role="menu" aria-label="Text size" data-i18n-aria-label="ui_text_size">
           <div class="read-pop-title" data-i18n="readability">READABILITY</div>
           <button class="read-opt" data-size="s" role="menuitemradio" onclick="setUiSize('s')">
             <span class="read-aa">Aa</span>
@@ -4233,22 +4233,24 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
       <div class="theme-picker topbar-inline-prefs">
-        <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)">Dark</button>
-        <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)">Light</button>
-        <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)">Blue</button>
+        <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)"><span data-i18n="ui_dark">Dark</span></button>
+        <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)"><span data-i18n="ui_light">Light</span></button>
+        <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)"><span data-i18n="ui_blue">Blue</span></button>
       </div>
       <div class="lang-picker topbar-inline-prefs">
         <button class="lang-btn" data-lang="en" onclick="setLang('en',this)">EN</button>
         <button class="lang-btn" data-lang="ro" onclick="setLang('ro',this)">RO</button>
         <button class="lang-btn" data-lang="de" onclick="setLang('de',this)">DE</button>
         <button class="lang-btn active" data-lang="es" onclick="setLang('es',this)">ES</button>
+        <button class="lang-btn" data-lang="pt" onclick="setLang('pt',this)" title="Português (Portugal)">PT</button>
+        <button class="lang-btn" data-lang="fr" onclick="setLang('fr',this)" title="Français">FR</button>
         <button class="lang-btn" data-lang="hu" onclick="setLang('hu',this)">HU</button>
         <button class="lang-btn" data-lang="zh" onclick="setLang('zh',this)">CN</button>
       </div>
       <!-- Phone: theme + language collapsed into one popover (desktop keeps inline pickers). -->
       <div class="prefs-wrap">
         <button class="prefs-btn" id="prefs-btn" onclick="togglePrefsPop(event)"
-                title="Theme &amp; language" aria-haspopup="true" aria-expanded="false" aria-label="Theme and language">
+                title="Theme &amp; language" aria-haspopup="true" aria-expanded="false" aria-label="Theme and language" data-i18n-title="prefs_menu_hint">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="4"/>
@@ -4258,9 +4260,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="prefs-pop" id="prefs-pop" role="menu" aria-label="Theme and language">
           <div class="prefs-pop-title" data-i18n="prefs_theme">THEME</div>
           <div class="theme-picker">
-            <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)">Dark</button>
-            <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)">Light</button>
-            <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)">Blue</button>
+            <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)"><span data-i18n="ui_dark">Dark</span></button>
+            <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)"><span data-i18n="ui_light">Light</span></button>
+            <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)"><span data-i18n="ui_blue">Blue</span></button>
           </div>
           <div class="prefs-pop-title" data-i18n="prefs_lang">LANGUAGE</div>
           <div class="lang-picker">
@@ -4268,20 +4270,22 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <button class="lang-btn" data-lang="ro" onclick="setLang('ro',this)">RO</button>
             <button class="lang-btn" data-lang="de" onclick="setLang('de',this)">DE</button>
             <button class="lang-btn active" data-lang="es" onclick="setLang('es',this)">ES</button>
+            <button class="lang-btn" data-lang="pt" onclick="setLang('pt',this)" title="Português (Portugal)">PT</button>
+            <button class="lang-btn" data-lang="fr" onclick="setLang('fr',this)" title="Français">FR</button>
             <button class="lang-btn" data-lang="hu" onclick="setLang('hu',this)">HU</button>
             <button class="lang-btn" data-lang="zh" onclick="setLang('zh',this)">CN</button>
           </div>
         </div>
       </div>
       <!-- Session logout (person + arrow). Only when auth is on. -->
-      <button class="logout-btn" id="logout-btn" onclick="doLogout()" title="Log out" aria-label="Log out" style="display:none"><span class="ico18" data-icon="logout"></span></button>
+      <button class="logout-btn" id="logout-btn" onclick="doLogout()" title="Log out" aria-label="Log out" style="display:none" data-i18n-title="logout" data-i18n-aria-label="logout"><span class="ico18" data-icon="logout"></span></button>
       <!-- Station power menu: Restart / Suspend / Power off (dropdown). Always for operators. -->
       <div class="power-wrap" id="power-wrap">
         <button class="logout-btn power-menu-btn" id="power-menu-btn" onclick="togglePowerPop(event)"
-                title="Station control" aria-haspopup="true" aria-expanded="false" aria-label="Station control">
+                title="Station control" aria-haspopup="true" aria-expanded="false" aria-label="Station control" data-i18n-title="ui_station_control" data-i18n-aria-label="ui_station_control">
           <span class="ico18" data-icon="shutdown"></span>
         </button>
-        <div class="power-pop" id="power-pop" role="menu" aria-label="Station control">
+        <div class="power-pop" id="power-pop" role="menu" aria-label="Station control" data-i18n-aria-label="ui_station_control">
           <div class="power-pop-title" data-i18n="top_power_menu">CONTROL</div>
           <button type="button" class="power-opt" id="power-opt-restart" role="menuitem" onclick="powerMenuRun('restart')">
             <span class="btn-icon" data-icon="restart"></span><span data-i18n="restart">Restart</span>
@@ -4327,15 +4331,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="page" id="page-public">
       <div class="stat-grid">
         <div class="stat-card green">
-          <div class="stat-label">Radios</div>
+          <div class="stat-label"><span data-i18n="terminals">Radios</span></div>
           <div class="stat-value accent" id="pub-ms">—</div>
-          <div class="stat-sub">registered</div>
+          <div class="stat-sub"><span data-i18n="registered">registered</span></div>
           <div class="stat-icon" data-icon="radios"></div>
         </div>
         <div class="stat-card blue">
-          <div class="stat-label">Active Calls</div>
+          <div class="stat-label"><span data-i18n="active_calls">Active Calls</span></div>
           <div class="stat-value blue" id="pub-calls">—</div>
-          <div class="stat-sub">circuits in use</div>
+          <div class="stat-sub"><span data-i18n="circuits">circuits in use</span></div>
           <div class="stat-icon" data-icon="calls"></div>
         </div>
         <div class="stat-card" id="pub-rf-card">
@@ -4345,19 +4349,19 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="stat-icon" data-icon="rf"></div>
         </div>
         <div class="stat-card" id="pub-brew-card">
-          <div class="stat-label">Network</div>
+          <div class="stat-label"><span data-i18n="wifi_ssid">Network</span></div>
           <div class="stat-value is-text" id="pub-brew">—</div>
           <div class="stat-sub" id="pub-ver">—</div>
           <div class="stat-icon" data-icon="network"></div>
         </div>
       </div>
       <div class="card">
-        <div class="card-head"><div class="card-title">Cell Status</div></div>
+        <div class="card-head"><div class="card-title"><span data-i18n="ui_cell_status">Cell Status</span></div></div>
         <div class="card-body">
           <div class="empty-state">
             <span class="empty-ico" data-icon="login"></span>
-            <div class="empty-msg">Read-only public overview</div>
-            <div class="empty-sub">Log in for full access and controls.</div>
+            <div class="empty-msg"><span data-i18n="ui_read_only_public_overview">Read-only public overview</span></div>
+            <div class="empty-sub"><span data-i18n="ui_log_in_for_full_access_and_controls">Log in for full access and controls.</span></div>
           </div>
         </div>
       </div>
@@ -4381,7 +4385,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <div class="home-quick-field">
               <label for="home-brew-profile" data-i18n="cfg_brew_profile">Core Net (Brew)</label>
               <select id="home-brew-profile" class="form-input">
-                <option value="">Offline (no Brew)</option>
+                <option value="" data-i18n="cfg_brew_offline">Offline (no Brew)</option>
               </select>
             </div>
           </div>
@@ -4446,7 +4450,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <div class="ts-wave-bar" style="height:6px"></div>
               </div>
               <div class="ts-label">MCCH</div>
-              <div class="ts-sub">ACTIVE</div>
+              <div class="ts-sub"><span data-i18n="sys_active_badge">ACTIVE</span></div>
               <div class="ts-flash"></div>
               <div class="ts-duration-bar"></div>
             </div>
@@ -4464,7 +4468,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <div class="ts-wave-bar" style="height:3px"></div>
               </div>
               <div class="ts-label">—</div>
-              <div class="ts-sub">Idle</div>
+              <div class="ts-sub"><span data-i18n="lst_phase_idle">Idle</span></div>
               <div class="ts-flash"></div>
               <div class="ts-duration-bar"></div>
             </div>
@@ -4482,7 +4486,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <div class="ts-wave-bar" style="height:3px"></div>
               </div>
               <div class="ts-label">—</div>
-              <div class="ts-sub">Idle</div>
+              <div class="ts-sub"><span data-i18n="lst_phase_idle">Idle</span></div>
               <div class="ts-flash"></div>
               <div class="ts-duration-bar"></div>
             </div>
@@ -4500,7 +4504,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <div class="ts-wave-bar" style="height:3px"></div>
               </div>
               <div class="ts-label">—</div>
-              <div class="ts-sub">Idle</div>
+              <div class="ts-sub"><span data-i18n="lst_phase_idle">Idle</span></div>
               <div class="ts-flash"></div>
               <div class="ts-duration-bar"></div>
             </div>
@@ -4527,7 +4531,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               </span>
               <div>
                 <div class="bts-access-title" data-i18n="dual_carrier">Dual Carrier</div>
-                <div class="bts-dc-status is-off" id="dc-sub">Apagado</div>
+                <div class="bts-dc-status is-off" id="dc-sub"><span data-i18n="ui_apagado">Apagado</span></div>
               </div>
             </div>
             <div class="bts-dc-actions">
@@ -4557,8 +4561,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="cells-add">
             <input type="text" class="form-input" id="cells-device" list="cells-device-options" placeholder="driver=plutosdr,uri=ip:192.168.3.1">
             <datalist id="cells-device-options"></datalist>
-            <input type="number" class="form-input narrow" id="cells-carrier" min="0" max="4095" placeholder="Carrier">
-            <input type="number" class="form-input narrow" id="cells-cc" min="0" max="63" placeholder="Colour code">
+            <input type="number" class="form-input narrow" id="cells-carrier" min="0" max="4095" placeholder="Carrier" data-i18n-placeholder="bts_sec_carrier">
+            <input type="number" class="form-input narrow" id="cells-cc" min="0" max="63" placeholder="Colour code" data-i18n-placeholder="cfg_colour">
             <button class="btn btn-sm" onclick="cellsScan()" data-i18n="setup_scan">Scan</button>
             <button class="btn btn-sm" onclick="cellsAdd()" data-i18n="cells_add">Add cell</button>
           </div>
@@ -4623,7 +4627,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="card-body">
             <div class="field">
               <label class="form-label" data-i18n="dgna_search">Search</label>
-              <input type="text" id="dgna-page-search" class="form-input" placeholder="GSSI or name" oninput="renderDgnaPage()">
+              <input type="text" id="dgna-page-search" class="form-input" placeholder="GSSI or name" oninput="renderDgnaPage()" data-i18n-placeholder="ui_gssi_or_name">
             </div>
             <div class="table-wrap dgna-library-wrap">
               <table>
@@ -4641,24 +4645,24 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
         <div class="card">
           <div class="card-head">
-            <div class="card-title">DGNA Actions</div>
+            <div class="card-title"><span data-i18n="ui_dgna_actions">DGNA Actions</span></div>
             <div class="card-actions">
-              <span class="badge badge-dim" id="dgna-selected-count">0 selected</span>
+              <span class="badge badge-dim" id="dgna-selected-count"><span data-i18n="ui_0_selected">0 selected</span></span>
             </div>
           </div>
           <div class="card-body">
             <div class="dgna-action-stack">
               <div class="field">
-                <label class="form-label">Group</label>
+                <label class="form-label"><span data-i18n="lst_sds_filter_group">Group</span></label>
                 <div class="dgna-picker" id="dgna-picker">
-                  <input type="text" id="dgna-group-picker" class="form-input dgna-picker-input" placeholder="Search by GSSI or name" onfocus="openDgnaPicker()" oninput="onDgnaPickerInput(this.value)" onblur="scheduleCloseDgnaPicker()">
+                  <input type="text" id="dgna-group-picker" class="form-input dgna-picker-input" placeholder="Search by GSSI or name" onfocus="openDgnaPicker()" oninput="onDgnaPickerInput(this.value)" onblur="scheduleCloseDgnaPicker()" data-i18n-placeholder="ui_search_by_gssi_or_name">
                   <span class="dgna-picker-glyph" data-icon="chevrondown"></span>
                   <div class="dgna-picker-menu" id="dgna-group-picker-menu"></div>
                 </div>
               </div>
               <div class="info-grid" style="margin-bottom:14px">
-                <div class="info-row"><div class="info-key">Selected group</div><div class="info-val" id="dgna-assign-group">No group selected</div></div>
-                <div class="info-row"><div class="info-key">Mode</div><div class="info-val" id="dgna-assign-mode">-</div></div>
+                <div class="info-row"><div class="info-key"><span data-i18n="ui_selected_group">Selected group</span></div><div class="info-val" id="dgna-assign-group"><span data-i18n="ui_no_group_selected">No group selected</span></div></div>
+                <div class="info-row"><div class="info-key"><span data-i18n="secp_auth_mode">Mode</span></div><div class="info-val" id="dgna-assign-mode">-</div></div>
               </div>
               <div class="dgna-action-grid">
                 <button class="btn btn-primary" id="dgna-assign-selected-btn" onclick="sendDgnaBulk(true,false)"><span class="btn-icon" data-icon="save"></span><span data-i18n="dgna_assign_selected">Assign selected</span></button>
@@ -4804,7 +4808,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-head">
           <div class="card-title" data-i18n="sdslog">SDS Log</div>
           <div class="card-actions">
-            <select id="sds-type-filter" class="log-filter" onchange="sdsLogPageIndex=0;renderSdsLog()" title="Type">
+            <select id="sds-type-filter" class="log-filter" onchange="sdsLogPageIndex=0;renderSdsLog()" title="Type" data-i18n-title="network_kind">
               <option value="all" data-i18n="filter_all">All</option>
               <option value="lip" data-i18n="sds_filter_lip">LIP</option>
               <option value="text" data-i18n="sds_filter_text">Text</option>
@@ -4831,9 +4835,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </table>
           </div>
           <div class="log-controls">
-            <button class="btn btn-sm" onclick="sdsLogPrevPage()">‹ Prev</button>
-            <span class="sds-empty" id="sdslog-page">Page 1 / 1</span>
-            <button class="btn btn-sm" onclick="sdsLogNextPage()">Next ›</button>
+            <button class="btn btn-sm" onclick="sdsLogPrevPage()"><span data-i18n="ui_prev">‹ Prev</span></button>
+            <span class="sds-empty" id="sdslog-page"><span data-i18n="ui_page_1_1">Page 1 / 1</span></span>
+            <button class="btn btn-sm" onclick="sdsLogNextPage()"><span data-i18n="ui_next">Next ›</span></button>
           </div>
         </div>
       </div>
@@ -5043,47 +5047,47 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <label class="sw-row">
-            <span class="sw-text">Enable SnomIPPhoneText notifications</span>
+            <span class="sw-text"><span data-i18n="ui_enable_snomipphonetext_notifications">Enable SnomIPPhoneText notifications</span></span>
             <span class="sw"><input type="checkbox" id="snom-enabled"><i></i></span>
           </label>
 
           <div class="h-form" style="margin-top:14px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
-            <label class="h-flabel">AMI host</label>
+            <label class="h-flabel"><span data-i18n="ui_ami_host">AMI host</span></label>
             <input type="text" id="snom-ami-host" class="form-input" placeholder="127.0.0.1">
-            <label class="h-flabel">AMI port</label>
+            <label class="h-flabel"><span data-i18n="ui_ami_port">AMI port</span></label>
             <input type="number" id="snom-ami-port" class="form-input" min="1" max="65535" placeholder="5038">
-            <label class="h-flabel">AMI user</label>
+            <label class="h-flabel"><span data-i18n="ui_ami_user">AMI user</span></label>
             <input type="text" id="snom-ami-user" class="form-input" autocomplete="off" spellcheck="false" placeholder="flowstation">
-            <label class="h-flabel">AMI password</label>
+            <label class="h-flabel"><span data-i18n="ui_ami_password">AMI password</span></label>
             <input type="password" id="snom-ami-password" class="form-input" autocomplete="new-password" spellcheck="false" oninput="snomPasswordDirty=true">
-            <label class="h-flabel top">PJSIP endpoints</label>
+            <label class="h-flabel top"><span data-i18n="ui_pjsip_endpoints">PJSIP endpoints</span></label>
             <textarea id="snom-endpoints" class="form-input" rows="3" placeholder="385&#10;386"></textarea>
           </div>
 
           <div class="h-form wide" style="margin-top:16px">
             <div>
-              <label class="sw-row"><span class="sw-text">Notify TETRA SDS</span><span class="sw"><input type="checkbox" id="snom-notify-sds"><i></i></span></label>
+              <label class="sw-row"><span class="sw-text"><span data-i18n="ui_notify_tetra_sds">Notify TETRA SDS</span></span><span class="sw"><input type="checkbox" id="snom-notify-sds"><i></i></span></label>
               <div class="h-fopts" style="margin:8px 0 10px">
                 <label class="h-fopt"><input type="checkbox" id="snom-dir-rx"> RX</label>
                 <label class="h-fopt"><input type="checkbox" id="snom-dir-net"> NET</label>
                 <label class="h-fopt"><input type="checkbox" id="snom-dir-tx"> TX</label>
               </div>
-              <label class="h-flabel">SDS ISSI whitelist</label>
+              <label class="h-flabel"><span data-i18n="ui_sds_issi_whitelist">SDS ISSI whitelist</span></label>
               <textarea id="snom-sds-issis" class="form-input" rows="4" placeholder="2632585&#10;9999"></textarea>
-              <div class="help-text">Empty = every SDS. A match on source or destination ISSI is enough.</div>
+              <div class="help-text"><span data-i18n="ui_empty_every_sds_a_match_on_source_or_destination_issi_is_enough">Empty = every SDS. A match on source or destination ISSI is enough.</span></div>
             </div>
             <div>
-              <label class="sw-row"><span class="sw-text">Notify DAPNET</span><span class="sw"><input type="checkbox" id="snom-notify-dapnet"><i></i></span></label>
-              <label class="h-flabel">DAPNET RIC whitelist</label>
+              <label class="sw-row"><span class="sw-text"><span data-i18n="ui_notify_dapnet">Notify DAPNET</span></span><span class="sw"><input type="checkbox" id="snom-notify-dapnet"><i></i></span></label>
+              <label class="h-flabel"><span data-i18n="ui_dapnet_ric_whitelist">DAPNET RIC whitelist</span></label>
               <textarea id="snom-dapnet-rics" class="form-input" rows="4" placeholder="0632585&#10;0000200"></textarea>
-              <div class="help-text">Empty = every DAPNET message. Leading zeros are preserved in config.</div>
+              <div class="help-text"><span data-i18n="ui_empty_every_dapnet_message_leading_zeros_are_preserved_in_config">Empty = every DAPNET message. Leading zeros are preserved in config.</span></div>
             </div>
             <div>
-              <label class="sw-row"><span class="sw-text">Notify Telegram</span><span class="sw"><input type="checkbox" id="snom-notify-telegram"><i></i></span></label>
+              <label class="sw-row"><span class="sw-text"><span data-i18n="ui_notify_telegram">Notify Telegram</span></span><span class="sw"><input type="checkbox" id="snom-notify-telegram"><i></i></span></label>
               <div class="h-form-pair" style="margin-top:10px">
-                <label class="h-flabel">Title prefix</label>
+                <label class="h-flabel"><span data-i18n="ui_title_prefix">Title prefix</span></label>
                 <input type="text" id="snom-title-prefix" class="form-input" placeholder="FlowStation">
-                <label class="h-flabel">Max text chars</label>
+                <label class="h-flabel"><span data-i18n="ui_max_text_chars">Max text chars</span></label>
                 <input type="number" id="snom-max-text" class="form-input" min="40" max="2000" placeholder="240">
                 <label class="h-flabel">Timeout (s)</label>
                 <input type="number" id="snom-timeout" class="form-input" min="1" max="30" placeholder="3">
@@ -5124,18 +5128,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <thead><tr>
                 <th data-i18n="th_time">Time</th>
                 <th data-i18n="th_dir">Dir</th>
-                <th>Callsign</th>
-                <th>Recipient</th>
-                <th>Paths</th>
+                <th><span data-i18n="ui_callsign">Callsign</span></th>
+                <th><span data-i18n="ui_recipient">Recipient</span></th>
+                <th><span data-i18n="ui_paths">Paths</span></th>
                 <th data-i18n="th_message">Message</th>
               </tr></thead>
               <tbody id="dapnetlog-tbody"></tbody>
             </table>
           </div>
           <div class="log-controls">
-            <button class="btn btn-sm" onclick="dapnetLogPrevPage()">‹ Prev</button>
-            <span class="sds-empty" id="dapnetlog-page">Page 1 / 1</span>
-            <button class="btn btn-sm" onclick="dapnetLogNextPage()">Next ›</button>
+            <button class="btn btn-sm" onclick="dapnetLogPrevPage()"><span data-i18n="ui_prev">‹ Prev</span></button>
+            <span class="sds-empty" id="dapnetlog-page"><span data-i18n="ui_page_1_1">Page 1 / 1</span></span>
+            <button class="btn btn-sm" onclick="dapnetLogNextPage()"><span data-i18n="ui_next">Next ›</span></button>
           </div>
         </div>
       </div>
@@ -5149,41 +5153,41 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <label class="sw-row">
-            <span class="sw-text">Enable DAPNET integration</span>
+            <span class="sw-text"><span data-i18n="ui_enable_dapnet_integration">Enable DAPNET integration</span></span>
             <span class="sw"><input type="checkbox" id="dap-enabled"><i></i></span>
           </label>
           <label class="sw-row">
-            <span class="sw-text">Enable RWTH core receive feed</span>
+            <span class="sw-text"><span data-i18n="ui_enable_rwth_core_receive_feed">Enable RWTH core receive feed</span></span>
             <span class="sw"><input type="checkbox" id="dap-rwth-enabled"><i></i></span>
           </label>
 
           <div class="h-form" style="margin-top:14px">
-            <label class="h-flabel">Poll interval (s)</label>
+            <label class="h-flabel"><span data-i18n="ui_poll_interval_s">Poll interval (s)</span></label>
             <input type="number" id="dap-poll" class="form-input" min="1" placeholder="30">
-            <label class="h-flabel">Messages limit</label>
+            <label class="h-flabel"><span data-i18n="ui_messages_limit">Messages limit</span></label>
             <input type="number" id="dap-limit" class="form-input" min="1" placeholder="100">
 
-            <label class="h-flabel">Hampager API URL</label>
+            <label class="h-flabel"><span data-i18n="ui_hampager_api_url">Hampager API URL</span></label>
             <input type="text" id="dap-api-url" class="form-input" placeholder="https://hampager.de/api/calls" style="grid-column:1 / -1;min-width:0">
 
-            <label class="h-flabel">API username</label>
+            <label class="h-flabel"><span data-i18n="ui_api_username">API username</span></label>
             <input type="text" id="dap-username" class="form-input" autocomplete="off" spellcheck="false">
-            <label class="h-flabel">API password</label>
+            <label class="h-flabel"><span data-i18n="ui_api_password">API password</span></label>
             <input type="password" id="dap-password" class="form-input" autocomplete="new-password" spellcheck="false" oninput="dapPasswordDirty=true">
 
-            <label class="h-flabel">RWTH host</label>
+            <label class="h-flabel"><span data-i18n="ui_rwth_host">RWTH host</span></label>
             <input type="text" id="dap-rwth-host" class="form-input" placeholder="dapnet.afu.rwth-aachen.de">
-            <label class="h-flabel">RWTH port</label>
+            <label class="h-flabel"><span data-i18n="ui_rwth_port">RWTH port</span></label>
             <input type="number" id="dap-rwth-port" class="form-input" min="1" max="65535" placeholder="43434">
 
-            <label class="h-flabel">Device</label>
+            <label class="h-flabel"><span data-i18n="cfg_hw_device">Device</span></label>
             <input type="text" id="dap-rwth-device" class="form-input" placeholder="FlowStation">
-            <label class="h-flabel">Version</label>
+            <label class="h-flabel"><span data-i18n="ui_version">Version</span></label>
             <input type="text" id="dap-rwth-version" class="form-input" placeholder="1.0">
 
-            <label class="h-flabel">RWTH callsign</label>
+            <label class="h-flabel"><span data-i18n="ui_rwth_callsign">RWTH callsign</span></label>
             <input type="text" id="dap-rwth-callsign" class="form-input" autocomplete="off" spellcheck="false" style="text-transform:uppercase">
-            <label class="h-flabel">RWTH authkey</label>
+            <label class="h-flabel"><span data-i18n="ui_rwth_authkey">RWTH authkey</span></label>
             <input type="password" id="dap-rwth-authkey" class="form-input" autocomplete="new-password" spellcheck="false" oninput="dapAuthDirty=true">
           </div>
           <div class="config-msg" id="dap-msg"></div>
@@ -5200,48 +5204,48 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-body">
           <div class="h-form wide">
             <div>
-              <label class="sw-row"><span class="sw-text">Forward to SDS</span><span class="sw"><input type="checkbox" id="dap-forward-sds"><i></i></span></label>
+              <label class="sw-row"><span class="sw-text"><span data-i18n="ui_forward_to_sds">Forward to SDS</span></span><span class="sw"><input type="checkbox" id="dap-forward-sds"><i></i></span></label>
               <div class="h-form-pair" style="margin-top:10px">
-                <label class="h-flabel">Source ISSI</label>
+                <label class="h-flabel"><span data-i18n="sds_callout_source">Source ISSI</span></label>
                 <input type="number" id="dap-sds-source" class="form-input" min="1" max="16777215" placeholder="9999">
-                <label class="h-flabel">Destination</label>
-                <input type="number" id="dap-sds-dest" class="form-input" min="0" max="16777215" placeholder="ISSI or GSSI">
-                <label class="h-flabel">Destination is group</label>
+                <label class="h-flabel"><span data-i18n="th_dest">Destination</span></label>
+                <input type="number" id="dap-sds-dest" class="form-input" min="0" max="16777215" placeholder="ISSI or GSSI" data-i18n-placeholder="ui_issi_or_gssi">
+                <label class="h-flabel"><span data-i18n="wx_periodic_isgroup">Destination is group</span></label>
                 <label class="h-finline"><span class="sw"><input type="checkbox" id="dap-sds-group"><i></i></span><span class="h-flabel-sm">GSSI</span></label>
                 <label class="h-flabel top">RIC → ISSI</label>
                 <textarea id="dap-ric-routes" class="form-input" rows="3" placeholder="0632585=2632585"></textarea>
                 <label class="h-flabel top">RIC → GSSI</label>
                 <textarea id="dap-ric-group-routes" class="form-input" rows="3" placeholder="0004520=80"></textarea>
-                <label class="h-flabel top">SDS RIC filter</label>
+                <label class="h-flabel top"><span data-i18n="ui_sds_ric_filter">SDS RIC filter</span></label>
                 <textarea id="dap-sds-rics" class="form-input" rows="3" placeholder="0004520&#10;0000200"></textarea>
               </div>
             </div>
 
             <div>
-              <label class="sw-row"><span class="sw-text">Forward to TPG2200 Call-Out</span><span class="sw"><input type="checkbox" id="dap-forward-callout"><i></i></span></label>
+              <label class="sw-row"><span class="sw-text"><span data-i18n="ui_forward_to_tpg2200_call_out">Forward to TPG2200 Call-Out</span></span><span class="sw"><input type="checkbox" id="dap-forward-callout"><i></i></span></label>
               <div class="h-form-pair" style="margin-top:10px">
-                <label class="h-flabel">Source ISSI</label>
+                <label class="h-flabel"><span data-i18n="sds_callout_source">Source ISSI</span></label>
                 <input type="number" id="dap-callout-source" class="form-input" min="1" max="16777215" placeholder="9999">
-                <label class="h-flabel">Destination</label>
-                <input type="number" id="dap-callout-dest" class="form-input" min="0" max="16777215" placeholder="TPG2200 ISSI">
-                <label class="h-flabel">Incident base</label>
+                <label class="h-flabel"><span data-i18n="th_dest">Destination</span></label>
+                <input type="number" id="dap-callout-dest" class="form-input" min="0" max="16777215" placeholder="TPG2200 ISSI" data-i18n-placeholder="ui_tpg2200_issi">
+                <label class="h-flabel"><span data-i18n="ui_incident_base">Incident base</span></label>
                 <input type="number" id="dap-callout-incident" class="form-input" min="1" max="256" placeholder="2">
-                <label class="h-flabel">Text prefix</label>
-                <input type="text" id="dap-callout-prefix" class="form-input" placeholder="DAPNET">
-                <label class="h-flabel top">Call-Out RIC filter</label>
+                <label class="h-flabel"><span data-i18n="ui_text_prefix">Text prefix</span></label>
+                <input type="text" id="dap-callout-prefix" class="form-input" placeholder="DAPNET" data-i18n-placeholder="dapnet_title">
+                <label class="h-flabel top"><span data-i18n="ui_call_out_ric_filter">Call-Out RIC filter</span></label>
                 <textarea id="dap-callout-rics" class="form-input" rows="3" placeholder="0004520"></textarea>
               </div>
             </div>
 
             <div>
-              <label class="sw-row"><span class="sw-text">Forward to Telegram</span><span class="sw"><input type="checkbox" id="dap-forward-telegram"><i></i></span></label>
+              <label class="sw-row"><span class="sw-text"><span data-i18n="ui_forward_to_telegram">Forward to Telegram</span></span><span class="sw"><input type="checkbox" id="dap-forward-telegram"><i></i></span></label>
               <div class="h-form-pair" style="margin-top:10px">
-                <label class="h-flabel">Telegram prefix</label>
-                <input type="text" id="dap-telegram-prefix" class="form-input" placeholder="DAPNET">
-                <label class="h-flabel top">Telegram RIC filter</label>
+                <label class="h-flabel"><span data-i18n="ui_telegram_prefix">Telegram prefix</span></label>
+                <input type="text" id="dap-telegram-prefix" class="form-input" placeholder="DAPNET" data-i18n-placeholder="dapnet_title">
+                <label class="h-flabel top"><span data-i18n="ui_telegram_ric_filter">Telegram RIC filter</span></label>
                 <textarea id="dap-telegram-rics" class="form-input" rows="3" placeholder="0004520"></textarea>
               </div>
-              <div class="help-text" style="margin-top:10px">Uses the existing Telegram alert configuration and recipients.</div>
+              <div class="help-text" style="margin-top:10px"><span data-i18n="ui_uses_the_existing_telegram_alert_configuration_and_recipients">Uses the existing Telegram alert configuration and recipients.</span></div>
             </div>
           </div>
         </div>
@@ -5251,19 +5255,19 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-head">
           <div class="card-title" data-i18n="dapnet_send">Send DAPNET Message</div>
           <div class="card-actions">
-            <button class="btn btn-primary" onclick="sendDapnetMessage()">Send</button>
+            <button class="btn btn-primary" onclick="sendDapnetMessage()"><span data-i18n="lst_send_sds">Send</span></button>
           </div>
         </div>
         <div class="card-body">
           <div class="h-form">
-            <label class="h-flabel">Callsign recipients</label>
+            <label class="h-flabel"><span data-i18n="ui_callsign_recipients">Callsign recipients</span></label>
             <input type="text" id="dap-out-callsigns" class="form-input" placeholder="DJ2TH, DB0ABC">
-            <label class="h-flabel">Transmitter groups</label>
+            <label class="h-flabel"><span data-i18n="ui_transmitter_groups">Transmitter groups</span></label>
             <input type="text" id="dap-out-groups" class="form-input" placeholder="dl-all, regional">
-            <label class="h-flabel">Emergency</label>
-            <label class="h-finline"><span class="sw"><input type="checkbox" id="dap-out-emergency"><i></i></span><span class="h-flabel-sm">Set emergency flag</span></label>
-            <label class="h-flabel top">Message</label>
-            <textarea id="dap-out-text" class="form-input" rows="3" maxlength="80" placeholder="Message text"></textarea>
+            <label class="h-flabel"><span data-i18n="ui_emergency">Emergency</span></label>
+            <label class="h-finline"><span class="sw"><input type="checkbox" id="dap-out-emergency"><i></i></span><span class="h-flabel-sm"><span data-i18n="ui_set_emergency_flag">Set emergency flag</span></span></label>
+            <label class="h-flabel top"><span data-i18n="sds_msg_label">Message</span></label>
+            <textarea id="dap-out-text" class="form-input" rows="3" maxlength="80" placeholder="Message text" data-i18n-placeholder="ui_message_text"></textarea>
           </div>
           <div class="config-msg" id="dap-send-msg"></div>
         </div>
@@ -5295,25 +5299,25 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <div class="card-body">
           <div class="stat-grid">
             <div class="stat-card">
-              <div class="stat-label">Positions</div>
+              <div class="stat-label"><span data-i18n="ui_positions">Positions</span></div>
               <div class="stat-value" id="geo-seen">0</div>
               <div class="stat-sub" id="geo-center">—</div>
             </div>
             <div class="stat-card blue">
-              <div class="stat-label">Alarms</div>
+              <div class="stat-label"><span data-i18n="ui_alarms">Alarms</span></div>
               <div class="stat-value blue" id="geo-alarms">0</div>
               <div class="stat-sub" id="geo-radius">—</div>
             </div>
           </div>
           <div class="info-grid">
-            <div class="info-row"><div class="info-key">Last position</div><div class="info-val" id="geo-last-position">—</div></div>
-            <div class="info-row"><div class="info-key">Last alarm</div><div class="info-val" id="geo-last-alarm">—</div></div>
-            <div class="info-row"><div class="info-key">Last error</div><div class="info-val" id="geo-last-error">—</div></div>
+            <div class="info-row"><div class="info-key"><span data-i18n="ui_last_position">Last position</span></div><div class="info-val" id="geo-last-position">—</div></div>
+            <div class="info-row"><div class="info-key"><span data-i18n="ui_last_alarm">Last alarm</span></div><div class="info-val" id="geo-last-alarm">—</div></div>
+            <div class="info-row"><div class="info-key"><span data-i18n="ast_last_error">Last error</span></div><div class="info-val" id="geo-last-error">—</div></div>
           </div>
 
           <div class="group-list">
             <label class="field" style="cursor:pointer">
-              <span class="field-label">Enable GeoAlarm</span>
+              <span class="field-label"><span data-i18n="ui_enable_geoalarm">Enable GeoAlarm</span></span>
               <span class="field-control"><span class="sw"><input type="checkbox" id="geo-enabled"><i></i></span></span>
             </label>
             <div class="field">
@@ -5325,100 +5329,100 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <span class="field-control"><input type="number" id="geo-lon" class="form-input" step="0.000001" min="-180" max="180" placeholder="6.083887"></span>
             </div>
             <div class="field">
-              <span class="field-label">Radius (m)</span>
+              <span class="field-label"><span data-i18n="ui_radius_m">Radius (m)</span></span>
               <span class="field-control"><input type="number" id="geo-radius-m" class="form-input" min="1" step="1" placeholder="500"></span>
             </div>
             <div class="field">
-              <span class="field-label">Cooldown (s)</span>
+              <span class="field-label"><span data-i18n="ui_cooldown_s">Cooldown (s)</span></span>
               <span class="field-control"><input type="number" id="geo-cooldown" class="form-input" min="1" max="86400" placeholder="300"></span>
             </div>
             <div class="field">
-              <span class="field-label">Input sources</span>
+              <span class="field-label"><span data-i18n="ui_input_sources">Input sources</span></span>
               <span class="field-control" style="flex-wrap:wrap;gap:14px">
                 <label class="h-fopt" style="cursor:pointer"><span class="sw"><input type="checkbox" id="geo-trigger-tetra"><i></i></span><span class="h-flabel-sm">TETRA LIP</span></label>
                 <label class="h-fopt" style="cursor:pointer"><span class="sw"><input type="checkbox" id="geo-trigger-meshcom"><i></i></span><span class="h-flabel-sm">MeshCom</span></label>
               </span>
             </div>
           </div>
-          <div class="help-text" style="margin-top:12px">GeoAlarm fires when an allowed device enters the radius, then suppresses repeated alarms for the cooldown time.</div>
+          <div class="help-text" style="margin-top:12px"><span data-i18n="ui_geoalarm_fires_when_an_allowed_device_enters_the_radius_then_suppresses_rep">GeoAlarm fires when an allowed device enters the radius, then suppresses repeated alarms for the cooldown time.</span></div>
           <div class="config-msg" id="geo-msg"></div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <div class="card-title">GeoAlarm Routing</div>
+          <div class="card-title"><span data-i18n="ui_geoalarm_routing">GeoAlarm Routing</span></div>
         </div>
         <div class="card-body">
           <div class="geo-route-grid">
             <div>
-              <div class="geo-section-title">Alarm → TPG2200</div>
+              <div class="geo-section-title"><span data-i18n="ui_alarm_tpg2200">Alarm → TPG2200</span></div>
               <div class="group-list">
                 <label class="field" style="cursor:pointer">
-                  <span class="field-label">Enabled</span>
+                  <span class="field-label"><span data-i18n="integ_enabled">Enabled</span></span>
                   <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-tpg"><i></i></span></span>
                 </label>
                 <div class="field">
-                  <span class="field-label">Source ISSI</span>
-                  <span class="field-control"><input type="number" id="geo-tpg-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI"></span>
+                  <span class="field-label"><span data-i18n="sds_callout_source">Source ISSI</span></span>
+                  <span class="field-control"><input type="number" id="geo-tpg-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI" data-i18n-placeholder="sds_callout_source"></span>
                 </div>
                 <div class="field">
-                  <span class="field-label">TPG ISSI</span>
-                  <span class="field-control"><input type="number" id="geo-tpg-dest" class="form-input" min="0" max="16777215" placeholder="TPG ISSI"></span>
+                  <span class="field-label"><span data-i18n="ui_tpg_issi">TPG ISSI</span></span>
+                  <span class="field-control"><input type="number" id="geo-tpg-dest" class="form-input" min="0" max="16777215" placeholder="TPG ISSI" data-i18n-placeholder="ui_tpg_issi"></span>
                 </div>
                 <div class="field">
-                  <span class="field-label">Incident base</span>
-                  <span class="field-control"><input type="number" id="geo-tpg-incident" class="form-input" min="1" max="256" placeholder="Incident base"></span>
+                  <span class="field-label"><span data-i18n="ui_incident_base">Incident base</span></span>
+                  <span class="field-control"><input type="number" id="geo-tpg-incident" class="form-input" min="1" max="256" placeholder="Incident base" data-i18n-placeholder="ui_incident_base"></span>
                 </div>
                 <div class="field">
-                  <span class="field-label">Max chars</span>
-                  <span class="field-control"><input type="number" id="geo-tpg-max" class="form-input" min="8" max="160" placeholder="Max chars"></span>
+                  <span class="field-label"><span data-i18n="ui_max_chars">Max chars</span></span>
+                  <span class="field-control"><input type="number" id="geo-tpg-max" class="form-input" min="8" max="160" placeholder="Max chars" data-i18n-placeholder="ui_max_chars"></span>
                 </div>
                 <div class="field">
-                  <span class="field-label">Text prefix</span>
-                  <span class="field-control"><input type="text" id="geo-tpg-prefix" class="form-input" placeholder="TPG text prefix"></span>
+                  <span class="field-label"><span data-i18n="ui_text_prefix">Text prefix</span></span>
+                  <span class="field-control"><input type="text" id="geo-tpg-prefix" class="form-input" placeholder="TPG text prefix" data-i18n-placeholder="ui_tpg_text_prefix"></span>
                 </div>
               </div>
             </div>
             <div>
-              <div class="geo-section-title">Alarm → SDS</div>
+              <div class="geo-section-title"><span data-i18n="ui_alarm_sds">Alarm → SDS</span></div>
               <div class="group-list">
                 <label class="field" style="cursor:pointer">
-                  <span class="field-label">Enabled</span>
+                  <span class="field-label"><span data-i18n="integ_enabled">Enabled</span></span>
                   <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-sds"><i></i></span></span>
                 </label>
                 <div class="field">
-                  <span class="field-label">Source ISSI</span>
-                  <span class="field-control"><input type="number" id="geo-sds-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI"></span>
+                  <span class="field-label"><span data-i18n="sds_callout_source">Source ISSI</span></span>
+                  <span class="field-control"><input type="number" id="geo-sds-source" class="form-input" min="1" max="16777215" placeholder="Source ISSI" data-i18n-placeholder="sds_callout_source"></span>
                 </div>
                 <div class="field">
-                  <span class="field-label">Destination</span>
+                  <span class="field-label"><span data-i18n="th_dest">Destination</span></span>
                   <span class="field-control"><input type="number" id="geo-sds-dest" class="form-input" min="0" max="16777215" placeholder="ISSI/GSSI"></span>
                 </div>
                 <label class="field" style="cursor:pointer">
-                  <span class="field-label">Destination is group/GSSI</span>
+                  <span class="field-label"><span data-i18n="ui_destination_is_group_gssi">Destination is group/GSSI</span></span>
                   <span class="field-control"><span class="sw"><input type="checkbox" id="geo-sds-group"><i></i></span></span>
                 </label>
               </div>
             </div>
             <div>
-              <div class="geo-section-title">Alarm → SIP / Telegram</div>
+              <div class="geo-section-title"><span data-i18n="ui_alarm_sip_telegram">Alarm → SIP / Telegram</span></div>
               <div class="group-list">
                 <label class="field" style="cursor:pointer">
                   <span class="field-label">SIP/Snom</span>
                   <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-sip"><i></i></span></span>
                 </label>
                 <div class="field">
-                  <span class="field-label">Snom title prefix</span>
-                  <span class="field-control"><input type="text" id="geo-sip-prefix" class="form-input" placeholder="Snom title prefix"></span>
+                  <span class="field-label"><span data-i18n="ui_snom_title_prefix">Snom title prefix</span></span>
+                  <span class="field-control"><input type="text" id="geo-sip-prefix" class="form-input" placeholder="Snom title prefix" data-i18n-placeholder="ui_snom_title_prefix"></span>
                 </div>
                 <label class="field" style="cursor:pointer">
                   <span class="field-label">Telegram</span>
                   <span class="field-control"><span class="sw"><input type="checkbox" id="geo-forward-telegram"><i></i></span></span>
                 </label>
                 <div class="field">
-                  <span class="field-label">Telegram prefix</span>
-                  <span class="field-control"><input type="text" id="geo-telegram-prefix" class="form-input" placeholder="Telegram prefix"></span>
+                  <span class="field-label"><span data-i18n="ui_telegram_prefix">Telegram prefix</span></span>
+                  <span class="field-control"><input type="text" id="geo-telegram-prefix" class="form-input" placeholder="Telegram prefix" data-i18n-placeholder="ui_telegram_prefix"></span>
                 </div>
               </div>
             </div>
@@ -5428,54 +5432,54 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
       <div class="card">
         <div class="card-head">
-          <div class="card-title">GeoAlarm Filters</div>
+          <div class="card-title"><span data-i18n="ui_geoalarm_filters">GeoAlarm Filters</span></div>
         </div>
         <div class="card-body">
           <div class="geo-filter-grid">
             <div>
-              <label class="h-flabel" style="display:block;margin-bottom:6px">TETRA ISSI whitelist</label>
-              <textarea id="geo-tetra-white" class="form-input" rows="4" placeholder="empty = all TETRA ISSIs" style="width:100%"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px"><span data-i18n="ui_tetra_issi_whitelist">TETRA ISSI whitelist</span></label>
+              <textarea id="geo-tetra-white" class="form-input" rows="4" placeholder="empty = all TETRA ISSIs" style="width:100%" data-i18n-placeholder="ui_empty_all_tetra_issis"></textarea>
             </div>
             <div>
-              <label class="h-flabel" style="display:block;margin-bottom:6px">TETRA ISSI blacklist</label>
-              <textarea id="geo-tetra-black" class="form-input" rows="4" placeholder="blocked ISSIs" style="width:100%"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px"><span data-i18n="ui_tetra_issi_blacklist">TETRA ISSI blacklist</span></label>
+              <textarea id="geo-tetra-black" class="form-input" rows="4" placeholder="blocked ISSIs" style="width:100%" data-i18n-placeholder="ui_blocked_issis"></textarea>
             </div>
             <div>
-              <label class="h-flabel" style="display:block;margin-bottom:6px">MeshCom source whitelist</label>
-              <textarea id="geo-mesh-white" class="form-input" rows="4" placeholder="empty = all MeshCom sources" style="width:100%"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px"><span data-i18n="ui_meshcom_source_whitelist">MeshCom source whitelist</span></label>
+              <textarea id="geo-mesh-white" class="form-input" rows="4" placeholder="empty = all MeshCom sources" style="width:100%" data-i18n-placeholder="ui_empty_all_meshcom_sources"></textarea>
             </div>
             <div>
-              <label class="h-flabel" style="display:block;margin-bottom:6px">MeshCom source blacklist</label>
-              <textarea id="geo-mesh-black" class="form-input" rows="4" placeholder="blocked MeshCom sources" style="width:100%"></textarea>
+              <label class="h-flabel" style="display:block;margin-bottom:6px"><span data-i18n="ui_meshcom_source_blacklist">MeshCom source blacklist</span></label>
+              <textarea id="geo-mesh-black" class="form-input" rows="4" placeholder="blocked MeshCom sources" style="width:100%" data-i18n-placeholder="ui_blocked_meshcom_sources"></textarea>
             </div>
           </div>
-          <div class="help-text" style="margin-top:12px">Whitelist empty means allow all. Blacklists always win. MeshCom source matching is case-insensitive.</div>
+          <div class="help-text" style="margin-top:12px"><span data-i18n="ui_whitelist_empty_means_allow_all_blacklists_always_win_meshcom_source_matchi">Whitelist empty means allow all. Blacklists always win. MeshCom source matching is case-insensitive.</span></div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <div class="card-title">GeoAlarm Events</div>
+          <div class="card-title"><span data-i18n="ui_geoalarm_events">GeoAlarm Events</span></div>
         </div>
         <div class="card-body">
           <div class="table-wrap">
             <table>
               <thead><tr>
                 <th data-i18n="th_time">Time</th>
-                <th>Source</th>
-                <th>Device</th>
-                <th>Distance</th>
-                <th>Position</th>
-                <th>Status</th>
-                <th>Paths</th>
+                <th><span data-i18n="ui_source">Source</span></th>
+                <th><span data-i18n="cfg_hw_device">Device</span></th>
+                <th><span data-i18n="ui_distance">Distance</span></th>
+                <th><span data-i18n="lst_col_pos">Position</span></th>
+                <th><span data-i18n="sys_sec_status">Status</span></th>
+                <th><span data-i18n="ui_paths">Paths</span></th>
               </tr></thead>
               <tbody id="geo-events-tbody"></tbody>
             </table>
           </div>
           <div class="log-controls">
-            <button class="btn btn-sm" onclick="geoPrevPage()">‹ Prev</button>
-            <span class="sds-empty" id="geo-events-page">Page 1 / 1</span>
-            <button class="btn btn-sm" onclick="geoNextPage()">Next ›</button>
+            <button class="btn btn-sm" onclick="geoPrevPage()"><span data-i18n="ui_prev">‹ Prev</span></button>
+            <span class="sds-empty" id="geo-events-page"><span data-i18n="ui_page_1_1">Page 1 / 1</span></span>
+            <button class="btn btn-sm" onclick="geoNextPage()"><span data-i18n="ui_next">Next ›</span></button>
           </div>
         </div>
       </div>
@@ -5581,8 +5585,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </table>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-            <input type="number" id="secp-sub-issi" class="form-input" placeholder="ISSI" min="1" max="16777215" style="width:140px">
-            <input type="text" id="secp-sub-k" class="form-input" placeholder="32 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px;font-family:var(--mono)">
+            <input type="number" id="secp-sub-issi" class="form-input" placeholder="ISSI" min="1" max="16777215" style="width:140px" data-i18n-placeholder="secp_issi_placeholder">
+            <input type="text" id="secp-sub-k" class="form-input" placeholder="32 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px;font-family:var(--mono)" data-i18n-placeholder="secp_k_placeholder">
             <button class="btn" onclick="secpGenerate('k','secp-sub-k')"><span data-i18n="secp_generate">Generate</span></button>
             <button class="btn btn-primary" onclick="secpAddSub()"><span class="btn-icon" data-icon="add"></span><span data-i18n="secp_add">Add</span></button>
           </div>
@@ -5607,7 +5611,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <div class="form-row">
               <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sck">Static cipher key (SCK)</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <input type="text" id="secp-sck" class="form-input" placeholder="20 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px;max-width:520px;font-family:var(--mono)" oninput="secpSckDirty=true;secpDirty()">
+                <input type="text" id="secp-sck" class="form-input" placeholder="20 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px;max-width:520px;font-family:var(--mono)" oninput="secpSckDirty=true;secpDirty()" data-i18n-placeholder="secp_sck_placeholder">
                 <button class="btn" onclick="secpGenerate('sck','secp-sck');secpSckDirty=true;secpDirty()"><span data-i18n="secp_generate">Generate</span></button>
               </div>
             </div>
@@ -5617,7 +5621,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </div>
             <div class="form-row">
               <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_groups">Clear talkgroups (GSSI, comma separated) for radios without encryption</label>
-              <input type="text" id="secp-groups" class="form-input" placeholder="e.g. 900, 901" style="max-width:520px;font-family:var(--mono)" oninput="secpDirty()">
+              <input type="text" id="secp-groups" class="form-input" placeholder="e.g. 900, 901" style="max-width:520px;font-family:var(--mono)" oninput="secpDirty()" data-i18n-placeholder="ui_e_g_900_901">
             </div>
           </div>
         </div>
@@ -5662,7 +5666,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="cfg-profile-row">
             <div class="cfg-profile-label" data-i18n="cfg_brew_profile">Core Net (Brew)</div>
             <select id="vc-brew-profile" class="form-input">
-              <option value="">Offline (no Brew)</option>
+              <option value="" data-i18n="cfg_brew_offline">Offline (no Brew)</option>
             </select>
             <div class="cfg-profile-actions">
               <button type="button" class="btn btn-sm" onclick="openBrewProfileSheet('add')"><span data-i18n="cfg_add">Add</span></button>
@@ -5710,7 +5714,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                   <details style="margin-top:14px">
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_rf_adv">Advanced RF</summary>
                     <div class="group-list">
-                      <label class="field"><span>Main carrier</span><input type="number" id="vc-main-carrier" class="form-input" oninput="onVcMainCarrierChange()"></label>
+                      <label class="field"><span><span data-i18n="ui_main_carrier">Main carrier</span></span><input type="number" id="vc-main-carrier" class="form-input" oninput="onVcMainCarrierChange()"></label>
                       <label class="field" style="cursor:pointer;align-items:center">
                         <span data-i18n="dual_carrier">Dual Carrier</span>
                         <span class="field-control" style="display:flex;align-items:center;gap:10px">
@@ -5723,10 +5727,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                         </label>
                         <div class="vc-dual-hint" id="vc-dual-hint">—</div>
                       </div>
-                      <label class="field"><span>Freq band</span><input type="number" id="vc-freq-band" class="form-input" value="4"></label>
-                      <label class="field"><span>Duplex spacing id</span><input type="number" id="vc-duplex-id" class="form-input" value="4"></label>
+                      <label class="field"><span><span data-i18n="ui_freq_band">Freq band</span></span><input type="number" id="vc-freq-band" class="form-input" value="4"></label>
+                      <label class="field"><span><span data-i18n="ui_duplex_spacing_id">Duplex spacing id</span></span><input type="number" id="vc-duplex-id" class="form-input" value="4"></label>
                       <label class="field"><span data-i18n="cfg_custom_duplex">Custom duplex (MHz)</span><input type="text" inputmode="decimal" id="vc-custom-duplex" class="form-input" placeholder="7.600000" onblur="normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'})" onkeydown="if(event.key==='Enter'){normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});this.blur();}"></label>
-                      <label class="field"><span>Freq offset (Hz)</span>
+                      <label class="field"><span><span data-i18n="ui_freq_offset_hz">Freq offset (Hz)</span></span>
                         <select id="vc-freq-offset" class="form-input">
                           <option value="0">0</option>
                           <option value="6250">6250</option>
@@ -5734,7 +5738,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                           <option value="12500">12500</option>
                         </select>
                       </label>
-                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-reverse"> <span>Reverse operation</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-reverse"> <span><span data-i18n="ui_reverse_operation">Reverse operation</span></span></label>
                     </div>
                   </details>
                   <details style="margin-top:14px" id="vc-hw-rf-details">
@@ -5746,17 +5750,17 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                         <span class="field-control"><span class="setup-rf-pill" id="vc-device-display">—</span></span>
                         <input type="hidden" id="vc-device" value="">
                       </div>
-                      <label class="field"><span>PPM</span><input type="text" inputmode="decimal" id="vc-ppm" class="form-input" value="0" placeholder="e.g. 0 or -1.2" title="Frequency correction in PPM" onblur="normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="ant"><span>RX antenna</span><select id="vc-rx-ant" class="form-input"><option value="">(default)</option></select></label>
-                      <label class="field vc-hw-row" data-hw="ant"><span>TX antenna</span><select id="vc-tx-ant" class="form-input"><option value="">(default)</option></select></label>
-                      <label class="field vc-hw-row" data-hw="rx-lna"><span>RX gain LNA</span><input type="text" inputmode="decimal" id="vc-rx-lna" class="form-input" data-hw-ex="40" placeholder="e.g. 40 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="rx-tia"><span>RX gain TIA</span><input type="text" inputmode="decimal" id="vc-rx-tia" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="rx-pga"><span>RX gain PGA</span><input type="text" inputmode="decimal" id="vc-rx-pga" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="tx-pad"><span>TX gain PAD</span><input type="text" inputmode="decimal" id="vc-tx-pad" class="form-input" data-hw-ex="30" placeholder="e.g. 30 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="tx-iamp"><span>TX gain IAMP</span><input type="text" inputmode="decimal" id="vc-tx-iamp" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="tx-dac"><span>TX gain DAC</span><input type="text" inputmode="decimal" id="vc-tx-dac" class="form-input" data-hw-ex="9" placeholder="e.g. 9 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="tx-mixer"><span>TX gain MIXER</span><input type="text" inputmode="decimal" id="vc-tx-mixer" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
-                      <label class="field vc-hw-row" data-hw="tx-pga"><span>TX gain PGA</span><input type="text" inputmode="decimal" id="vc-tx-pga" class="form-input" data-hw-ex="30" placeholder="e.g. 30 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field"><span>PPM</span><input type="text" inputmode="decimal" id="vc-ppm" class="form-input" value="0" placeholder="e.g. 0 or -1.2" title="Frequency correction in PPM" onblur="normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'});this.blur();}" data-i18n-placeholder="cfg_hw_ppm_ph"></label>
+                      <label class="field vc-hw-row" data-hw="ant"><span><span data-i18n="ui_rx_antenna">RX antenna</span></span><select id="vc-rx-ant" class="form-input"><option value="" data-i18n="cfg_hw_ant_default">(default)</option></select></label>
+                      <label class="field vc-hw-row" data-hw="ant"><span><span data-i18n="ui_tx_antenna">TX antenna</span></span><select id="vc-tx-ant" class="form-input"><option value="" data-i18n="cfg_hw_ant_default">(default)</option></select></label>
+                      <label class="field vc-hw-row" data-hw="rx-lna"><span><span data-i18n="ui_rx_gain_lna">RX gain LNA</span></span><input type="text" inputmode="decimal" id="vc-rx-lna" class="form-input" data-hw-ex="40" placeholder="e.g. 40 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="rx-tia"><span><span data-i18n="ui_rx_gain_tia">RX gain TIA</span></span><input type="text" inputmode="decimal" id="vc-rx-tia" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="rx-pga"><span><span data-i18n="ui_rx_gain_pga">RX gain PGA</span></span><input type="text" inputmode="decimal" id="vc-rx-pga" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-pad"><span><span data-i18n="ui_tx_gain_pad">TX gain PAD</span></span><input type="text" inputmode="decimal" id="vc-tx-pad" class="form-input" data-hw-ex="30" placeholder="e.g. 30 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-iamp"><span><span data-i18n="ui_tx_gain_iamp">TX gain IAMP</span></span><input type="text" inputmode="decimal" id="vc-tx-iamp" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-dac"><span><span data-i18n="ui_tx_gain_dac">TX gain DAC</span></span><input type="text" inputmode="decimal" id="vc-tx-dac" class="form-input" data-hw-ex="9" placeholder="e.g. 9 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-mixer"><span><span data-i18n="ui_tx_gain_mixer">TX gain MIXER</span></span><input type="text" inputmode="decimal" id="vc-tx-mixer" class="form-input" data-hw-ex="0" placeholder="e.g. 0 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
+                      <label class="field vc-hw-row" data-hw="tx-pga"><span><span data-i18n="ui_tx_gain_pga">TX gain PGA</span></span><input type="text" inputmode="decimal" id="vc-tx-pga" class="form-input" data-hw-ex="30" placeholder="e.g. 30 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
                     </div>
                   </details>
                   <div class="config-msg" id="vc-rf-msg"></div>
@@ -5776,36 +5780,36 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                   <details style="margin-top:14px">
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_net_adv">Advanced network / timers</summary>
                     <div class="group-list">
-                      <label class="field"><span>Timezone (IANA)</span><input type="text" id="vc-tz" class="form-input" placeholder="Europe/Madrid"></label>
+                      <label class="field"><span><span data-i18n="ui_timezone_iana">Timezone (IANA)</span></span><input type="text" id="vc-tz" class="form-input" placeholder="Europe/Madrid"></label>
                       <label class="field"><span>Hangtime (s)</span>
                         <span class="field-control vc-timer-wrap">
-                          <input type="number" id="vc-hangtime" class="form-input" min="0" max="300" placeholder="default 5" title="Empty / reset = default 5 s. 0 = 0 s hangtime (not the default)." data-vc-default="5" oninput="syncVcTimerReset(this)">
+                          <input type="number" id="vc-hangtime" class="form-input" min="0" max="300" placeholder="default 5" title="Empty / reset = default 5 s. 0 = 0 s hangtime (not the default)." data-vc-default="5" oninput="syncVcTimerReset(this)" data-i18n-placeholder="ui_default_5" data-i18n-title="ui_empty_reset_default_5_s_0_0_s_hangtime_not_the_default">
                           <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-hangtime')" title="Reset to default (5)" aria-label="Reset hangtime to default"><span class="btn-icon" data-icon="restart"></span></button>
                         </span>
                       </label>
-                      <label class="field"><span>Call timeout (s)</span>
+                      <label class="field"><span><span data-i18n="ui_call_timeout_s">Call timeout (s)</span></span>
                         <span class="field-control vc-timer-wrap">
-                          <input type="number" id="vc-call-timeout" class="form-input" min="0" placeholder="default 120" title="Empty / reset = default 120 s. 0 = unlimited." data-vc-default="120" oninput="syncVcTimerReset(this)">
+                          <input type="number" id="vc-call-timeout" class="form-input" min="0" placeholder="default 120" title="Empty / reset = default 120 s. 0 = unlimited." data-vc-default="120" oninput="syncVcTimerReset(this)" data-i18n-placeholder="ui_default_120" data-i18n-title="ui_empty_reset_default_120_s_0_unlimited">
                           <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-call-timeout')" title="Reset to default (120)" aria-label="Reset call timeout to default"><span class="btn-icon" data-icon="restart"></span></button>
                         </span>
                       </label>
-                      <label class="field"><span>UL inactivity (s)</span>
+                      <label class="field"><span><span data-i18n="ui_ul_inactivity_s">UL inactivity (s)</span></span>
                         <span class="field-control vc-timer-wrap">
-                          <input type="number" id="vc-ul-inact" class="form-input" min="1" max="30" placeholder="default 3" title="Empty / reset = default 3 s. Valid range 1–30." data-vc-default="3" oninput="syncVcTimerReset(this)">
+                          <input type="number" id="vc-ul-inact" class="form-input" min="1" max="30" placeholder="default 3" title="Empty / reset = default 3 s. Valid range 1–30." data-vc-default="3" oninput="syncVcTimerReset(this)" data-i18n-placeholder="ui_default_3" data-i18n-title="ui_empty_reset_default_3_s_valid_range_1_30">
                           <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-ul-inact')" title="Reset to default (3)" aria-label="Reset UL inactivity to default"><span class="btn-icon" data-icon="restart"></span></button>
                         </span>
                       </label>
-                      <label class="field"><span>T351 / periodic reg (s)</span>
+                      <label class="field"><span><span data-i18n="ui_t351_periodic_reg_s">T351 / periodic reg (s)</span></span>
                         <span class="field-control vc-timer-wrap">
-                          <input type="number" id="vc-t351" class="form-input" min="0" placeholder="default 3600" title="Empty / reset = default 3600 s. 0 = disabled." data-vc-default="3600" oninput="syncVcTimerReset(this)">
+                          <input type="number" id="vc-t351" class="form-input" min="0" placeholder="default 3600" title="Empty / reset = default 3600 s. 0 = disabled." data-vc-default="3600" oninput="syncVcTimerReset(this)" data-i18n-placeholder="ui_default_3600" data-i18n-title="ui_empty_reset_default_3600_s_0_disabled">
                           <button type="button" class="vc-timer-reset is-idle" onclick="resetVcTimer('vc-t351')" title="Reset to default (3600)" aria-label="Reset T351 to default"><span class="btn-icon" data-icon="restart"></span></button>
                         </span>
                       </label>
-                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-syswide"> <span>System-wide services</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-syswide"> <span><span data-i18n="ui_system_wide_services">System-wide services</span></span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-late-entry" checked> <span data-i18n="cfg_late_entry">Late entry</span></label>
-                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-voice"> <span>Voice service</span></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-voice"> <span><span data-i18n="ui_voice_service">Voice service</span></span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-recovery"> <span data-i18n="cfg_recovery">Restart recovery (proactive)</span></label>
-                      <label class="field"><span>Local SSI ranges</span><input type="text" id="vc-local-ssi" class="form-input" placeholder="0-90, 100-120"></label>
+                      <label class="field"><span><span data-i18n="ui_local_ssi_ranges">Local SSI ranges</span></span><input type="text" id="vc-local-ssi" class="form-input" placeholder="0-90, 100-120"></label>
                     </div>
                     <p class="vc-timers-hint" data-i18n="cfg_timers_hint">Timers: empty or reset = engine default (shown in the field). 0 is only special where noted (call timeout unlimited, T351 off) — it is not the default for hangtime/UL.</p>
                   </details>
@@ -5828,7 +5832,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                   <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
                     <input type="number" id="whitelist-input" class="form-input" min="1" max="16777215"
                            placeholder="e.g. 2260571" style="flex:1;min-width:160px"
-                           onkeydown="if(event.key==='Enter'){addWhitelistEntry();}">
+                           onkeydown="if(event.key==='Enter'){addWhitelistEntry();}" data-i18n-placeholder="ui_e_g_2260571">
                     <button type="button" class="btn" onclick="addWhitelistEntry()"><span class="btn-icon" data-icon="add"></span><span data-i18n="whitelist_add">Add ISSI</span></button>
                   </div>
                   <div id="whitelist-chips" style="display:flex;gap:8px;flex-wrap:wrap;min-height:32px"></div>
@@ -5845,20 +5849,20 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <div class="card-body">
                   <div class="group-list">
                     <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-enabled" onchange="toggleBrewFields()"> <span data-i18n="cfg_brew_enable">Enable Brew</span></label>
-                    <label class="field"><span>Host</span><input type="text" id="vc-brew-host" class="form-input"></label>
-                    <label class="field"><span>Port</span><input type="number" id="vc-brew-port" class="form-input" value="3003"></label>
+                    <label class="field"><span><span data-i18n="sys_sec_host">Host</span></span><input type="text" id="vc-brew-host" class="form-input"></label>
+                    <label class="field"><span><span data-i18n="ui_port">Port</span></span><input type="number" id="vc-brew-port" class="form-input" value="3003"></label>
                     <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-tls"> <span>TLS</span></label>
                     <label class="field"><span data-i18n="cfg_brew_user">Username (SSID)</span><input type="number" id="vc-brew-user" class="form-input"></label>
-                    <label class="field"><span>Password</span><input type="password" id="vc-brew-pass" class="form-input" placeholder="leave masked to keep"></label>
+                    <label class="field"><span><span data-i18n="wifi_password">Password</span></span><input type="password" id="vc-brew-pass" class="form-input" placeholder="leave masked to keep" data-i18n-placeholder="ui_leave_masked_to_keep"></label>
                   </div>
                   <details style="margin-top:14px">
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_brew_adv">Advanced Brew</summary>
                     <div class="group-list">
-                      <label class="field"><span>Reconnect delay (s)</span><input type="number" id="vc-brew-reconnect" class="form-input" value="15"></label>
+                      <label class="field"><span><span data-i18n="ui_reconnect_delay_s">Reconnect delay (s)</span></span><input type="number" id="vc-brew-reconnect" class="form-input" value="15"></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-sds" checked> <span data-i18n="cfg_brew_sds">SDS forwarding</span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-rssi"> <span data-i18n="cfg_brew_rssi">RSSI export</span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-lip" onchange="toggleBrewLipFields()"> <span data-i18n="cfg_brew_lip">LIP forwarding</span></label>
-                      <label class="field"><span data-i18n="cfg_brew_lip_issi">LIP destination ISSI (via Brew)</span><input type="number" id="vc-brew-lip-issi" class="form-input" min="1" max="16777215" placeholder="e.g. 2144485"></label>
+                      <label class="field"><span data-i18n="cfg_brew_lip_issi">LIP destination ISSI (via Brew)</span><input type="number" id="vc-brew-lip-issi" class="form-input" min="1" max="16777215" placeholder="e.g. 2144485" data-i18n-placeholder="ui_e_g_2144485"></label>
                     </div>
                   </details>
                   <div class="config-msg" id="vc-brew-msg"></div>
@@ -5903,7 +5907,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="remote-add-row" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
             <input type="number" id="remote-issi-input" class="form-input" min="1" max="16777215"
                    placeholder="e.g. 2144485" style="flex:1;min-width:160px"
-                   onkeydown="if(event.key==='Enter'){addRemoteIssi();}">
+                   onkeydown="if(event.key==='Enter'){addRemoteIssi();}" data-i18n-placeholder="ui_e_g_2144485">
             <button class="btn" onclick="addRemoteIssi()"><span class="btn-icon" data-icon="add"></span><span data-i18n="remote_issi_add">Añadir ISSI</span></button>
           </div>
           <div id="remote-issi-chips" class="remote-chips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px"></div>
@@ -5960,7 +5964,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             </div>
             <div class="field">
               <span class="field-label" data-i18n="wx_periodic_dest">Destination</span>
-              <span class="field-control"><input type="number" id="wx-periodic-issi" class="form-input" min="1" max="16777215" placeholder="ISSI or GSSI" style="width:160px"></span>
+              <span class="field-control"><input type="number" id="wx-periodic-issi" class="form-input" min="1" max="16777215" placeholder="ISSI or GSSI" style="width:160px" data-i18n-placeholder="ui_issi_or_gssi"></span>
             </div>
             <label class="field" style="cursor:pointer">
               <span class="field-label" data-i18n="wx_periodic_isgroup">Destination is group</span>
@@ -5987,7 +5991,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </summary>
         <div class="cfg-adv-body">
           <div class="cfg-adv-warn" data-i18n="cfg_advanced_warn">Advanced users only</div>
-          <textarea id="config-editor" spellcheck="false" placeholder="Loading..."></textarea>
+          <textarea id="config-editor" spellcheck="false" placeholder="Loading..." data-i18n-placeholder="ui_loading"></textarea>
           <div class="cfg-adv-actions">
             <button type="button" class="btn btn-primary" onclick="saveConfig()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
             <button type="button" class="btn btn-warn" onclick="applyRawConfigAndRestart()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
@@ -6002,7 +6006,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="sheet wide" role="dialog" aria-modal="true">
         <div class="sheet-head">
           <div class="sheet-title" id="cfg-cell-sheet-title" data-i18n="cfg_cell_sheet_add">Add TMO Cell</div>
-          <button type="button" class="sheet-close" onclick="closeCellProfileSheet()" aria-label="Close"><span data-icon="close"></span></button>
+          <button type="button" class="sheet-close" onclick="closeCellProfileSheet()" aria-label="Close" data-i18n-aria-label="update_close"><span data-icon="close"></span></button>
         </div>
         <div class="sheet-body">
           <div class="cfg-sheet-name-row">
@@ -6024,7 +6028,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="sheet wide" role="dialog" aria-modal="true">
         <div class="sheet-head">
           <div class="sheet-title" id="cfg-brew-sheet-title" data-i18n="cfg_brew_sheet_add">Add Core Net (Brew)</div>
-          <button type="button" class="sheet-close" onclick="closeBrewProfileSheet()" aria-label="Close"><span data-icon="close"></span></button>
+          <button type="button" class="sheet-close" onclick="closeBrewProfileSheet()" aria-label="Close" data-i18n-aria-label="update_close"><span data-icon="close"></span></button>
         </div>
         <div class="sheet-body">
           <div class="cfg-sheet-name-row">
@@ -6159,7 +6163,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <label class="form-label" data-i18n="lst_scan_list">Scan list (TGs)</label>
               <div class="lst-scan-row">
                 <input type="number" class="form-input" id="lst-scan-gssi" min="1" max="16777214" placeholder="GSSI">
-                <input type="text" class="form-input lst-scan-name-input" id="lst-scan-name" maxlength="40" placeholder="Name (optional)">
+                <input type="text" class="form-input lst-scan-name-input" id="lst-scan-name" maxlength="40" placeholder="Name (optional)" data-i18n-placeholder="lst_scan_name_ph">
                 <button class="btn btn-sm" onclick="lstScanAdd()" data-i18n="lst_scan_add">Add</button>
               </div>
               <div class="lst-scan-list" id="lst-scan-list"></div>
@@ -6177,7 +6181,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <div class="lst-call-strip-phase" id="lst-strip-phase">—</div>
               </div>
               <div class="lst-call-strip-timer" id="lst-strip-timer">00:00</div>
-              <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-strip-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up"><span data-icon="calls"></span></button>
+              <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-strip-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up" data-i18n-title="lst_hangup" data-i18n-aria-label="lst_hangup"><span data-icon="calls"></span></button>
             </div>
             <div class="lst-ptt-wrap">
               <button type="button" class="btn lst-ptt" id="lst-ptt-btn">
@@ -6358,7 +6362,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div id="wifi-modal" class="sheet-overlay">
       <div class="sheet">
         <div class="sheet-head">
-          <div class="sheet-title" id="wifi-modal-title">Connect</div>
+          <div class="sheet-title" id="wifi-modal-title"><span data-i18n="wifi_connect">Connect</span></div>
           <button class="sheet-close" onclick="wifiCloseModal()"><span data-icon="close"></span></button>
         </div>
         <div class="sheet-body">
@@ -6392,24 +6396,24 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
           </div>
           <div class="h-hero-txt">
-            <div id="health-hero-title" class="h-hero-title">Station health</div>
-            <div id="health-hero-sub" class="h-hero-sub">Waiting for the first health snapshot…</div>
+            <div id="health-hero-title" class="h-hero-title"><span data-i18n="ui_station_health">Station health</span></div>
+            <div id="health-hero-sub" class="h-hero-sub"><span data-i18n="ui_waiting_for_the_first_health_snapshot">Waiting for the first health snapshot…</span></div>
           </div>
           <div class="h-hero-meta">
             <div id="health-uptime" class="hm-val">—</div>
             <div id="health-action" class="hm-sub"></div>
           </div>
         </div>
-        <div class="h-sec">System domains</div>
+        <div class="h-sec"><span data-i18n="ui_system_domains">System domains</span></div>
         <div id="health-grid" class="h-grid"></div>
-        <div class="h-sec">Integrations</div>
+        <div class="h-sec"><span data-i18n="integrations">Integrations</span></div>
         <div id="health-integrations-grid" class="h-grid">
-          <div class="sds-empty" style="padding:12px 0">Loading integration health…</div>
+          <div class="sds-empty" style="padding:12px 0"><span data-i18n="ui_loading_integration_health">Loading integration health…</span></div>
         </div>
         <div class="h-note">
-          Auto-refreshes every few seconds. Levels:
-          <b class="ok">OK</b> · <b class="warn">DEGRADED</b> · <b class="bad">CRITICAL</b>.
-          The software watchdog (auto-restart when the core loop stalls) is configured in the <code>[health]</code> section.
+          <span data-i18n="ui_auto_refreshes_every_few_seconds_levels">Auto-refreshes every few seconds. Levels:</span>
+          <b class="ok">OK</b> · <b class="warn"><span data-i18n="ui_degraded">DEGRADED</span></b> · <b class="bad"><span data-i18n="ui_critical">CRITICAL</span></b><span data-i18n="ui_the_software_watchdog_auto_restart_when_the_core_loop_stalls_is_configured_">.
+          The software watchdog (auto-restart when the core loop stalls) is configured in the</span> <code>[health]</code> <span data-i18n="ui_section">section.</span>
         </div>
       </div>
     </div>
@@ -6466,7 +6470,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <!-- Display brightness (FH-FEAT-008) — hidden unless a backlight panel exists -->
       <div class="card" id="brightness-card" style="display:none">
         <div class="card-head">
-          <div class="card-title">Display Brightness</div>
+          <div class="card-title"><span data-i18n="ui_display_brightness">Display Brightness</span></div>
           <div class="card-actions"><span id="brightness-val" style="font-family:var(--mono);font-size:13px;color:var(--text2)">—</span></div>
         </div>
         <div class="card-body" style="padding:16px 18px">
@@ -6671,7 +6675,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="section-label" data-i18n="sys_sec_sds">SDS Broadcast</div>
       <div class="card">
         <div class="card-head">
-          <div class="card-title" style="display:flex;align-items:center;gap:7px"><span class="btn-icon" data-icon="broadcast" style="margin:0;width:14px;height:14px"></span>Live SDS Broadcast</div>
+          <div class="card-title" style="display:flex;align-items:center;gap:7px"><span class="btn-icon" data-icon="broadcast" style="margin:0;width:14px;height:14px"></span><span data-i18n="ui_live_sds_broadcast">Live SDS Broadcast</span></div>
           <div class="card-actions">
             <button class="btn btn-sm" onclick="loadLiveSds()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="sys_refresh">Refresh</span></button>
             <button class="btn btn-sm btn-danger" onclick="clearAllLiveSds()" id="live-sds-clear-btn" style="display:none"><span class="btn-icon" data-icon="delete"></span><span data-i18n="live_sds_clear_all">Clear All</span></button>
@@ -6682,7 +6686,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="form-row" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
             <div style="flex:1;min-width:180px">
               <label class="form-label" data-i18n="live_sds_text">Message text (max 251 chars)</label>
-              <input type="text" id="live-sds-text" class="form-input" maxlength="251" placeholder="e.g. Repeater test 18:00-20:00">
+              <input type="text" id="live-sds-text" class="form-input" maxlength="251" placeholder="e.g. Repeater test 18:00-20:00" data-i18n-placeholder="ui_e_g_repeater_test_18_00_20_00">
             </div>
             <div style="width:90px">
               <label class="form-label" data-i18n="live_sds_repeat">Repeat (0=∞)</label>
@@ -6726,7 +6730,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="modal-title" data-i18n="sds_title">⬡ Send SDS Message</div>
     <div class="form-row">
       <label class="form-label" data-i18n="sds_dest">Destination ISSI</label>
-      <input type="number" id="sds-dest" class="form-input" placeholder="e.g. 2260571">
+      <input type="number" id="sds-dest" class="form-input" placeholder="e.g. 2260571" data-i18n-placeholder="ui_e_g_2260571">
     </div>
     <div class="form-row">
       <label class="form-label" data-i18n="sds_msg_label">Message</label>
@@ -6772,7 +6776,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   <div class="modal lst-geo-modal" role="dialog" aria-modal="true" aria-labelledby="lst-geo-title">
     <div class="lst-geo-head">
       <div class="modal-title" id="lst-geo-title" data-i18n="lst_geo_title">Ubicación LIP</div>
-      <button type="button" class="lst-modal-x" onclick="lstCloseGeo()" title="Close" aria-label="Close">×</button>
+      <button type="button" class="lst-modal-x" onclick="lstCloseGeo()" title="Close" aria-label="Close" data-i18n-title="update_close" data-i18n-aria-label="update_close">×</button>
     </div>
     <div class="lst-geo-map" id="lst-geo-map" aria-label="Map"></div>
     <div class="lst-geo-fit-bar">
@@ -6797,7 +6801,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 <!-- ── LST private call modal ── -->
 <div class="modal-overlay" id="lst-call-modal" onclick="if(event.target===this)closeLstCallModal()">
   <div class="modal" style="width:min(380px,94vw)" role="dialog" aria-modal="true" aria-labelledby="lst-call-modal-title">
-    <button type="button" class="lst-modal-x" onclick="closeLstCallModal()" title="Close" aria-label="Close">×</button>
+    <button type="button" class="lst-modal-x" onclick="closeLstCallModal()" title="Close" aria-label="Close" data-i18n-title="update_close" data-i18n-aria-label="update_close">×</button>
     <div class="lst-call-tabs" role="tablist">
       <button type="button" class="btn btn-sm lst-call-tab is-active" id="lst-call-tab-sx" data-mode="sx" onclick="lstCallSetTab('sx')" data-i18n="lst_tab_simplex">Simplex</button>
       <button type="button" class="btn btn-sm lst-call-tab" id="lst-call-tab-dx" data-mode="dx" onclick="lstCallSetTab('dx')" data-i18n="lst_tab_duplex">Duplex</button>
@@ -6809,8 +6813,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="lst-phone-sub" id="lst-phone-sub"></div>
       <div class="lst-phone-timer" id="lst-phone-timer">00:00</div>
       <div class="lst-phone-actions">
-        <button type="button" class="lst-phone-fab lst-phone-fab-call" id="lst-phone-dial" onclick="lstCallDialActive()" title="Call" aria-label="Call"><span data-icon="calls"></span></button>
-        <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-phone-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up"><span data-icon="calls"></span></button>
+        <button type="button" class="lst-phone-fab lst-phone-fab-call" id="lst-phone-dial" onclick="lstCallDialActive()" title="Call" aria-label="Call" data-i18n-title="lst_call_dial" data-i18n-aria-label="lst_call_dial"><span data-icon="calls"></span></button>
+        <button type="button" class="lst-phone-fab lst-phone-fab-hang" id="lst-phone-hang" onclick="lstHangup()" title="Hang up" aria-label="Hang up" data-i18n-title="lst_hangup" data-i18n-aria-label="lst_hangup"><span data-icon="calls"></span></button>
       </div>
       <div class="lst-call-panel is-active" id="lst-call-panel-sx">
         <div class="lst-ptt-wrap" id="lst-call-ptt-wrap" style="margin-top:8px;display:none">
@@ -6852,14 +6856,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <input type="text" id="dgna-name" class="form-input" maxlength="15" placeholder="Optional TG label">
     </div>
     <div class="form-row" id="dgna-attachment-mode-row" style="display:none">
-      <label class="form-label">Attachment mode</label>
+      <label class="form-label"><span data-i18n="dgna_attachment_mode">Attachment mode</span></label>
       <select id="dgna-attachment-mode" class="form-input">
-        <option value="0">0 - Attached permanently</option>
-        <option value="1">1 - Attach on next ITSI attach</option>
-        <option value="2">2 - Not allowed on next ITSI attach</option>
-        <option value="3">3 - Attach on next location update</option>
-        <option value="4">4 - Not attached, MS may request</option>
-        <option value="5">5 - Not attached, MS may not request</option>
+        <option value="0" data-i18n="ui_0_attached_permanently">0 - Attached permanently</option>
+        <option value="1" data-i18n="ui_1_attach_on_next_itsi_attach">1 - Attach on next ITSI attach</option>
+        <option value="2" data-i18n="ui_2_not_allowed_on_next_itsi_attach">2 - Not allowed on next ITSI attach</option>
+        <option value="3" data-i18n="ui_3_attach_on_next_location_update">3 - Attach on next location update</option>
+        <option value="4" data-i18n="ui_4_not_attached_ms_may_request">4 - Not attached, MS may request</option>
+        <option value="5" data-i18n="ui_5_not_attached_ms_may_not_request">5 - Not attached, MS may not request</option>
       </select>
     </div>
     <div class="modal-actions">
@@ -6985,7 +6989,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 
 <div class="modal-overlay" id="dgna-template-modal">
   <div class="modal">
-    <div class="modal-title" id="dgna-template-title">DGNA Group</div>
+    <div class="modal-title" id="dgna-template-title"><span data-i18n="ui_dgna_group">DGNA Group</span></div>
     <div class="form-row">
       <label class="form-label" data-i18n="dgna_gssi">Group (GSSI)</label>
       <input type="number" id="dgna-template-gssi" class="form-input" min="1" placeholder="e.g. 100">
@@ -6997,12 +7001,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="form-row" id="dgna-template-attachment-row" style="display:none">
       <label class="form-label" data-i18n="dgna_attachment_mode">Attachment mode</label>
       <select id="dgna-template-attachment-mode" class="form-input">
-        <option value="0">0 - Attached permanently</option>
-        <option value="1">1 - Attached until deleted</option>
-        <option value="2">2 - Attached until removed</option>
-        <option value="3">3 - Defined and attached</option>
-        <option value="4">4 - Defined but detached</option>
-        <option value="5">5 - Reserved / vendor specific</option>
+        <option value="0" data-i18n="ui_0_attached_permanently">0 - Attached permanently</option>
+        <option value="1" data-i18n="ui_1_attached_until_deleted">1 - Attached until deleted</option>
+        <option value="2" data-i18n="ui_2_attached_until_removed">2 - Attached until removed</option>
+        <option value="3" data-i18n="ui_3_defined_and_attached">3 - Defined and attached</option>
+        <option value="4" data-i18n="ui_4_defined_but_detached">4 - Defined but detached</option>
+        <option value="5" data-i18n="ui_5_reserved_vendor_specific">5 - Reserved / vendor specific</option>
       </select>
     </div>
     <div id="dgna-template-status" style="font-size:12px;min-height:16px;margin-top:8px"></div>
@@ -7172,6 +7176,320 @@ function paintIcons(root){
 // ── i18n ─────────────────────────────────────────────────────────────────
 const LANGS={
   en:{
+    "ui_monitor":"MONITOR",
+    "ui_toggle_sidebar":"Toggle sidebar",
+    "ui_text_size":"Text size",
+    "ui_text_size_contrast":"Text size & contrast",
+    "ui_station_control":"Station control",
+    "ui_base_station_link":"Base station link",
+    "ui_brew_network":"Brew network",
+    "ui_host_system_power_draw":"Host system power draw",
+    "ui_e_g_2144485":"e.g. 2144485",
+    "ui_e_g_2260571":"e.g. 2260571",
+    "ui_active":"Active",
+    "ui_online":"Online",
+    "ui_offline":"Offline",
+    "ui_secondary":"SECONDARY",
+    "ui_off":"OFF",
+    "ui_on":"ON (",
+    "ui_neighbor":"neighbor",
+    "ui_neighbors":"neighbors",
+    "ui_caller_slot":"CALLER SLOT",
+    "ui_called_slot":"CALLED SLOT",
+    "ui_shared_slot":"SHARED SLOT",
+    "ui_lip_position":"LIP position",
+    "ui_lip_position_2":"LIP position: ",
+    "ui_invalid_ssi_in":"Invalid SSI in ",
+    "ui_ric_to_issi":"RIC to ISSI",
+    "ui_ric_to_gssi":"RIC to GSSI",
+    "ui_message_text_is_empty":"Message text is empty",
+    "ui_set_callsign_or_transmitter_group":"Set callsign or transmitter group",
+    "ui_send_failed":"Send failed",
+    "ui_active_dialogs":" active dialogs",
+    "ui_invalid_local_ssi_range":"Invalid local SSI range: ",
+    "ui_tx_freq_required":"TX freq required",
+    "ui_main_carrier_is_not_an_integer":"main_carrier is not an integer",
+    "ui_research_only":" — research only",
+    "ui_not_available":" — not available",
+    "ui_dynamic_group_selected":"Dynamic group selected",
+    "ui_static_group_selected_deassign_will_force_a_detach_from_the_radio":"Static group selected - deassign will force a detach from the radio",
+    "ui_waiting_for_backend":"Waiting for backend: ",
+    "ui_waiting_for_backend_2":"Waiting for backend:",
+    "ui_backend_unavailable_command_was_not_sent":"Backend unavailable - command was not sent",
+    "ui_selected_gssi":"Selected GSSI ",
+    "ui_edit_gssi":"Edit GSSI ",
+    "ui_new_dgna_group":"New DGNA Group",
+    "ui_set_a_valid_gssi_first":"Set a valid GSSI first",
+    "ui_updated_gssi":"Updated GSSI ",
+    "ui_in_the_local_library_and_queued_dgna_update_to":" in the local library and queued DGNA update to ",
+    "ui_in_the_local_library_but_backend_update_could_not_be_sent":" in the local library, but backend update could not be sent",
+    "ui_in_the_local_library":" in the local library",
+    "ui_renamed_gssi":"Renamed GSSI ",
+    "ui_in_the_local_group_library":" in the local group library",
+    "ui_saved_gssi":"Saved GSSI ",
+    "ui_parse_failed":"parse failed",
+    "ui_unnamed_group":"Unnamed group",
+    "ui_select_a_group_from_the_library_first":"Select a group from the library first",
+    "ui_select_at_least_one_target_radio":"Select at least one target radio",
+    "ui_all_radios":"all radios",
+    "ui_selected_radio_s":" selected radio(s)",
+    "ui_is_static_and_cannot_be_deleted":" is static and cannot be deleted",
+    "ui_backend_unavailable_delete_was_not_sent":"Backend unavailable - delete was not sent",
+    "ui_deleting_gssi":"Deleting GSSI ",
+    "ui_deassign_sent_to_all_radios_and_removed_from_the_local_library":": deassign sent to all radios and removed from the local library",
+    "ui_detected_sdr_hardware":"Detected SDR hardware: ",
+    "ui_512_bin_fft":" · 512-bin FFT",
+    "ui_iq_mixed_to_baseband":" IQ · mixed to baseband",
+    "ui_aggregate_iq_no_carrier_lock":"aggregate IQ · no carrier lock",
+    "ui_obw_aggregate_pre_pa":" · OBW aggregate pre-PA",
+    "ui_aggregate_pre_pa_evm_obw_are_not_per_carrier":"aggregate pre-PA · EVM/OBW are not per-carrier",
+    "ui_domain_s_need_attention":" domain(s) need attention: ",
+    "ui_active_dialog_s":" active dialog(s)",
+    "ui_last_error":"Last error: ",
+    "ui_rwth_status":"RWTH status ",
+    "ui_last_rx":" · last RX ",
+    "ui_all_domains_nominal":"\nAll domains nominal",
+    "ui_host_power_draw":"Host power draw — ",
+    "ui_rf_error":"RF error: ",
+    "ui_rf_offline":"RF offline: ",
+    "ui_not_installed":"not installed",
+    "ui_already_installed":"already installed",
+    "ui_already_loaded":"already loaded",
+    "ui_autostart_ok":"Autostart OK — ",
+    "ui_add_hidden_network":"Add hidden network",
+    "ui_bs_sin_respuesta":"BS sin respuesta (",
+    "ui_sin_conexi_n_con_bs":"Sin conexión con BS",
+    "ui_neighbor_cell":"Neighbor Cell — ",
+    "ui_choose_a_group":"Choose a group",
+    "ui_new":"NEW",
+    "ui_inside":"inside",
+    "ui_now":"now",
+    "ui_health":"HEALTH",
+    "ui_security":"SECURITY",
+    "ui_inicio":"Inicio",
+    "ui_dark":"Dark",
+    "ui_light":"Light",
+    "ui_blue":"Blue",
+    "ui_cell_status":"Cell Status",
+    "ui_read_only_public_overview":"Read-only public overview",
+    "ui_log_in_for_full_access_and_controls":"Log in for full access and controls.",
+    "ui_apagado":"Apagado",
+    "ui_dgna_actions":"DGNA Actions",
+    "ui_0_selected":"0 selected",
+    "ui_selected_group":"Selected group",
+    "ui_no_group_selected":"No group selected",
+    "ui_prev":"‹ Prev",
+    "ui_page_1_1":"Page 1 / 1",
+    "ui_next":"Next ›",
+    "ui_enable_snomipphonetext_notifications":"Enable SnomIPPhoneText notifications",
+    "ui_ami_host":"AMI host",
+    "ui_ami_port":"AMI port",
+    "ui_ami_user":"AMI user",
+    "ui_ami_password":"AMI password",
+    "ui_pjsip_endpoints":"PJSIP endpoints",
+    "ui_notify_tetra_sds":"Notify TETRA SDS",
+    "ui_sds_issi_whitelist":"SDS ISSI whitelist",
+    "ui_empty_every_sds_a_match_on_source_or_destination_issi_is_enough":"Empty = every SDS. A match on source or destination ISSI is enough.",
+    "ui_notify_dapnet":"Notify DAPNET",
+    "ui_dapnet_ric_whitelist":"DAPNET RIC whitelist",
+    "ui_empty_every_dapnet_message_leading_zeros_are_preserved_in_config":"Empty = every DAPNET message. Leading zeros are preserved in config.",
+    "ui_notify_telegram":"Notify Telegram",
+    "ui_title_prefix":"Title prefix",
+    "ui_max_text_chars":"Max text chars",
+    "ui_timeout_s":"Timeout (s)",
+    "ui_callsign":"Callsign",
+    "ui_recipient":"Recipient",
+    "ui_paths":"Paths",
+    "ui_enable_dapnet_integration":"Enable DAPNET integration",
+    "ui_enable_rwth_core_receive_feed":"Enable RWTH core receive feed",
+    "ui_poll_interval_s":"Poll interval (s)",
+    "ui_messages_limit":"Messages limit",
+    "ui_hampager_api_url":"Hampager API URL",
+    "ui_api_username":"API username",
+    "ui_api_password":"API password",
+    "ui_rwth_host":"RWTH host",
+    "ui_rwth_port":"RWTH port",
+    "ui_version":"Version",
+    "ui_rwth_callsign":"RWTH callsign",
+    "ui_rwth_authkey":"RWTH authkey",
+    "ui_forward_to_sds":"Forward to SDS",
+    "ui_sds_ric_filter":"SDS RIC filter",
+    "ui_forward_to_tpg2200_call_out":"Forward to TPG2200 Call-Out",
+    "ui_incident_base":"Incident base",
+    "ui_text_prefix":"Text prefix",
+    "ui_call_out_ric_filter":"Call-Out RIC filter",
+    "ui_forward_to_telegram":"Forward to Telegram",
+    "ui_telegram_prefix":"Telegram prefix",
+    "ui_telegram_ric_filter":"Telegram RIC filter",
+    "ui_uses_the_existing_telegram_alert_configuration_and_recipients":"Uses the existing Telegram alert configuration and recipients.",
+    "ui_callsign_recipients":"Callsign recipients",
+    "ui_transmitter_groups":"Transmitter groups",
+    "ui_emergency":"Emergency",
+    "ui_set_emergency_flag":"Set emergency flag",
+    "ui_positions":"Positions",
+    "ui_alarms":"Alarms",
+    "ui_last_position":"Last position",
+    "ui_last_alarm":"Last alarm",
+    "ui_enable_geoalarm":"Enable GeoAlarm",
+    "ui_radius_m":"Radius (m)",
+    "ui_cooldown_s":"Cooldown (s)",
+    "ui_input_sources":"Input sources",
+    "ui_geoalarm_fires_when_an_allowed_device_enters_the_radius_then_suppresses_rep":"GeoAlarm fires when an allowed device enters the radius, then suppresses repeated alarms for the cooldown time.",
+    "ui_geoalarm_routing":"GeoAlarm Routing",
+    "ui_alarm_tpg2200":"Alarm → TPG2200",
+    "ui_tpg_issi":"TPG ISSI",
+    "ui_max_chars":"Max chars",
+    "ui_alarm_sds":"Alarm → SDS",
+    "ui_destination_is_group_gssi":"Destination is group/GSSI",
+    "ui_alarm_sip_telegram":"Alarm → SIP / Telegram",
+    "ui_snom_title_prefix":"Snom title prefix",
+    "ui_geoalarm_filters":"GeoAlarm Filters",
+    "ui_tetra_issi_whitelist":"TETRA ISSI whitelist",
+    "ui_tetra_issi_blacklist":"TETRA ISSI blacklist",
+    "ui_meshcom_source_whitelist":"MeshCom source whitelist",
+    "ui_meshcom_source_blacklist":"MeshCom source blacklist",
+    "ui_whitelist_empty_means_allow_all_blacklists_always_win_meshcom_source_matchi":"Whitelist empty means allow all. Blacklists always win. MeshCom source matching is case-insensitive.",
+    "ui_geoalarm_events":"GeoAlarm Events",
+    "ui_source":"Source",
+    "ui_distance":"Distance",
+    "ui_main_carrier":"Main carrier",
+    "ui_freq_band":"Freq band",
+    "ui_duplex_spacing_id":"Duplex spacing id",
+    "ui_freq_offset_hz":"Freq offset (Hz)",
+    "ui_reverse_operation":"Reverse operation",
+    "ui_rx_antenna":"RX antenna",
+    "ui_tx_antenna":"TX antenna",
+    "ui_rx_gain_lna":"RX gain LNA",
+    "ui_rx_gain_tia":"RX gain TIA",
+    "ui_rx_gain_pga":"RX gain PGA",
+    "ui_tx_gain_pad":"TX gain PAD",
+    "ui_tx_gain_iamp":"TX gain IAMP",
+    "ui_tx_gain_dac":"TX gain DAC",
+    "ui_tx_gain_mixer":"TX gain MIXER",
+    "ui_tx_gain_pga":"TX gain PGA",
+    "ui_timezone_iana":"Timezone (IANA)",
+    "ui_hangtime_s":"Hangtime (s)",
+    "ui_call_timeout_s":"Call timeout (s)",
+    "ui_ul_inactivity_s":"UL inactivity (s)",
+    "ui_t351_periodic_reg_s":"T351 / periodic reg (s)",
+    "ui_system_wide_services":"System-wide services",
+    "ui_voice_service":"Voice service",
+    "ui_local_ssi_ranges":"Local SSI ranges",
+    "ui_port":"Port",
+    "ui_reconnect_delay_s":"Reconnect delay (s)",
+    "ui_station_health":"Station health",
+    "ui_waiting_for_the_first_health_snapshot":"Waiting for the first health snapshot…",
+    "ui_system_domains":"System domains",
+    "ui_loading_integration_health":"Loading integration health…",
+    "ui_auto_refreshes_every_few_seconds_levels":"Auto-refreshes every few seconds. Levels:",
+    "ui_degraded":"DEGRADED",
+    "ui_critical":"CRITICAL",
+    "ui_the_software_watchdog_auto_restart_when_the_core_loop_stalls_is_configured_":".\n          The software watchdog (auto-restart when the core loop stalls) is configured in the",
+    "ui_section":"section.",
+    "ui_display_brightness":"Display Brightness",
+    "ui_live_sds_broadcast":"Live SDS Broadcast",
+    "ui_0_attached_permanently":"0 - Attached permanently",
+    "ui_1_attach_on_next_itsi_attach":"1 - Attach on next ITSI attach",
+    "ui_2_not_allowed_on_next_itsi_attach":"2 - Not allowed on next ITSI attach",
+    "ui_3_attach_on_next_location_update":"3 - Attach on next location update",
+    "ui_4_not_attached_ms_may_request":"4 - Not attached, MS may request",
+    "ui_5_not_attached_ms_may_not_request":"5 - Not attached, MS may not request",
+    "ui_dgna_group":"DGNA Group",
+    "ui_1_attached_until_deleted":"1 - Attached until deleted",
+    "ui_2_attached_until_removed":"2 - Attached until removed",
+    "ui_3_defined_and_attached":"3 - Defined and attached",
+    "ui_4_defined_but_detached":"4 - Defined but detached",
+    "ui_5_reserved_vendor_specific":"5 - Reserved / vendor specific",
+    "ui_gssi_or_name":"GSSI or name",
+    "ui_search_by_gssi_or_name":"Search by GSSI or name",
+    "ui_issi_or_gssi":"ISSI or GSSI",
+    "ui_tpg2200_issi":"TPG2200 ISSI",
+    "ui_message_text":"Message text",
+    "ui_tpg_text_prefix":"TPG text prefix",
+    "ui_empty_all_tetra_issis":"empty = all TETRA ISSIs",
+    "ui_blocked_issis":"blocked ISSIs",
+    "ui_empty_all_meshcom_sources":"empty = all MeshCom sources",
+    "ui_blocked_meshcom_sources":"blocked MeshCom sources",
+    "ui_e_g_900_901":"e.g. 900, 901",
+    "ui_default_5":"default 5",
+    "ui_default_120":"default 120",
+    "ui_default_3":"default 3",
+    "ui_default_3600":"default 3600",
+    "ui_leave_masked_to_keep":"leave masked to keep",
+    "ui_loading":"Loading...",
+    "ui_e_g_repeater_test_18_00_20_00":"e.g. Repeater test 18:00-20:00",
+    "ui_empty_reset_default_5_s_0_0_s_hangtime_not_the_default":"Empty / reset = default 5 s. 0 = 0 s hangtime (not the default).",
+    "ui_empty_reset_default_120_s_0_unlimited":"Empty / reset = default 120 s. 0 = unlimited.",
+    "ui_empty_reset_default_3_s_valid_range_1_30":"Empty / reset = default 3 s. Valid range 1–30.",
+    "ui_empty_reset_default_3600_s_0_disabled":"Empty / reset = default 3600 s. 0 = disabled.",
+    "ui_scan_failed":"scan failed",
+    "ui_apply_failed":"Apply failed",
+    "ui_applied_restarting":"Applied — restarting…",
+    "ui_enabling_rf":"Enabling RF…",
+    "ui_failed_to_enable_rf":"Failed to enable RF",
+    "ui_saved_service_restarting_reconnect_shortly":"Saved — service restarting. Reconnect shortly.",
+    "ui_checking_enabling_service":"Checking / enabling service…",
+    "ui_restricted":"RESTRICTED",
+    "ui_failed_to_load":"Failed to load: ",
+    "ui_error":"Error: ",
+    "ui_disabled":"disabled",
+    "ui_enabled":"enabled",
+    "ui_status_unavailable":"status unavailable",
+    "ui_core_loop":"Core loop",
+    "ui_backhaul_brew":"Backhaul (Brew)",
+    "ui_congestion":"Congestion",
+    "ui_what_to_do":"What to do",
+    "ui_all_systems_nominal":"All systems nominal.",
+    "ui_station_health_2":"Station health: ",
+    "ui_last_action":"Last action: ",
+    "ui_status":"Status:",
+    "ui_all_domains_nominal_2":"All domains nominal",
+    "ui_action":"Action: ",
+    "ui_uptime":"Uptime: ",
+    "ui_sip_bridge_is_configured_but_not_active":"SIP bridge is configured but not active.",
+    "ui_dapnet_worker_is_not_active":"DAPNET worker is not active.",
+    "ui_geoalarm_is_not_active":"GeoAlarm is not active.",
+    "ui_rwth_callsign_missing":"RWTH callsign missing",
+    "ui_rwth_authkey_missing":"RWTH authkey missing",
+    "ui_rwth_receive_feed_disabled":"RWTH receive feed disabled",
+    "ui_no_forwarding_path_enabled":"no forwarding path enabled",
+    "ui_no_forwarding":"no forwarding",
+    "ui_no_input_source_enabled":"no input source enabled",
+    "ui_open_the_asterisk_sip_page_or_wait_for_the_next_refresh":"Open the Asterisk SIP page or wait for the next refresh.",
+    "ui_open_the_dapnet_page_or_wait_for_the_next_refresh":"Open the DAPNET page or wait for the next refresh.",
+    "ui_open_the_geoalarm_page_or_wait_for_the_next_refresh":"Open the GeoAlarm page or wait for the next refresh.",
+    "ui_the_tetra_core_loop_is_processing_tdma_frames_in_real_time":"The TETRA core loop is processing TDMA frames in real time.",
+    "ui_time_between_tdma_ticks_is_higher_than_expected_the_sdr_usb_link_or_the_cpu":"Time between TDMA ticks is higher than expected — the SDR/USB link or the CPU is lagging behind real time. Calls still work but timing is tight.",
+    "ui_check_cpu_load_temperature_on_the_system_tab_or_top":"Check CPU load & temperature on the System tab (or `top`).",
+    "ui_look_for_too_late_to_produce_tx_block_sdr_underrun_lines_in_the_log":"Look for \"Too late to produce TX block\" / SDR underrun lines in the Log.",
+    "ui_make_sure_no_other_heavy_process_is_starving_the_bts_it_runs_at_fifo_priori":"Make sure no other heavy process is starving the BTS (it runs at FIFO priority).",
+    "ui_the_stack_stopped_processing_tdma_frames_calls_and_sds_will_fail_and_radios":"The stack stopped processing TDMA frames. Calls and SDS will fail and radios may drop. This is the most serious state.",
+    "ui_check_the_log_for_a_panic_or_repeated_sdr_errors":"Check the Log for a panic or repeated SDR errors.",
+    "ui_restart_the_service_systemctl_restart_unit":"Restart the service: `systemctl restart <unit>`.",
+    "ui_enable_the_software_watchdog_so_this_auto_recovers_health_restart_on_core_s":"Enable the software watchdog so this auto-recovers: `[health] restart_on_core_stall = true`.",
+    "ui_the_brew_tetrapack_interconnect_is_up_calls_sds_route_to_other_cells_brandm":"The Brew/TetraPack interconnect is up — calls/SDS route to other cells & BrandMeister.",
+    "ui_the_brew_tetrapack_backhaul_is_down_the_cell_still_works_locally_but_calls_":"The Brew/TetraPack backhaul is DOWN. The cell still works locally, but calls and SDS to/from other cells or BrandMeister will not route.",
+    "ui_check_network_internet_connectivity_from_the_pi_to_the_brew_server":"Check network/internet connectivity from the Pi to the Brew server.",
+    "ui_verify_the_brew_host_port_credentials_on_the_config_tab":"Verify the [brew] host / port / credentials on the Config tab.",
+    "ui_confirm_the_brew_server_is_reachable_the_station_auto_reconnects_when_it_co":"Confirm the Brew server is reachable. The station auto-reconnects when it comes back.",
+    "ui_attached_radios_are_being_heard_on_the_air":"Attached radios are being heard on the air.",
+    "ui_registered_radios_have_not_transmitted_for_a_while_they_may_have_left_cover":"Registered radios have not transmitted for a while. They may have left coverage without de-registering, or RX has degraded.",
+    "ui_check_the_antenna_feedline_and_the_rx_gain":"Check the antenna / feedline and the RX gain.",
+    "ui_confirm_the_radios_are_actually_in_range_and_powered_on":"Confirm the radios are actually in range and powered on.",
+    "ui_truly_gone_radios_are_pruned_automatically_at_the_t351_interval":"Truly-gone radios are pruned automatically at the T351 interval.",
+    "ui_downlink_mcch_and_sds_queues_are_draining_normally":"Downlink (MCCH) and SDS queues are draining normally.",
+    "ui_the_downlink_or_sds_queue_is_filling_faster_than_it_drains_too_much_signall":"The downlink or SDS queue is filling faster than it drains — too much signalling/SDS, a flapping radio, or the SDR dropping TX blocks.",
+    "ui_check_the_sds_log_for_a_radio_spamming_retransmits_or_a_flood_of_broadcasts":"Check the SDS Log for a radio spamming retransmits or a flood of broadcasts.",
+    "ui_reduce_home_mode_display_broadcast_sds_rate_if_it_is_heavy":"Reduce Home-Mode-Display / broadcast-SDS rate if it is heavy.",
+    "ui_check_sdr_tx_health_on_the_rf_tab_for_dropped_blocks":"Check SDR TX health on the RF tab for dropped blocks.",
+    "ui_the_downlink_sds_backlog_is_severe_grants_signalling_and_messages_will_be_d":"The downlink/SDS backlog is severe — grants, signalling and messages will be delayed or dropped.",
+    "ui_act_urgently_identify_and_kick_a_misbehaving_radio_from_the_radios_tab":"Act urgently: identify and kick a misbehaving radio from the Radios tab.",
+    "ui_check_the_log_for_too_late_to_produce_tx_block_the_sdr_can_t_keep_up":"Check the Log for \"Too late to produce TX block\" (the SDR can't keep up).",
+    "ui_reduce_broadcast_sds_load_until_the_queues_drain":"Reduce broadcast/SDS load until the queues drain.",
+    "monitor":"Monitor",
+    "refresh":"Refresh",
+    "issi":"ISSI",
+    "confirm_clear_log":"Clear the log?",
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',reconnecting:'RECONNECTING',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     security:'Security',stations:'Home',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
@@ -8277,13 +8595,2451 @@ const LANGS={
     sys_title:'系统',sys_sec_status:'状态',sys_sec_host:'主机',sys_sec_radio:'射频硬件',sys_sec_sensors:'传感器',sys_sec_profiles:'配置档案',sys_sec_sds:'SDS 广播',sys_refresh:'刷新',sys_probe:'探测',sys_temp_hot:'过热',sys_temp_warm:'温热',sys_temp_ok:'正常',
     sys_bts:'BTS 连接',
   },
+// Portuguese (Portugal) and French translations by Gustavo Encarnação — CS7ATL.
+  pt:{
+    "bts_ip": "IP da BTS",
+    "offline": "DESLIGADO",
+    "online": "LIGADO",
+    "reconnecting": "A RESTABELECER LIGAÇÃO",
+    "brew_online": "LIGADO",
+    "brew_offline": "DESLIGADO",
+    "security": "Segurança",
+    "stations": "Início",
+    "calls": "Chamadas",
+    "lastheard": "Última atividade",
+    "log": "Registo",
+    "rf": "RF",
+    "health": "Diagnóstico",
+    "asterisk": "Asterisk SIP",
+    "dapnet": "DAPNET",
+    "echolink": "EchoLink",
+    "echolink_title": "EchoLink",
+    "meshcom": "MeshCom",
+    "meshcom_title": "MeshCom",
+    "geoalarm": "GeoAlarm",
+    "geoalarm_title": "GeoAlarm",
+    "setup": "Configuração inicial",
+    "config": "Configuração",
+    "home_quick_title": "Perfis rápidos",
+    "home_more_settings": "Mais definições",
+    "setup_sec": "Primeira utilização / SDR",
+    "setup_title": "Configuração inicial",
+    "setup_open_wizard": "Abrir assistente",
+    "setup_sdr_title": "Dispositivos SDR",
+    "setup_scan": "Procurar",
+    "setup_install_sx": "Instalar SXceiver",
+    "setup_install_lime": "Instalar Lime",
+    "setup_install_mucell": "Instalar µCell",
+    "setup_install_uhd": "Instalar USRP (UHD)",
+    "setup_enable_rf": "Ativar RF e reiniciar",
+    "setup_autostart": "Ativar arranque automático",
+    "setup_mark_done": "Marcar configuração como concluída",
+    "setup_complete_key": "Configuração concluída",
+    "setup_backend_key": "Backend configurado",
+    "setup_device_key": "Dispositivo",
+    "setup_unit_key": "Unidade de serviço",
+    "setup_helper_key": "Helper",
+    "setup_installing": "A instalar {driver}…",
+    "setup_session": "A sessão expirou — inicia sessão novamente e repete a operação.",
+    "setup_install_fail": "A instalação falhou",
+    "setup_drv_ok": "Driver instalado (OK).",
+    "wiz_welcome_title": "Bem-vindo ao Bost FlowStation",
+    "wiz_welcome_body": "Este assistente configura o SDR, os parâmetros RF e o arranque automático via systemd. O painel mantém-se disponível mesmo quando o rádio está desligado.",
+    "wiz_skip": "Ignorar e manter os valores predefinidos",
+    "wiz_continue": "Continuar",
+    "wiz_back": "Voltar",
+    "wiz_next": "Seguinte",
+    "wiz_finish": "Concluir",
+    "wiz_skip_now": "Ignorar por agora",
+    "wiz_sdr_title": "Selecionar SDR",
+    "wiz_sdr_help": "Procura dispositivos SoapySDR ou instala um driver (SXceiver / Lime / µCell / USRP).",
+    "wiz_device_args": "Argumentos do dispositivo",
+    "wiz_reboot_title": "A reiniciar o Pi…",
+    "wiz_reboot_body": "O µCell precisa de um reinício para carregar o device-tree overlay. A página será restabelecida automaticamente.",
+    "wiz_reboot_confirm": "Driver µCell instalado. Reiniciar o Pi agora para permitir o acesso à placa?",
+    "wiz_params_title": "RF / Rede / Brew",
+    "wiz_params_help": "Usa os formulários da aba Configuração para editar todos os parâmetros ou mantém, por agora, os valores do exemplo.",
+    "wiz_use_defaults": "Usar os valores da configuração atual",
+    "wiz_open_config": "Abrir formulários de configuração",
+    "wiz_rf_title": "Ativar RF",
+    "wiz_rf_help": "Define phy_io.backend = SoapySdr, grava a cadeia de configuração do dispositivo e reinicia o serviço.",
+    "wiz_auto_title": "Arranque automático",
+    "wiz_auto_help": "Ativa a unidade systemd para a estação voltar a arrancar após um reinício.",
+    "sdslog": "Registo SDS",
+    "th_dir": "Sentido",
+    "th_from": "Origem",
+    "th_to": "Destino",
+    "th_message": "Mensagem",
+    "no_sds": "Ainda não há mensagens SDS",
+    "sds_refresh": "Atualizar",
+    "sds_filter_lip": "LIP",
+    "sds_filter_text": "Texto",
+    "sds_filter_status": "Estado",
+    "sds_filter_concat": "Concatenadas",
+    "sds_filter_home": "Ecrã inicial",
+    "sds_filter_other": "Outras",
+    "rf_freq": "Frequência central",
+    "rf_rate": "Taxa de amostragem",
+    "rf_rms": "RMS",
+    "rf_peak": "Pico",
+    "rf_age": "Amostra",
+    "rf_waiting": "a aguardar…",
+    "rf_live": "em tempo real",
+    "rf_stale": "desatualizado",
+    "rf_visualizers": "Visualizações",
+    "rf_spectrum": "Espectro DSP de TX (pré-PA)",
+    "rf_constellation": "Constelação DSP de TX",
+    "rf_hint_spectrum": "em tempo real · FFT de 512 pontos",
+    "rf_hint_constellation": "π/4-DQPSK",
+    "rf_waterfall": "Waterfall do espectro de TX",
+    "rf_hint_waterfall": "contínuo · viridis",
+    "rf_quality": "Qualidade do sinal",
+    "rf_hint_quality": "medida pré-PA · calculada a partir da mesma amostra DSP",
+    "rf_evm": "EVM",
+    "rf_papr": "PAPR",
+    "rf_carrier": "Fuga de portadora",
+    "rf_obw": "Largura de banda ocupada (99%)",
+    "rf_dc": "Offset DC (I/Q)",
+    "rf_iqa": "Desequilíbrio de amplitude I/Q",
+    "rf_iqp": "Desequilíbrio de fase I/Q",
+    "rf_hw_health": "Estado do hardware",
+    "rf_hint_health": "consultado a cada 5 s",
+    "rf_temp": "Temperatura do SDR",
+    "rf_tx_gain": "Estágios de ganho TX (efetivos)",
+    "rf_rx_gain": "Estágios de ganho RX (efetivos)",
+    "rf_temp_cold": "frio",
+    "rf_temp_nominal": "nominal",
+    "rf_temp_warm": "quente",
+    "rf_temp_hot": "muito quente",
+    "rf_temp_na": "sem sensor",
+    "rf_no_gains": "indisponível",
+    "rf_just_now": "agora",
+    "asterisk_title": "Asterisk SIP",
+    "ast_configured": "Configurado",
+    "ast_register": "REGISTER",
+    "ast_sip_listen": "Escuta SIP",
+    "ast_remote": "Asterisk remoto",
+    "ast_rtp": "Portas RTP",
+    "ast_codec": "Codec",
+    "ast_last_rx": "Última RX",
+    "ast_last_tx": "Última TX",
+    "ast_last_error": "Último erro",
+    "dapnet_title": "DAPNET",
+    "dapnet_log": "Registo DAPNET",
+    "dapnet_routing": "Encaminhamento",
+    "dapnet_send": "Enviar mensagem DAPNET",
+    "dapnet_saved": "✓ Guardado",
+    "terminals": "Rádios",
+    "registered": "registados",
+    "active_calls": "Chamadas em curso",
+    "circuits": "circuitos em utilização",
+    "registered_terminals": "Rádios registados",
+    "cells_title": "Células",
+    "cells_help": "Cada SDR adicional disponibiliza mais uma célula. Escolhe uma portadora livre; as frequências seguem o plano de frequências da célula principal. A estação reinicia para aplicar as alterações.",
+    "cells_carrier": "Portadora",
+    "cells_cc": "Código de cor",
+    "cells_add": "Adicionar célula",
+    "cells_remove": "Remover",
+    "cells_cell": "Célula {n}",
+    "cells_radios": "{n} rádio(s)",
+    "cells_single": "Uma célula",
+    "rf_cells_note": "Seleciona uma célula para apresentar o respetivo SDR nesta página.",
+    "cells_linked": "Células interligadas",
+    "cells_independent": "Células independentes",
+    "cells_need_fields": "O dispositivo e a portadora são obrigatórios.",
+    "cells_confirm_add": "Adicionar esta célula? A estação vai reiniciar.",
+    "cells_confirm_remove": "Remover a célula {n}? A estação vai reiniciar.",
+    "bts_details": "Detalhes da BTS TETRA",
+    "bts_tx": "Frequência TX",
+    "bts_rx": "Frequência RX",
+    "bts_shift": "Separação duplex",
+    "bts_rate": "Taxa de amostragem",
+    "dual_carrier": "Duas portadoras",
+    "dc_on_sub": "Ativo",
+    "dc_off_sub": "Inativo",
+    "dc_configure": "Configurar…",
+    "bts_secondary_head": "Portadora secundária",
+    "bts_sec_carrier": "Portadora",
+    "cfg_secondary_carrier": "Portadora secundária",
+    "cfg_dual_hint": "Permitido ±{d} em relação à principal (Fs {fs} kHz)",
+    "cfg_dual_help": "Segunda portadora de tráfego no mesmo SDR. A portadora secundária tem de caber na banda passante definida pela taxa de amostragem; Fs é obtida do SDR em execução (ou 600 kHz por predefinição).",
+    "dc_enter_carrier": "Número da portadora secundária (ex.: portadora principal ±1):",
+    "dc_bad_carrier": "Introduz um número de portadora válido.",
+    "dc_confirm_on": "Ativar duas portadoras? Isto REINICIA a estação base e interrompe brevemente todas as chamadas em curso.",
+    "dc_confirm_off": "Desativar duas portadoras? Isto REINICIA a estação base e interrompe brevemente todas as chamadas em curso.",
+    "dc_applying": "A aplicar…",
+    "dc_restarting": "A reiniciar para aplicar… a ligação será restabelecida em breve.",
+    "dc_failed": "Não foi possível alterar a configuração de duas portadoras",
+    "bts_la": "Área de localização (LA)",
+    "bts_cc": "Código de cor",
+    "bts_carrier": "Portadora principal",
+    "bts_band": "Banda",
+    "bts_access": "Acesso ao registo",
+    "bts_wl_entries": "ISSI autorizados",
+    "bts_wl_open": "Aberto — todos os ISSI podem registar-se",
+    "readability": "Legibilidade",
+    "size_small": "Pequeno",
+    "size_small_d": "Compacto · contraste normal",
+    "size_medium": "Médio",
+    "size_medium_d": "Predefinido · confortável",
+    "size_high": "Grande",
+    "size_high_d": "Maior · contraste reforçado",
+    "size_ultra": "Máximo",
+    "size_ultra_d": "Tamanho e contraste máximos",
+    "sdr": "SDR",
+    "power": "Alimentação",
+    "prefs_theme": "TEMA",
+    "prefs_lang": "IDIOMA",
+    "prefs_menu_hint": "Tema e idioma",
+    "no_terminals": "Nenhum rádio registado",
+    "no_calls": "Nenhuma chamada em curso",
+    "live_log": "Registo em tempo real",
+    "autoscroll": "Deslocamento automático",
+    "filter_all": "Todos",
+    "clear": "Limpar",
+    "export": "Exportar",
+    "restart": "Reiniciar",
+    "shutdown": "Encerrar",
+    "delete": "Eliminar",
+    "save": "Guardar",
+    "cfg_sec_configuration": "Configuração",
+    "cfg_sec_access": "Controlo de acesso",
+    "cfg_sec_remote": "Controlo remoto",
+    "cfg_sec_wx": "WX / METAR",
+    "whitelist_title": "Lista de ISSI autorizados",
+    "whitelist_add": "Adicionar ISSI",
+    "whitelist_empty": "Lista vazia — rede aberta (qualquer rádio pode registar-se).",
+    "whitelist_help": "Faz parte do perfil da célula. Vazia = rede aberta. No formulário de um perfil, Guardar grava a lista nesse perfil; nas Definições em execução, Aplicar e reiniciar grava apenas a configuração ativa.",
+    "whitelist_cell_banner": "Controlo de acesso da célula «{cell}». É guardado com esse perfil, não com o perfil Brew.",
+    "whitelist_live_banner": "Controlo de acesso do config.toml em execução. Aplicar e reiniciar grava-o na estação em funcionamento.",
+    "whitelist_sheet_new": "Controlo de acesso do novo perfil de célula. Guardar grava-o com o perfil.",
+    "whitelist_need_cell": "Seleciona primeiro um perfil de célula.",
+    "whitelist_enforced": "RESTRITO",
+    "whitelist_open": "ABERTO",
+    "whitelist_invalid": "Introduz um ISSI válido (1–16777215).",
+    "remote_title": "Controlo remoto (U-STATUS)",
+    "remote_help": "Os rádios autorizados enviam um U-STATUS para o ISSI 9999. Cada código de estado corresponde a uma ação (IP, temperatura, informação, reinício…). As alterações são aplicadas de imediato e guardadas no config.toml; não fazem parte dos perfis de célula/Brew.",
+    "remote_enabled": "Ativar controlo remoto",
+    "remote_control_issi": "ISSI de controlo",
+    "remote_issis_title": "ISSI autorizados",
+    "remote_issi_add": "Adicionar ISSI",
+    "remote_issis_empty": "Ainda sem entradas",
+    "remote_cmds_empty": "Ainda sem comandos",
+    "remote_cmds_title": "Comandos (código → ação)",
+    "remote_cmd_add": "Adicionar comando",
+    "remote_status_code": "Código de estado",
+    "remote_action": "Ação",
+    "remote_cmd_del": "Remover",
+    "remote_empty_issi": "Adiciona pelo menos um ISSI autorizado quando esta função estiver ativa.",
+    "remote_invalid_code": "Introduz um código de estado (0–65535).",
+    "wx_title": "Serviço WX / METAR",
+    "wx_help": "Serviço meteorológico integrado. Os rádios enviam uma SDS, como «METAR LROP», para o ISSI do serviço para receber um relatório descodificado. Opcionalmente, envia automaticamente o METAR de uma estação fixa para um ISSI ou talkgroup a intervalos definidos. Dados de aviationweather.gov.",
+    "wx_enabled": "Ativar resposta a pedidos METAR",
+    "wx_service_issi": "ISSI do serviço",
+    "wx_periodic_enabled": "Ativar difusão automática periódica",
+    "wx_periodic_icao": "Código ICAO da estação",
+    "wx_periodic_dest": "Destino",
+    "wx_periodic_isgroup": "O destino é um grupo",
+    "wx_periodic_isgroup_hint": "(GSSI em vez de ISSI individual)",
+    "wx_periodic_interval": "Intervalo (segundos)",
+    "wx_interval_hint": "Mínimo de 300 s (5 min) para não sobrecarregar a API meteorológica.",
+    "wx_periodic_incomplete": "Define o código ICAO da estação e o destino para o modo periódico.",
+    "sds_title": "⬡ Enviar mensagem SDS",
+    "sds_dest": "ISSI de destino",
+    "sds_as_issi": "Enviado com o ISSI {issi}",
+    "sds_callout_enable": "TPG2200 Call-Out / Enviar alarme",
+    "sds_callout_source": "ISSI de origem",
+    "sds_callout_incident": "Número do incidente",
+    "sds_callout_text": "Texto do alarme",
+    "sds_callout_raw": "Payload hexadecimal em bruto (opcional)",
+    "sds_callout_help": "Os incidentes 1-15 usam a fórmula de byte confirmada (N << 4) | 0x01: 1=11, 2=21, 3=31, 4=41. Os incidentes 16-256 usam o seletor alargado de um byte. O hexadecimal em bruto substitui a geração automática do payload.",
+    "live_sds_desc": "Difunde uma mensagem de texto para todos os rádios da célula, repetida ao intervalo Home Mode Display. Repete até ser eliminada ou atingir o número de repetições.",
+    "live_sds_text": "Texto da mensagem (máx. 251 caracteres)",
+    "live_sds_repeat": "Repetições (0=∞)",
+    "live_sds_send": "Difundir",
+    "live_sds_clear_all": "Limpar tudo",
+    "live_sds_empty": "Nenhuma difusão ativa.",
+    "live_sds_sent": "enviada",
+    "live_sds_times": "×",
+    "live_sds_forever": "∞",
+    "live_sds_delete": "✕",
+    "fallback_title": "⚠ CONFIGURAÇÃO DE RECURSO ATIVA — Falha ao carregar a configuração principal",
+    "fallback_help": "Corrige o config.toml principal em Configuração (formulários, TOML em bruto ou Restaurar .bak) e reinicia. O ficheiro .fallback não é atualizado automaticamente.",
+    "sds_msg_label": "Mensagem",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "ok": "OK",
+    "notice": "Aviso",
+    "action_failed": "Falhou",
+    "send": "Enviar",
+    "th_issi": "ISSI",
+    "th_issi_cs": "ISSI / Indicativo",
+    "th_groups": "Grupos",
+    "th_ee": "Poupança de energia",
+    "th_signal": "Sinal",
+    "tg_selected": "Talkgroup selecionado (última PTT)",
+    "tg_affiliated_short": "afiliados",
+    "tg_affiliated_hint": "Outros talkgroups em que este rádio está afiliado (mantidos na estação base mesmo com o scan desligado no equipamento)",
+    "th_status": "Estado",
+    "th_last_seen": "Última atividade",
+    "th_actions": "Ações",
+    "th_security": "Segurança",
+    "sec_auth": "AUTH",
+    "sec_auth_hint": "O rádio comprovou a sua chave de autenticação K (desafio TAA1)",
+    "sec_clear": "EM CLARO",
+    "sec_clear_hint": "Não foram observadas PDU cifradas deste rádio: a sinalização e a voz estão em claro",
+    "sec_enc_hint": "O rádio está a cifrar com a chave de cifra estática da célula",
+    "sec_weak_hint": "TEA1 conserva apenas 32 dos 80 bits da chave (TETRA:BURST) — apenas para investigação",
+    "sec_cell_clear": "CLASSE 1 · EM CLARO",
+    "sec_auth_req": "AUTH OBRIG.",
+    "sec_auth_opt": "AUTH OPC.",
+    "sec_auth_off": "SEM AUTH",
+    "sec_cell_hint_clear": "Classe de segurança 1: sem cifragem da interface rádio nesta célula",
+    "sec_cell_hint_enc": "Classe de segurança 2: toda a sinalização e voz nesta célula são cifradas com a SCK {sckn} (versão {vn}) usando {ksg}",
+    "sec_cell_hint_err": "Configuração AIE rejeitada: {err}",
+    "sec_subs": "{n} chave(s) de assinante carregada(s)",
+    "secp_section": "Segurança da interface rádio",
+    "secp_status_title": "Estado",
+    "secp_running": "Em execução",
+    "secp_saved": "Guardado na configuração",
+    "secp_restart_needed": "As definições guardadas diferem das que estão em execução. Reinicia a estação para as aplicar.",
+    "secp_restart": "Reiniciar estação",
+    "secp_restarting": "A reiniciar… a página restabelecerá a ligação em alguns segundos.",
+    "secp_parse_error": "Erro de sintaxe no config.toml — corrige-o primeiro na página Configuração: ",
+    "secp_auth_title": "Autenticação (TAA1)",
+    "secp_auth_help": "Verifica os rádios com a respetiva chave de autenticação K de 128 bits no registo (EN 300 392-7, secção 4). Só são aceites rádios cuja chave K conste da lista abaixo. A autenticação é um mecanismo de controlo de acesso, utilizável nas faixas de radioamador.",
+    "secp_auth_mode": "Modo",
+    "secp_auth_off": "Desativada — qualquer rádio pode registar-se",
+    "secp_auth_optional": "Opcional — verificar os rádios com chave guardada e aceitar os restantes",
+    "secp_auth_required": "Obrigatória — rejeitar rádios sem chave ou que falhem a verificação",
+    "secp_mutual": "Autenticação mútua (responder ao desafio do rádio e desafiá-lo de volta)",
+    "secp_keys_title": "Chaves de assinante",
+    "secp_keys_help": "Uma chave K por rádio, com 32 dígitos hexadecimais, igual à chave programada no rádio através do KVL / software de programação.",
+    "secp_th_issi": "ISSI",
+    "secp_th_k": "Chave K",
+    "secp_no_keys": "Sem chaves de assinante",
+    "secp_add": "Adicionar",
+    "secp_generate": "Gerar",
+    "secp_remove": "Remover",
+    "secp_k_placeholder": "32 dígitos hexadecimais",
+    "secp_issi_placeholder": "ISSI",
+    "secp_aie_title": "Cifragem da interface rádio (classe 2)",
+    "secp_aie_help": "Cifra toda a sinalização e voz nesta célula com uma chave de cifra estática (SCK) partilhada por todos os rádios. Os rádios sem a chave não conseguem registar-se nem ouvir o tráfego. A cifragem da interface rádio não é permitida ao abrigo de licenças de radioamador — ativa-a apenas numa rede privada devidamente licenciada.",
+    "secp_groups": "Talkgroups em claro (GSSI separados por vírgulas) para rádios sem cifragem",
+    "secp_aie_enable": "Cifrar a célula (classe 2)",
+    "secp_aie_staging": "Mantém esta opção desativada durante a distribuição da chave: assim, a SCK abaixo é usada apenas para entrega via rádio e a célula permanece em claro. Ativa-a quando todos os rádios confirmarem a aceitação da chave.",
+    "secp_staged": "(preparada para OTAR)",
+    "secp_otar_label": "OTAR",
+    "secp_otar_send": "Enviar SCK",
+    "secp_otar_send_all": "Enviar SCK a todos os rádios ligados",
+    "secp_otar_hint": "Entrega a SCK via rádio, protegida pela chave K deste rádio (requer que o rádio esteja registado e que a sua chave K esteja guardada)",
+    "secp_otar_none": "Nenhum rádio ligado com chave guardada",
+    "secp_otar_confirm_all": "Enviar a SCK a {n} rádio(s)?",
+    "secp_save_first": "Guarda primeiro as alterações",
+    "secp_offline": "desligado",
+    "secp_ksg": "Algoritmo (KSG)",
+    "secp_sck": "Chave de cifra estática (SCK)",
+    "secp_sck_placeholder": "20 dígitos hexadecimais",
+    "secp_sckn": "Número da SCK (1-32)",
+    "secp_sckvn": "Versão da SCK",
+    "secp_tea1_warn": "TEA1 está comprometido: conserva apenas 32 dos 80 bits da chave, que pode ser recuperada a partir de poucos segundos de tráfego. Usa-o apenas para investigação ou para comunicar com rádios que só suportam TEA1, nunca como proteção.",
+    "secp_keep": "sem alterações",
+    "secp_saved_ok": "Guardado. Reinicia a estação para aplicar.",
+    "secp_invalid_keys": "Chaves guardadas que não foi possível interpretar (ISSI): ",
+    "secp_algo_title": "Algoritmos nesta compilação",
+    "secp_th_algo": "Algoritmo",
+    "secp_th_status": "Estado",
+    "secp_th_note": "Notas",
+    "secp_available": "Disponível",
+    "secp_unavailable": "Indisponível",
+    "secp_weak": "Fraco — apenas para investigação",
+    "secp_classes": "Classes de segurança: classe 1 = interface rádio em claro (autenticação opcional); classe 2 = chave de cifra estática partilhada por todos os rádios (esta página); classe 3 = chaves derivadas por rádio com renovação via rádio (não implementada).",
+    "secp_unsaved": "Alterações por guardar",
+    "th_id": "ID",
+    "th_type": "Tipo",
+    "th_caller": "Chamador",
+    "th_dest": "Destino",
+    "th_speaker": "Emissor",
+    "th_duration": "Duração",
+    "th_time": "Hora",
+    "th_activity": "Atividade",
+    "last_heard_title": "Última atividade",
+    "no_activity": "Ainda sem atividade",
+    "act_call_group": "Chamada de grupo",
+    "act_call_individual": "Chamada individual",
+    "act_sds": "SDS",
+    "online_badge": "LIGADO",
+    "kick": "Desregistar",
+    "sds": "SDS",
+    "call_group": "GRUPO",
+    "call_p2p_s": "P2P-S",
+    "call_p2p_d": "P2P-D",
+    "call_emergency": "EMERGÊNCIA",
+    "emg_banner_title": "EMERGÊNCIA ATIVA",
+    "integrations": "Integrações",
+    "integ_enabled": "Ativa",
+    "integ_disabled": "Inativa",
+    "integ_error": "Erro",
+    "system_sec": "Sistema",
+    "emg_chip": "EMERGÊNCIA",
+    "bs_label": "BS",
+    "emg_clear": "Limpar",
+    "confirm_clear_emergency": "Limpar a emergência do ISSI {issi}?",
+    "confirm_kick": "Desregistar o ISSI {issi}?\nO terminal será desregistado e forçado a restabelecer a ligação.",
+    "dgna": "DGNA",
+    "dgna_title": "Atribuição dinâmica de grupos",
+    "dgna_modal_title": "⬡ Atribuição dinâmica de grupos",
+    "dgna_issi": "ISSI do terminal",
+    "dgna_current": "Grupos atuais",
+    "dgna_gssi": "Grupo (GSSI)",
+    "dgna_assign": "Atribuir",
+    "dgna_deassign": "Retirar atribuição",
+    "dgna_name": "Nome do TG",
+    "dgna_center": "DGNA",
+    "dgna_center_sub": "Atribui, atualiza e retira grupos em vários rádios.",
+    "dgna_groups_count": "Grupos",
+    "dgna_radios_count": "Destinatários",
+    "dgna_group_library": "Biblioteca de grupos",
+    "dgna_new_group": "Novo",
+    "dgna_search": "Pesquisar",
+    "dgna_scope": "Cobertura",
+    "dgna_editor": "Editor de grupos",
+    "dgna_attachment_mode": "Modo de associação",
+    "dgna_select_all": "Selecionar todos",
+    "dgna_select_none": "Limpar",
+    "dgna_select_attached": "Associados",
+    "dgna_select_dynamic": "Dinâmicos",
+    "dgna_assign_selected": "Atribuir aos selecionados",
+    "dgna_assign_all": "Atribuir a todos os rádios",
+    "dgna_update_selected": "Atualizar selecionados",
+    "dgna_deassign_selected": "Retirar dos selecionados",
+    "dgna_targets": "Rádios de destino",
+    "dgna_status_col": "Estado do grupo",
+    "dgna_last_result": "Último resultado",
+    "dgna_activity": "Atividade DGNA",
+    "confirm_clear_sds_log": "Limpar o registo SDS?",
+    "confirm_clear_dapnet_log": "Limpar o registo DAPNET?",
+    "confirm_dgna_detach_static": "Desassociar o GSSI estático {gssi} do ISSI {issi}?\nIsto força o rádio a remover um grupo não atribuído por DGNA.",
+    "confirm_dgna_detach_bulk": "Desassociar o GSSI estático {gssi} de {n} rádio(s)?\nIsto força a remoção de um grupo não atribuído por DGNA do equipamento.",
+    "confirm_dgna_delete": "Eliminar o GSSI {gssi}?\nSerá retirado de todos os rádios e removido da biblioteca local.",
+    "confirm_live_sds_clear": "Limpar todas as difusões SDS ativas?",
+    "wifi_confirm_forget_body": "Esquecer a rede «{name}»?",
+    "confirm_restart": "Reiniciar o Bost FlowStation?\nTodas as chamadas em curso serão interrompidas.",
+    "confirm_shutdown": "O serviço da BTS será suspenso, mas o painel continua acessível e permite voltar a iniciar o serviço.\nSuspender a BTS?",
+    "confirm_suspend": "O serviço da BTS será suspenso, mas o painel continua acessível e permite voltar a iniciar o serviço.\nSuspender a BTS?",
+    "confirm_poweroff": "A BTS será desligada por completo. Poderá ser necessário desligar e voltar a ligar a alimentação para a iniciar novamente.\nDesligar completamente a BTS?",
+    "confirm_start": "Iniciar o Bost FlowStation?\nO serviço será reiniciado e a página será recarregada.",
+    "confirm_logout": "Terminar sessão?",
+    "logout": "Terminar sessão",
+    "top_power_menu": "CONTROLO",
+    "top_power_menu_hint": "Reiniciar, suspender ou desligar",
+    "svc_suspend": "Suspender",
+    "svc_poweroff": "Desligar",
+    "svc_powering_off_title": "A desligar…",
+    "svc_powering_off_body": "O sistema está a encerrar. A ligação ao painel será interrompida.",
+    "svc_standby_title": "Serviço em espera",
+    "svc_standby_body": "A stack rádio está parada. O painel continua disponível — prime Iniciar para colocar a estação em funcionamento.",
+    "svc_standby_short": "EM ESPERA",
+    "svc_start": "Iniciar",
+    "svc_need_running": "«{action}» requer o serviço completo em execução. Prime primeiro Iniciar em Sistema → Controlo.",
+    "svc_standby_will_start": "O serviço está em espera. «{action}» vai iniciá-lo novamente. Continuar?",
+    "saved": "✓ Guardado — reinicia para aplicar.",
+    "save_fail": "✗ Falha ao guardar",
+    "conn_error": "Erro de ligação.",
+    "cfg_sec_profiles": "Perfis",
+    "cfg_profiles_title": "Perfis TMO",
+    "cfg_profiles_help": "Guarda as configurações TMO e dos servidores Brew em perfis para alternar rapidamente entre elas.",
+    "cfg_profiles_pack_help": "Exporta ou importa apenas perfis de célula/Brew (.ptbs). Não altera a configuração em execução nem reinicia — usa Aplicar e reiniciar após a importação para os colocar em serviço.",
+    "cfg_profiles_export": "Exportar .ptbs",
+    "cfg_profiles_import": "Importar .ptbs",
+    "cfg_profiles_export_ok": "Perfis exportados",
+    "cfg_profiles_export_err": "Não foi possível exportar os perfis",
+    "cfg_profiles_import_confirm": "Substituir os perfis de célula/Brew desta estação pelos do ficheiro .ptbs? O config.toml ativo não será alterado e o serviço não será reiniciado.",
+    "cfg_profiles_import_ok": "Perfis importados",
+    "cfg_profiles_import_err": "Não foi possível importar os perfis",
+    "cfg_cell_profile": "Célula TMO",
+    "cfg_brew_profile": "Rede Core (Brew)",
+    "cfg_apply_restart": "Aplicar e reiniciar",
+    "cfg_add": "Adicionar",
+    "cfg_edit": "Editar",
+    "cfg_profile_name": "Nome do perfil",
+    "cfg_cell_sheet_add": "Adicionar célula TMO",
+    "cfg_cell_sheet_edit": "Editar célula TMO",
+    "cfg_brew_sheet_add": "Adicionar rede Core (Brew)",
+    "cfg_brew_sheet_edit": "Editar rede Core (Brew)",
+    "cfg_update_cell": "Atualizar célula",
+    "cfg_update_brew": "Atualizar Brew",
+    "cfg_save_as_cell": "Guardar como",
+    "cfg_save_as_brew": "Guardar como",
+    "cfg_del_cell": "Eliminar",
+    "cfg_del_brew": "Eliminar",
+    "cfg_del_cell_confirm": "Eliminar o perfil de célula «{name}»?",
+    "cfg_del_brew_confirm": "Eliminar o perfil Brew «{name}»?",
+    "cfg_brew_offline": "Sem ligação (sem Brew)",
+    "cfg_brew_offline_nodel": "O perfil sem ligação não pode ser eliminado.",
+    "cfg_brew_lst": "LST Dispatch",
+    "cfg_brew_lst_nodel": "O perfil LST Dispatch não pode ser eliminado.",
+    "lst_dispatch": "LST Dispatch",
+    "lst_need_title": "Consola indisponível",
+    "lst_need_profile": "Aplica o perfil Brew «LST Dispatch» em Configuração e reinicia para ativar esta consola.",
+    "lst_go_config": "Ir para Configuração",
+    "lst_busy": "Despacho em utilização por",
+    "lst_console": "Consola de despacho",
+    "lst_claim": "Assumir despacho",
+    "lst_release": "Libertar despacho",
+    "lst_geo": "Localização",
+    "lst_geo_title": "Localização LIP",
+    "lst_geo_fit": "Enquadrar todas",
+    "lst_geo_age": "Antiguidade",
+    "lst_geo_empty": "Sem posições LIP recentes",
+    "lst_geo_loading": "A carregar o mapa…",
+    "lst_geo_map_fail": "Mapa indisponível — apenas tabela",
+    "lst_geo_center": "Centrar",
+    "lst_operator_issi": "ISSI do operador de despacho",
+    "lst_apply_issi": "Aplicar",
+    "lst_gssi": "GSSI do talkgroup",
+    "lst_join": "Aderir",
+    "lst_leave": "Sair",
+    "lst_ptt": "PTT",
+    "lst_sds": "SDS",
+    "lst_send_sds": "Enviar",
+    "lst_roster": "Rádios ligados",
+    "lst_col_groups": "Grupos",
+    "lst_col_pos": "Posição",
+    "lst_no_codec": "Codec de voz indisponível nesta compilação — apenas sinalização. Usa «Instalar codec de voz (OTA)» abaixo (sem SSH).",
+    "lst_install_voice": "Instalar codec de voz (OTA)",
+    "lst_audio_insecure": "O microfone requer uma página segura (https://…). Abre https://this-host/ e aceita o certificado uma vez.",
+    "lst_audio_need_claim": "Prime primeiro «Assumir despacho» — essa ação abre o pedido de acesso ao microfone/altifalantes.",
+    "lst_audio_mic_fail": "Não foi possível abrir o microfone: ",
+    "lst_audio_ok": "Microfone/altifalantes prontos.",
+    "lst_call_simplex": "Privada simplex",
+    "lst_call_duplex": "Privada duplex",
+    "lst_hangup": "Terminar chamada",
+    "lst_pos_none": "—",
+    "lst_roster_sds": "Enviar SDS",
+    "lst_roster_call": "Chamada privada",
+    "lst_roster_call_btn": "Chamar",
+    "lst_call_modal_title": "Chamada privada",
+    "lst_tab_simplex": "Simplex",
+    "lst_tab_duplex": "Duplex",
+    "lst_call_dial": "Chamar",
+    "lst_call_answer": "Atender",
+    "lst_duplex_hint": "Duplex: o microfone permanece aberto enquanto o canal de áudio estiver pronto (sem PTT).",
+    "lst_phase_idle": "Em espera",
+    "lst_phase_dialing": "A chamar…",
+    "lst_phase_ringing": "A tocar…",
+    "lst_phase_answering": "A atender…",
+    "lst_phase_established": "Ligado",
+    "lst_phase_ended": "Chamada terminada",
+    "lst_phase_failed": "Chamada falhada",
+    "lst_phase_incoming": "Chamada recebida",
+    "lst_cause_unreachable": "Incontactável",
+    "lst_cause_busy": "Ocupado",
+    "lst_cause_rejected": "Rejeitada",
+    "lst_cause_error": "Erro de ligação",
+    "lst_cause_finished": "Terminada",
+    "lst_scan_list": "Lista de scan (TG)",
+    "lst_scan_add": "Adicionar",
+    "lst_scan_tx": "TX",
+    "lst_scan_remove": "Remover",
+    "lst_scan_empty": "Nenhum TG selecionado",
+    "lst_scan_name_ph": "Nome (opcional)",
+    "lst_scan_import": "Importar ficheiro",
+    "lst_scan_export": "Exportar",
+    "lst_scan_file_hint": "Um TG por linha: World Wide (91), World Wide,91 ou 91,World Wide. CSV, TXT ou JSON.",
+    "lst_scan_imported": "{n} TG importados ({added} novos)",
+    "lst_scan_import_err": "Não foram encontrados talkgroups nesse ficheiro",
+    "sds_sent": "Enviada — ainda sem relatório de entrega",
+    "sds_delivered": "Entregue ao rádio",
+    "sds_failed": "Rejeitada pelo rádio (memória cheia ou função não suportada)",
+    "lst_sds_filter_sent": "Enviadas",
+    "radio_name_btn": "Nome",
+    "radio_name_title": "Nome do rádio",
+    "radio_name_prompt": "Nome do ISSI {issi}, apresentado onde este rádio aparecer. Deixa vazio para remover.",
+    "radio_name_ph": "ex.: Dave MM7FDM",
+    "lst_scan_hint": "Marca um TG como TX (principal). Os restantes TG são escutados com prioridade inferior.",
+    "lst_ptt_space": "Barra de espaços",
+    "lst_ptt_busy": "Prime novamente para interromper (3 s)",
+    "lst_ptt_wait": "A aguardar TX…",
+    "lst_phase_ptt_wait": "A aguardar TX…",
+    "lst_activity": "Atividade",
+    "lst_sds_inbox": "SDS recebidas",
+    "lst_open_full": "Registo completo",
+    "lst_sds_filter_private": "Privadas",
+    "lst_sds_filter_group": "Grupo",
+    "lst_live": "Em tempo real",
+    "lst_groups_expand": "Mostrar grupos afiliados",
+    "lst_groups_collapse": "Ocultar grupos afiliados",
+    "lst_groups_pop_title": "Talkgroups afiliados",
+    "lst_incoming_todo": "As chamadas privadas recebidas no ISSI do operador de despacho serão implementadas posteriormente (encaminhamento CMCE→LST).",
+    "cfg_need_select_brew": "Seleciona primeiro um perfil Brew (não o perfil sem ligação).",
+    "cfg_sheet_busy": "Fecha primeiro o formulário de perfil aberto.",
+    "cfg_editing": "A editar célula «{cell}» · Brew «{brew}». Altera os formulários abaixo e usa Atualizar ou Guardar como.",
+    "cfg_sec_live": "Definições em execução",
+    "cfg_live_title": "Definições em execução",
+    "cfg_save_live": "Guardar configuração ativa",
+    "cfg_live_toggle": "Expandir para editar a configuração em execução",
+    "cfg_live_help": "As alterações aplicam-se apenas ao config.toml ativo — não são guardadas num perfil TMO/Brew. Usa Aplicar e reiniciar para as colocar em serviço.",
+    "cfg_live_apply_confirm": "Gravar as definições ativas no config.toml e reiniciar?",
+    "cfg_raw_apply_confirm": "Guardar o config.toml em bruto e reiniciar?",
+    "cfg_sec_rf": "RF",
+    "cfg_rf_title": "Frequências",
+    "cfg_auto": "RX e portadora automáticos",
+    "cfg_tx": "TX da estação / downlink (MHz)",
+    "cfg_rx": "RX da estação / uplink (MHz)",
+    "cfg_colour": "Código de cor",
+    "cfg_rf_adv": "RF avançada",
+    "cfg_hw_rf": "Hardware RF",
+    "cfg_hw_rf_help": "O dispositivo SDR é definido na Configuração inicial. Os ganhos/antenas dependem do driver. Usa vírgula ou ponto; deixa vazio para usar os valores predefinidos do dispositivo (chave omitida da configuração).",
+    "cfg_hw_device": "Dispositivo",
+    "cfg_hw_ppm_ph": "ex.: 0 ou -1.2",
+    "cfg_hw_ppm_hint": "Correção de frequência em PPM (vírgula ou ponto).",
+    "cfg_hw_gain_ph": "ex.: {ex} — vazio = predefinido",
+    "cfg_hw_gain_hint": "Estágio de ganho Soapy em dB (vírgula ou ponto). Vazio omite a chave e usa a predefinição do dispositivo. Valor apenas ilustrativo; o intervalo depende do hardware.",
+    "cfg_hw_num_invalid": "Introduz um número (ex.: 9 ou 9,5) ou deixa vazio para usar a predefinição do dispositivo.",
+    "cfg_hw_ant_default": "(predefinida)",
+    "cfg_freq_invalid": "Introduz uma frequência válida em MHz (ex.: 438.025 ou 438,025).",
+    "cfg_custom_duplex": "Separação duplex personalizada (MHz)",
+    "cfg_duplex_invalid": "Introduz uma separação duplex válida em MHz (ex.: 7.6 ou 7,6) ou deixa vazio.",
+    "cfg_sec_network": "Rede",
+    "cfg_net_title": "Identidade TETRA",
+    "cfg_la": "Área de localização",
+    "cfg_net_adv": "Rede / temporizadores avançados",
+    "cfg_timers_hint": "Temporizadores: vazio/repor = predefinição do motor. Prime «?» em cada campo para detalhes. Timeout de chamada 0 = ilimitado; T351 0 = desativado.",
+    "cfg_help_tx": "Frequência de downlink (TX) da estação base em MHz. Tem de corresponder à RX dos rádios. Sempre que possível, usa RX e portadora automáticos após definir TX.",
+    "cfg_help_rx": "Frequência de uplink (RX) da estação base em MHz. Geralmente TX menos a separação duplex. A opção RX e portadora automáticos calcula-a a partir de TX.",
+    "cfg_help_colour": "Código de cor TETRA 0–63. Todos os rádios desta célula têm de usar o mesmo valor.",
+    "cfg_help_main_carrier": "Número da portadora TETRA do canal de controlo principal. Prefere RX e portadora automáticos, salvo se conheceres o valor.",
+    "cfg_help_freq_band": "Identificador da banda de frequências (ETSI). O valor predefinido 4 é habitual nas células de radioamador de 400 MHz — altera apenas se conheceres o plano de frequências.",
+    "cfg_help_duplex_id": "Identificador da tabela de separação duplex. Mantém a predefinição, salvo se usares uma separação não normalizada; nesse caso, prefere Separação duplex personalizada (MHz).",
+    "cfg_help_custom_duplex": "Separação duplex opcional em MHz (ex.: 7.6). Vazio = usar o identificador de separação duplex. Quando definida, substitui o identificador da tabela.",
+    "cfg_help_freq_offset": "Ajuste fino da portadora em Hz (±6250 / ±12500). Geralmente 0.",
+    "cfg_help_reverse": "Inverte o sentido UL/DL do duplex. Pouco habitual; mantém desativado, salvo se o plano exigir funcionamento invertido.",
+    "cfg_help_hw_device": "Cadeia de configuração SoapySDR definida na Configuração inicial. Altera o dispositivo nessa página, não aqui.",
+    "cfg_help_ppm": "Correção de frequência em PPM (vírgula ou ponto). Vazio/repor não se aplica — geralmente 0.",
+    "cfg_help_rx_ant": "Porta de antena RX deste driver SDR. Vazio = predefinição do dispositivo.",
+    "cfg_help_tx_ant": "Porta de antena TX deste driver SDR. Vazio = predefinição do dispositivo.",
+    "cfg_help_gain": "Estágio de ganho Soapy em dB. Vazio omite a chave (predefinição do dispositivo). O intervalo depende do hardware.",
+    "cfg_help_mcc": "Mobile Country Code (identidade da rede TETRA). Tem de corresponder à programação dos rádios.",
+    "cfg_help_mnc": "Mobile Network Code. Tem de corresponder à programação dos rádios.",
+    "cfg_help_la": "Location Area (LA), área de localização. Os rádios usam-na para selecionar a célula e efetuar o registo.",
+    "cfg_help_tz": "Fuso horário IANA para o relógio da estação (ex.: Europe/Madrid). Não altera a temporização RF.",
+    "cfg_help_hangtime": "Segundos durante os quais a chamada de grupo permanece aberta sem emissor («grupo em utilização»). Uma nova PTT durante o hangtime mantém a mesma chamada. Predefinição: 5.",
+    "cfg_help_call_timeout": "Duração máxima de uma chamada de grupo (semelhante ao T310 ETSI), não de cada PTT. O hangtime mantém a chamada entre intervenções rápidas (LST/Brew), pelo que um QSO longo pode atingir este limite (cerca de 120 s por predefinição) e os rádios podem indicar PTT negada. Vazio/repor = 120. 0 = ilimitado. Aumenta ou define 0 para QSO longos via despacho.",
+    "cfg_help_ul_inact": "Se o emissor atual não enviar voz UL durante este número de segundos, a estação base força o fim da TX e entra em hangtime. Predefinição: 3 (tolera desvanecimentos breves/DTX).",
+    "cfg_help_t351": "Intervalo de registo periódico (semelhante ao T351). 0 = nunca expirar. Predefinição: 3600. Determina a frequência com que os rádios têm de se registar novamente.",
+    "cfg_help_syswide": "Anuncia serviços de âmbito do sistema em SYSINFO. Mantém ativo, salvo se precisares do comportamento em modo fallback.",
+    "cfg_help_recovery": "Após um reinício da BTS, a lista de registos fica vazia, mas os rádios podem considerar-se ainda registados. A recuperação proativa (esta opção, DESATIVADA por predefinição) guarda os ISSI conhecidos e envia D-LOCATION-UPDATE-COMMAND no arranque para forçar novo registo sem intervenção no rádio. A recuperação reativa permanece sempre ATIVA: quando um rádio desconhecido transmite (PTT/TG), recebe o comando uma vez. Ativa a recuperação proativa em picocélulas para repor de imediato a lista após Aplicar e reiniciar.",
+    "cfg_recovery": "Recuperação após reinício (proativa)",
+    "cfg_late_entry": "Late Entry",
+    "cfg_help_late_entry": "Anuncia Late Entry em D-MLE-SYNC para os rádios esperarem D-SETUP de chamadas de grupo em curso (recomenda-se ativar).",
+    "cfg_help_voice": "Anuncia o serviço de voz. Mantém ativo em células de voz normais.",
+    "cfg_help_local_ssi": "Intervalos SSI tratados como locais (ex.: 0-90, 100-120). Avançado — mantém a predefinição, salvo se o plano de numeração exigir alterações.",
+    "cfg_help_brew_enable": "Ativa a ligação de transporte Brew. Desativado = célula sem ligação (ou usa o perfil LST Dispatch).",
+    "cfg_help_brew_host": "Nome de servidor ou IP do servidor Brew.",
+    "cfg_help_brew_port": "Porta WebSocket/TCP Brew (frequentemente 3003).",
+    "cfg_help_brew_tls": "Usa TLS para Brew. Tem de corresponder ao esperado pelo servidor Brew.",
+    "cfg_help_brew_user": "Utilizador / SSID Brew (identificador numérico semelhante a ISSI para esta BTS no Core).",
+    "cfg_help_brew_pass": "Palavra-passe Brew. Mantém o valor oculto (••••) para preservar a palavra-passe atual ao guardar.",
+    "cfg_help_brew_reconnect": "Segundos de espera antes de restabelecer a ligação após uma queda do Brew. Predefinição: 15.",
+    "cfg_help_brew_sds": "Encaminha SDS entre a interface rádio e Brew quando ativo.",
+    "cfg_help_brew_rssi": "Exporta telemetria RSSI para Brew (tráfego adicional). Desativado, salvo se necessário.",
+    "cfg_help_brew_lip": "Reencaminha todos os relatórios LIP UL para Brew no ISSI abaixo, independentemente do destino usado pelo rádio.",
+    "cfg_help_brew_lip_issi": "ISSI de destino Brew para as posições LIP observadas (1–16777215).",
+    "cfg_sec_brew": "Brew",
+    "cfg_brew_title": "Ligação de transporte",
+    "cfg_brew_enable": "Ativar Brew",
+    "cfg_brew_user": "Utilizador (SSID)",
+    "cfg_brew_adv": "Brew avançado",
+    "cfg_brew_sds": "Encaminhamento SDS",
+    "cfg_brew_rssi": "Exportação RSSI",
+    "cfg_brew_lip": "Encaminhamento LIP",
+    "cfg_brew_lip_issi": "ISSI de destino LIP (via Brew)",
+    "cfg_advanced_toml": "config.toml em bruto",
+    "cfg_toml_toggle": "Mostrar / ocultar editor TOML",
+    "cfg_advanced_warn": "Apenas para utilizadores avançados",
+    "cfg_sec_advanced": "Avançado",
+    "cfg_apply_confirm": "Aplicar os perfis de célula × Brew selecionados e reiniciar? Será criada uma cópia de segurança do config.toml atual.",
+    "cfg_need_name": "Introduz um nome de perfil.",
+    "cfg_need_select": "Seleciona primeiro um perfil.",
+    "cfg_deleted": "✓ Eliminado",
+    "cfg_applied": "✓ Aplicado — a reiniciar…",
+    "cfg_updated": "✓ Perfil guardado",
+    "update": "Atualizar",
+    "update_available": "Atualização disponível",
+    "update_title": "Atualização OTA — github.com/Aitorrio/bost-flowstation",
+    "update_confirm": "Obter a versão mais recente do canal {channel} (branch {branch}) e recompilar?\nO serviço reiniciará automaticamente se for necessária uma nova compilação.",
+    "ota_channel_title": "Canal OTA",
+    "ota_channel_stable": "Estável (main)",
+    "ota_channel_beta": "Beta",
+    "ota_channel_help": "O canal estável acompanha a branch main (anteriormente bost). Beta = versões de teste. Em breve: mudança de nome para PTBS (Personal Tetra Base Station) — executa uma atualização OTA nesta versão de transição.",
+    "ota_channel_saved": "✓ Canal guardado — as verificações usam {channel} ({branch}).",
+    "ota_channel_save_fail": "✗ Não foi possível guardar o canal OTA",
+    "ota_check": "Procurar atualizações",
+    "ota_checking": "A procurar atualizações…",
+    "ota_whats_new": "Novidades",
+    "ota_changelog_unavailable": "Não foi possível carregar a lista de alterações. Podes atualizar na mesma.",
+    "ota_review_to": "Atualizar para {target}",
+    "ota_review_from": "A partir de {current}",
+    "ota_up_to_date": "✓ Já atualizado no canal {channel} ({latest}).",
+    "ota_check_failed": "Não foi possível contactar o GitHub para procurar atualizações (rede/TLS). Tenta novamente dentro de um minuto.",
+    "ota_step_channel": "1 · Canal",
+    "ota_step_notes": "2 · Novidades",
+    "ota_step_progress": "3 · Progresso",
+    "ota_tech_commits": "Detalhes técnicos (commits)",
+    "ota_notes_from_changelog": "Do CHANGELOG",
+    "ota_notes_from_release": "Da versão publicada no GitHub",
+    "ota_notes_from_commits": "Dos commits recentes",
+    "update_running": "A atualizar… não feches esta janela.",
+    "update_done_ok": "✓ Atualização concluída. A reiniciar…",
+    "update_done_current": "✓ Já atualizado — não é necessário recompilar.",
+    "update_done_err": "✗ A atualização falhou. Abre os detalhes para consultar o registo.",
+    "update_close": "Fechar",
+    "update_show_log": "Mostrar detalhes",
+    "update_hide_log": "Ocultar detalhes",
+    "update_phase_prepare": "A preparar…",
+    "update_phase_download": "A procurar atualizações…",
+    "update_phase_sync": "A aplicar atualizações do repositório…",
+    "update_phase_build": "A compilar (pode demorar vários minutos)…",
+    "update_phase_install": "A instalar a nova versão…",
+    "update_phase_restart": "A reiniciar o serviço…",
+    "update_phase_done": "Concluído",
+    "update_phase_error": "A atualização falhou",
+    "update_waiting": "A aguardar o primeiro estado…",
+    "update_elapsed": "Decorridos {m} min {s} s",
+    "update_elapsed_hint": "A compilação num Pi pode demorar 10–20 minutos; não desligues a alimentação.",
+    "update_lost_link": "Ligação à estação interrompida (normal durante o reinício após OTA). A aguardar que fique disponível…",
+    "update_build_hint": "Etapa demorada: a compilar o código do painel. O progresso pode permanecer inalterado durante vários minutos.",
+    "update_tip_sync": "A obter e sincronizar o código com o canal selecionado…",
+    "update_tip_install": "A copiar o novo executável…",
+    "update_tip_restart": "O serviço vai reiniciar em breve — mantém esta janela aberta.",
+    "restart_wait_title": "A reiniciar…",
+    "restart_wait_body": "A aguardar que a estação volte a ficar ligada. A página será recarregada automaticamente. Se a autenticação estiver ativa, será necessário iniciar sessão novamente.",
+    "restart_wait_ota_title": "A aplicar a atualização…",
+    "restart_wait_ota_body": "O serviço está a reiniciar com a nova compilação. Num Pi, isto pode demorar alguns minutos após uma compilação exigente. A página será recarregada automaticamente — evita desligar a alimentação, salvo se a estação ficar indisponível por mais de 15 minutos.",
+    "restart_wait_retry": "Repetir / Recarregar",
+    "restart_wait_timeout": "A estação não voltou no tempo previsto. Verifica a alimentação e executa: systemctl status bluestation-bs — depois prime Repetir. Desliga e volta a ligar a alimentação apenas como último recurso.",
+    "system": "Sistema",
+    "sys_info": "Informação do sistema",
+    "sys_hostname": "Nome do sistema",
+    "sys_uptime": "Tempo de funcionamento",
+    "sys_version": "Versão Bost",
+    "sys_os": "Sistema operativo",
+    "sys_config": "Configuração ativa",
+    "sys_cpu": "CPU",
+    "sys_cpu_load": "Carga da CPU",
+    "sys_ram": "RAM",
+    "sys_temp": "Temperatura da CPU",
+    "network": "Rede",
+    "network_links": "Ligações",
+    "network_ethernet": "Ethernet",
+    "network_wifi_sec": "WiFi",
+    "network_primary_hint": "O endereço da rota predefinida é usado pelo U-STATUS e pelo tráfego de saída. Podes abrir o painel em qualquer IP apresentado.",
+    "network_default_route": "ROTA PREDEFINIDA",
+    "network_iface": "Interface",
+    "network_kind": "Tipo",
+    "network_state": "Estado",
+    "network_no_links": "Nenhuma interface de rede encontrada.",
+    "network_kind_ethernet": "Ethernet",
+    "network_kind_wifi": "WiFi",
+    "network_kind_other": "Outra",
+    "network_conn_wired": "Ligação por cabo",
+    "network_nm_connected": "Ligado",
+    "network_nm_disconnected": "Desligado",
+    "network_nm_unavailable": "Indisponível",
+    "network_nm_connecting": "A ligar",
+    "network_nm_disconnecting": "A desligar",
+    "network_nm_unmanaged": "Não gerida",
+    "network_nm_deactivating": "A desativar",
+    "eth_warn_lose_access": "Se estiveres ligado por Ethernet, desligar o perfil da ligação por cabo pode interromper esta sessão. Mantém WiFi ou outra via de acesso disponível.",
+    "eth_no_saved": "Sem perfis Ethernet guardados.",
+    "eth_connected": "LIGADO",
+    "wifi_status": "Ligação atual",
+    "wifi_saved": "Redes guardadas",
+    "wifi_visible": "Redes disponíveis",
+    "wifi_loading": "A carregar…",
+    "wifi_scanning": "A procurar…",
+    "wifi_no_device": "Nenhum dispositivo WiFi detetado neste sistema.",
+    "wifi_radio_disabled": "O rádio WiFi está desativado.",
+    "wifi_not_connected": "Sem ligação a uma rede.",
+    "wifi_no_saved": "Sem redes guardadas.",
+    "wifi_no_networks": "Sem redes ao alcance.",
+    "wifi_ssid": "Rede",
+    "wifi_signal": "Sinal",
+    "wifi_ip": "Endereço IP",
+    "wifi_actions": "Ações",
+    "wifi_disconnect": "Desligar",
+    "wifi_connect": "Ligar",
+    "wifi_connect_to": "Ligar a",
+    "wifi_connecting": "A ligar…",
+    "wifi_connected": "LIGADO",
+    "wifi_connected_ok": "Ligado.",
+    "wifi_saved_tag": "GUARDADA",
+    "wifi_open": "ABERTA",
+    "wifi_forget": "Esquecer",
+    "wifi_confirm_forget": "Esquecer rede",
+    "wifi_password": "Palavra-passe",
+    "wifi_hidden": "Rede oculta (SSID não difundido)",
+    "wifi_add_hidden": "Rede oculta",
+    "wifi_scan": "Procurar",
+    "wifi_refresh": "Atualizar",
+    "wifi_radio_off": "Desativar WiFi",
+    "wifi_radio_on": "Ativar WiFi",
+    "wifi_warn_lose_access": "Se acederes ao painel por WiFi, mudar de rede pode interromper temporariamente a ligação. Garante uma via de acesso alternativa (Ethernet ou uma rede funcional conhecida).",
+    "wifi_reconnect_hint": "Desligar termina apenas o perfil ativo — o NetworkManager pode restabelecer a ligação automaticamente. Usa Desativar WiFi para manter o rádio desligado.",
+    "wifi_err_no_ssid": "O SSID é obrigatório",
+    "sys_sensors": "Sensores de hardware do sistema",
+    "sys_sensors_empty": "Nenhum sensor detetado neste sistema.",
+    "sys_rf": "Hardware RF (SoapySDR)",
+    "sys_autorefresh": "Atualização automática a cada 5 s",
+    "profile_edit_title": "Editar perfil de configuração",
+    "profile_edit_btn": "Editar",
+    "profile_edit_save_ok": "✓ Guardado",
+    "profile_edit_save_fail": "✗ Falha ao guardar",
+    "sys_profiles": "Perfis de configuração",
+    "sys_activate": "Ativar e reiniciar",
+    "sys_active_badge": "ATIVO",
+    "sys_no_profiles": "Nenhum perfil .toml encontrado na pasta de configuração.",
+    "sys_activate_confirm": "Mudar para o perfil «{name}» e reiniciar?\nSerá criada uma cópia de segurança da configuração atual.",
+    "sys_title": "Sistema",
+    "sys_sec_control": "Controlo",
+    "sys_control_title": "Controlo do serviço",
+    "sys_control_help": "Reinicia a estação, suspende a stack rádio (o painel mantém-se disponível), desliga completamente o Pi ou obtém o código do GitHub e recompila (OTA).",
+    "sys_sec_status": "Estado",
+    "sys_sec_host": "Sistema anfitrião",
+    "sys_sec_radio": "Hardware rádio",
+    "sys_sec_sensors": "Sensores",
+    "sys_sec_profiles": "Perfis",
+    "sys_sec_sds": "Difusão SDS",
+    "sys_refresh": "Atualizar",
+    "sys_probe": "Detetar",
+    "sys_soapy_idle": "Prime Detetar para procurar dispositivos SoapySDR.",
+    "sys_temp_hot": "MUITO QUENTE",
+    "sys_temp_warm": "Quente",
+    "sys_temp_ok": "OK",
+    "sys_sec_account": "Conta",
+    "sys_account_title": "Acesso ao painel",
+    "sys_account_help": "Altera aqui as credenciais do painel. Uma conta por estação — não faz parte dos perfis de célula/Brew.",
+    "sys_account_user": "Utilizador",
+    "sys_account_change": "Alterar credenciais",
+    "sys_account_current_pass": "Palavra-passe atual",
+    "sys_account_new_user": "Novo utilizador (opcional)",
+    "sys_account_new_pass": "Nova palavra-passe (opcional)",
+    "sys_account_new_pass_req": "Nova palavra-passe",
+    "sys_account_confirm": "Confirmar nova palavra-passe",
+    "sys_account_save": "Guardar",
+    "sys_account_enable_title": "Ativar autenticação",
+    "sys_account_enable_help": "O acesso ao painel está aberto. Define um utilizador e uma palavra-passe para exigir o início de sessão.",
+    "sys_account_enable_btn": "Ativar autenticação",
+    "sys_account_open": "ABERTO",
+    "sys_account_protected": "PROTEGIDO",
+    "sys_account_ok": "Guardado — inicia sessão novamente",
+    "sys_account_err": "Não foi possível guardar",
+    "sys_account_need_cur": "A palavra-passe atual é obrigatória",
+    "sys_account_need_change": "Define um novo utilizador e/ou palavra-passe",
+    "sys_account_mismatch": "As palavras-passe não coincidem",
+    "sys_ports_title": "Portas do painel",
+    "sys_ports_help": "HTTPS é necessário para aceder ao microfone no LST. O modo padrão usa a porta 443 (HTTP 80 redireciona). O modo de porta alta usa apenas HTTPS 8443 quando as portas 80/443 estão ocupadas por outros serviços. Alterar as portas reinicia a estação.",
+    "sys_ports_preset": "Predefinição",
+    "sys_ports_standard": "Padrão (80 → 443)",
+    "sys_ports_high": "Porta alta (apenas HTTPS 8443)",
+    "sys_ports_apply": "Aplicar e reiniciar",
+    "sys_ports_confirm": "Após o reinício, abre {url}. Continuar?",
+    "sys_ports_ok": "Guardado — a reiniciar…",
+    "sys_ports_err": "Não foi possível alterar as portas",
+    "sys_ports_custom": "Portas personalizadas na configuração — escolhe uma predefinição para mudar.",
+    "sys_sec_backup": "Cópia de segurança",
+    "sys_backup_title": "Cópia de segurança da estação",
+    "sys_backup_help": "Descarrega um ficheiro completo da estação (.bptbs): configuração ativa, perfis de célula/Brew, ficheiros de configuração inicial/fallback e palavras-passe WiFi guardadas. A importação substitui esta estação (mantém o canal OTA) e reinicia-a.",
+    "sys_backup_export": "Exportar .bptbs",
+    "sys_backup_import": "Importar .bptbs",
+    "sys_backup_export_ok": "Cópia de segurança descarregada",
+    "sys_backup_export_err": "Não foi possível exportar a cópia de segurança",
+    "sys_backup_import_confirm": "Substituir esta estação pela cópia de segurança .bptbs? A configuração ativa e os perfis serão substituídos. O canal OTA deste Pi será mantido. A estação vai reiniciar.",
+    "sys_backup_import_ok": "Importado — a reiniciar…",
+    "sys_backup_import_err": "Não foi possível importar a cópia de segurança",
+    "sys_bts": "Ligação à BTS",
+    "cr_original": "© 2026 Razvan Zeces — YO6RZV",
+    "cr_enhanced": "Versão melhorada por Aitor, EA4HBL",
+    "geo_lat": "Latitude do Bost FlowStation",
+    "geo_lon": "Longitude do Bost FlowStation",
+    "telegram": "Telegram",
+    "tg_title": "Alertas Telegram",
+    "tg_help": "Recebe mensagens Telegram imediatas quando ocorre um evento na estação — registo ou desligação de um rádio, ligação ou queda do transporte, receção de uma posição ou aviso/erro da stack.",
+    "tg_enabled": "Ativar alertas Telegram",
+    "tg_test": "Enviar teste",
+    "tg_testing": "A enviar teste…",
+    "tg_test_ok": "✓ Teste enviado para {n} conversa(s)",
+    "tg_howto_title": "Configuração — 4 passos",
+    "tg_step1": "No Telegram, abre @BotFather, envia /newbot e segue as instruções. Copia o token fornecido para o bot.",
+    "tg_step2": "Cola o token abaixo e prime Verificar — deverá aparecer o @username do bot.",
+    "tg_step3": "Abre uma conversa com o novo bot (ou adiciona-o a um grupo) e envia uma mensagem, por exemplo /start.",
+    "tg_step4": "Prime «Detetar Chat ID», adiciona a conversa aos destinatários e guarda. Usa «Enviar teste» para confirmar.",
+    "tg_bot_title": "Token do bot",
+    "tg_bot_help": "O token do @BotFather tem o formato 123456789:AAExampleTokenString. É guardado de forma oculta e não volta a ser apresentado na íntegra.",
+    "tg_verify": "Verificar",
+    "tg_verifying": "A verificar…",
+    "tg_recipients_title": "Destinatários (Chat ID)",
+    "tg_recipients_help": "Cada alerta é enviado a todos os destinatários. Um ID positivo corresponde a uma conversa privada; um ID negativo corresponde a um grupo ou canal.",
+    "tg_detect": "Detetar Chat ID",
+    "tg_detecting": "A ler mensagens recentes…",
+    "tg_detect_none": "Nenhuma mensagem recente encontrada. Envia primeiro uma mensagem ao bot e tenta novamente.",
+    "tg_detect_found": "Conversas que enviaram mensagens ao bot — prime Adicionar:",
+    "tg_add": "Adicionar",
+    "tg_no_recipients": "Ainda sem destinatários.",
+    "tg_invalid_chat": "Introduz um Chat ID válido.",
+    "tg_categories_title": "Categorias de alerta",
+    "tg_cat_connect": "Rádio ligado",
+    "tg_cat_disconnect": "Rádio desligado",
+    "tg_cat_t351": "Rádio sem resposta (T351)",
+    "tg_cat_lip": "Posição LIP/APRS",
+    "tg_cat_backhaul": "Ligação de transporte Brew estabelecida/interrompida",
+    "tg_cat_logs": "Registo crítico (avisos/erros)",
+    "ui_monitor": "MONITORIZAÇÃO",
+    "ui_toggle_sidebar": "Expandir / recolher barra lateral",
+    "ui_text_size": "Tamanho do texto",
+    "ui_text_size_contrast": "Tamanho do texto e contraste",
+    "ui_station_control": "Controlo da estação",
+    "ui_base_station_link": "Ligação à estação base",
+    "ui_brew_network": "Rede Brew",
+    "ui_host_system_power_draw": "Consumo do sistema anfitrião",
+    "ui_e_g_2144485": "ex.: 2144485",
+    "ui_e_g_2260571": "ex.: 2260571",
+    "ui_active": "Ativo",
+    "ui_online": "Ligado",
+    "ui_offline": "Desligado",
+    "ui_secondary": "SECUNDÁRIA",
+    "ui_off": "INATIVO",
+    "ui_on": "ATIVO (",
+    "ui_neighbor": "vizinha",
+    "ui_neighbors": "vizinhas",
+    "ui_caller_slot": "TIMESLOT DO CHAMADOR",
+    "ui_called_slot": "TIMESLOT DO DESTINATÁRIO",
+    "ui_shared_slot": "TIMESLOT PARTILHADO",
+    "ui_lip_position": "Posição LIP",
+    "ui_lip_position_2": "Posição LIP: ",
+    "ui_invalid_ssi_in": "SSI inválido em ",
+    "ui_ric_to_issi": "RIC para ISSI",
+    "ui_ric_to_gssi": "RIC para GSSI",
+    "ui_message_text_is_empty": "O texto da mensagem está vazio",
+    "ui_set_callsign_or_transmitter_group": "Define o indicativo ou o grupo de emissores",
+    "ui_send_failed": "Falha no envio",
+    "ui_active_dialogs": " diálogos ativos",
+    "ui_invalid_local_ssi_range": "Intervalo SSI local inválido: ",
+    "ui_tx_freq_required": "A frequência TX é obrigatória",
+    "ui_main_carrier_is_not_an_integer": "main_carrier não é um número inteiro",
+    "ui_research_only": " — apenas para investigação",
+    "ui_not_available": " — indisponível",
+    "ui_dynamic_group_selected": "Grupo dinâmico selecionado",
+    "ui_static_group_selected_deassign_will_force_a_detach_from_the_radio": "Grupo estático selecionado — retirar a atribuição força a desassociação no rádio",
+    "ui_waiting_for_backend": "A aguardar o backend: ",
+    "ui_waiting_for_backend_2": "A aguardar o backend:",
+    "ui_backend_unavailable_command_was_not_sent": "Backend indisponível — o comando não foi enviado",
+    "ui_selected_gssi": "GSSI selecionado: ",
+    "ui_edit_gssi": "Editar GSSI ",
+    "ui_new_dgna_group": "Novo grupo DGNA",
+    "ui_set_a_valid_gssi_first": "Define primeiro um GSSI válido",
+    "ui_updated_gssi": "GSSI atualizado: ",
+    "ui_in_the_local_library_and_queued_dgna_update_to": " na biblioteca local e atualização DGNA em fila para ",
+    "ui_in_the_local_library_but_backend_update_could_not_be_sent": " na biblioteca local, mas não foi possível enviar a atualização ao backend",
+    "ui_in_the_local_library": " na biblioteca local",
+    "ui_renamed_gssi": "GSSI renomeado: ",
+    "ui_in_the_local_group_library": " na biblioteca local de grupos",
+    "ui_saved_gssi": "GSSI guardado: ",
+    "ui_parse_failed": "falha de interpretação",
+    "ui_unnamed_group": "Grupo sem nome",
+    "ui_select_a_group_from_the_library_first": "Seleciona primeiro um grupo da biblioteca",
+    "ui_select_at_least_one_target_radio": "Seleciona pelo menos um rádio de destino",
+    "ui_all_radios": "todos os rádios",
+    "ui_selected_radio_s": " rádio(s) selecionado(s)",
+    "ui_is_static_and_cannot_be_deleted": " é estático e não pode ser eliminado",
+    "ui_backend_unavailable_delete_was_not_sent": "Backend indisponível — o pedido de eliminação não foi enviado",
+    "ui_deleting_gssi": "A eliminar o GSSI ",
+    "ui_deassign_sent_to_all_radios_and_removed_from_the_local_library": ": retirada enviada a todos os rádios e grupo removido da biblioteca local",
+    "ui_detected_sdr_hardware": "Hardware SDR detetado: ",
+    "ui_512_bin_fft": " · FFT de 512 pontos",
+    "ui_iq_mixed_to_baseband": " I/Q · convertido para banda base",
+    "ui_aggregate_iq_no_carrier_lock": "I/Q agregado · sem sincronização com a portadora",
+    "ui_obw_aggregate_pre_pa": " · OBW agregado pré-PA",
+    "ui_aggregate_pre_pa_evm_obw_are_not_per_carrier": "agregado pré-PA · EVM/OBW não são medidos por portadora",
+    "ui_domain_s_need_attention": " área(s) requer(em) atenção: ",
+    "ui_active_dialog_s": " diálogo(s) ativo(s)",
+    "ui_last_error": "Último erro: ",
+    "ui_rwth_status": "Estado RWTH ",
+    "ui_last_rx": " · última RX ",
+    "ui_all_domains_nominal": "\nTodas as áreas em estado nominal",
+    "ui_host_power_draw": "Consumo do sistema — ",
+    "ui_rf_error": "Erro RF: ",
+    "ui_rf_offline": "RF desligada: ",
+    "ui_not_installed": "não instalado",
+    "ui_already_installed": "já instalado",
+    "ui_already_loaded": "já carregado",
+    "ui_autostart_ok": "Arranque automático OK — ",
+    "ui_add_hidden_network": "Adicionar rede oculta",
+    "ui_bs_sin_respuesta": "BS sem resposta (",
+    "ui_sin_conexi_n_con_bs": "Sem ligação à BS",
+    "ui_neighbor_cell": "Célula vizinha — ",
+    "ui_choose_a_group": "Escolher um grupo",
+    "ui_new": "NOVO",
+    "ui_inside": "dentro",
+    "ui_now": "agora",
+    "ui_health": "DIAGNÓSTICO",
+    "ui_security": "SEGURANÇA",
+    "ui_inicio": "Início",
+    "ui_dark": "Escuro",
+    "ui_light": "Claro",
+    "ui_blue": "Azul",
+    "ui_cell_status": "Estado da célula",
+    "ui_read_only_public_overview": "Visão geral pública, apenas para consulta",
+    "ui_log_in_for_full_access_and_controls": "Inicia sessão para aceder a todas as funções e controlos.",
+    "ui_apagado": "Desligado",
+    "ui_dgna_actions": "Ações DGNA",
+    "ui_0_selected": "0 selecionados",
+    "ui_selected_group": "Grupo selecionado",
+    "ui_no_group_selected": "Nenhum grupo selecionado",
+    "ui_prev": "‹ Anterior",
+    "ui_page_1_1": "Página 1 / 1",
+    "ui_next": "Seguinte ›",
+    "ui_enable_snomipphonetext_notifications": "Ativar notificações SnomIPPhoneText",
+    "ui_ami_host": "Servidor AMI",
+    "ui_ami_port": "Porta AMI",
+    "ui_ami_user": "Utilizador AMI",
+    "ui_ami_password": "Palavra-passe AMI",
+    "ui_pjsip_endpoints": "Endpoints PJSIP",
+    "ui_notify_tetra_sds": "Notificar SDS TETRA",
+    "ui_sds_issi_whitelist": "Lista de ISSI autorizados para SDS",
+    "ui_empty_every_sds_a_match_on_source_or_destination_issi_is_enough": "Vazio = todas as SDS. Basta corresponder ao ISSI de origem ou de destino.",
+    "ui_notify_dapnet": "Notificar DAPNET",
+    "ui_dapnet_ric_whitelist": "Lista de RIC autorizados para DAPNET",
+    "ui_empty_every_dapnet_message_leading_zeros_are_preserved_in_config": "Vazio = todas as mensagens DAPNET. Os zeros iniciais são preservados na configuração.",
+    "ui_notify_telegram": "Notificar Telegram",
+    "ui_title_prefix": "Prefixo do título",
+    "ui_max_text_chars": "Máximo de caracteres de texto",
+    "ui_timeout_s": "Timeout (s)",
+    "ui_callsign": "Indicativo",
+    "ui_recipient": "Destinatário",
+    "ui_paths": "Percursos",
+    "ui_enable_dapnet_integration": "Ativar integração DAPNET",
+    "ui_enable_rwth_core_receive_feed": "Ativar receção do Core RWTH",
+    "ui_poll_interval_s": "Intervalo de consulta (s)",
+    "ui_messages_limit": "Limite de mensagens",
+    "ui_hampager_api_url": "URL da API Hampager",
+    "ui_api_username": "Utilizador da API",
+    "ui_api_password": "Palavra-passe da API",
+    "ui_rwth_host": "Servidor RWTH",
+    "ui_rwth_port": "Porta RWTH",
+    "ui_version": "Versão",
+    "ui_rwth_callsign": "Indicativo RWTH",
+    "ui_rwth_authkey": "Chave de autenticação RWTH",
+    "ui_forward_to_sds": "Encaminhar para SDS",
+    "ui_sds_ric_filter": "Filtro RIC para SDS",
+    "ui_forward_to_tpg2200_call_out": "Encaminhar para TPG2200 Call-Out",
+    "ui_incident_base": "Número base de incidente",
+    "ui_text_prefix": "Prefixo do texto",
+    "ui_call_out_ric_filter": "Filtro RIC para Call-Out",
+    "ui_forward_to_telegram": "Encaminhar para Telegram",
+    "ui_telegram_prefix": "Prefixo Telegram",
+    "ui_telegram_ric_filter": "Filtro RIC para Telegram",
+    "ui_uses_the_existing_telegram_alert_configuration_and_recipients": "Usa a configuração e os destinatários existentes dos alertas Telegram.",
+    "ui_callsign_recipients": "Indicativos dos destinatários",
+    "ui_transmitter_groups": "Grupos de emissores",
+    "ui_emergency": "Emergência",
+    "ui_set_emergency_flag": "Marcar como emergência",
+    "ui_positions": "Posições",
+    "ui_alarms": "Alarmes",
+    "ui_last_position": "Última posição",
+    "ui_last_alarm": "Último alarme",
+    "ui_enable_geoalarm": "Ativar GeoAlarm",
+    "ui_radius_m": "Raio (m)",
+    "ui_cooldown_s": "Intervalo mínimo entre alarmes (s)",
+    "ui_input_sources": "Fontes de entrada",
+    "ui_geoalarm_fires_when_an_allowed_device_enters_the_radius_then_suppresses_rep": "O GeoAlarm é acionado quando um dispositivo autorizado entra no raio definido, suprimindo depois alarmes repetidos durante o intervalo mínimo.",
+    "ui_geoalarm_routing": "Encaminhamento GeoAlarm",
+    "ui_alarm_tpg2200": "Alarme → TPG2200",
+    "ui_tpg_issi": "ISSI do TPG",
+    "ui_max_chars": "Máximo de caracteres",
+    "ui_alarm_sds": "Alarme → SDS",
+    "ui_destination_is_group_gssi": "O destino é um grupo/GSSI",
+    "ui_alarm_sip_telegram": "Alarme → SIP / Telegram",
+    "ui_snom_title_prefix": "Prefixo do título Snom",
+    "ui_geoalarm_filters": "Filtros GeoAlarm",
+    "ui_tetra_issi_whitelist": "Lista de ISSI TETRA autorizados",
+    "ui_tetra_issi_blacklist": "Lista de ISSI TETRA bloqueados",
+    "ui_meshcom_source_whitelist": "Lista de origens MeshCom autorizadas",
+    "ui_meshcom_source_blacklist": "Lista de origens MeshCom bloqueadas",
+    "ui_whitelist_empty_means_allow_all_blacklists_always_win_meshcom_source_matchi": "Uma lista de autorizações vazia permite todas as origens. As listas de bloqueio têm sempre prioridade. A correspondência de origens MeshCom não distingue maiúsculas de minúsculas.",
+    "ui_geoalarm_events": "Eventos GeoAlarm",
+    "ui_source": "Origem",
+    "ui_distance": "Distância",
+    "ui_main_carrier": "Portadora principal",
+    "ui_freq_band": "Banda de frequências",
+    "ui_duplex_spacing_id": "ID de separação duplex",
+    "ui_freq_offset_hz": "Offset de frequência (Hz)",
+    "ui_reverse_operation": "Funcionamento invertido",
+    "ui_rx_antenna": "Antena RX",
+    "ui_tx_antenna": "Antena TX",
+    "ui_rx_gain_lna": "Ganho RX LNA",
+    "ui_rx_gain_tia": "Ganho RX TIA",
+    "ui_rx_gain_pga": "Ganho RX PGA",
+    "ui_tx_gain_pad": "Ganho TX PAD",
+    "ui_tx_gain_iamp": "Ganho TX IAMP",
+    "ui_tx_gain_dac": "Ganho TX DAC",
+    "ui_tx_gain_mixer": "Ganho TX MIXER",
+    "ui_tx_gain_pga": "Ganho TX PGA",
+    "ui_timezone_iana": "Fuso horário (IANA)",
+    "ui_hangtime_s": "Hangtime (s)",
+    "ui_call_timeout_s": "Timeout de chamada (s)",
+    "ui_ul_inactivity_s": "Inatividade UL (s)",
+    "ui_t351_periodic_reg_s": "T351 / registo periódico (s)",
+    "ui_system_wide_services": "Serviços de âmbito do sistema",
+    "ui_voice_service": "Serviço de voz",
+    "ui_local_ssi_ranges": "Intervalos SSI locais",
+    "ui_port": "Porta",
+    "ui_reconnect_delay_s": "Espera de religação (s)",
+    "ui_station_health": "Diagnóstico da estação",
+    "ui_waiting_for_the_first_health_snapshot": "A aguardar a primeira amostra de diagnóstico…",
+    "ui_system_domains": "Áreas do sistema",
+    "ui_loading_integration_health": "A carregar o diagnóstico das integrações…",
+    "ui_auto_refreshes_every_few_seconds_levels": "Atualização automática a cada poucos segundos. Níveis:",
+    "ui_degraded": "DEGRADADO",
+    "ui_critical": "CRÍTICO",
+    "ui_the_software_watchdog_auto_restart_when_the_core_loop_stalls_is_configured_": ". O watchdog de software (reinício automático quando o ciclo principal bloqueia) é configurado na secção",
+    "ui_section": ".",
+    "ui_display_brightness": "Luminosidade do ecrã",
+    "ui_live_sds_broadcast": "Difusão SDS em tempo real",
+    "ui_0_attached_permanently": "0 - Associado permanentemente",
+    "ui_1_attach_on_next_itsi_attach": "1 - Associar na próxima associação ITSI",
+    "ui_2_not_allowed_on_next_itsi_attach": "2 - Não permitido na próxima associação ITSI",
+    "ui_3_attach_on_next_location_update": "3 - Associar na próxima atualização de localização",
+    "ui_4_not_attached_ms_may_request": "4 - Não associado, a MS pode solicitar",
+    "ui_5_not_attached_ms_may_not_request": "5 - Não associado, a MS não pode solicitar",
+    "ui_dgna_group": "Grupo DGNA",
+    "ui_1_attached_until_deleted": "1 - Associado até ser eliminado",
+    "ui_2_attached_until_removed": "2 - Associado até ser removido",
+    "ui_3_defined_and_attached": "3 - Definido e associado",
+    "ui_4_defined_but_detached": "4 - Definido, mas não associado",
+    "ui_5_reserved_vendor_specific": "5 - Reservado / específico do fabricante",
+    "ui_gssi_or_name": "GSSI ou nome",
+    "ui_search_by_gssi_or_name": "Pesquisar por GSSI ou nome",
+    "ui_issi_or_gssi": "ISSI ou GSSI",
+    "ui_tpg2200_issi": "ISSI do TPG2200",
+    "ui_message_text": "Texto da mensagem",
+    "ui_tpg_text_prefix": "Prefixo do texto TPG",
+    "ui_empty_all_tetra_issis": "vazio = todos os ISSI TETRA",
+    "ui_blocked_issis": "ISSI bloqueados",
+    "ui_empty_all_meshcom_sources": "vazio = todas as origens MeshCom",
+    "ui_blocked_meshcom_sources": "Origens MeshCom bloqueadas",
+    "ui_e_g_900_901": "ex.: 900, 901",
+    "ui_default_5": "predefinido: 5",
+    "ui_default_120": "predefinido: 120",
+    "ui_default_3": "predefinido: 3",
+    "ui_default_3600": "predefinido: 3600",
+    "ui_leave_masked_to_keep": "manter oculto para preservar",
+    "ui_loading": "A carregar…",
+    "ui_e_g_repeater_test_18_00_20_00": "ex.: teste do repetidor 18:00-20:00",
+    "ui_empty_reset_default_5_s_0_0_s_hangtime_not_the_default": "Vazio / repor = predefinição de 5 s. 0 = hangtime de 0 s (não é a predefinição).",
+    "ui_empty_reset_default_120_s_0_unlimited": "Vazio / repor = predefinição de 120 s. 0 = ilimitado.",
+    "ui_empty_reset_default_3_s_valid_range_1_30": "Vazio / repor = predefinição de 3 s. Intervalo válido: 1–30.",
+    "ui_empty_reset_default_3600_s_0_disabled": "Vazio / repor = predefinição de 3600 s. 0 = desativado.",
+    "ui_scan_failed": "a pesquisa falhou",
+    "ui_apply_failed": "Falha ao aplicar",
+    "ui_applied_restarting": "Aplicado — a reiniciar…",
+    "ui_enabling_rf": "A ativar RF…",
+    "ui_failed_to_enable_rf": "Falha ao ativar RF",
+    "ui_saved_service_restarting_reconnect_shortly": "Guardado — o serviço está a reiniciar. A ligação será restabelecida em breve.",
+    "ui_checking_enabling_service": "A verificar / ativar o serviço…",
+    "ui_restricted": "RESTRITO",
+    "ui_failed_to_load": "Falha ao carregar: ",
+    "ui_error": "Erro: ",
+    "ui_disabled": "desativado",
+    "ui_enabled": "ativado",
+    "ui_status_unavailable": "estado indisponível",
+    "ui_core_loop": "Ciclo principal",
+    "ui_backhaul_brew": "Transporte (Brew)",
+    "ui_congestion": "Congestionamento",
+    "ui_what_to_do": "O que fazer",
+    "ui_all_systems_nominal": "Todos os sistemas em estado nominal.",
+    "ui_station_health_2": "Diagnóstico da estação: ",
+    "ui_last_action": "Última ação: ",
+    "ui_status": "Estado:",
+    "ui_all_domains_nominal_2": "Todas as áreas em estado nominal",
+    "ui_action": "Ação: ",
+    "ui_uptime": "Tempo de funcionamento: ",
+    "ui_sip_bridge_is_configured_but_not_active": "A Bridge SIP está configurada, mas não está ativa.",
+    "ui_dapnet_worker_is_not_active": "O processo DAPNET não está ativo.",
+    "ui_geoalarm_is_not_active": "O GeoAlarm não está ativo.",
+    "ui_rwth_callsign_missing": "Falta o indicativo RWTH",
+    "ui_rwth_authkey_missing": "Falta a chave de autenticação RWTH",
+    "ui_rwth_receive_feed_disabled": "Receção RWTH desativada",
+    "ui_no_forwarding_path_enabled": "nenhum percurso de encaminhamento ativo",
+    "ui_no_forwarding": "sem encaminhamento",
+    "ui_no_input_source_enabled": "nenhuma fonte de entrada ativa",
+    "ui_open_the_asterisk_sip_page_or_wait_for_the_next_refresh": "Abre a página Asterisk SIP ou aguarda a próxima atualização.",
+    "ui_open_the_dapnet_page_or_wait_for_the_next_refresh": "Abre a página DAPNET ou aguarda a próxima atualização.",
+    "ui_open_the_geoalarm_page_or_wait_for_the_next_refresh": "Abre a página GeoAlarm ou aguarda a próxima atualização.",
+    "ui_the_tetra_core_loop_is_processing_tdma_frames_in_real_time": "O ciclo principal TETRA está a processar tramas TDMA em tempo real.",
+    "ui_time_between_tdma_ticks_is_higher_than_expected_the_sdr_usb_link_or_the_cpu": "O intervalo entre ciclos TDMA é superior ao esperado — a ligação SDR/USB ou a CPU está atrasada em relação ao tempo real. As chamadas ainda funcionam, mas a margem de temporização é reduzida.",
+    "ui_check_cpu_load_temperature_on_the_system_tab_or_top": "Verifica a carga e a temperatura da CPU na aba Sistema (ou com `top`).",
+    "ui_look_for_too_late_to_produce_tx_block_sdr_underrun_lines_in_the_log": "Procura mensagens «Too late to produce TX block» / underrun SDR no registo.",
+    "ui_make_sure_no_other_heavy_process_is_starving_the_bts_it_runs_at_fifo_priori": "Garante que nenhum processo exigente está a retirar recursos à BTS (que usa prioridade FIFO).",
+    "ui_the_stack_stopped_processing_tdma_frames_calls_and_sds_will_fail_and_radios": "A stack deixou de processar tramas TDMA. As chamadas e SDS vão falhar e os rádios podem perder o registo. Este é o estado mais grave.",
+    "ui_check_the_log_for_a_panic_or_repeated_sdr_errors": "Consulta o registo para identificar um panic ou erros SDR repetidos.",
+    "ui_restart_the_service_systemctl_restart_unit": "Reinicia o serviço: `systemctl restart <unit>`.",
+    "ui_enable_the_software_watchdog_so_this_auto_recovers_health_restart_on_core_s": "Ativa o watchdog de software para recuperação automática: `[health] restart_on_core_stall = true`.",
+    "ui_the_brew_tetrapack_interconnect_is_up_calls_sds_route_to_other_cells_brandm": "A interligação Brew/TetraPack está ativa — as chamadas/SDS são encaminhadas para outras células e para o BrandMeister.",
+    "ui_the_brew_tetrapack_backhaul_is_down_the_cell_still_works_locally_but_calls_": "A ligação de transporte Brew/TetraPack está DESLIGADA. A célula continua a funcionar localmente, mas as chamadas e SDS de/para outras células ou BrandMeister não serão encaminhadas.",
+    "ui_check_network_internet_connectivity_from_the_pi_to_the_brew_server": "Verifica a ligação de rede/Internet entre o Pi e o servidor Brew.",
+    "ui_verify_the_brew_host_port_credentials_on_the_config_tab": "Verifica o servidor, a porta e as credenciais de [brew] na aba Configuração.",
+    "ui_confirm_the_brew_server_is_reachable_the_station_auto_reconnects_when_it_co": "Confirma que o servidor Brew está acessível. A estação restabelece a ligação automaticamente quando voltar a estar disponível.",
+    "ui_attached_radios_are_being_heard_on_the_air": "Os rádios associados estão a ser recebidos pela interface rádio.",
+    "ui_registered_radios_have_not_transmitted_for_a_while_they_may_have_left_cover": "Os rádios registados não transmitem há algum tempo. Podem ter saído da cobertura sem se desregistarem ou a RX pode ter degradado.",
+    "ui_check_the_antenna_feedline_and_the_rx_gain": "Verifica a antena, o cabo de alimentação RF e o ganho RX.",
+    "ui_confirm_the_radios_are_actually_in_range_and_powered_on": "Confirma que os rádios estão efetivamente ligados e dentro da cobertura.",
+    "ui_truly_gone_radios_are_pruned_automatically_at_the_t351_interval": "Os rádios que deixaram a cobertura são removidos automaticamente no intervalo T351.",
+    "ui_downlink_mcch_and_sds_queues_are_draining_normally": "As filas de downlink (MCCH) e SDS estão a ser processadas normalmente.",
+    "ui_the_downlink_or_sds_queue_is_filling_faster_than_it_drains_too_much_signall": "A fila de downlink ou SDS está a encher mais depressa do que é processada — excesso de sinalização/SDS, um rádio com ligações intermitentes ou perda de blocos TX no SDR.",
+    "ui_check_the_sds_log_for_a_radio_spamming_retransmits_or_a_flood_of_broadcasts": "Consulta o registo SDS para identificar retransmissões excessivas de um rádio ou um volume elevado de difusões.",
+    "ui_reduce_home_mode_display_broadcast_sds_rate_if_it_is_heavy": "Reduz a frequência de Home-Mode-Display / difusão SDS se for excessiva.",
+    "ui_check_sdr_tx_health_on_the_rf_tab_for_dropped_blocks": "Verifica o estado de TX do SDR na aba RF para identificar blocos perdidos.",
+    "ui_the_downlink_sds_backlog_is_severe_grants_signalling_and_messages_will_be_d": "A acumulação de downlink/SDS é grave — as autorizações de transmissão, a sinalização e as mensagens sofrerão atrasos ou serão perdidas.",
+    "ui_act_urgently_identify_and_kick_a_misbehaving_radio_from_the_radios_tab": "Intervém de imediato: identifica e desregista o rádio com comportamento anómalo na lista de rádios.",
+    "ui_check_the_log_for_too_late_to_produce_tx_block_the_sdr_can_t_keep_up": "Procura «Too late to produce TX block» no registo (o SDR não consegue acompanhar).",
+    "ui_reduce_broadcast_sds_load_until_the_queues_drain": "Reduz a carga de difusão/SDS até as filas esvaziarem.",
+    "monitor": "Monitorização",
+    "refresh": "Atualizar",
+    "issi": "ISSI",
+    "confirm_clear_log": "Limpar o registo?"
+},
+  fr:{
+    "bts_ip": "IP de la BTS",
+    "offline": "HORS LIGNE",
+    "online": "EN LIGNE",
+    "reconnecting": "RECONNEXION",
+    "brew_online": "EN LIGNE",
+    "brew_offline": "HORS LIGNE",
+    "security": "Sécurité",
+    "stations": "Accueil",
+    "calls": "Appels",
+    "lastheard": "Dernière activité",
+    "log": "Journal",
+    "rf": "RF",
+    "health": "Diagnostic",
+    "asterisk": "Asterisk SIP",
+    "dapnet": "DAPNET",
+    "echolink": "EchoLink",
+    "echolink_title": "EchoLink",
+    "meshcom": "MeshCom",
+    "meshcom_title": "MeshCom",
+    "geoalarm": "GeoAlarm",
+    "geoalarm_title": "GeoAlarm",
+    "setup": "Configuration initiale",
+    "config": "Configuration",
+    "home_quick_title": "Profils rapides",
+    "home_more_settings": "Autres réglages",
+    "setup_sec": "Première utilisation / SDR",
+    "setup_title": "Configuration initiale",
+    "setup_open_wizard": "Ouvrir l’assistant",
+    "setup_sdr_title": "Périphériques SDR",
+    "setup_scan": "Rechercher",
+    "setup_install_sx": "Installer SXceiver",
+    "setup_install_lime": "Installer Lime",
+    "setup_install_mucell": "Installer µCell",
+    "setup_install_uhd": "Installer USRP (UHD)",
+    "setup_enable_rf": "Activer la RF et redémarrer",
+    "setup_autostart": "Activer le démarrage automatique",
+    "setup_mark_done": "Marquer la configuration comme terminée",
+    "setup_complete_key": "Configuration terminée",
+    "setup_backend_key": "Backend configuré",
+    "setup_device_key": "Périphérique",
+    "setup_unit_key": "Unité de service",
+    "setup_helper_key": "Helper",
+    "setup_installing": "Installation de {driver}…",
+    "setup_session": "Session expirée — reconnectez-vous, puis réessayez.",
+    "setup_install_fail": "Échec de l’installation",
+    "setup_drv_ok": "Pilote installé (OK).",
+    "wiz_welcome_title": "Bienvenue dans Bost FlowStation",
+    "wiz_welcome_body": "Cet assistant configure votre SDR, les paramètres RF et le démarrage automatique via systemd. Le tableau de bord reste disponible même lorsque la radio est hors ligne.",
+    "wiz_skip": "Ignorer et conserver les valeurs par défaut",
+    "wiz_continue": "Continuer",
+    "wiz_back": "Retour",
+    "wiz_next": "Suivant",
+    "wiz_finish": "Terminer",
+    "wiz_skip_now": "Ignorer pour le moment",
+    "wiz_sdr_title": "Sélectionner le SDR",
+    "wiz_sdr_help": "Recherchez les périphériques SoapySDR ou installez un pilote (SXceiver / Lime / µCell / USRP).",
+    "wiz_device_args": "Arguments du périphérique",
+    "wiz_reboot_title": "Redémarrage du Pi…",
+    "wiz_reboot_body": "µCell nécessite un redémarrage pour charger le device-tree overlay. La page se reconnectera automatiquement.",
+    "wiz_reboot_confirm": "Pilote µCell installé. Redémarrer le Pi maintenant pour permettre l’accès à la carte ?",
+    "wiz_params_title": "RF / Réseau / Brew",
+    "wiz_params_help": "Utilisez les formulaires de l’onglet Configuration pour modifier tous les paramètres, ou conservez les valeurs de l’exemple pour le moment.",
+    "wiz_use_defaults": "Utiliser les valeurs de la configuration actuelle",
+    "wiz_open_config": "Ouvrir les formulaires de configuration",
+    "wiz_rf_title": "Activer la RF",
+    "wiz_rf_help": "Définit phy_io.backend = SoapySdr, enregistre la chaîne de configuration du périphérique et redémarre le service.",
+    "wiz_auto_title": "Démarrage automatique",
+    "wiz_auto_help": "Active l’unité systemd pour que la station redémarre automatiquement après un redémarrage du système.",
+    "sdslog": "Journal SDS",
+    "th_dir": "Sens",
+    "th_from": "Source",
+    "th_to": "Destination",
+    "th_message": "Message",
+    "no_sds": "Aucun message SDS pour le moment",
+    "sds_refresh": "Actualiser",
+    "sds_filter_lip": "LIP",
+    "sds_filter_text": "Texte",
+    "sds_filter_status": "État",
+    "sds_filter_concat": "Concaténés",
+    "sds_filter_home": "Écran d’accueil",
+    "sds_filter_other": "Autres",
+    "rf_freq": "Fréquence centrale",
+    "rf_rate": "Fréquence d’échantillonnage",
+    "rf_rms": "RMS",
+    "rf_peak": "Crête",
+    "rf_age": "Capture",
+    "rf_waiting": "en attente…",
+    "rf_live": "en temps réel",
+    "rf_stale": "obsolète",
+    "rf_visualizers": "Visualisations",
+    "rf_spectrum": "Spectre DSP TX (avant PA)",
+    "rf_constellation": "Constellation DSP TX",
+    "rf_hint_spectrum": "en temps réel · FFT à 512 points",
+    "rf_hint_constellation": "π/4-DQPSK",
+    "rf_waterfall": "Waterfall du spectre TX",
+    "rf_hint_waterfall": "défilement · viridis",
+    "rf_quality": "Qualité du signal",
+    "rf_hint_quality": "mesurée avant PA · calculée à partir de la même capture DSP",
+    "rf_evm": "EVM",
+    "rf_papr": "PAPR",
+    "rf_carrier": "Fuite de porteuse",
+    "rf_obw": "Bande occupée (99 %)",
+    "rf_dc": "Offset DC (I/Q)",
+    "rf_iqa": "Déséquilibre d’amplitude I/Q",
+    "rf_iqp": "Déséquilibre de phase I/Q",
+    "rf_hw_health": "État du matériel",
+    "rf_hint_health": "interrogé toutes les 5 s",
+    "rf_temp": "Température du SDR",
+    "rf_tx_gain": "Étages de gain TX (effectifs)",
+    "rf_rx_gain": "Étages de gain RX (effectifs)",
+    "rf_temp_cold": "froid",
+    "rf_temp_nominal": "nominal",
+    "rf_temp_warm": "chaud",
+    "rf_temp_hot": "très chaud",
+    "rf_temp_na": "sans capteur",
+    "rf_no_gains": "indisponible",
+    "rf_just_now": "à l’instant",
+    "asterisk_title": "Asterisk SIP",
+    "ast_configured": "Configuré",
+    "ast_register": "REGISTER",
+    "ast_sip_listen": "Écoute SIP",
+    "ast_remote": "Asterisk distant",
+    "ast_rtp": "Ports RTP",
+    "ast_codec": "Codec",
+    "ast_last_rx": "Dernière RX",
+    "ast_last_tx": "Dernière TX",
+    "ast_last_error": "Dernière erreur",
+    "dapnet_title": "DAPNET",
+    "dapnet_log": "Journal DAPNET",
+    "dapnet_routing": "Routage",
+    "dapnet_send": "Envoyer un message DAPNET",
+    "dapnet_saved": "✓ Enregistré",
+    "terminals": "Radios",
+    "registered": "enregistrées",
+    "active_calls": "Appels en cours",
+    "circuits": "circuits utilisés",
+    "registered_terminals": "Radios enregistrées",
+    "cells_title": "Cellules",
+    "cells_help": "Chaque SDR supplémentaire fournit une cellule de plus. Choisissez une porteuse libre ; ses fréquences suivent le plan de fréquences de la cellule principale. La station redémarre pour appliquer les modifications.",
+    "cells_carrier": "Porteuse",
+    "cells_cc": "Code couleur",
+    "cells_add": "Ajouter une cellule",
+    "cells_remove": "Supprimer",
+    "cells_cell": "Cellule {n}",
+    "cells_radios": "{n} radio(s)",
+    "cells_single": "Cellule unique",
+    "rf_cells_note": "Sélectionnez une cellule pour afficher son SDR sur cette page.",
+    "cells_linked": "Cellules interconnectées",
+    "cells_independent": "Cellules indépendantes",
+    "cells_need_fields": "Le périphérique et la porteuse sont obligatoires.",
+    "cells_confirm_add": "Ajouter cette cellule ? La station redémarrera.",
+    "cells_confirm_remove": "Supprimer la cellule {n} ? La station redémarrera.",
+    "bts_details": "Détails de la BTS TETRA",
+    "bts_tx": "Fréquence TX",
+    "bts_rx": "Fréquence RX",
+    "bts_shift": "Écart duplex",
+    "bts_rate": "Fréquence d’échantillonnage",
+    "dual_carrier": "Double porteuse",
+    "dc_on_sub": "Activée",
+    "dc_off_sub": "Désactivée",
+    "dc_configure": "Configurer…",
+    "bts_secondary_head": "Porteuse secondaire",
+    "bts_sec_carrier": "Porteuse",
+    "cfg_secondary_carrier": "Porteuse secondaire",
+    "cfg_dual_hint": "Autorisé : ±{d} autour de la principale (Fs {fs} kHz)",
+    "cfg_dual_help": "Seconde porteuse de trafic sur le même SDR. La secondaire doit tenir dans la bande passante définie par la fréquence d’échantillonnage ; Fs provient du SDR en fonctionnement (ou 600 kHz par défaut).",
+    "dc_enter_carrier": "Numéro de la porteuse secondaire (ex. : porteuse principale ±1) :",
+    "dc_bad_carrier": "Saisissez un numéro de porteuse valide.",
+    "dc_confirm_on": "Activer la double porteuse ? La station de base REDÉMARRERA et tous les appels en cours seront brièvement interrompus.",
+    "dc_confirm_off": "Désactiver la double porteuse ? La station de base REDÉMARRERA et tous les appels en cours seront brièvement interrompus.",
+    "dc_applying": "Application…",
+    "dc_restarting": "Redémarrage pour application… reconnexion sous peu.",
+    "dc_failed": "Impossible de modifier la double porteuse",
+    "bts_la": "Zone de localisation (LA)",
+    "bts_cc": "Code couleur",
+    "bts_carrier": "Porteuse principale",
+    "bts_band": "Bande",
+    "bts_access": "Accès à l’enregistrement",
+    "bts_wl_entries": "ISSI autorisés",
+    "bts_wl_open": "Ouvert — tous les ISSI peuvent s’enregistrer",
+    "readability": "Lisibilité",
+    "size_small": "Petit",
+    "size_small_d": "Compact · contraste normal",
+    "size_medium": "Moyen",
+    "size_medium_d": "Par défaut · confortable",
+    "size_high": "Grand",
+    "size_high_d": "Plus grand · contraste renforcé",
+    "size_ultra": "Maximum",
+    "size_ultra_d": "Taille et contraste maximaux",
+    "sdr": "SDR",
+    "power": "Alimentation",
+    "prefs_theme": "THÈME",
+    "prefs_lang": "LANGUE",
+    "prefs_menu_hint": "Thème et langue",
+    "no_terminals": "Aucune radio enregistrée",
+    "no_calls": "Aucun appel en cours",
+    "live_log": "Journal en temps réel",
+    "autoscroll": "Défilement automatique",
+    "filter_all": "Tous",
+    "clear": "Effacer",
+    "export": "Exporter",
+    "restart": "Redémarrer",
+    "shutdown": "Arrêter",
+    "delete": "Supprimer",
+    "save": "Enregistrer",
+    "cfg_sec_configuration": "Configuration",
+    "cfg_sec_access": "Contrôle d’accès",
+    "cfg_sec_remote": "Commande à distance",
+    "cfg_sec_wx": "WX / METAR",
+    "whitelist_title": "Liste des ISSI autorisés",
+    "whitelist_add": "Ajouter un ISSI",
+    "whitelist_empty": "Liste vide — réseau ouvert (toute radio peut s’enregistrer).",
+    "whitelist_help": "Fait partie du profil de cellule. Vide = réseau ouvert. Dans un formulaire de profil, Enregistrer conserve la liste dans ce profil ; dans Réglages en cours, Appliquer et redémarrer ne modifie que la configuration active.",
+    "whitelist_cell_banner": "Contrôle d’accès de la cellule « {cell} ». Conservé avec ce profil, pas avec Brew.",
+    "whitelist_live_banner": "Contrôle d’accès du config.toml en cours. Appliquer et redémarrer l’enregistre sur la station en fonctionnement.",
+    "whitelist_sheet_new": "Contrôle d’accès du nouveau profil de cellule. Enregistrer le conserve dans le profil.",
+    "whitelist_need_cell": "Sélectionnez d’abord un profil de cellule.",
+    "whitelist_enforced": "RESTREINT",
+    "whitelist_open": "OUVERT",
+    "whitelist_invalid": "Saisissez un ISSI valide (1–16777215).",
+    "remote_title": "Commande à distance (U-STATUS)",
+    "remote_help": "Les radios autorisées envoient un U-STATUS à l’ISSI 9999. Chaque code d’état correspond à une action (IP, température, informations, redémarrage…). Les modifications s’appliquent immédiatement et sont conservées dans config.toml ; elles ne font pas partie des profils de cellule/Brew.",
+    "remote_enabled": "Activer la commande à distance",
+    "remote_control_issi": "ISSI de commande",
+    "remote_issis_title": "ISSI autorisés",
+    "remote_issi_add": "Ajouter un ISSI",
+    "remote_issis_empty": "Aucune entrée",
+    "remote_cmds_empty": "Aucune commande",
+    "remote_cmds_title": "Commandes (code → action)",
+    "remote_cmd_add": "Ajouter une commande",
+    "remote_status_code": "Code d’état",
+    "remote_action": "Action",
+    "remote_cmd_del": "Supprimer",
+    "remote_empty_issi": "Ajoutez au moins un ISSI autorisé lorsque cette fonction est activée.",
+    "remote_invalid_code": "Saisissez un code d’état (0–65535).",
+    "wx_title": "Service WX / METAR",
+    "wx_help": "Service météorologique intégré. Les radios envoient un SDS tel que « METAR LROP » à l’ISSI du service pour recevoir un bulletin décodé. En option, envoyez automatiquement le METAR d’une station fixe à un ISSI ou talkgroup à intervalle défini. Données de aviationweather.gov.",
+    "wx_enabled": "Activer la réponse aux demandes METAR",
+    "wx_service_issi": "ISSI du service",
+    "wx_periodic_enabled": "Activer la diffusion automatique périodique",
+    "wx_periodic_icao": "Code OACI de la station",
+    "wx_periodic_dest": "Destination",
+    "wx_periodic_isgroup": "La destination est un groupe",
+    "wx_periodic_isgroup_hint": "(GSSI au lieu d’un ISSI individuel)",
+    "wx_periodic_interval": "Intervalle (secondes)",
+    "wx_interval_hint": "Minimum 300 s (5 min) pour ne pas surcharger l’API météorologique.",
+    "wx_periodic_incomplete": "Définissez le code OACI de la station et la destination pour le mode périodique.",
+    "sds_title": "⬡ Envoyer un message SDS",
+    "sds_dest": "ISSI de destination",
+    "sds_as_issi": "Envoyé avec l’ISSI {issi}",
+    "sds_callout_enable": "TPG2200 Call-Out / Envoyer une alarme",
+    "sds_callout_source": "ISSI source",
+    "sds_callout_incident": "Numéro d’incident",
+    "sds_callout_text": "Texte de l’alarme",
+    "sds_callout_raw": "Payload hexadécimal brut facultatif",
+    "sds_callout_help": "Les incidents 1-15 utilisent la formule d’octet confirmée (N << 4) | 0x01 : 1=11, 2=21, 3=31, 4=41. Les incidents 16-256 utilisent le sélecteur étendu sur un octet. Le contenu hexadécimal brut remplace la génération automatique du payload.",
+    "live_sds_desc": "Diffuse un message texte à toutes les radios de la cellule, répété à l’intervalle Home Mode Display. La répétition se poursuit jusqu’à suppression ou jusqu’au nombre de répétitions défini.",
+    "live_sds_text": "Texte du message (251 caractères max.)",
+    "live_sds_repeat": "Répétitions (0=∞)",
+    "live_sds_send": "Diffuser",
+    "live_sds_clear_all": "Tout effacer",
+    "live_sds_empty": "Aucune diffusion active.",
+    "live_sds_sent": "envoyé",
+    "live_sds_times": "×",
+    "live_sds_forever": "∞",
+    "live_sds_delete": "✕",
+    "fallback_title": "⚠ CONFIGURATION DE SECOURS ACTIVE — Échec du chargement de la configuration principale",
+    "fallback_help": "Corrigez le config.toml principal dans Configuration (formulaires, TOML brut ou Restaurer .bak), puis redémarrez. Le fichier .fallback n’est pas mis à jour automatiquement.",
+    "sds_msg_label": "Message",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "ok": "OK",
+    "notice": "Avis",
+    "action_failed": "Échec",
+    "send": "Envoyer",
+    "th_issi": "ISSI",
+    "th_issi_cs": "ISSI / Indicatif",
+    "th_groups": "Groupes",
+    "th_ee": "Économie d’énergie",
+    "th_signal": "Signal",
+    "tg_selected": "Talkgroup sélectionné (dernière PTT)",
+    "tg_affiliated_short": "affiliés",
+    "tg_affiliated_hint": "Autres talkgroups auxquels cette radio est affiliée (maintenus sur la station de base même si le scan est désactivé sur le terminal)",
+    "th_status": "État",
+    "th_last_seen": "Dernière activité",
+    "th_actions": "Actions",
+    "th_security": "Sécurité",
+    "sec_auth": "AUTH",
+    "sec_auth_hint": "La radio a prouvé sa clé d’authentification K (défi TAA1)",
+    "sec_clear": "EN CLAIR",
+    "sec_clear_hint": "Aucune PDU chiffrée observée pour cette radio : sa signalisation et sa voix sont en clair",
+    "sec_enc_hint": "La radio chiffre avec la clé de chiffrement statique de la cellule",
+    "sec_weak_hint": "TEA1 ne conserve que 32 des 80 bits de la clé (TETRA:BURST) — recherche uniquement",
+    "sec_cell_clear": "CLASSE 1 · EN CLAIR",
+    "sec_auth_req": "AUTH REQUISE",
+    "sec_auth_opt": "AUTH FACULT.",
+    "sec_auth_off": "SANS AUTH",
+    "sec_cell_hint_clear": "Classe de sécurité 1 : aucun chiffrement de l’interface radio sur cette cellule",
+    "sec_cell_hint_enc": "Classe de sécurité 2 : toute la signalisation et la voix de cette cellule sont chiffrées avec la SCK {sckn} (version {vn}) via {ksg}",
+    "sec_cell_hint_err": "Configuration AIE rejetée : {err}",
+    "sec_subs": "{n} clé(s) d’abonné chargée(s)",
+    "secp_section": "Sécurité de l’interface radio",
+    "secp_status_title": "État",
+    "secp_running": "En cours d’exécution",
+    "secp_saved": "Enregistré dans la configuration",
+    "secp_restart_needed": "Les réglages enregistrés diffèrent des réglages en cours. Redémarrez la station pour les appliquer.",
+    "secp_restart": "Redémarrer la station",
+    "secp_restarting": "Redémarrage… la page se reconnectera dans quelques secondes.",
+    "secp_parse_error": "Erreur de syntaxe dans config.toml — corrigez-le d’abord dans Configuration : ",
+    "secp_auth_title": "Authentification (TAA1)",
+    "secp_auth_help": "Vérifie les radios avec leur clé d’authentification K de 128 bits lors de l’enregistrement (EN 300 392-7, clause 4). Seules les radios dont la clé K figure ci-dessous sont acceptées. L’authentification est un échange de contrôle d’accès, utilisable sur les bandes radioamateurs.",
+    "secp_auth_mode": "Mode",
+    "secp_auth_off": "Désactivée — toute radio peut s’enregistrer",
+    "secp_auth_optional": "Facultative — vérifier les radios dont la clé est enregistrée et accepter les autres",
+    "secp_auth_required": "Obligatoire — rejeter les radios sans clé ou échouant à la vérification",
+    "secp_mutual": "Authentification mutuelle (répondre au défi de la radio et la défier en retour)",
+    "secp_keys_title": "Clés d’abonné",
+    "secp_keys_help": "Une clé K par radio, de 32 chiffres hexadécimaux, identique à celle programmée dans la radio via son KVL / logiciel de programmation.",
+    "secp_th_issi": "ISSI",
+    "secp_th_k": "Clé K",
+    "secp_no_keys": "Aucune clé d’abonné",
+    "secp_add": "Ajouter",
+    "secp_generate": "Générer",
+    "secp_remove": "Supprimer",
+    "secp_k_placeholder": "32 chiffres hexadécimaux",
+    "secp_issi_placeholder": "ISSI",
+    "secp_aie_title": "Chiffrement de l’interface radio (classe 2)",
+    "secp_aie_help": "Chiffre toute la signalisation et la voix de cette cellule avec une clé de chiffrement statique (SCK) partagée par toutes les radios. Les radios sans clé ne peuvent ni s’enregistrer ni écouter le trafic. Le chiffrement de l’interface radio n’est pas autorisé sous licence radioamateur — activez-le uniquement sur un réseau privé dûment autorisé.",
+    "secp_groups": "Talkgroups en clair (GSSI séparés par des virgules) pour les radios sans chiffrement",
+    "secp_aie_enable": "Chiffrer la cellule (classe 2)",
+    "secp_aie_staging": "Laissez cette option désactivée pendant la distribution de la clé : la SCK ci-dessous ne sert alors qu’à la livraison par radio et la cellule reste en clair. Activez-la une fois que toutes les radios confirment l’acceptation de la clé.",
+    "secp_staged": "(préparée pour OTAR)",
+    "secp_otar_label": "OTAR",
+    "secp_otar_send": "Envoyer la SCK",
+    "secp_otar_send_all": "Envoyer la SCK à toutes les radios en ligne",
+    "secp_otar_hint": "Transmet la SCK par radio, protégée par la clé K de cette radio (la radio doit être enregistrée et sa clé K conservée)",
+    "secp_otar_none": "Aucune radio en ligne avec une clé enregistrée",
+    "secp_otar_confirm_all": "Envoyer la SCK à {n} radio(s) ?",
+    "secp_save_first": "Enregistrez d’abord les modifications",
+    "secp_offline": "hors ligne",
+    "secp_ksg": "Algorithme (KSG)",
+    "secp_sck": "Clé de chiffrement statique (SCK)",
+    "secp_sck_placeholder": "20 chiffres hexadécimaux",
+    "secp_sckn": "Numéro de SCK (1-32)",
+    "secp_sckvn": "Version de SCK",
+    "secp_tea1_warn": "TEA1 est compromis : il ne conserve que 32 des 80 bits de la clé, récupérable à partir de quelques secondes de trafic. À utiliser pour la recherche ou pour communiquer avec des radios limitées à TEA1, jamais comme protection.",
+    "secp_keep": "inchangé",
+    "secp_saved_ok": "Enregistré. Redémarrez la station pour appliquer.",
+    "secp_invalid_keys": "Clés enregistrées impossibles à interpréter (ISSI) : ",
+    "secp_algo_title": "Algorithmes de cette compilation",
+    "secp_th_algo": "Algorithme",
+    "secp_th_status": "État",
+    "secp_th_note": "Notes",
+    "secp_available": "Disponible",
+    "secp_unavailable": "Indisponible",
+    "secp_weak": "Faible — recherche uniquement",
+    "secp_classes": "Classes de sécurité : classe 1 = interface radio en clair (authentification facultative) ; classe 2 = clé de chiffrement statique partagée par toutes les radios (cette page) ; classe 3 = clés dérivées par radio avec renouvellement par radio (non implémentée).",
+    "secp_unsaved": "Modifications non enregistrées",
+    "th_id": "ID",
+    "th_type": "Type",
+    "th_caller": "Appelant",
+    "th_dest": "Destination",
+    "th_speaker": "Émetteur",
+    "th_duration": "Durée",
+    "th_time": "Heure",
+    "th_activity": "Activité",
+    "last_heard_title": "Dernière activité",
+    "no_activity": "Aucune activité pour le moment",
+    "act_call_group": "Appel de groupe",
+    "act_call_individual": "Appel individuel",
+    "act_sds": "SDS",
+    "online_badge": "EN LIGNE",
+    "kick": "Désenregistrer",
+    "sds": "SDS",
+    "call_group": "GROUPE",
+    "call_p2p_s": "P2P-S",
+    "call_p2p_d": "P2P-D",
+    "call_emergency": "URGENCE",
+    "emg_banner_title": "URGENCE ACTIVE",
+    "integrations": "Intégrations",
+    "integ_enabled": "Activée",
+    "integ_disabled": "Désactivée",
+    "integ_error": "Erreur",
+    "system_sec": "Système",
+    "emg_chip": "URGENCE",
+    "bs_label": "BS",
+    "emg_clear": "Effacer",
+    "confirm_clear_emergency": "Effacer l’urgence de l’ISSI {issi} ?",
+    "confirm_kick": "Désenregistrer l’ISSI {issi} ?\nLe terminal sera désenregistré et forcé à se reconnecter.",
+    "dgna": "DGNA",
+    "dgna_title": "Attribution dynamique de groupes",
+    "dgna_modal_title": "⬡ Attribution dynamique de groupes",
+    "dgna_issi": "ISSI du terminal",
+    "dgna_current": "Groupes actuels",
+    "dgna_gssi": "Groupe (GSSI)",
+    "dgna_assign": "Attribuer",
+    "dgna_deassign": "Retirer l’attribution",
+    "dgna_name": "Nom du TG",
+    "dgna_center": "DGNA",
+    "dgna_center_sub": "Attribuez, mettez à jour et retirez des groupes sur plusieurs radios.",
+    "dgna_groups_count": "Groupes",
+    "dgna_radios_count": "Destinataires",
+    "dgna_group_library": "Bibliothèque de groupes",
+    "dgna_new_group": "Nouveau",
+    "dgna_search": "Rechercher",
+    "dgna_scope": "Couverture",
+    "dgna_editor": "Éditeur de groupes",
+    "dgna_attachment_mode": "Mode d’attachement",
+    "dgna_select_all": "Tout sélectionner",
+    "dgna_select_none": "Effacer",
+    "dgna_select_attached": "Attachés",
+    "dgna_select_dynamic": "Dynamiques",
+    "dgna_assign_selected": "Attribuer aux radios sélectionnées",
+    "dgna_assign_all": "Attribuer à toutes les radios",
+    "dgna_update_selected": "Mettre à jour la sélection",
+    "dgna_deassign_selected": "Retirer de la sélection",
+    "dgna_targets": "Radios destinataires",
+    "dgna_status_col": "État du groupe",
+    "dgna_last_result": "Dernier résultat",
+    "dgna_activity": "Activité DGNA",
+    "confirm_clear_sds_log": "Effacer le journal SDS ?",
+    "confirm_clear_dapnet_log": "Effacer le journal DAPNET ?",
+    "confirm_dgna_detach_static": "Détacher le GSSI statique {gssi} de l’ISSI {issi} ?\nLa radio sera forcée de retirer un groupe non attribué par DGNA.",
+    "confirm_dgna_detach_bulk": "Détacher le GSSI statique {gssi} de {n} radio(s) ?\nLe groupe non attribué par DGNA sera retiré de force du terminal.",
+    "confirm_dgna_delete": "Supprimer le GSSI {gssi} ?\nIl sera retiré de toutes les radios et supprimé de la bibliothèque locale.",
+    "confirm_live_sds_clear": "Effacer toutes les diffusions SDS actives ?",
+    "wifi_confirm_forget_body": "Oublier le réseau « {name} » ?",
+    "confirm_restart": "Redémarrer Bost FlowStation ?\nTous les appels en cours seront interrompus.",
+    "confirm_shutdown": "Le service BTS sera suspendu, mais le tableau de bord restera accessible pour relancer le service.\nSuspendre la BTS ?",
+    "confirm_suspend": "Le service BTS sera suspendu, mais le tableau de bord restera accessible pour relancer le service.\nSuspendre la BTS ?",
+    "confirm_poweroff": "La BTS s’éteindra complètement. Il pourra être nécessaire de débrancher et rebrancher l’alimentation pour la redémarrer.\nÉteindre complètement la BTS ?",
+    "confirm_start": "Démarrer Bost FlowStation ?\nLe service redémarrera et la page sera rechargée.",
+    "confirm_logout": "Se déconnecter ?",
+    "logout": "Se déconnecter",
+    "top_power_menu": "COMMANDE",
+    "top_power_menu_hint": "Redémarrer, suspendre ou éteindre",
+    "svc_suspend": "Suspendre",
+    "svc_poweroff": "Éteindre",
+    "svc_powering_off_title": "Arrêt…",
+    "svc_powering_off_body": "Le système s’arrête. La connexion au tableau de bord sera interrompue.",
+    "svc_standby_title": "Service en veille",
+    "svc_standby_body": "La pile radio est arrêtée. Le tableau de bord reste disponible — appuyez sur Démarrer pour remettre la station en service.",
+    "svc_standby_short": "EN VEILLE",
+    "svc_start": "Démarrer",
+    "svc_need_running": "« {action} » nécessite le service complet. Appuyez d’abord sur Démarrer dans Système → Commande.",
+    "svc_standby_will_start": "Le service est en veille. « {action} » le redémarrera. Continuer ?",
+    "saved": "✓ Enregistré — redémarrez pour appliquer.",
+    "save_fail": "✗ Échec de l’enregistrement",
+    "conn_error": "Erreur de connexion.",
+    "cfg_sec_profiles": "Profils",
+    "cfg_profiles_title": "Profils TMO",
+    "cfg_profiles_help": "Enregistrez vos configurations TMO et de serveur Brew dans des profils pour passer rapidement de l’une à l’autre.",
+    "cfg_profiles_pack_help": "Exporte ou importe uniquement les profils de cellule/Brew (.ptbs). Ne modifie pas la configuration en cours et ne redémarre pas — utilisez Appliquer et redémarrer après l’importation pour les mettre en service.",
+    "cfg_profiles_export": "Exporter .ptbs",
+    "cfg_profiles_import": "Importer .ptbs",
+    "cfg_profiles_export_ok": "Profils exportés",
+    "cfg_profiles_export_err": "Impossible d’exporter les profils",
+    "cfg_profiles_import_confirm": "Remplacer les profils de cellule/Brew de cette station par ceux du fichier .ptbs ? Le config.toml actif ne sera pas modifié et le service ne redémarrera pas.",
+    "cfg_profiles_import_ok": "Profils importés",
+    "cfg_profiles_import_err": "Impossible d’importer les profils",
+    "cfg_cell_profile": "Cellule TMO",
+    "cfg_brew_profile": "Réseau Core (Brew)",
+    "cfg_apply_restart": "Appliquer et redémarrer",
+    "cfg_add": "Ajouter",
+    "cfg_edit": "Modifier",
+    "cfg_profile_name": "Nom du profil",
+    "cfg_cell_sheet_add": "Ajouter une cellule TMO",
+    "cfg_cell_sheet_edit": "Modifier la cellule TMO",
+    "cfg_brew_sheet_add": "Ajouter un réseau Core (Brew)",
+    "cfg_brew_sheet_edit": "Modifier le réseau Core (Brew)",
+    "cfg_update_cell": "Mettre à jour la cellule",
+    "cfg_update_brew": "Mettre à jour Brew",
+    "cfg_save_as_cell": "Enregistrer sous",
+    "cfg_save_as_brew": "Enregistrer sous",
+    "cfg_del_cell": "Supprimer",
+    "cfg_del_brew": "Supprimer",
+    "cfg_del_cell_confirm": "Supprimer le profil de cellule « {name} » ?",
+    "cfg_del_brew_confirm": "Supprimer le profil Brew « {name} » ?",
+    "cfg_brew_offline": "Hors ligne (sans Brew)",
+    "cfg_brew_offline_nodel": "Le profil Hors ligne ne peut pas être supprimé.",
+    "cfg_brew_lst": "LST Dispatch",
+    "cfg_brew_lst_nodel": "Le profil LST Dispatch ne peut pas être supprimé.",
+    "lst_dispatch": "LST Dispatch",
+    "lst_need_title": "Console indisponible",
+    "lst_need_profile": "Appliquez le profil Brew « LST Dispatch » dans Configuration, puis redémarrez pour activer cette console.",
+    "lst_go_config": "Ouvrir Configuration",
+    "lst_busy": "Dispatch utilisé par",
+    "lst_console": "Console de dispatch",
+    "lst_claim": "Prendre le dispatch",
+    "lst_release": "Libérer le dispatch",
+    "lst_geo": "Localisation",
+    "lst_geo_title": "Localisation LIP",
+    "lst_geo_fit": "Tout cadrer",
+    "lst_geo_age": "Ancienneté",
+    "lst_geo_empty": "Aucune position LIP récente",
+    "lst_geo_loading": "Chargement de la carte…",
+    "lst_geo_map_fail": "Carte indisponible — tableau uniquement",
+    "lst_geo_center": "Centrer",
+    "lst_operator_issi": "ISSI de l’opérateur de dispatch",
+    "lst_apply_issi": "Appliquer",
+    "lst_gssi": "GSSI du talkgroup",
+    "lst_join": "Rejoindre",
+    "lst_leave": "Quitter",
+    "lst_ptt": "PTT",
+    "lst_sds": "SDS",
+    "lst_send_sds": "Envoyer",
+    "lst_roster": "Radios en ligne",
+    "lst_col_groups": "Groupes",
+    "lst_col_pos": "Position",
+    "lst_no_codec": "Codec vocal indisponible dans cette compilation — signalisation uniquement. Utilisez « Installer le codec vocal (OTA) » ci-dessous (sans SSH).",
+    "lst_install_voice": "Installer le codec vocal (OTA)",
+    "lst_audio_insecure": "Le microphone nécessite une page sécurisée (https://…). Ouvrez https://this-host/ et acceptez le certificat une fois.",
+    "lst_audio_need_claim": "Appuyez d’abord sur « Prendre le dispatch » — cette action ouvre la demande d’accès au micro/haut-parleurs.",
+    "lst_audio_mic_fail": "Impossible d’ouvrir le microphone : ",
+    "lst_audio_ok": "Micro/haut-parleurs prêts.",
+    "lst_call_simplex": "Privé simplex",
+    "lst_call_duplex": "Privé duplex",
+    "lst_hangup": "Raccrocher",
+    "lst_pos_none": "—",
+    "lst_roster_sds": "Envoyer un SDS",
+    "lst_roster_call": "Appel privé",
+    "lst_roster_call_btn": "Appeler",
+    "lst_call_modal_title": "Appel privé",
+    "lst_tab_simplex": "Simplex",
+    "lst_tab_duplex": "Duplex",
+    "lst_call_dial": "Appeler",
+    "lst_call_answer": "Répondre",
+    "lst_duplex_hint": "Duplex : le micro reste ouvert lorsque le canal audio est prêt (sans PTT).",
+    "lst_phase_idle": "Au repos",
+    "lst_phase_dialing": "Appel…",
+    "lst_phase_ringing": "Sonnerie…",
+    "lst_phase_answering": "Réponse…",
+    "lst_phase_established": "Connecté",
+    "lst_phase_ended": "Appel terminé",
+    "lst_phase_failed": "Échec de l’appel",
+    "lst_phase_incoming": "Appel entrant",
+    "lst_cause_unreachable": "Injoignable",
+    "lst_cause_busy": "Occupé",
+    "lst_cause_rejected": "Rejeté",
+    "lst_cause_error": "Erreur de connexion",
+    "lst_cause_finished": "Terminé",
+    "lst_scan_list": "Liste de scan (TG)",
+    "lst_scan_add": "Ajouter",
+    "lst_scan_tx": "TX",
+    "lst_scan_remove": "Supprimer",
+    "lst_scan_empty": "Aucun TG sélectionné",
+    "lst_scan_name_ph": "Nom (facultatif)",
+    "lst_scan_import": "Importer un fichier",
+    "lst_scan_export": "Exporter",
+    "lst_scan_file_hint": "Un TG par ligne : World Wide (91), World Wide,91 ou 91,World Wide. CSV, TXT ou JSON.",
+    "lst_scan_imported": "{n} TG importés ({added} nouveaux)",
+    "lst_scan_import_err": "Aucun talkgroup trouvé dans ce fichier",
+    "sds_sent": "Envoyé — aucun rapport de livraison pour le moment",
+    "sds_delivered": "Livré à la radio",
+    "sds_failed": "Rejeté par la radio (mémoire pleine ou fonction non prise en charge)",
+    "lst_sds_filter_sent": "Envoyés",
+    "radio_name_btn": "Nom",
+    "radio_name_title": "Nom de la radio",
+    "radio_name_prompt": "Nom de l’ISSI {issi}, affiché partout où cette radio apparaît. Laissez vide pour le supprimer.",
+    "radio_name_ph": "ex. : Dave MM7FDM",
+    "lst_scan_hint": "Marquez un TG comme TX (principal). Les autres TG sont écoutés avec une priorité inférieure.",
+    "lst_ptt_space": "Barre d’espace",
+    "lst_ptt_busy": "Appuyez à nouveau pour interrompre (3 s)",
+    "lst_ptt_wait": "En attente de TX…",
+    "lst_phase_ptt_wait": "En attente de TX…",
+    "lst_activity": "Activité",
+    "lst_sds_inbox": "SDS reçus",
+    "lst_open_full": "Journal complet",
+    "lst_sds_filter_private": "Privés",
+    "lst_sds_filter_group": "Groupe",
+    "lst_live": "En temps réel",
+    "lst_groups_expand": "Afficher les groupes affiliés",
+    "lst_groups_collapse": "Masquer les groupes affiliés",
+    "lst_groups_pop_title": "Talkgroups affiliés",
+    "lst_incoming_todo": "Les appels privés entrants vers l’ISSI de l’opérateur de dispatch seront implémentés ultérieurement (routage CMCE→LST).",
+    "cfg_need_select_brew": "Sélectionnez d’abord un profil Brew (autre que Hors ligne).",
+    "cfg_sheet_busy": "Fermez d’abord le formulaire de profil ouvert.",
+    "cfg_editing": "Modification de la cellule « {cell} » · Brew « {brew} ». Modifiez les formulaires ci-dessous, puis utilisez Mettre à jour ou Enregistrer sous.",
+    "cfg_sec_live": "Réglages en cours",
+    "cfg_live_title": "Réglages en cours",
+    "cfg_save_live": "Enregistrer la configuration active",
+    "cfg_live_toggle": "Développer pour modifier la configuration en cours",
+    "cfg_live_help": "Les modifications s’appliquent uniquement au config.toml actif — elles ne sont pas enregistrées dans un profil TMO/Brew. Utilisez Appliquer et redémarrer pour les mettre en service.",
+    "cfg_live_apply_confirm": "Enregistrer les réglages actifs dans config.toml et redémarrer ?",
+    "cfg_raw_apply_confirm": "Enregistrer le config.toml brut et redémarrer ?",
+    "cfg_sec_rf": "RF",
+    "cfg_rf_title": "Fréquences",
+    "cfg_auto": "RX et porteuse automatiques",
+    "cfg_tx": "TX station / downlink (MHz)",
+    "cfg_rx": "RX station / uplink (MHz)",
+    "cfg_colour": "Code couleur",
+    "cfg_rf_adv": "RF avancée",
+    "cfg_hw_rf": "Matériel RF",
+    "cfg_hw_rf_help": "Le périphérique SDR est défini dans Configuration initiale. Les gains/antennes dépendent du pilote. Utilisez une virgule ou un point ; laissez vide pour les valeurs par défaut du périphérique (clé omise de la configuration).",
+    "cfg_hw_device": "Périphérique",
+    "cfg_hw_ppm_ph": "ex. : 0 ou -1.2",
+    "cfg_hw_ppm_hint": "Correction de fréquence en PPM (virgule ou point).",
+    "cfg_hw_gain_ph": "ex. : {ex} — vide = valeur par défaut",
+    "cfg_hw_gain_hint": "Étage de gain Soapy en dB (virgule ou point). Vide omet la clé et utilise la valeur par défaut du périphérique. Exemple uniquement ; la plage dépend du matériel.",
+    "cfg_hw_num_invalid": "Saisissez un nombre (ex. : 9 ou 9,5), ou laissez vide pour la valeur par défaut du périphérique.",
+    "cfg_hw_ant_default": "(par défaut)",
+    "cfg_freq_invalid": "Saisissez une fréquence valide en MHz (ex. : 438.025 ou 438,025).",
+    "cfg_custom_duplex": "Écart duplex personnalisé (MHz)",
+    "cfg_duplex_invalid": "Saisissez un écart duplex valide en MHz (ex. : 7.6 ou 7,6), ou laissez vide.",
+    "cfg_sec_network": "Réseau",
+    "cfg_net_title": "Identité TETRA",
+    "cfg_la": "Zone de localisation",
+    "cfg_net_adv": "Réseau / temporisateurs avancés",
+    "cfg_timers_hint": "Temporisateurs : vide/réinitialiser = valeur par défaut du moteur. Appuyez sur « ? » pour les détails. Timeout d’appel 0 = illimité ; T351 0 = désactivé.",
+    "cfg_help_tx": "Fréquence de downlink (TX) de la station de base en MHz. Doit correspondre à la RX des radios. Utilisez RX et porteuse automatiques après avoir défini TX, si possible.",
+    "cfg_help_rx": "Fréquence d’uplink (RX) de la station de base en MHz. Généralement TX moins l’écart duplex. L’option RX et porteuse automatiques la calcule à partir de TX.",
+    "cfg_help_colour": "Code couleur TETRA 0–63. Toutes les radios de cette cellule doivent utiliser la même valeur.",
+    "cfg_help_main_carrier": "Numéro de porteuse TETRA du canal de contrôle principal. Préférez RX et porteuse automatiques, sauf si vous connaissez la valeur.",
+    "cfg_help_freq_band": "Identifiant de bande de fréquences (ETSI). La valeur par défaut 4 est habituelle pour les cellules radioamateurs de 400 MHz — ne modifiez que si vous connaissez votre plan de fréquences.",
+    "cfg_help_duplex_id": "Identifiant de la table des écarts duplex. Conservez la valeur par défaut, sauf si vous utilisez un écart non standard ; préférez alors Écart duplex personnalisé (MHz).",
+    "cfg_help_custom_duplex": "Écart duplex facultatif en MHz (ex. : 7.6). Vide = identifiant d’écart duplex. Remplace l’identifiant de table lorsqu’il est défini.",
+    "cfg_help_freq_offset": "Décalage fin de porteuse en Hz (±6250 / ±12500). Généralement 0.",
+    "cfg_help_reverse": "Inverse le sens UL/DL du duplex. Rare ; laissez désactivé sauf si votre plan exige un fonctionnement inversé.",
+    "cfg_help_hw_device": "Chaîne de configuration SoapySDR définie dans Configuration initiale. Modifiez le périphérique sur cette page, pas ici.",
+    "cfg_help_ppm": "Correction de fréquence en PPM (virgule ou point). Vide/réinitialiser ne s’applique pas — généralement 0.",
+    "cfg_help_rx_ant": "Port d’antenne RX de ce pilote SDR. Vide = valeur par défaut du périphérique.",
+    "cfg_help_tx_ant": "Port d’antenne TX de ce pilote SDR. Vide = valeur par défaut du périphérique.",
+    "cfg_help_gain": "Étage de gain Soapy en dB. Vide omet la clé (valeur par défaut du périphérique). La plage dépend du matériel.",
+    "cfg_help_mcc": "Mobile Country Code (identité du réseau TETRA). Doit correspondre à la programmation des radios.",
+    "cfg_help_mnc": "Mobile Network Code. Doit correspondre à la programmation des radios.",
+    "cfg_help_la": "Location Area (LA), zone de localisation. Les radios l’utilisent pour sélectionner la cellule et s’enregistrer.",
+    "cfg_help_tz": "Fuseau horaire IANA de l’horloge de la station (ex. : Europe/Madrid). Ne modifie pas la temporisation RF.",
+    "cfg_help_hangtime": "Secondes pendant lesquelles l’appel de groupe reste ouvert sans émetteur (« groupe occupé »). Une nouvelle PTT pendant le hangtime conserve le même appel. Valeur par défaut : 5.",
+    "cfg_help_call_timeout": "Durée maximale d’un appel de groupe (similaire au T310 ETSI), pas de chaque PTT. Le hangtime maintient l’appel entre des prises de parole rapprochées (LST/Brew) ; un long QSO peut donc atteindre ce plafond (environ 120 s par défaut) et les radios peuvent indiquer PTT refusée. Vide/réinitialiser = 120. 0 = illimité. Augmentez la valeur ou mettez 0 pour de longs QSO via dispatch.",
+    "cfg_help_ul_inact": "Si l’émetteur actuel n’envoie aucune voix UL pendant ce nombre de secondes, la station de base force la fin de TX et passe en hangtime. Valeur par défaut : 3 (tolère de brèves pertes/DTX).",
+    "cfg_help_t351": "Intervalle d’enregistrement périodique (similaire au T351). 0 = aucune expiration. Valeur par défaut : 3600. Détermine la fréquence à laquelle les radios doivent se réenregistrer.",
+    "cfg_help_syswide": "Annonce les services à l’échelle du système dans SYSINFO. Laissez activé sauf si vous avez besoin du comportement en mode fallback.",
+    "cfg_help_recovery": "Après un redémarrage de la BTS, le registre est vide alors que les radios peuvent encore se croire enregistrées. La récupération proactive (cette option, DÉSACTIVÉE par défaut) conserve les ISSI connus et envoie D-LOCATION-UPDATE-COMMAND au démarrage pour les réenregistrer sans intervention sur la radio. La récupération réactive reste toujours ACTIVE : lorsqu’une radio inconnue transmet (PTT/TG), elle reçoit la commande une fois. Activez la récupération proactive sur les picocellules pour rétablir immédiatement la liste après Appliquer et redémarrer.",
+    "cfg_recovery": "Récupération après redémarrage (proactive)",
+    "cfg_late_entry": "Late Entry",
+    "cfg_help_late_entry": "Annonce Late Entry dans D-MLE-SYNC pour que les radios attendent D-SETUP pour les appels de groupe en cours (activation recommandée).",
+    "cfg_help_voice": "Annonce le service de voix. Laissez activé pour les cellules vocales normales.",
+    "cfg_help_local_ssi": "Plages SSI traitées comme locales (ex. : 0-90, 100-120). Avancé — conservez la valeur par défaut sauf si votre plan de numérotation l’exige.",
+    "cfg_help_brew_enable": "Active la liaison de transport Brew. Désactivé = cellule hors ligne (ou utilisez le profil LST Dispatch).",
+    "cfg_help_brew_host": "Nom d’hôte ou IP du serveur Brew.",
+    "cfg_help_brew_port": "Port WebSocket/TCP Brew (souvent 3003).",
+    "cfg_help_brew_tls": "Utilise TLS pour Brew. Doit correspondre à ce qu’attend le serveur Brew.",
+    "cfg_help_brew_user": "Utilisateur / SSID Brew (identifiant numérique de type ISSI de cette BTS sur le Core).",
+    "cfg_help_brew_pass": "Mot de passe Brew. Laissez la valeur masquée (••••) pour conserver le secret actuel lors de l’enregistrement.",
+    "cfg_help_brew_reconnect": "Secondes d’attente avant une reconnexion après une coupure Brew. Valeur par défaut : 15.",
+    "cfg_help_brew_sds": "Transmet les SDS entre l’interface radio et Brew lorsque cette option est activée.",
+    "cfg_help_brew_rssi": "Exporte la télémétrie RSSI vers Brew (trafic supplémentaire). Désactivé sauf si nécessaire.",
+    "cfg_help_brew_lip": "Retransmet tous les rapports LIP UL vers Brew à l’ISSI ci-dessous, quelle que soit la destination utilisée par la radio.",
+    "cfg_help_brew_lip_issi": "ISSI de destination Brew des positions LIP observées (1–16777215).",
+    "cfg_sec_brew": "Brew",
+    "cfg_brew_title": "Liaison de transport",
+    "cfg_brew_enable": "Activer Brew",
+    "cfg_brew_user": "Utilisateur (SSID)",
+    "cfg_brew_adv": "Brew avancé",
+    "cfg_brew_sds": "Transmission SDS",
+    "cfg_brew_rssi": "Export RSSI",
+    "cfg_brew_lip": "Transmission LIP",
+    "cfg_brew_lip_issi": "ISSI de destination LIP (via Brew)",
+    "cfg_advanced_toml": "config.toml brut",
+    "cfg_toml_toggle": "Afficher / masquer l’éditeur TOML",
+    "cfg_advanced_warn": "Utilisateurs avancés uniquement",
+    "cfg_sec_advanced": "Avancé",
+    "cfg_apply_confirm": "Appliquer les profils de cellule × Brew sélectionnés et redémarrer ? Une sauvegarde du config.toml actuel sera créée.",
+    "cfg_need_name": "Saisissez un nom de profil.",
+    "cfg_need_select": "Sélectionnez d’abord un profil.",
+    "cfg_deleted": "✓ Supprimé",
+    "cfg_applied": "✓ Appliqué — redémarrage…",
+    "cfg_updated": "✓ Profil enregistré",
+    "update": "Mettre à jour",
+    "update_available": "Mise à jour disponible",
+    "update_title": "Mise à jour OTA — github.com/Aitorrio/bost-flowstation",
+    "update_confirm": "Récupérer la dernière version du canal {channel} (branche {branch}) et recompiler ?\nLe service redémarrera automatiquement si une nouvelle compilation est nécessaire.",
+    "ota_channel_title": "Canal OTA",
+    "ota_channel_stable": "Stable (main)",
+    "ota_channel_beta": "Bêta",
+    "ota_channel_help": "Le canal stable suit la branche main (anciennement bost). Bêta = versions de test. À venir : changement de nom vers PTBS (Personal Tetra Base Station) — effectuez une mise à jour OTA sur cette version de transition.",
+    "ota_channel_saved": "✓ Canal enregistré — les vérifications utilisent {channel} ({branch}).",
+    "ota_channel_save_fail": "✗ Impossible d’enregistrer le canal OTA",
+    "ota_check": "Rechercher les mises à jour",
+    "ota_checking": "Recherche de mises à jour…",
+    "ota_whats_new": "Nouveautés",
+    "ota_changelog_unavailable": "Impossible de charger la liste des modifications. Vous pouvez tout de même effectuer la mise à jour.",
+    "ota_review_to": "Mettre à jour vers {target}",
+    "ota_review_from": "À partir de {current}",
+    "ota_up_to_date": "✓ Déjà à jour sur {channel} ({latest}).",
+    "ota_check_failed": "Impossible de joindre GitHub pour rechercher les mises à jour (réseau/TLS). Réessayez dans une minute.",
+    "ota_step_channel": "1 · Canal",
+    "ota_step_notes": "2 · Nouveautés",
+    "ota_step_progress": "3 · Progression",
+    "ota_tech_commits": "Détails techniques (commits)",
+    "ota_notes_from_changelog": "Du CHANGELOG",
+    "ota_notes_from_release": "De la version publiée sur GitHub",
+    "ota_notes_from_commits": "Des commits récents",
+    "update_running": "Mise à jour… ne fermez pas cette fenêtre.",
+    "update_done_ok": "✓ Mise à jour terminée. Redémarrage…",
+    "update_done_current": "✓ Déjà à jour — aucune recompilation nécessaire.",
+    "update_done_err": "✗ Échec de la mise à jour. Ouvrez les détails pour consulter le journal.",
+    "update_close": "Fermer",
+    "update_show_log": "Afficher les détails",
+    "update_hide_log": "Masquer les détails",
+    "update_phase_prepare": "Préparation…",
+    "update_phase_download": "Recherche de mises à jour…",
+    "update_phase_sync": "Application des mises à jour du dépôt…",
+    "update_phase_build": "Compilation (peut prendre plusieurs minutes)…",
+    "update_phase_install": "Installation de la nouvelle version…",
+    "update_phase_restart": "Redémarrage du service…",
+    "update_phase_done": "Terminé",
+    "update_phase_error": "Échec de la mise à jour",
+    "update_waiting": "En attente du premier état…",
+    "update_elapsed": "Écoulé : {m} min {s} s",
+    "update_elapsed_hint": "La compilation sur un Pi peut prendre 10–20 minutes ; ne coupez pas l’alimentation.",
+    "update_lost_link": "Contact perdu avec la station (normal pendant le redémarrage après OTA). En attente de son retour…",
+    "update_build_hint": "Étape longue : compilation du code du tableau de bord. La progression peut rester inchangée plusieurs minutes.",
+    "update_tip_sync": "Récupération et synchronisation du code avec le canal sélectionné…",
+    "update_tip_install": "Copie du nouvel exécutable…",
+    "update_tip_restart": "Le service redémarrera sous peu — gardez cette fenêtre ouverte.",
+    "restart_wait_title": "Redémarrage…",
+    "restart_wait_body": "En attente du retour en ligne de la station. La page sera rechargée automatiquement. Si l’authentification est activée, vous devrez vous reconnecter.",
+    "restart_wait_ota_title": "Application de la mise à jour…",
+    "restart_wait_ota_body": "Le service redémarre avec la nouvelle compilation. Cela peut prendre quelques minutes sur un Pi après une compilation importante. La page sera rechargée automatiquement — évitez de couper l’alimentation sauf si la station reste indisponible plus de 15 minutes.",
+    "restart_wait_retry": "Réessayer / Recharger",
+    "restart_wait_timeout": "La station n’est pas revenue à temps. Vérifiez l’alimentation et exécutez : systemctl status bluestation-bs — puis Réessayer. Ne coupez et rétablissez l’alimentation qu’en dernier recours.",
+    "system": "Système",
+    "sys_info": "Informations système",
+    "sys_hostname": "Nom d’hôte",
+    "sys_uptime": "Durée de fonctionnement",
+    "sys_version": "Version Bost",
+    "sys_os": "Système d’exploitation",
+    "sys_config": "Configuration active",
+    "sys_cpu": "CPU",
+    "sys_cpu_load": "Charge CPU",
+    "sys_ram": "RAM",
+    "sys_temp": "Température CPU",
+    "network": "Réseau",
+    "network_links": "Liaisons",
+    "network_ethernet": "Ethernet",
+    "network_wifi_sec": "WiFi",
+    "network_primary_hint": "L’adresse de la route par défaut est utilisée par U-STATUS et le trafic sortant. Le tableau de bord est accessible depuis n’importe quelle IP indiquée.",
+    "network_default_route": "ROUTE PAR DÉFAUT",
+    "network_iface": "Interface",
+    "network_kind": "Type",
+    "network_state": "État",
+    "network_no_links": "Aucune interface réseau trouvée.",
+    "network_kind_ethernet": "Ethernet",
+    "network_kind_wifi": "WiFi",
+    "network_kind_other": "Autre",
+    "network_conn_wired": "Connexion filaire",
+    "network_nm_connected": "Connecté",
+    "network_nm_disconnected": "Déconnecté",
+    "network_nm_unavailable": "Indisponible",
+    "network_nm_connecting": "Connexion",
+    "network_nm_disconnecting": "Déconnexion",
+    "network_nm_unmanaged": "Non géré",
+    "network_nm_deactivating": "Désactivation",
+    "eth_warn_lose_access": "Si vous êtes connecté par Ethernet, déconnecter le profil filaire peut interrompre cette session. Gardez le WiFi ou un autre accès disponible.",
+    "eth_no_saved": "Aucun profil Ethernet enregistré.",
+    "eth_connected": "CONNECTÉ",
+    "wifi_status": "Connexion actuelle",
+    "wifi_saved": "Réseaux enregistrés",
+    "wifi_visible": "Réseaux disponibles",
+    "wifi_loading": "Chargement…",
+    "wifi_scanning": "Recherche…",
+    "wifi_no_device": "Aucun périphérique WiFi détecté sur cet hôte.",
+    "wifi_radio_disabled": "La radio WiFi est désactivée.",
+    "wifi_not_connected": "Aucune connexion à un réseau.",
+    "wifi_no_saved": "Aucun réseau enregistré.",
+    "wifi_no_networks": "Aucun réseau à portée.",
+    "wifi_ssid": "Réseau",
+    "wifi_signal": "Signal",
+    "wifi_ip": "Adresse IP",
+    "wifi_actions": "Actions",
+    "wifi_disconnect": "Déconnecter",
+    "wifi_connect": "Connecter",
+    "wifi_connect_to": "Se connecter à",
+    "wifi_connecting": "Connexion…",
+    "wifi_connected": "CONNECTÉ",
+    "wifi_connected_ok": "Connecté.",
+    "wifi_saved_tag": "ENREGISTRÉ",
+    "wifi_open": "OUVERT",
+    "wifi_forget": "Oublier",
+    "wifi_confirm_forget": "Oublier le réseau",
+    "wifi_password": "Mot de passe",
+    "wifi_hidden": "Réseau masqué (SSID non diffusé)",
+    "wifi_add_hidden": "Réseau masqué",
+    "wifi_scan": "Rechercher",
+    "wifi_refresh": "Actualiser",
+    "wifi_radio_off": "Désactiver le WiFi",
+    "wifi_radio_on": "Activer le WiFi",
+    "wifi_warn_lose_access": "Si vous accédez au tableau de bord par WiFi, changer de réseau peut vous déconnecter temporairement. Assurez-vous de disposer d’un autre accès (Ethernet ou réseau fonctionnel connu).",
+    "wifi_reconnect_hint": "Déconnecter ne coupe que le profil actif — NetworkManager peut se reconnecter automatiquement. Utilisez Désactiver le WiFi pour maintenir la radio désactivée.",
+    "wifi_err_no_ssid": "Le SSID est obligatoire",
+    "sys_sensors": "Capteurs matériels de l’hôte",
+    "sys_sensors_empty": "Aucun capteur détecté sur cet hôte.",
+    "sys_rf": "Matériel RF (SoapySDR)",
+    "sys_autorefresh": "Actualisation automatique toutes les 5 s",
+    "profile_edit_title": "Modifier le profil de configuration",
+    "profile_edit_btn": "Modifier",
+    "profile_edit_save_ok": "✓ Enregistré",
+    "profile_edit_save_fail": "✗ Échec de l’enregistrement",
+    "sys_profiles": "Profils de configuration",
+    "sys_activate": "Activer et redémarrer",
+    "sys_active_badge": "ACTIF",
+    "sys_no_profiles": "Aucun profil .toml trouvé dans le répertoire de configuration.",
+    "sys_activate_confirm": "Passer au profil « {name} » et redémarrer ?\nLa configuration actuelle sera sauvegardée.",
+    "sys_title": "Système",
+    "sys_sec_control": "Commande",
+    "sys_control_title": "Commande du service",
+    "sys_control_help": "Redémarrez la station, suspendez la pile radio (le tableau de bord reste actif), éteignez le Pi ou récupérez le code de GitHub pour le recompiler (OTA).",
+    "sys_sec_status": "État",
+    "sys_sec_host": "Hôte",
+    "sys_sec_radio": "Matériel radio",
+    "sys_sec_sensors": "Capteurs",
+    "sys_sec_profiles": "Profils",
+    "sys_sec_sds": "Diffusion SDS",
+    "sys_refresh": "Actualiser",
+    "sys_probe": "Détecter",
+    "sys_soapy_idle": "Appuyez sur Détecter pour rechercher les périphériques SoapySDR.",
+    "sys_temp_hot": "TRÈS CHAUD",
+    "sys_temp_warm": "Chaud",
+    "sys_temp_ok": "OK",
+    "sys_sec_account": "Compte",
+    "sys_account_title": "Accès au tableau de bord",
+    "sys_account_help": "Modifiez ici les identifiants du tableau de bord. Un compte par station — indépendant des profils de cellule/Brew.",
+    "sys_account_user": "Utilisateur",
+    "sys_account_change": "Modifier les identifiants",
+    "sys_account_current_pass": "Mot de passe actuel",
+    "sys_account_new_user": "Nouvel utilisateur (facultatif)",
+    "sys_account_new_pass": "Nouveau mot de passe (facultatif)",
+    "sys_account_new_pass_req": "Nouveau mot de passe",
+    "sys_account_confirm": "Confirmer le nouveau mot de passe",
+    "sys_account_save": "Enregistrer",
+    "sys_account_enable_title": "Activer l’authentification",
+    "sys_account_enable_help": "L’accès au tableau de bord est ouvert. Définissez un utilisateur et un mot de passe pour exiger une connexion.",
+    "sys_account_enable_btn": "Activer l’authentification",
+    "sys_account_open": "OUVERT",
+    "sys_account_protected": "PROTÉGÉ",
+    "sys_account_ok": "Enregistré — reconnectez-vous",
+    "sys_account_err": "Impossible d’enregistrer",
+    "sys_account_need_cur": "Le mot de passe actuel est obligatoire",
+    "sys_account_need_change": "Définissez un nouvel utilisateur et/ou mot de passe",
+    "sys_account_mismatch": "Les mots de passe ne correspondent pas",
+    "sys_ports_title": "Ports du tableau de bord",
+    "sys_ports_help": "HTTPS est nécessaire pour accéder au microphone LST. Le mode standard utilise le port 443 (HTTP 80 redirige). Le mode port haut utilise uniquement HTTPS 8443 lorsque 80/443 sont occupés par d’autres services. Changer les ports redémarre la station.",
+    "sys_ports_preset": "Préréglage",
+    "sys_ports_standard": "Standard (80 → 443)",
+    "sys_ports_high": "Port haut (HTTPS 8443 uniquement)",
+    "sys_ports_apply": "Appliquer et redémarrer",
+    "sys_ports_confirm": "Après redémarrage, ouvrez {url}. Continuer ?",
+    "sys_ports_ok": "Enregistré — redémarrage…",
+    "sys_ports_err": "Impossible de changer les ports",
+    "sys_ports_custom": "Ports personnalisés dans la configuration — choisissez un préréglage pour changer.",
+    "sys_sec_backup": "Sauvegarde",
+    "sys_backup_title": "Sauvegarde de la station",
+    "sys_backup_help": "Télécharge un fichier complet de la station (.bptbs) : configuration active, profils de cellule/Brew, fichiers de configuration initiale/fallback et mots de passe WiFi enregistrés. L’importation remplace cette station (canal OTA conservé) et redémarre.",
+    "sys_backup_export": "Exporter .bptbs",
+    "sys_backup_import": "Importer .bptbs",
+    "sys_backup_export_ok": "Sauvegarde téléchargée",
+    "sys_backup_export_err": "Impossible d’exporter la sauvegarde",
+    "sys_backup_import_confirm": "Remplacer cette station par la sauvegarde .bptbs ? La configuration active et les profils seront écrasés. Le canal OTA de ce Pi sera conservé. La station redémarrera.",
+    "sys_backup_import_ok": "Importé — redémarrage…",
+    "sys_backup_import_err": "Impossible d’importer la sauvegarde",
+    "sys_bts": "Connexion BTS",
+    "cr_original": "© 2026 Razvan Zeces — YO6RZV",
+    "cr_enhanced": "Version améliorée par Aitor, EA4HBL",
+    "geo_lat": "Latitude de Bost FlowStation",
+    "geo_lon": "Longitude de Bost FlowStation",
+    "telegram": "Telegram",
+    "tg_title": "Alertes Telegram",
+    "tg_help": "Recevez immédiatement des messages Telegram lors d’un événement sur la station : enregistrement ou déconnexion d’une radio, connexion ou coupure du transport, réception d’une position ou avertissement/erreur de la pile.",
+    "tg_enabled": "Activer les alertes Telegram",
+    "tg_test": "Envoyer un test",
+    "tg_testing": "Envoi du test…",
+    "tg_test_ok": "✓ Test envoyé à {n} conversation(s)",
+    "tg_howto_title": "Configuration — 4 étapes",
+    "tg_step1": "Dans Telegram, ouvrez @BotFather, envoyez /newbot et suivez les instructions. Copiez le token fourni pour le bot.",
+    "tg_step2": "Collez le token ci-dessous et cliquez sur Vérifier — le @username de votre bot doit apparaître.",
+    "tg_step3": "Ouvrez une conversation avec le nouveau bot (ou ajoutez-le à un groupe) et envoyez-lui un message, par exemple /start.",
+    "tg_step4": "Cliquez sur « Détecter le Chat ID », ajoutez la conversation aux destinataires, puis enregistrez. Utilisez « Envoyer un test » pour confirmer.",
+    "tg_bot_title": "Token du bot",
+    "tg_bot_help": "Le token de @BotFather ressemble à 123456789:AAExampleTokenString. Il est conservé masqué et ne sera plus affiché intégralement.",
+    "tg_verify": "Vérifier",
+    "tg_verifying": "Vérification…",
+    "tg_recipients_title": "Destinataires (Chat ID)",
+    "tg_recipients_help": "Chaque alerte est envoyée à tous les destinataires. Un ID positif correspond à une conversation privée ; un ID négatif à un groupe ou canal.",
+    "tg_detect": "Détecter le Chat ID",
+    "tg_detecting": "Lecture des messages récents…",
+    "tg_detect_none": "Aucun message récent trouvé. Envoyez d’abord un message au bot, puis réessayez.",
+    "tg_detect_found": "Conversations ayant envoyé des messages au bot — cliquez sur Ajouter :",
+    "tg_add": "Ajouter",
+    "tg_no_recipients": "Aucun destinataire pour le moment.",
+    "tg_invalid_chat": "Saisissez un Chat ID valide.",
+    "tg_categories_title": "Catégories d’alerte",
+    "tg_cat_connect": "Radio connectée",
+    "tg_cat_disconnect": "Radio déconnectée",
+    "tg_cat_t351": "Radio sans réponse (T351)",
+    "tg_cat_lip": "Position LIP/APRS",
+    "tg_cat_backhaul": "Transport Brew connecté/déconnecté",
+    "tg_cat_logs": "Journal critique (avertissements/erreurs)",
+    "ui_monitor": "SUPERVISION",
+    "ui_toggle_sidebar": "Développer / réduire la barre latérale",
+    "ui_text_size": "Taille du texte",
+    "ui_text_size_contrast": "Taille du texte et contraste",
+    "ui_station_control": "Commande de la station",
+    "ui_base_station_link": "Connexion à la station de base",
+    "ui_brew_network": "Réseau Brew",
+    "ui_host_system_power_draw": "Consommation de l’hôte",
+    "ui_e_g_2144485": "ex. : 2144485",
+    "ui_e_g_2260571": "ex. : 2260571",
+    "ui_active": "Actif",
+    "ui_online": "En ligne",
+    "ui_offline": "Hors ligne",
+    "ui_secondary": "SECONDAIRE",
+    "ui_off": "INACTIF",
+    "ui_on": "ACTIF (",
+    "ui_neighbor": "voisine",
+    "ui_neighbors": "voisines",
+    "ui_caller_slot": "TIMESLOT DE L’APPELANT",
+    "ui_called_slot": "TIMESLOT DU DESTINATAIRE",
+    "ui_shared_slot": "TIMESLOT PARTAGÉ",
+    "ui_lip_position": "Position LIP",
+    "ui_lip_position_2": "Position LIP : ",
+    "ui_invalid_ssi_in": "SSI invalide dans ",
+    "ui_ric_to_issi": "RIC vers ISSI",
+    "ui_ric_to_gssi": "RIC vers GSSI",
+    "ui_message_text_is_empty": "Le texte du message est vide",
+    "ui_set_callsign_or_transmitter_group": "Définissez l’indicatif ou le groupe d’émetteurs",
+    "ui_send_failed": "Échec de l’envoi",
+    "ui_active_dialogs": " dialogues actifs",
+    "ui_invalid_local_ssi_range": "Plage SSI locale invalide : ",
+    "ui_tx_freq_required": "La fréquence TX est obligatoire",
+    "ui_main_carrier_is_not_an_integer": "main_carrier n’est pas un entier",
+    "ui_research_only": " — recherche uniquement",
+    "ui_not_available": " — indisponible",
+    "ui_dynamic_group_selected": "Groupe dynamique sélectionné",
+    "ui_static_group_selected_deassign_will_force_a_detach_from_the_radio": "Groupe statique sélectionné — le retrait forcera le détachement de la radio",
+    "ui_waiting_for_backend": "En attente du backend : ",
+    "ui_waiting_for_backend_2": "En attente du backend :",
+    "ui_backend_unavailable_command_was_not_sent": "Backend indisponible — la commande n’a pas été envoyée",
+    "ui_selected_gssi": "GSSI sélectionné : ",
+    "ui_edit_gssi": "Modifier le GSSI ",
+    "ui_new_dgna_group": "Nouveau groupe DGNA",
+    "ui_set_a_valid_gssi_first": "Définissez d’abord un GSSI valide",
+    "ui_updated_gssi": "GSSI mis à jour : ",
+    "ui_in_the_local_library_and_queued_dgna_update_to": " dans la bibliothèque locale et mise à jour DGNA en attente pour ",
+    "ui_in_the_local_library_but_backend_update_could_not_be_sent": " dans la bibliothèque locale, mais la mise à jour du backend n’a pas pu être envoyée",
+    "ui_in_the_local_library": " dans la bibliothèque locale",
+    "ui_renamed_gssi": "GSSI renommé : ",
+    "ui_in_the_local_group_library": " dans la bibliothèque locale de groupes",
+    "ui_saved_gssi": "GSSI enregistré : ",
+    "ui_parse_failed": "échec de l’analyse",
+    "ui_unnamed_group": "Groupe sans nom",
+    "ui_select_a_group_from_the_library_first": "Sélectionnez d’abord un groupe dans la bibliothèque",
+    "ui_select_at_least_one_target_radio": "Sélectionnez au moins une radio destinataire",
+    "ui_all_radios": "toutes les radios",
+    "ui_selected_radio_s": " radio(s) sélectionnée(s)",
+    "ui_is_static_and_cannot_be_deleted": " est statique et ne peut pas être supprimé",
+    "ui_backend_unavailable_delete_was_not_sent": "Backend indisponible — la demande de suppression n’a pas été envoyée",
+    "ui_deleting_gssi": "Suppression du GSSI ",
+    "ui_deassign_sent_to_all_radios_and_removed_from_the_local_library": ": retrait envoyé à toutes les radios et groupe supprimé de la bibliothèque locale",
+    "ui_detected_sdr_hardware": "Matériel SDR détecté : ",
+    "ui_512_bin_fft": " · FFT à 512 points",
+    "ui_iq_mixed_to_baseband": " I/Q · transposé en bande de base",
+    "ui_aggregate_iq_no_carrier_lock": "I/Q agrégé · sans synchronisation sur la porteuse",
+    "ui_obw_aggregate_pre_pa": " · OBW agrégée avant PA",
+    "ui_aggregate_pre_pa_evm_obw_are_not_per_carrier": "agrégé avant PA · EVM/OBW ne sont pas mesurées par porteuse",
+    "ui_domain_s_need_attention": " domaine(s) nécessite(nt) une intervention : ",
+    "ui_active_dialog_s": " dialogue(s) actif(s)",
+    "ui_last_error": "Dernière erreur : ",
+    "ui_rwth_status": "État RWTH ",
+    "ui_last_rx": " · dernière RX ",
+    "ui_all_domains_nominal": "\nTous les domaines sont à l’état nominal",
+    "ui_host_power_draw": "Consommation de l’hôte — ",
+    "ui_rf_error": "Erreur RF : ",
+    "ui_rf_offline": "RF hors ligne : ",
+    "ui_not_installed": "non installé",
+    "ui_already_installed": "déjà installé",
+    "ui_already_loaded": "déjà chargé",
+    "ui_autostart_ok": "Démarrage automatique OK — ",
+    "ui_add_hidden_network": "Ajouter un réseau masqué",
+    "ui_bs_sin_respuesta": "BS sans réponse (",
+    "ui_sin_conexi_n_con_bs": "Aucune connexion à la BS",
+    "ui_neighbor_cell": "Cellule voisine — ",
+    "ui_choose_a_group": "Choisir un groupe",
+    "ui_new": "NOUVEAU",
+    "ui_inside": "à l’intérieur",
+    "ui_now": "maintenant",
+    "ui_health": "DIAGNOSTIC",
+    "ui_security": "SÉCURITÉ",
+    "ui_inicio": "Accueil",
+    "ui_dark": "Sombre",
+    "ui_light": "Clair",
+    "ui_blue": "Bleu",
+    "ui_cell_status": "État de la cellule",
+    "ui_read_only_public_overview": "Vue d’ensemble publique en lecture seule",
+    "ui_log_in_for_full_access_and_controls": "Connectez-vous pour accéder à toutes les fonctions et commandes.",
+    "ui_apagado": "Éteint",
+    "ui_dgna_actions": "Actions DGNA",
+    "ui_0_selected": "0 sélectionné",
+    "ui_selected_group": "Groupe sélectionné",
+    "ui_no_group_selected": "Aucun groupe sélectionné",
+    "ui_prev": "‹ Précédent",
+    "ui_page_1_1": "Page 1 / 1",
+    "ui_next": "Suivant ›",
+    "ui_enable_snomipphonetext_notifications": "Activer les notifications SnomIPPhoneText",
+    "ui_ami_host": "Hôte AMI",
+    "ui_ami_port": "Port AMI",
+    "ui_ami_user": "Utilisateur AMI",
+    "ui_ami_password": "Mot de passe AMI",
+    "ui_pjsip_endpoints": "Endpoints PJSIP",
+    "ui_notify_tetra_sds": "Notifier les SDS TETRA",
+    "ui_sds_issi_whitelist": "Liste des ISSI autorisés pour SDS",
+    "ui_empty_every_sds_a_match_on_source_or_destination_issi_is_enough": "Vide = tous les SDS. Une correspondance avec l’ISSI source ou destination suffit.",
+    "ui_notify_dapnet": "Notifier DAPNET",
+    "ui_dapnet_ric_whitelist": "Liste des RIC autorisés pour DAPNET",
+    "ui_empty_every_dapnet_message_leading_zeros_are_preserved_in_config": "Vide = tous les messages DAPNET. Les zéros initiaux sont conservés dans la configuration.",
+    "ui_notify_telegram": "Notifier Telegram",
+    "ui_title_prefix": "Préfixe du titre",
+    "ui_max_text_chars": "Nombre maximal de caractères",
+    "ui_timeout_s": "Timeout (s)",
+    "ui_callsign": "Indicatif",
+    "ui_recipient": "Destinataire",
+    "ui_paths": "Chemins",
+    "ui_enable_dapnet_integration": "Activer l’intégration DAPNET",
+    "ui_enable_rwth_core_receive_feed": "Activer la réception depuis le Core RWTH",
+    "ui_poll_interval_s": "Intervalle d’interrogation (s)",
+    "ui_messages_limit": "Limite de messages",
+    "ui_hampager_api_url": "URL de l’API Hampager",
+    "ui_api_username": "Utilisateur de l’API",
+    "ui_api_password": "Mot de passe de l’API",
+    "ui_rwth_host": "Hôte RWTH",
+    "ui_rwth_port": "Port RWTH",
+    "ui_version": "Version",
+    "ui_rwth_callsign": "Indicatif RWTH",
+    "ui_rwth_authkey": "Clé d’authentification RWTH",
+    "ui_forward_to_sds": "Transmettre vers SDS",
+    "ui_sds_ric_filter": "Filtre RIC pour SDS",
+    "ui_forward_to_tpg2200_call_out": "Transmettre vers TPG2200 Call-Out",
+    "ui_incident_base": "Numéro de base d’incident",
+    "ui_text_prefix": "Préfixe du texte",
+    "ui_call_out_ric_filter": "Filtre RIC pour Call-Out",
+    "ui_forward_to_telegram": "Transmettre vers Telegram",
+    "ui_telegram_prefix": "Préfixe Telegram",
+    "ui_telegram_ric_filter": "Filtre RIC pour Telegram",
+    "ui_uses_the_existing_telegram_alert_configuration_and_recipients": "Utilise la configuration et les destinataires existants des alertes Telegram.",
+    "ui_callsign_recipients": "Indicatifs destinataires",
+    "ui_transmitter_groups": "Groupes d’émetteurs",
+    "ui_emergency": "Urgence",
+    "ui_set_emergency_flag": "Définir le drapeau d’urgence",
+    "ui_positions": "Positions",
+    "ui_alarms": "Alarmes",
+    "ui_last_position": "Dernière position",
+    "ui_last_alarm": "Dernière alarme",
+    "ui_enable_geoalarm": "Activer GeoAlarm",
+    "ui_radius_m": "Rayon (m)",
+    "ui_cooldown_s": "Délai minimal entre alarmes (s)",
+    "ui_input_sources": "Sources d’entrée",
+    "ui_geoalarm_fires_when_an_allowed_device_enters_the_radius_then_suppresses_rep": "GeoAlarm se déclenche lorsqu’un appareil autorisé entre dans le rayon défini, puis supprime les alarmes répétées pendant le délai minimal.",
+    "ui_geoalarm_routing": "Routage GeoAlarm",
+    "ui_alarm_tpg2200": "Alarme → TPG2200",
+    "ui_tpg_issi": "ISSI du TPG",
+    "ui_max_chars": "Nombre maximal de caractères",
+    "ui_alarm_sds": "Alarme → SDS",
+    "ui_destination_is_group_gssi": "La destination est un groupe/GSSI",
+    "ui_alarm_sip_telegram": "Alarme → SIP / Telegram",
+    "ui_snom_title_prefix": "Préfixe du titre Snom",
+    "ui_geoalarm_filters": "Filtres GeoAlarm",
+    "ui_tetra_issi_whitelist": "Liste des ISSI TETRA autorisés",
+    "ui_tetra_issi_blacklist": "Liste des ISSI TETRA bloqués",
+    "ui_meshcom_source_whitelist": "Liste des sources MeshCom autorisées",
+    "ui_meshcom_source_blacklist": "Liste des sources MeshCom bloquées",
+    "ui_whitelist_empty_means_allow_all_blacklists_always_win_meshcom_source_matchi": "Une liste d’autorisation vide autorise toutes les sources. Les listes de blocage sont toujours prioritaires. La correspondance des sources MeshCom ne distingue pas les majuscules des minuscules.",
+    "ui_geoalarm_events": "Événements GeoAlarm",
+    "ui_source": "Source",
+    "ui_distance": "Distance",
+    "ui_main_carrier": "Porteuse principale",
+    "ui_freq_band": "Bande de fréquences",
+    "ui_duplex_spacing_id": "ID d’écart duplex",
+    "ui_freq_offset_hz": "Décalage de fréquence (Hz)",
+    "ui_reverse_operation": "Fonctionnement inversé",
+    "ui_rx_antenna": "Antenne RX",
+    "ui_tx_antenna": "Antenne TX",
+    "ui_rx_gain_lna": "Gain RX LNA",
+    "ui_rx_gain_tia": "Gain RX TIA",
+    "ui_rx_gain_pga": "Gain RX PGA",
+    "ui_tx_gain_pad": "Gain TX PAD",
+    "ui_tx_gain_iamp": "Gain TX IAMP",
+    "ui_tx_gain_dac": "Gain TX DAC",
+    "ui_tx_gain_mixer": "Gain TX MIXER",
+    "ui_tx_gain_pga": "Gain TX PGA",
+    "ui_timezone_iana": "Fuseau horaire (IANA)",
+    "ui_hangtime_s": "Hangtime (s)",
+    "ui_call_timeout_s": "Timeout d’appel (s)",
+    "ui_ul_inactivity_s": "Inactivité UL (s)",
+    "ui_t351_periodic_reg_s": "T351 / enregistrement périodique (s)",
+    "ui_system_wide_services": "Services à l’échelle du système",
+    "ui_voice_service": "Service de voix",
+    "ui_local_ssi_ranges": "Plages SSI locales",
+    "ui_port": "Port",
+    "ui_reconnect_delay_s": "Délai de reconnexion (s)",
+    "ui_station_health": "Diagnostic de la station",
+    "ui_waiting_for_the_first_health_snapshot": "En attente du premier diagnostic…",
+    "ui_system_domains": "Domaines du système",
+    "ui_loading_integration_health": "Chargement du diagnostic des intégrations…",
+    "ui_auto_refreshes_every_few_seconds_levels": "Actualisation automatique toutes les quelques secondes. Niveaux :",
+    "ui_degraded": "DÉGRADÉ",
+    "ui_critical": "CRITIQUE",
+    "ui_the_software_watchdog_auto_restart_when_the_core_loop_stalls_is_configured_": ". Le watchdog logiciel (redémarrage automatique si la boucle principale se bloque) se configure dans la section",
+    "ui_section": ".",
+    "ui_display_brightness": "Luminosité de l’écran",
+    "ui_live_sds_broadcast": "Diffusion SDS en temps réel",
+    "ui_0_attached_permanently": "0 - Attaché en permanence",
+    "ui_1_attach_on_next_itsi_attach": "1 - Attacher au prochain attachement ITSI",
+    "ui_2_not_allowed_on_next_itsi_attach": "2 - Non autorisé au prochain attachement ITSI",
+    "ui_3_attach_on_next_location_update": "3 - Attacher à la prochaine mise à jour de localisation",
+    "ui_4_not_attached_ms_may_request": "4 - Non attaché, la MS peut le demander",
+    "ui_5_not_attached_ms_may_not_request": "5 - Non attaché, la MS ne peut pas le demander",
+    "ui_dgna_group": "Groupe DGNA",
+    "ui_1_attached_until_deleted": "1 - Attaché jusqu’à suppression",
+    "ui_2_attached_until_removed": "2 - Attaché jusqu’au retrait",
+    "ui_3_defined_and_attached": "3 - Défini et attaché",
+    "ui_4_defined_but_detached": "4 - Défini mais détaché",
+    "ui_5_reserved_vendor_specific": "5 - Réservé / propre au fabricant",
+    "ui_gssi_or_name": "GSSI ou nom",
+    "ui_search_by_gssi_or_name": "Rechercher par GSSI ou nom",
+    "ui_issi_or_gssi": "ISSI ou GSSI",
+    "ui_tpg2200_issi": "ISSI du TPG2200",
+    "ui_message_text": "Texte du message",
+    "ui_tpg_text_prefix": "Préfixe du texte TPG",
+    "ui_empty_all_tetra_issis": "vide = tous les ISSI TETRA",
+    "ui_blocked_issis": "ISSI bloqués",
+    "ui_empty_all_meshcom_sources": "vide = toutes les sources MeshCom",
+    "ui_blocked_meshcom_sources": "Sources MeshCom bloquées",
+    "ui_e_g_900_901": "ex. : 900, 901",
+    "ui_default_5": "par défaut : 5",
+    "ui_default_120": "par défaut : 120",
+    "ui_default_3": "par défaut : 3",
+    "ui_default_3600": "par défaut : 3600",
+    "ui_leave_masked_to_keep": "laisser masqué pour conserver",
+    "ui_loading": "Chargement…",
+    "ui_e_g_repeater_test_18_00_20_00": "ex. : test du relais 18:00-20:00",
+    "ui_empty_reset_default_5_s_0_0_s_hangtime_not_the_default": "Vide / réinitialiser = 5 s par défaut. 0 = hangtime de 0 s (pas la valeur par défaut).",
+    "ui_empty_reset_default_120_s_0_unlimited": "Vide / réinitialiser = 120 s par défaut. 0 = illimité.",
+    "ui_empty_reset_default_3_s_valid_range_1_30": "Vide / réinitialiser = 3 s par défaut. Plage valide : 1–30.",
+    "ui_empty_reset_default_3600_s_0_disabled": "Vide / réinitialiser = 3600 s par défaut. 0 = désactivé.",
+    "ui_scan_failed": "échec de la recherche",
+    "ui_apply_failed": "Échec de l’application",
+    "ui_applied_restarting": "Appliqué — redémarrage…",
+    "ui_enabling_rf": "Activation de la RF…",
+    "ui_failed_to_enable_rf": "Impossible d’activer la RF",
+    "ui_saved_service_restarting_reconnect_shortly": "Enregistré — redémarrage du service. Reconnexion sous peu.",
+    "ui_checking_enabling_service": "Vérification / activation du service…",
+    "ui_restricted": "RESTREINT",
+    "ui_failed_to_load": "Échec du chargement : ",
+    "ui_error": "Erreur : ",
+    "ui_disabled": "désactivé",
+    "ui_enabled": "activé",
+    "ui_status_unavailable": "état indisponible",
+    "ui_core_loop": "Boucle principale",
+    "ui_backhaul_brew": "Transport (Brew)",
+    "ui_congestion": "Congestion",
+    "ui_what_to_do": "Actions recommandées",
+    "ui_all_systems_nominal": "Tous les systèmes sont à l’état nominal.",
+    "ui_station_health_2": "Diagnostic de la station : ",
+    "ui_last_action": "Dernière action : ",
+    "ui_status": "État :",
+    "ui_all_domains_nominal_2": "Tous les domaines sont à l’état nominal",
+    "ui_action": "Action : ",
+    "ui_uptime": "Durée de fonctionnement : ",
+    "ui_sip_bridge_is_configured_but_not_active": "La passerelle SIP est configurée mais inactive.",
+    "ui_dapnet_worker_is_not_active": "Le processus DAPNET est inactif.",
+    "ui_geoalarm_is_not_active": "GeoAlarm est inactif.",
+    "ui_rwth_callsign_missing": "Indicatif RWTH manquant",
+    "ui_rwth_authkey_missing": "Clé d’authentification RWTH manquante",
+    "ui_rwth_receive_feed_disabled": "Réception RWTH désactivée",
+    "ui_no_forwarding_path_enabled": "aucun chemin de transmission activé",
+    "ui_no_forwarding": "sans transmission",
+    "ui_no_input_source_enabled": "aucune source d’entrée activée",
+    "ui_open_the_asterisk_sip_page_or_wait_for_the_next_refresh": "Ouvrez la page Asterisk SIP ou attendez la prochaine actualisation.",
+    "ui_open_the_dapnet_page_or_wait_for_the_next_refresh": "Ouvrez la page DAPNET ou attendez la prochaine actualisation.",
+    "ui_open_the_geoalarm_page_or_wait_for_the_next_refresh": "Ouvrez la page GeoAlarm ou attendez la prochaine actualisation.",
+    "ui_the_tetra_core_loop_is_processing_tdma_frames_in_real_time": "La boucle principale TETRA traite les trames TDMA en temps réel.",
+    "ui_time_between_tdma_ticks_is_higher_than_expected_the_sdr_usb_link_or_the_cpu": "L’intervalle entre cycles TDMA dépasse la valeur attendue — la liaison SDR/USB ou le CPU prend du retard sur le temps réel. Les appels fonctionnent encore, mais la marge de temporisation est réduite.",
+    "ui_check_cpu_load_temperature_on_the_system_tab_or_top": "Vérifiez la charge et la température du CPU dans l’onglet Système (ou avec `top`).",
+    "ui_look_for_too_late_to_produce_tx_block_sdr_underrun_lines_in_the_log": "Recherchez les messages « Too late to produce TX block » / underrun SDR dans le journal.",
+    "ui_make_sure_no_other_heavy_process_is_starving_the_bts_it_runs_at_fifo_priori": "Assurez-vous qu’aucun processus lourd ne prive la BTS de ressources (elle utilise la priorité FIFO).",
+    "ui_the_stack_stopped_processing_tdma_frames_calls_and_sds_will_fail_and_radios": "La pile a cessé de traiter les trames TDMA. Les appels et les SDS échoueront, et les radios peuvent perdre leur enregistrement. C’est l’état le plus grave.",
+    "ui_check_the_log_for_a_panic_or_repeated_sdr_errors": "Consultez le journal pour rechercher un panic ou des erreurs SDR répétées.",
+    "ui_restart_the_service_systemctl_restart_unit": "Redémarrez le service : `systemctl restart <unit>`.",
+    "ui_enable_the_software_watchdog_so_this_auto_recovers_health_restart_on_core_s": "Activez le watchdog logiciel pour permettre la récupération automatique : `[health] restart_on_core_stall = true`.",
+    "ui_the_brew_tetrapack_interconnect_is_up_calls_sds_route_to_other_cells_brandm": "L’interconnexion Brew/TetraPack est active — les appels/SDS sont acheminés vers les autres cellules et BrandMeister.",
+    "ui_the_brew_tetrapack_backhaul_is_down_the_cell_still_works_locally_but_calls_": "Le transport Brew/TetraPack est HORS LIGNE. La cellule fonctionne toujours localement, mais les appels et SDS vers/depuis les autres cellules ou BrandMeister ne seront pas acheminés.",
+    "ui_check_network_internet_connectivity_from_the_pi_to_the_brew_server": "Vérifiez la connectivité réseau/Internet entre le Pi et le serveur Brew.",
+    "ui_verify_the_brew_host_port_credentials_on_the_config_tab": "Vérifiez l’hôte, le port et les identifiants de [brew] dans l’onglet Configuration.",
+    "ui_confirm_the_brew_server_is_reachable_the_station_auto_reconnects_when_it_co": "Vérifiez que le serveur Brew est joignable. La station se reconnecte automatiquement lorsqu’il redevient disponible.",
+    "ui_attached_radios_are_being_heard_on_the_air": "Les radios attachées sont reçues sur l’interface radio.",
+    "ui_registered_radios_have_not_transmitted_for_a_while_they_may_have_left_cover": "Les radios enregistrées n’ont pas transmis depuis un certain temps. Elles peuvent avoir quitté la couverture sans se désenregistrer, ou la RX peut s’être dégradée.",
+    "ui_check_the_antenna_feedline_and_the_rx_gain": "Vérifiez l’antenne, la ligne RF et le gain RX.",
+    "ui_confirm_the_radios_are_actually_in_range_and_powered_on": "Vérifiez que les radios sont bien allumées et à portée.",
+    "ui_truly_gone_radios_are_pruned_automatically_at_the_t351_interval": "Les radios ayant quitté la couverture sont retirées automatiquement à l’intervalle T351.",
+    "ui_downlink_mcch_and_sds_queues_are_draining_normally": "Les files de downlink (MCCH) et de SDS sont traitées normalement.",
+    "ui_the_downlink_or_sds_queue_is_filling_faster_than_it_drains_too_much_signall": "La file de downlink ou de SDS se remplit plus vite qu’elle n’est traitée — trop de signalisation/SDS, une radio instable ou des blocs TX perdus par le SDR.",
+    "ui_check_the_sds_log_for_a_radio_spamming_retransmits_or_a_flood_of_broadcasts": "Consultez le journal SDS pour repérer des retransmissions excessives d’une radio ou un volume élevé de diffusions.",
+    "ui_reduce_home_mode_display_broadcast_sds_rate_if_it_is_heavy": "Réduisez la fréquence de Home-Mode-Display / diffusion SDS si elle est excessive.",
+    "ui_check_sdr_tx_health_on_the_rf_tab_for_dropped_blocks": "Vérifiez l’état TX du SDR dans l’onglet RF pour repérer des blocs perdus.",
+    "ui_the_downlink_sds_backlog_is_severe_grants_signalling_and_messages_will_be_d": "L’accumulation de downlink/SDS est importante — les autorisations d’émission, la signalisation et les messages seront retardés ou perdus.",
+    "ui_act_urgently_identify_and_kick_a_misbehaving_radio_from_the_radios_tab": "Intervenez rapidement : identifiez et désenregistrez la radio au comportement anormal dans la liste des radios.",
+    "ui_check_the_log_for_too_late_to_produce_tx_block_the_sdr_can_t_keep_up": "Recherchez « Too late to produce TX block » dans le journal (le SDR n’arrive pas à suivre).",
+    "ui_reduce_broadcast_sds_load_until_the_queues_drain": "Réduisez la charge de diffusion/SDS jusqu’à ce que les files se vident.",
+    "monitor": "Supervision",
+    "refresh": "Actualiser",
+    "issi": "ISSI",
+    "confirm_clear_log": "Effacer le journal ?"
+},
 };
 // Fill gaps from English so every language has a complete, coherent dictionary.
-['ro','de','es','hu','zh'].forEach(l=>{ LANGS[l]=Object.assign({},LANGS.en,LANGS[l]); });
+['ro','de','es','hu','zh','pt','fr'].forEach(l=>{ LANGS[l]=Object.assign({},LANGS.en,LANGS[l]); });
 
-let currentLang=localStorage.getItem('fs_lang')||'es';
+function dashboardLanguage(value){
+  const code=String(value||'').toLowerCase().split('-')[0];
+  return Object.prototype.hasOwnProperty.call(LANGS,code)?code:'es';
+}
+let currentLang=dashboardLanguage(localStorage.getItem('fs_lang')||navigator.language||'es');
 function t(k,v){let s=(LANGS[currentLang]||LANGS.en)[k]||(LANGS.en[k]||k);if(v)Object.keys(v).forEach(x=>{s=s.replace('{'+x+'}',v[x]);});return s;}
 function applyLang(){
+  document.documentElement.lang=currentLang==='pt'?'pt-PT':currentLang;
+  document.querySelectorAll('[data-i18n-section]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n-section')));
+  ['placeholder','title','aria-label'].forEach(attribute=>{
+    document.querySelectorAll('[data-i18n-'+attribute+']').forEach(el=>el.setAttribute(attribute,t(el.getAttribute('data-i18n-'+attribute))));
+  });
   document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n')));
   document.querySelectorAll('[data-i18n-tab]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n-tab')));
   // Update nav labels
@@ -8298,6 +11054,11 @@ function applyLang(){
     if(tt)tt.textContent=t(pn)||pn;
   }
   renderStations();renderCalls();renderLastHeard();renderEmergencyBanner();
+  // Refresh generated labels without reloading configuration or changing settings.
+  [renderDgnaPage,renderSdsLog,renderDapnetLog,renderGeoalarmEvents,
+    renderRemoteIssis,renderRemoteCmds,renderTgChips,lstRenderRoster,
+    lstRenderScan,lstRenderActivity,lstRenderSdsInbox,updateTsBlocksCarrier]
+    .forEach(render=>{try{render();}catch{}});
   try{updateWhitelistBanner();renderWhitelist();}catch{}
   try{applyServiceStateUi();}catch{}
   try{if(typeof updateHwRfUi==='function')updateHwRfUi();}catch{}
@@ -8315,7 +11076,7 @@ function applyLang(){
   }catch{}
 }
 function setLang(l,btn){
-  currentLang=l;localStorage.setItem('fs_lang',l);
+  l=dashboardLanguage(l);currentLang=l;localStorage.setItem('fs_lang',l);
   document.querySelectorAll('.lang-btn').forEach(b=>{
     const code=b.dataset.lang||'';
     b.classList.toggle('active',code===l);
@@ -8953,7 +11714,7 @@ async function lstRefreshStatus(){
     const j=await r.json();
     lstApplyStatusPayload(j);
     if(!document.getElementById('page-lst_dispatch')?.classList.contains('active'))return;
-  }catch(e){console.warn('lst status',e);lstSetAudioHint('Sin conexión con BS',true);}
+  }catch(e){console.warn('lst status',e);lstSetAudioHint(t("ui_sin_conexi_n_con_bs"),true);}
 }
 function lstApplyStatusPayload(j){
   if(!j||typeof j!=='object')return;
@@ -9414,7 +12175,7 @@ function lstOpenSds(issi){
   const hint=document.getElementById('sds-lst-source-hint');
   if(hint){
     if(op){
-      const tpl=(typeof t==='function'&&t('sds_as_issi'))||'Sent as ISSI {issi}';
+      const tpl=(typeof t==='function'&&t('sds_as_issi'))||t("sds_as_issi");
       hint.textContent=String(tpl).replace('{issi}',String(op));
       hint.style.display='';
     }else{
@@ -10973,7 +13734,7 @@ function eeLabel(mode){
 }
 function lastSeenLabel(secs){
   if(secs==null)return'<span class="muted num">—</span>';
-  if(secs<5)return'<span class="num" style="color:var(--ok)">now</span>';
+  if(secs<5)return("<span class=\"num\" style=\"color:var(--ok)\">"+t("ui_now")+"</span>");
   if(secs<60)return`<span class="num accent">${secs}s</span>`;
   if(secs<3600)return`<span class="num">${Math.floor(secs/60)}m${secs%60}s</span>`;
   return`<span class="num" style="color:var(--warn)">${Math.floor(secs/3600)}h${Math.floor((secs%3600)/60)}m</span>`;
@@ -11054,7 +13815,7 @@ function updateTsBlocks(){
     if(ts===1){
       block.className='ts-block mcch';
       label.textContent='MCCH';
-      sub.textContent='ACTIVE';
+      sub.textContent=t("sys_active_badge");
       // subtle MCCH wave animation
       if(!tsWaveHeights[0].length)tsRandWave(1);
       tsApplyWave(1,true);
@@ -11066,7 +13827,7 @@ function updateTsBlocks(){
     if(!st){
       block.className='ts-block';
       label.textContent='—';
-      sub.textContent='Idle';
+      sub.textContent=t("lst_phase_idle");
       tsApplyWave(ts,false);
       if(timer)timer.textContent='';
       if(dur)dur.style.width='0%';
@@ -11212,7 +13973,7 @@ function tsCarrierBlockHtml(carrierNum,ts){
     <div class="ts-led"></div>
     <div class="ts-wave">${idleHeights.map(h=>`<div class="ts-wave-bar" style="height:${h}px"></div>`).join('')}</div>
     <div class="ts-label">${carrierNum===state.mainCarrierNum&&ts===1?'MCCH':(ts===1?'BCCH':'-')}</div>
-    <div class="ts-sub">${carrierNum===state.mainCarrierNum&&ts===1?'ACTIVE':(ts===1?'SECONDARY':'Idle')}</div>
+    <div class="ts-sub">${carrierNum===state.mainCarrierNum&&ts===1?t("sys_active_badge"):(ts===1?t("ui_secondary"):t("lst_phase_idle"))}</div>
     <div class="ts-flash"></div>
     <div class="ts-duration-bar"></div>
   </div>`;
@@ -11315,7 +14076,7 @@ function tsLinesCarrier(st){
   const shownIssi=speaker||(slotRole==='called'?st.called_issi:st.caller_issi);
   const shownRole=privatePartyRole(st,shownIssi);
   const who=tsIssiTextCarrier(shownIssi);
-  const slotText=slotRole==='caller'?'CALLER SLOT':(slotRole==='called'?'CALLED SLOT':'SHARED SLOT');
+  const slotText=slotRole==='caller'?t("ui_caller_slot"):(slotRole==='called'?t("ui_called_slot"):t("ui_shared_slot"));
   const talkerText=who?(`TX ${shownRole} ${who}`):'';
   return {top,bottom:[slotText,talkerText].filter(Boolean).join(' | ')};
 }
@@ -11369,7 +14130,7 @@ function tsCarrierBlockHtml(carrierNum,ts){
   const mcch=tsIsMainCarrier(carrierNum)&&ts===1;
   const idleHeights=mcch?[8,14,10,16,8,12,6]:[3,3,3,3,3,3,3];
   const label=mcch?'MCCH':(ts===1?'BCCH':'-');
-  const sub=mcch?'ACTIVE':(ts===1?'SECONDARY':'Idle');
+  const sub=mcch?t("sys_active_badge"):(ts===1?t("ui_secondary"):t("lst_phase_idle"));
   return `<div class="ts-block${mcch?' mcch':''}" id="ts-block-${carrierNum}-${ts}">
     <div class="ts-num">TS ${ts}</div>
     ${ts===1?'':'<div class="ts-timer"></div>'}
@@ -11409,7 +14170,7 @@ function updateTsBlocksCarrier(){
       if(ts===1&&tsIsMainCarrier(carrierNum)){
         block.className='ts-block mcch';
         label.textContent='MCCH';
-        sub.textContent='ACTIVE';
+        sub.textContent=t("sys_active_badge");
         if(!tsWaveHeightsCarrier[tsCarrierKey(carrierNum,ts)])tsRandWaveCarrier(carrierNum,ts);
         tsApplyWaveCarrier(carrierNum,ts,true);
         if(dur)dur.style.width='0%';
@@ -11419,7 +14180,7 @@ function updateTsBlocksCarrier(){
       if(!st){
         block.className='ts-block';
         label.textContent=ts===1?'BCCH':'-';
-        sub.textContent=ts===1?'SECONDARY':'Idle';
+        sub.textContent=ts===1?t("ui_secondary"):t("lst_phase_idle");
         tsApplyWaveCarrier(carrierNum,ts,false);
         if(timer)timer.textContent='';
         if(dur)dur.style.width='0%';
@@ -11624,7 +14385,7 @@ function downloadTextFile(filename,text){
 }
 // Human label for known SDS protocol-identifier bytes so binary payloads (no decoded text)
 // still read meaningfully. 0x02/0x09/0x82/0x89 = text; 0x0A = LIP position; 0xDC = Home Mode Display.
-function pidLabel(pid){const m={2:'text',9:'text',10:'LIP position',12:'concat',128:'text',130:'text',137:'text',218:'status',220:'home-display'};return m[pid]||('PID '+pid);}
+function pidLabel(pid){const m={2:'text',9:'text',10:t("ui_lip_position"),12:'concat',128:'text',130:'text',137:'text',218:'status',220:'home-display'};return m[pid]||('PID '+pid);}
 function sdsTypeKind(pid){
   const p=Number(pid)|0;
   if(p===10)return 'lip';
@@ -11656,7 +14417,7 @@ function sdsMessageBody(e){
   if(e.text&&e.text.length){
     const lip=lipPositionFromText(e.text);
     if(lip){
-      const label=`LIP position: ${lip.lat.toFixed(6)}, ${lip.lon.toFixed(6)}`;
+      const label=`${t("ui_lip_position_2")}${lip.lat.toFixed(6)}, ${lip.lon.toFixed(6)}`;
       const url=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lip.lat.toFixed(6)},${lip.lon.toFixed(6)}`)}`;
       return `<a class="sds-map-link" href="${url}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a>`;
     }
@@ -11747,7 +14508,7 @@ function dapRicRoutesBody(id,label){
     const m=line.match(/^([0-9A-Fa-fxX]+)\s*=\s*([0-9]+)$/);
     if(!m){setDapMsg(`Invalid ${label} route: ${line}`,false);return null;}
     const issi=parseInt(m[2],10);
-    if(!Number.isFinite(issi)||issi<1||issi>16777215){setDapMsg(`Invalid SSI in ${label} route: ${line}`,false);return null;}
+    if(!Number.isFinite(issi)||issi<1||issi>16777215){setDapMsg(`${t("ui_invalid_ssi_in")}${label} route: ${line}`,false);return null;}
     out[m[1]]=issi;
   }
   return out;
@@ -11861,9 +14622,9 @@ async function loadDapnet(){
   }catch{setDapMsg(t('conn_error'),false);setIntegrationHero('dap',false,false,t('conn_error'),'');}
 }
 async function saveDapnet(){
-  const ricRoutes=dapRicRoutesBody('dap-ric-routes','RIC to ISSI');
+  const ricRoutes=dapRicRoutesBody('dap-ric-routes',t("ui_ric_to_issi"));
   if(ricRoutes===null)return;
-  const ricGroupRoutes=dapRicRoutesBody('dap-ric-group-routes','RIC to GSSI');
+  const ricGroupRoutes=dapRicRoutesBody('dap-ric-group-routes',t("ui_ric_to_gssi"));
   if(ricGroupRoutes===null)return;
   const sdsRics=dapRicListBody('dap-sds-rics','SDS');
   if(sdsRics===null)return;
@@ -11915,14 +14676,14 @@ async function sendDapnetMessage(){
     emergency:document.getElementById('dap-out-emergency').checked,
     text:document.getElementById('dap-out-text').value.trim()
   };
-  if(!body.text){setDapSendMsg('Message text is empty',false);return;}
-  if(!body.callSignNames.length&&!body.transmitterGroupNames.length){setDapSendMsg('Set callsign or transmitter group',false);return;}
+  if(!body.text){setDapSendMsg(t("ui_message_text_is_empty"),false);return;}
+  if(!body.callSignNames.length&&!body.transmitterGroupNames.length){setDapSendMsg(t("ui_set_callsign_or_transmitter_group"),false);return;}
   setDapSendMsg('Sending…',true);
   try{
     const r=await fetch('/api/dapnet/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();
     if(d.ok){setDapSendMsg('✓ Sent',true);document.getElementById('dap-out-text').value='';loadDapnetLog();}
-    else setDapSendMsg('✗ '+(d.error||'Send failed'),false);
+    else setDapSendMsg('✗ '+(d.error||t("ui_send_failed")),false);
   }catch{setDapSendMsg(t('conn_error'),false);}
 }
 
@@ -11976,7 +14737,7 @@ function geoIssiListBody(id,label){
 function geoEventRow(e){
   const status=e.alarmed
     ? '<span class="badge badge-green" style="font-size:10px">ALARM</span>'
-    : (e.inside_radius?'<span class="badge badge-blue" style="font-size:10px">inside</span>':'<span class="badge" style="font-size:10px">outside</span>');
+    : (e.inside_radius?("<span class=\"badge badge-blue\" style=\"font-size:10px\">"+t("ui_inside")+"</span>"):'<span class="badge" style="font-size:10px">outside</span>');
   return `<tr>
     <td class="sds-time">${escHtml(e.ts||'')}</td>
     <td>${escHtml(e.source||'—')}</td>
@@ -12152,7 +14913,7 @@ async function loadAsteriskStatus(){
     const rc=document.getElementById('ast-register-card');
     if(rc){rc.classList.remove('is-ok','is-warn','is-danger','is-idle');rc.classList.add(registered?'is-ok':enabled?'is-warn':'is-idle');}
   }catch(e){
-    set('ast-configured','—');set('ast-enabled','status unavailable');set('ast-register','—');
+    set('ast-configured','—');set('ast-enabled',t("ui_status_unavailable"));set('ast-register','—');
     set('ast-last-error',t('conn_error'));
     setIntegrationHero('ast', false, false, t('conn_error'), '');
   }
@@ -12913,12 +15674,12 @@ function autoCalcCarrier(){
   const duplexMhz=normalizeMhzField(document.getElementById('vc-custom-duplex'),{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});
   if(duplexMhz!==null&&!Number.isFinite(duplexMhz))return;
   const duplex=duplexMhz===null?5000000:Math.round(duplexMhz*1e6);
-  if(txMhz===null||!Number.isFinite(txMhz)){vcMsg('vc-rf-msg','TX freq required',false);return;}
+  if(txMhz===null||!Number.isFinite(txMhz)){vcMsg('vc-rf-msg',t("ui_tx_freq_required"),false);return;}
   if(band!==4){vcMsg('vc-rf-msg','Auto supports freq_band=4',false);return;}
   if(reverse){vcMsg('vc-rf-msg','Auto supports reverse_operation=false',false);return;}
   const tx=Math.round(txMhz*1e6);
   const main=(tx-400000000-offset)/25000;
-  if(!Number.isInteger(main)){vcMsg('vc-rf-msg','main_carrier is not an integer',false);return;}
+  if(!Number.isInteger(main)){vcMsg('vc-rf-msg',t("ui_main_carrier_is_not_an_integer"),false);return;}
   vcSet('vc-main-carrier',main);
   vcSet('vc-rx-freq',hzToMhzDisplay(tx-duplex));
   vcMsg('vc-rf-msg','Auto OK: main_carrier='+main+', rx_freq='+hzToMhzDisplay(tx-duplex)+' MHz',true);
@@ -13346,7 +16107,7 @@ function secpFill(d){
   const inv=document.getElementById('secp-invalid');
   if((s.invalid_subscriber_keys||[]).length){inv.style.display='';inv.textContent=t('secp_invalid_keys')+s.invalid_subscriber_keys.join(', ');}else{inv.style.display='none';}
   const sel=document.getElementById('secp-ksg');
-  sel.innerHTML=(d.ksgs||[]).map(k=>`<option value="${k.id}"${k.available?'':' disabled'}>${k.name}${k.weak?' — research only':''}${k.available?'':' — not available'}</option>`).join('');
+  sel.innerHTML=(d.ksgs||[]).map(k=>`<option value="${k.id}"${k.available?'':' disabled'}>${k.name}${k.weak?t("ui_research_only"):''}${k.available?'':t("ui_not_available")}</option>`).join('');
   const aie=s.aie;
   document.getElementById('secp-aie').checked=!!(aie&&aie.enabled);
   sel.value=aie?aie.ksg:'tea3';
@@ -13825,7 +16586,7 @@ function selectDgnaGroup(issi,gssi){
   document.getElementById('dgna-gssi').value=gssi;
   document.getElementById('dgna-name').value=(group&&group.mnemonic)||'';
   document.getElementById('dgna-attachment-mode').value=((group&&group.attachment_mode)!=null?group.attachment_mode:(state.dgnaDefaultAttachmentMode||0));
-  setDgnaStatus(group&&group.is_dynamic?'Dynamic group selected':'Static group selected - deassign will force a detach from the radio',group&&group.is_dynamic);
+  setDgnaStatus(group&&group.is_dynamic?t("ui_dynamic_group_selected"):t("ui_static_group_selected_deassign_will_force_a_detach_from_the_radio"),group&&group.is_dynamic);
   syncDgnaDeassignState();
 }
 function openDgna(issi){document.getElementById('dgna-issi').value=issi;document.getElementById('dgna-gssi').value='';document.getElementById('dgna-name').value='';document.getElementById('dgna-attachment-mode').value=String(state.dgnaDefaultAttachmentMode||0);setDgnaStatus('',true);syncDgnaAttachmentModePicker();renderDgnaGroups(issi);document.getElementById('dgna-modal').classList.add('open');}
@@ -13841,8 +16602,8 @@ async function sendDgna(attach){
       if(!ok)return;
     }
   }
-  setDgnaStatus(`Waiting for backend: ${attach?'assign':'deassign'} ISSI ${issi} GSSI ${gssi}`,true);
-  if(!wsSend({type:'dgna',issi,gssi,mnemonic,attachment_mode,attach}))setDgnaStatus('Backend unavailable - command was not sent',false);
+  setDgnaStatus(`${t("ui_waiting_for_backend")}${attach?'assign':'deassign'} ISSI ${issi} GSSI ${gssi}`,true);
+  if(!wsSend({type:'dgna',issi,gssi,mnemonic,attachment_mode,attach}))setDgnaStatus(t("ui_backend_unavailable_command_was_not_sent"),false);
 }
 const DGNA_TEMPLATE_KEY='fs_dgna_templates_v1';
 function loadDgnaTemplates(){
@@ -13889,12 +16650,12 @@ function dgnaEditorGroup(){
 }
 function dgnaAttachmentModeLabel(mode){
   const labels={
-    0:'0 - Attached permanently',
-    1:'1 - Attached until deleted',
-    2:'2 - Attached until removed',
-    3:'3 - Defined and attached',
-    4:'4 - Defined but detached',
-    5:'5 - Reserved / vendor specific'
+    0:t("ui_0_attached_permanently"),
+    1:t("ui_1_attached_until_deleted"),
+    2:t("ui_2_attached_until_removed"),
+    3:t("ui_3_defined_and_attached"),
+    4:t("ui_4_defined_but_detached"),
+    5:t("ui_5_reserved_vendor_specific")
   };
   return labels[mode]||String(mode);
 }
@@ -13920,7 +16681,7 @@ function dgnaSelectPickerGroup(value){
   dgnaUi.selectedGssi=gssi;
   dgnaUi.groupQuery='';
   dgnaUi.groupPickerOpen=false;
-  setDgnaPageStatus(gssi?`Selected GSSI ${gssi}`:'',true);
+  setDgnaPageStatus(gssi?`${t("ui_selected_gssi")}${gssi}`:'',true);
   renderDgnaPage();
 }
 function setDgnaTemplateStatus(txt,ok){
@@ -13932,7 +16693,7 @@ function setDgnaTemplateStatus(txt,ok){
 function openDgnaTemplateModal(gssi){
   const existing=(gssi?dgnaLibraryGroups().find(g=>g.gssi===gssi):null)||null;
   dgnaUi.editingTemplateGssi=existing?existing.gssi:0;
-  document.getElementById('dgna-template-title').textContent=existing?`Edit GSSI ${existing.gssi}`:'New DGNA Group';
+  document.getElementById('dgna-template-title').textContent=existing?`${t("ui_edit_gssi")}${existing.gssi}`:t("ui_new_dgna_group");
   document.getElementById('dgna-template-gssi').value=existing?String(existing.gssi):'';
   document.getElementById('dgna-template-name').value=existing?(existing.mnemonic||''):'';
   const row=document.getElementById('dgna-template-attachment-row');
@@ -13951,7 +16712,7 @@ function saveDgnaTemplateModal(){
   const existingGroup=oldGssi?dgnaLibraryGroups().find(g=>g.gssi===oldGssi):null;
   const existedBefore=(dgnaUi.templates||[]).some(g=>g.gssi===oldGssi||g.gssi===parseInt(document.getElementById('dgna-template-gssi')?.value||'0',10));
   const gssi=parseInt(document.getElementById('dgna-template-gssi')?.value||'0',10);
-  if(!gssi){setDgnaTemplateStatus('Set a valid GSSI first',false);return;}
+  if(!gssi){setDgnaTemplateStatus(t("ui_set_a_valid_gssi_first"),false);return;}
   const mnemonic=(document.getElementById('dgna-template-name')?.value||'').trim().slice(0,15);
   const attachment_mode=state.dgnaAttachmentModePickerEnabled?(parseInt(document.getElementById('dgna-template-attachment-mode')?.value||'0',10)||0):(state.dgnaDefaultAttachmentMode||0);
   const next={gssi,mnemonic,attachment_mode};
@@ -13967,15 +16728,15 @@ function saveDgnaTemplateModal(){
     const targets=dgnaAllRadios().filter(ms=>!!dgnaTargetState(ms.issi,gssi)).map(ms=>ms.issi);
     if(targets.length){
       if(wsSend({type:'dgna_bulk',targets,gssi,mnemonic,attachment_mode,attach:true,all_radios:false})){
-        setDgnaPageStatus(`Updated GSSI ${gssi} in the local library and queued DGNA update to ${targets.length} radio(s)`,true);
+        setDgnaPageStatus(`${t("ui_updated_gssi")}${gssi}${t("ui_in_the_local_library_and_queued_dgna_update_to")}${targets.length} radio(s)`,true);
       }else{
-        setDgnaPageStatus(`Updated GSSI ${gssi} in the local library, but backend update could not be sent`,false);
+        setDgnaPageStatus(`${t("ui_updated_gssi")}${gssi}${t("ui_in_the_local_library_but_backend_update_could_not_be_sent")}`,false);
       }
     }else{
-      setDgnaPageStatus(`Updated GSSI ${gssi} in the local library`,true);
+      setDgnaPageStatus(`${t("ui_updated_gssi")}${gssi}${t("ui_in_the_local_library")}`,true);
     }
   }else{
-    setDgnaPageStatus(oldGssi&&oldGssi!==gssi?`Renamed GSSI ${oldGssi} to ${gssi} in the local group library`:(existedBefore?`Updated GSSI ${gssi} in the local group library`:`Saved GSSI ${gssi} in the local group library`),true);
+    setDgnaPageStatus(oldGssi&&oldGssi!==gssi?`${t("ui_renamed_gssi")}${oldGssi} to ${gssi}${t("ui_in_the_local_group_library")}`:(existedBefore?`${t("ui_updated_gssi")}${gssi}${t("ui_in_the_local_group_library")}`:`${t("ui_saved_gssi")}${gssi}${t("ui_in_the_local_group_library")}`),true);
   }
   renderDgnaPage();
 }
@@ -14059,7 +16820,7 @@ function dgnaSelectLibraryGroup(gssi){
   dgnaUi.selectedGssi=gssi;
   dgnaUi.groupQuery='';
   dgnaUi.groupPickerOpen=false;
-  setDgnaPageStatus(`Selected GSSI ${gssi}`,true);
+  setDgnaPageStatus(`${t("ui_selected_gssi")}${gssi}`,true);
   renderDgnaPage();
 }
 function dgnaSelectTargets(mode){
@@ -14106,7 +16867,7 @@ function renderDgnaGroupPicker(){
   const filtered=groups.filter(g=>!query||String(g.gssi).includes(query)||String(g.mnemonic||'').toLowerCase().includes(query));
   wrap.classList.toggle('open',!!dgnaUi.groupPickerOpen);
   menu.innerHTML=filtered.length
-    ? filtered.map(g=>`<button type="button" class="dgna-picker-option ${current===g.gssi?'active':''}" onclick="dgnaSelectPickerGroup('${g.gssi}')"><span class="dgna-picker-main"><span class="dgna-picker-code">${g.gssi}</span><span class="dgna-picker-name">${escHtml(g.mnemonic||'Unnamed group')}</span></span><span class="dgna-picker-meta">${escHtml(`${g.attached_count}/${g.device_count} radios`)}</span></button>`).join('')
+    ? filtered.map(g=>`<button type="button" class="dgna-picker-option ${current===g.gssi?'active':''}" onclick="dgnaSelectPickerGroup('${g.gssi}')"><span class="dgna-picker-main"><span class="dgna-picker-code">${g.gssi}</span><span class="dgna-picker-name">${escHtml(g.mnemonic||t("ui_unnamed_group"))}</span></span><span class="dgna-picker-meta">${escHtml(`${g.attached_count}/${g.device_count} radios`)}</span></button>`).join('')
     : '<div class="dgna-picker-empty">No matching groups</div>';
   const selected=groups.find(g=>g.gssi===current);
   el.value=(el===document.activeElement&&dgnaUi.groupPickerOpen&&query)?dgnaUi.groupQuery:(selected?dgnaGroupPickerLabel(selected):'');
@@ -14128,7 +16889,7 @@ function renderDgnaTargetsTable(){
     const checked=dgnaUi.targetChecks[ms.issi]===true;
     const st=gssi?dgnaTargetState(ms.issi,gssi):null;
     const last=dgnaUi.lastByIssi[ms.issi];
-    const stateHtml=!gssi?'<span class="dgna-state-note">Choose a group</span>':st?`<span class="dgna-status-pill"><span class="badge ${st.is_dynamic?'badge-blue':'badge-dim'}">${st.is_dynamic?'dynamic':'static'}</span><span class="badge ${st.is_attached?'badge-green':'badge-dim'}">${st.is_attached?'attached':'detached'}</span>${st.mnemonic?`<span class="dgna-state-note">${escHtml(st.mnemonic)}</span>`:''}</span>`:'<span class="dgna-state-note">not present</span>';
+    const stateHtml=!gssi?("<span class=\"dgna-state-note\">"+t("ui_choose_a_group")+"</span>"):st?`<span class="dgna-status-pill"><span class="badge ${st.is_dynamic?'badge-blue':'badge-dim'}">${st.is_dynamic?'dynamic':'static'}</span><span class="badge ${st.is_attached?'badge-green':'badge-dim'}">${st.is_attached?'attached':'detached'}</span>${st.mnemonic?`<span class="dgna-state-note">${escHtml(st.mnemonic)}</span>`:''}</span>`:'<span class="dgna-state-note">not present</span>';
     const lastState=(last&&(!gssi||last.gssi===gssi))?dgnaStatusPresentation(last):null;
     const lastClass=!lastState?'dgna-state-note':(lastState.kind==='ok'?'dgna-status-ok':lastState.kind==='pending'?'dgna-state-note':'dgna-status-bad');
     const lastHtml=(last&&(!gssi||last.gssi===gssi))?`<span class="${lastClass}">${escHtml(last.detail||'')}</span>`:'<span class="dgna-state-note">-</span>';
@@ -14150,7 +16911,7 @@ function renderDgnaAssignmentSummary(){
   const groupEl=document.getElementById('dgna-assign-group');
   const modeEl=document.getElementById('dgna-assign-mode');
   const hasGroup=!!group;
-  if(groupEl)groupEl.innerHTML=hasGroup?`<code>${group.gssi}</code>${group.mnemonic?` <span class="dgna-state-note">${escHtml(group.mnemonic)}</span>`:''}`:'No group selected';
+  if(groupEl)groupEl.innerHTML=hasGroup?`<code>${group.gssi}</code>${group.mnemonic?` <span class="dgna-state-note">${escHtml(group.mnemonic)}</span>`:''}`:t("ui_no_group_selected");
   if(modeEl)modeEl.textContent=hasGroup?dgnaAttachmentModeLabel(group.attachment_mode):'-';
   ['dgna-assign-selected-btn','dgna-assign-all-btn','dgna-update-selected-btn','dgna-deassign-selected-btn'].forEach(id=>{
     const el=document.getElementById(id);
@@ -14168,12 +16929,12 @@ function renderDgnaPage(){
 }
 async function sendDgnaBulk(attach,allRadios,forceUpdate){
   const group=dgnaEditorGroup();
-  if(!group){setDgnaPageStatus('Select a group from the library first',false);return;}
+  if(!group){setDgnaPageStatus(t("ui_select_a_group_from_the_library_first"),false);return;}
   const gssi=group.gssi;
   const mnemonic=group.mnemonic;
   const attachment_mode=group.attachment_mode;
   const targets=allRadios?dgnaAllRadios().map(ms=>ms.issi):dgnaSelectedTargets();
-  if(!targets.length){setDgnaPageStatus('Select at least one target radio',false);return;}
+  if(!targets.length){setDgnaPageStatus(t("ui_select_at_least_one_target_radio"),false);return;}
   if(!attach){
     const staticTargets=targets.filter(issi=>{const st=dgnaTargetState(issi,gssi);return st&&st.is_attached&&!st.is_dynamic;});
     if(staticTargets.length){
@@ -14182,26 +16943,26 @@ async function sendDgnaBulk(attach,allRadios,forceUpdate){
     }
   }
   const action=forceUpdate?'update':(attach?'assign':'deassign');
-  setDgnaPageStatus(`Waiting for backend: ${action} GSSI ${gssi} on ${allRadios?'all radios':targets.length+' selected radio(s)'}`,true);
+  setDgnaPageStatus(`${t("ui_waiting_for_backend")}${action} GSSI ${gssi} on ${allRadios?t("ui_all_radios"):targets.length+' selected radio(s)'}`,true);
   if(!wsSend({type:'dgna_bulk',targets,gssi,mnemonic,attachment_mode,attach,all_radios:allRadios})){
-    setDgnaPageStatus('Backend unavailable - command was not sent',false);
+    setDgnaPageStatus(t("ui_backend_unavailable_command_was_not_sent"),false);
   }
 }
 async function deleteDgnaGroupEverywhere(gssiArg){
   const group=gssiArg?dgnaLibraryGroups().find(g=>g.gssi===gssiArg):dgnaEditorGroup();
-  if(!group){setDgnaPageStatus('Select a group from the library first',false);return;}
-  if(!(group.template_only||group.dynamic_count>0)){setDgnaPageStatus(`GSSI ${group.gssi} is static and cannot be deleted`,false);return;}
+  if(!group){setDgnaPageStatus(t("ui_select_a_group_from_the_library_first"),false);return;}
+  if(!(group.template_only||group.dynamic_count>0)){setDgnaPageStatus(`GSSI ${group.gssi}${t("ui_is_static_and_cannot_be_deleted")}`,false);return;}
   const gssi=group.gssi;
   const ok=await dashConfirm(t('delete'),t('confirm_dgna_delete',{gssi}),{danger:true,confirmLabel:t('delete')});
   if(!ok)return;
   if(!wsSend({type:'dgna_bulk',targets:dgnaAllRadios().map(ms=>ms.issi),gssi,mnemonic:group.mnemonic,attachment_mode:group.attachment_mode,attach:false,all_radios:true})){
-    setDgnaPageStatus('Backend unavailable - delete was not sent',false);
+    setDgnaPageStatus(t("ui_backend_unavailable_delete_was_not_sent"),false);
     return;
   }
   dgnaUi.templates=(dgnaUi.templates||[]).filter(g=>g.gssi!==gssi);
   persistDgnaTemplates();
   dgnaUi.selectedGssi=0;
-  setDgnaPageStatus(`Deleting GSSI ${gssi}: deassign sent to all radios and removed from the local library`,true);
+  setDgnaPageStatus(`${t("ui_deleting_gssi")}${gssi}${t("ui_deassign_sent_to_all_radios_and_removed_from_the_local_library")}`,true);
   renderDgnaPage();
 }
 setInterval(refreshOpenDgna,1000);
@@ -14950,14 +17711,14 @@ setInterval(()=>{
 },15000);
 async function cellsScan(){
   const msg=document.getElementById('cells-msg');
-  if(msg)msg.textContent='Scanning…';
+  if(msg)msg.textContent=t("wifi_scanning");
   try{
     const r=await fetch('/api/setup/scan-sdr',{method:'POST',credentials:'same-origin'});
     const d=await r.json();
     const opts=document.getElementById('cells-device-options');
     if(opts)opts.innerHTML=(d.devices||[]).map(x=>'<option value="'+escHtmlAttr(x.device||'')+'">'+escHtml(x.label||x.driver||'')+'</option>').join('');
-    if(msg)msg.textContent=d.ok?((d.devices||[]).length+' device(s)'):(d.error||'scan failed');
-  }catch(e){if(msg)msg.textContent='scan failed';}
+    if(msg)msg.textContent=d.ok?((d.devices||[]).length+' device(s)'):(d.error||t("ui_scan_failed"));
+  }catch(e){if(msg)msg.textContent=t("ui_scan_failed");}
 }
 async function cellsPost(path,body){
   const msg=document.getElementById('cells-msg');
@@ -15029,7 +17790,7 @@ async function loadBtsInfo(){
     const nb=document.getElementById('bts-neighbor');
     if(nb){
       const n=d.neighbor_count||0;
-      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?'neighbor':'neighbors')+')'):'OFF');
+      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?t("ui_neighbor"):t("ui_neighbors"))+')'):t("ui_off"));
       nb.className='bts-chip '+(n>0?'on':'off');
     }
     const hg=document.getElementById('bts-hang');
@@ -15040,7 +17801,7 @@ async function loadBtsInfo(){
     const acc=document.getElementById('bts-access');
     if(acc){
       const restricted=!!d.whitelist_restricted;
-      acc.textContent=restricted?'RESTRICTED':'OPEN';
+      acc.textContent=restricted?t("ui_restricted"):t("sys_account_open");
       acc.className='bts-access '+(restricted?'restricted':'open');
     }
     const sub=document.getElementById('bts-access-sub');
@@ -15106,7 +17867,7 @@ async function loadBtsInfoLegacy(){
     const nb=document.getElementById('bts-neighbor');
     if(nb){
       const n=d.neighbor_count||0;
-      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?'neighbor':'neighbors')+')'):'OFF');
+      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?t("ui_neighbor"):t("ui_neighbors"))+')'):t("ui_off"));
       nb.className='bts-chip '+(n>0?'on':'off');
     }
     const hg=document.getElementById('bts-hang');
@@ -15117,7 +17878,7 @@ async function loadBtsInfoLegacy(){
     const acc=document.getElementById('bts-access');
     if(acc){
       const restricted=!!d.whitelist_restricted;
-      acc.textContent=restricted?'RESTRICTED':'OPEN';
+      acc.textContent=restricted?t("ui_restricted"):t("sys_account_open");
       acc.className='bts-access '+(restricted?'restricted':'open');
     }
     const sub=document.getElementById('bts-access-sub');
@@ -15857,8 +18618,8 @@ function updateRfCarrierHints(){
   const evmCarrier = rfState.evmCarrier || iqCarrier;
   setText('rf-spectrum-hint', (t('rf_live')||'live') + ' · 512-bin FFT' + (summary ? ' · ' + summary : ''));
   setText('rf-waterfall-hint', 'rolling · viridis' + (summary ? ' · ' + summary : ''));
-  setText('rf-constellation-hint', iqCarrier ? rfCarrierName(iqCarrier)+' IQ · mixed to baseband' : (multi ? 'aggregate IQ · no carrier lock' : 'π/4-DQPSK'));
-  setText('rf-quality-hint', evmCarrier ? 'EVM '+rfCarrierName(evmCarrier)+' · OBW aggregate pre-PA' : (multi ? 'aggregate pre-PA · EVM/OBW are not per-carrier' : 'measured pre-PA · derived from same DSP snapshot'));
+  setText('rf-constellation-hint', iqCarrier ? rfCarrierName(iqCarrier)+' IQ · mixed to baseband' : (multi ? t("ui_aggregate_iq_no_carrier_lock") : 'π/4-DQPSK'));
+  setText('rf-quality-hint', evmCarrier ? 'EVM '+rfCarrierName(evmCarrier)+' · OBW aggregate pre-PA' : (multi ? t("ui_aggregate_pre_pa_evm_obw_are_not_per_carrier") : t("rf_hint_quality")));
 }
 
 function drawRfCarrierMarkers(ctx, w, h, sampleRate, centerFreq, carriers, opts){
@@ -16008,46 +18769,46 @@ function renderGainList(id, gains){
 // Plain-English diagnosis + remediation per (domain, level) — the "Looking Glass" advice.
 const HEALTH_ADVICE = {
   service: {
-    ok: { why: 'The TETRA core loop is processing TDMA frames in real time.', do: [] },
-    degraded: { why: 'Time between TDMA ticks is higher than expected — the SDR/USB link or the CPU is lagging behind real time. Calls still work but timing is tight.',
-      do: ['Check CPU load & temperature on the System tab (or `top`).',
-           'Look for "Too late to produce TX block" / SDR underrun lines in the Log.',
-           'Make sure no other heavy process is starving the BTS (it runs at FIFO priority).'] },
-    critical: { why: 'The stack stopped processing TDMA frames. Calls and SDS will fail and radios may drop. This is the most serious state.',
-      do: ['Check the Log for a panic or repeated SDR errors.',
-           'Restart the service: `systemctl restart <unit>`.',
-           'Enable the software watchdog so this auto-recovers: `[health] restart_on_core_stall = true`.'] },
+    ok: { why: "ui_the_tetra_core_loop_is_processing_tdma_frames_in_real_time", do: [] },
+    degraded: { why: "ui_time_between_tdma_ticks_is_higher_than_expected_the_sdr_usb_link_or_the_cpu",
+      do: ["ui_check_cpu_load_temperature_on_the_system_tab_or_top",
+           "ui_look_for_too_late_to_produce_tx_block_sdr_underrun_lines_in_the_log",
+           "ui_make_sure_no_other_heavy_process_is_starving_the_bts_it_runs_at_fifo_priori"] },
+    critical: { why: "ui_the_stack_stopped_processing_tdma_frames_calls_and_sds_will_fail_and_radios",
+      do: ["ui_check_the_log_for_a_panic_or_repeated_sdr_errors",
+           "ui_restart_the_service_systemctl_restart_unit",
+           "ui_enable_the_software_watchdog_so_this_auto_recovers_health_restart_on_core_s"] },
   },
   backhaul: {
-    ok: { why: 'The Brew/TetraPack interconnect is up — calls/SDS route to other cells & BrandMeister.', do: [] },
-    degraded: { why: 'The Brew/TetraPack backhaul is DOWN. The cell still works locally, but calls and SDS to/from other cells or BrandMeister will not route.',
-      do: ['Check network/internet connectivity from the Pi to the Brew server.',
-           'Verify the [brew] host / port / credentials on the Config tab.',
-           'Confirm the Brew server is reachable. The station auto-reconnects when it comes back.'] },
+    ok: { why: "ui_the_brew_tetrapack_interconnect_is_up_calls_sds_route_to_other_cells_brandm", do: [] },
+    degraded: { why: "ui_the_brew_tetrapack_backhaul_is_down_the_cell_still_works_locally_but_calls_",
+      do: ["ui_check_network_internet_connectivity_from_the_pi_to_the_brew_server",
+           "ui_verify_the_brew_host_port_credentials_on_the_config_tab",
+           "ui_confirm_the_brew_server_is_reachable_the_station_auto_reconnects_when_it_co"] },
   },
   radios: {
-    ok: { why: 'Attached radios are being heard on the air.', do: [] },
-    degraded: { why: 'Registered radios have not transmitted for a while. They may have left coverage without de-registering, or RX has degraded.',
-      do: ['Check the antenna / feedline and the RX gain.',
-           'Confirm the radios are actually in range and powered on.',
-           'Truly-gone radios are pruned automatically at the T351 interval.'] },
+    ok: { why: "ui_attached_radios_are_being_heard_on_the_air", do: [] },
+    degraded: { why: "ui_registered_radios_have_not_transmitted_for_a_while_they_may_have_left_cover",
+      do: ["ui_check_the_antenna_feedline_and_the_rx_gain",
+           "ui_confirm_the_radios_are_actually_in_range_and_powered_on",
+           "ui_truly_gone_radios_are_pruned_automatically_at_the_t351_interval"] },
   },
   congestion: {
-    ok: { why: 'Downlink (MCCH) and SDS queues are draining normally.', do: [] },
-    degraded: { why: 'The downlink or SDS queue is filling faster than it drains — too much signalling/SDS, a flapping radio, or the SDR dropping TX blocks.',
-      do: ['Check the SDS Log for a radio spamming retransmits or a flood of broadcasts.',
-           'Reduce Home-Mode-Display / broadcast-SDS rate if it is heavy.',
-           'Check SDR TX health on the RF tab for dropped blocks.'] },
-    critical: { why: 'The downlink/SDS backlog is severe — grants, signalling and messages will be delayed or dropped.',
-      do: ['Act urgently: identify and kick a misbehaving radio from the Radios tab.',
-           'Check the Log for "Too late to produce TX block" (the SDR can\'t keep up).',
-           'Reduce broadcast/SDS load until the queues drain.'] },
+    ok: { why: "ui_downlink_mcch_and_sds_queues_are_draining_normally", do: [] },
+    degraded: { why: "ui_the_downlink_or_sds_queue_is_filling_faster_than_it_drains_too_much_signall",
+      do: ["ui_check_the_sds_log_for_a_radio_spamming_retransmits_or_a_flood_of_broadcasts",
+           "ui_reduce_home_mode_display_broadcast_sds_rate_if_it_is_heavy",
+           "ui_check_sdr_tx_health_on_the_rf_tab_for_dropped_blocks"] },
+    critical: { why: "ui_the_downlink_sds_backlog_is_severe_grants_signalling_and_messages_will_be_d",
+      do: ["ui_act_urgently_identify_and_kick_a_misbehaving_radio_from_the_radios_tab",
+           "ui_check_the_log_for_too_late_to_produce_tx_block_the_sdr_can_t_keep_up",
+           "ui_reduce_broadcast_sds_load_until_the_queues_drain"] },
   },
 };
 function healthColor(lvl){ return lvl==='critical' ? 'var(--danger)' : (lvl==='degraded' ? 'var(--warn)' : 'var(--ok)'); }
 // Map a health level to the premium status class suffix used by .h-pill / .h-ring / .h-ico.
 function healthLevelClass(lvl){ return lvl==='critical' ? 'bad' : (lvl==='degraded' ? 'warn' : 'ok'); }
-function healthDomainLabel(d){ return ({service:'Core loop',backhaul:'Backhaul (Brew)',radios:'Radios',congestion:'Congestion'})[d] || d; }
+function healthDomainLabel(d){ return ({service:t("ui_core_loop"),backhaul:t("ui_backhaul_brew"),radios:'Radios',congestion:'Congestion'})[d] || d; }
 // Clean inline SVGs replace the old emoji domain icons. {svg, accent} where accent
 // drives the tinted .h-ico colour (default accent / blue / purple for domain variety).
 const HEALTH_SVG = {
@@ -16089,7 +18850,7 @@ function renderHealthTab(h){
   const bad = (h.domains||[]).filter(function(d){return d.level!=='ok';});
   if(sub) sub.textContent = bad.length
       ? (bad.length+' domain(s) need attention: '+bad.map(function(d){return healthDomainLabel(d.domain);}).join(', '))
-      : 'All systems nominal.';
+      : t("ui_all_systems_nominal");
   if(up)  up.textContent  = (typeof h.uptime_secs==='number') ? ('Uptime '+healthDur(h.uptime_secs)) : '';
   if(act) act.textContent = h.last_action ? ('Last action: '+h.last_action) : '';
 
@@ -16104,7 +18865,7 @@ function renderHealthTab(h){
     let todoHtml = '';
     if(d.level!=='ok' && adv.do && adv.do.length){
       todoHtml = '<div class="h-todo"><span class="h-todo-h">What to do</span><ul>'
-             + adv.do.map(function(x){return '<li>'+escHtml(x)+'</li>';}).join('')
+             + adv.do.map(function(x){return '<li>'+escHtml(t(x))+'</li>';}).join('')
              + '</ul></div>';
     }
     card.innerHTML =
@@ -16115,7 +18876,7 @@ function renderHealthTab(h){
           + '<span class="h-pill '+lvlCls+'">'+(d.level||'').toUpperCase()+'</span>'
         + '</div>'
         + '<div class="h-det"><span class="h-status-lbl">Status:</span> '+escHtml(d.detail||'')+'</div>'
-        + (adv.why ? '<div class="h-det">'+escHtml(adv.why)+'</div>' : '')
+        + (adv.why ? '<div class="h-det">'+escHtml(t(adv.why))+'</div>' : '')
         + todoHtml
       + '</div>';
     grid.appendChild(card);
@@ -16144,7 +18905,7 @@ function integrationHealthCard(title,iconKey,accent,level,detail,extra){
 function classifyAsteriskHealth(data){
   const c=(data&&data.config)||{},rt=(data&&data.runtime)||{};
   const enabled=!!(c.enabled||rt.enabled);
-  if(!enabled)return {level:'ok',detail:'disabled',extra:'SIP bridge is configured but not active.'};
+  if(!enabled)return {level:'ok',detail:'disabled',extra:t("ui_sip_bridge_is_configured_but_not_active")};
   const reg=String(rt.register_status||'').toLowerCase();
   const dialogs=rt.active_dialogs??0;
   const err=rt.last_error||'';
@@ -16156,7 +18917,7 @@ function classifyAsteriskHealth(data){
   return {level,detail,extra};
 }
 function classifyDapnetHealth(data){
-  if(!data||!data.enabled)return {level:'ok',detail:'disabled',extra:'DAPNET worker is not active.'};
+  if(!data||!data.enabled)return {level:'ok',detail:'disabled',extra:t("ui_dapnet_worker_is_not_active")};
   const rt=data.runtime||{};
   const paths=[];
   if(data.forward_sds||rt.forward_sds)paths.push('SDS');
@@ -16167,22 +18928,22 @@ function classifyDapnetHealth(data){
   const rwthStatus=String(rt.rwth_core_status||'').toLowerCase();
   const lastError=rt.last_error||'';
   if(data.rwth_core_enabled){
-    if(!data.rwth_core_callsign)notes.push('RWTH callsign missing');
-    if(!data.rwth_core_authkey_set)notes.push('RWTH authkey missing');
+    if(!data.rwth_core_callsign)notes.push(t("ui_rwth_callsign_missing"));
+    if(!data.rwth_core_authkey_set)notes.push(t("ui_rwth_authkey_missing"));
     if(lastError)notes.push('Last error: '+lastError);
     if(rwthStatus && !/(logged in|connected)/.test(rwthStatus))notes.push('RWTH status '+rt.rwth_core_status);
   } else {
-    notes.push('RWTH receive feed disabled');
+    notes.push(t("ui_rwth_receive_feed_disabled"));
   }
-  if(!paths.length)notes.push('no forwarding path enabled');
+  if(!paths.length)notes.push(t("ui_no_forwarding_path_enabled"));
   if(notes.length)level='degraded';
   const status=rt.rwth_core_status||(data.rwth_core_enabled?'enabled':'disabled');
-  const detail='RWTH '+status+' · '+(paths.length?paths.join(', '):'no forwarding');
+  const detail='RWTH '+status+' · '+(paths.length?paths.join(', '):t("ui_no_forwarding"));
   const extra=notes.length?notes.join(' · '):('Host '+(rt.endpoint||((data.rwth_core_host||'—')+':'+(data.rwth_core_port||'—')))+' · seen '+(rt.seen_messages??0)+(rt.last_rx?' · last RX '+rt.last_rx:''));
   return {level,detail,extra};
 }
 function classifyGeoalarmHealth(data){
-  if(!data||!data.enabled)return {level:'ok',detail:'disabled',extra:'GeoAlarm is not active.'};
+  if(!data||!data.enabled)return {level:'ok',detail:'disabled',extra:t("ui_geoalarm_is_not_active")};
   const rt=data.runtime||{};
   const err=rt.last_error||'';
   const paths=[];
@@ -16191,8 +18952,8 @@ function classifyGeoalarmHealth(data){
   if(data.forward_sip||rt.forward_sip)paths.push('SIP');
   if(data.forward_telegram||rt.forward_telegram)paths.push('Telegram');
   const notes=[];
-  if(!paths.length)notes.push('no forwarding path enabled');
-  if(!data.trigger_tetra&&!data.trigger_meshcom)notes.push('no input source enabled');
+  if(!paths.length)notes.push(t("ui_no_forwarding_path_enabled"));
+  if(!data.trigger_tetra&&!data.trigger_meshcom)notes.push(t("ui_no_input_source_enabled"));
   if(err)notes.push('Last error: '+err);
   const level=notes.length?'degraded':'ok';
   const detail=(rt.seen_positions??0)+' position(s) · '+(rt.alarm_count??0)+' alarm(s)';
@@ -16205,21 +18966,21 @@ function renderHealthIntegrations(){
   grid.innerHTML='';
   if(healthIntegrationState.asterisk){
     const a=classifyAsteriskHealth(healthIntegrationState.asterisk);
-    grid.appendChild(integrationHealthCard('Asterisk SIP','asterisk','',a.level,a.detail,a.extra));
+    grid.appendChild(integrationHealthCard(t("asterisk_title"),'asterisk','',a.level,a.detail,a.extra));
   } else {
-    grid.appendChild(integrationHealthCard('Asterisk SIP','asterisk','','degraded','status unavailable','Open the Asterisk SIP page or wait for the next refresh.'));
+    grid.appendChild(integrationHealthCard(t("asterisk_title"),'asterisk','','degraded',t("ui_status_unavailable"),t("ui_open_the_asterisk_sip_page_or_wait_for_the_next_refresh")));
   }
   if(healthIntegrationState.dapnet){
     const d=classifyDapnetHealth(healthIntegrationState.dapnet);
     grid.appendChild(integrationHealthCard('DAPNET','dapnet','blue',d.level,d.detail,d.extra));
   } else {
-    grid.appendChild(integrationHealthCard('DAPNET','dapnet','blue','degraded','status unavailable','Open the DAPNET page or wait for the next refresh.'));
+    grid.appendChild(integrationHealthCard('DAPNET','dapnet','blue','degraded',t("ui_status_unavailable"),t("ui_open_the_dapnet_page_or_wait_for_the_next_refresh")));
   }
   if(healthIntegrationState.geoalarm){
     const g=classifyGeoalarmHealth(healthIntegrationState.geoalarm);
     grid.appendChild(integrationHealthCard('GeoAlarm','geoalarm','purple',g.level,g.detail,g.extra));
   } else {
-    grid.appendChild(integrationHealthCard('GeoAlarm','geoalarm','purple','degraded','status unavailable','Open the GeoAlarm page or wait for the next refresh.'));
+    grid.appendChild(integrationHealthCard('GeoAlarm','geoalarm','purple','degraded',t("ui_status_unavailable"),t("ui_open_the_geoalarm_page_or_wait_for_the_next_refresh")));
   }
 }
 async function loadHealthIntegrations(){
@@ -16251,7 +19012,7 @@ function handleHealth(h){
   const bad = (h.domains||[]).filter(function(d){return d.level!=='ok';})
                              .map(function(d){return '• '+d.domain+': '+d.level+' ('+d.detail+')';});
   let tip = 'Station health: '+lvl.toUpperCase();
-  tip += bad.length ? '\n'+bad.join('\n') : '\nAll domains nominal';
+  tip += bad.length ? '\n'+bad.join('\n') : t("ui_all_domains_nominal");
   if(h.last_action) tip += '\nAction: '+h.last_action;
   if(typeof h.uptime_secs==='number') tip += '\nUptime: '+h.uptime_secs+'s';
   badge.title = tip;
@@ -16854,7 +19615,7 @@ function updateRfStatusBanner(rf){
   }
   el.classList.add('show');
   el.classList.toggle('is-offline', st==='offline');
-  el.textContent = (st==='error'?'RF error: ':'RF offline: ') + (rf.detail||st);
+  el.textContent = (st==='error'?t("ui_rf_error"):t("ui_rf_offline")) + (rf.detail||st);
 }
 
 function paintRfPill(el, rf){
@@ -16901,7 +19662,7 @@ async function refreshSetupPage(){
     set('setup-backend-val', d.config_backend||'—');
     set('setup-device-val', d.config_device||'—');
     set('setup-unit-val', d.service_unit||'—');
-    set('setup-helper-val', d.helper_path||'not installed');
+    set('setup-helper-val', d.helper_path||t("ui_not_installed"));
     set('setup-rf-detail', (d.rf_status&&d.rf_status.detail)||'');
     set('wiz-rf-detail', (d.rf_status&&d.rf_status.detail)||'');
     renderDeviceList('setup-device-list', d.devices||[], 'wiz-device');
@@ -16949,14 +19710,14 @@ function wizPrev(){wizStep=Math.max(0,wizStep-1);wizShowStep();}
 
 async function setupScanSdr(inWizard){
   const msg=document.getElementById(inWizard?'wiz-sdr-msg':'setup-page-msg');
-  if(msg)msg.textContent='Scanning…';
+  if(msg)msg.textContent=t("wifi_scanning");
   try{
     const r=await fetch('/api/setup/scan-sdr',{method:'POST',credentials:'same-origin'});
     const d=await r.json();
     renderDeviceList('setup-device-list', d.devices||[], 'wiz-device');
     renderDeviceList('wiz-device-list', d.devices||[], 'wiz-device');
-    if(msg)msg.textContent=d.ok?((d.devices||[]).length+' device(s)'):(d.error||'scan failed');
-  }catch(e){if(msg)msg.textContent='scan failed';}
+    if(msg)msg.textContent=d.ok?((d.devices||[]).length+' device(s)'):(d.error||t("ui_scan_failed"));
+  }catch(e){if(msg)msg.textContent=t("ui_scan_failed");}
 }
 
 async function setupInstallDriver(driver,inWizard){
@@ -17013,35 +19774,35 @@ async function setupInstallDriver(driver,inWizard){
 async function setupEnableRfAndRestart(){
   const device=(document.getElementById('wiz-device')&&document.getElementById('wiz-device').value)||setupSelectedDevice||'';
   const msg=document.getElementById('setup-page-msg');
-  if(msg)msg.textContent='Applying…';
+  if(msg)msg.textContent=t("dc_applying");
   try{
     const r=await fetch('/api/setup/apply',{
       method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({enable_rf:true,device:device||null,restart:true})
     });
-    if(msg)msg.textContent=r.ok?'Applied — restarting…':'Apply failed';
-  }catch(e){if(msg)msg.textContent='Apply failed';}
+    if(msg)msg.textContent=r.ok?t("ui_applied_restarting"):t("ui_apply_failed");
+  }catch(e){if(msg)msg.textContent=t("ui_apply_failed");}
 }
 
 async function wizEnableRf(){
   const device=(document.getElementById('wiz-device')&&document.getElementById('wiz-device').value)||setupSelectedDevice||'';
   const msg=document.getElementById('wiz-enable-msg');
-  if(msg)msg.textContent='Enabling RF…';
+  if(msg)msg.textContent=t("ui_enabling_rf");
   try{
     const r=await fetch('/api/setup/apply',{
       method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({enable_rf:true,device:device||null,restart:true})
     });
-    if(msg)msg.textContent=r.ok?'Saved — service restarting. Reconnect shortly.':'Failed to enable RF';
+    if(msg)msg.textContent=r.ok?t("ui_saved_service_restarting_reconnect_shortly"):t("ui_failed_to_enable_rf");
     if(r.ok) wizNext();
-  }catch(e){if(msg)msg.textContent='Failed to enable RF';}
+  }catch(e){if(msg)msg.textContent=t("ui_failed_to_enable_rf");}
 }
 
 async function setupEnsureAutostart(inWizard){
   const msg=document.getElementById(inWizard?'wiz-systemd-msg':'setup-page-msg');
-  if(msg)msg.textContent='Checking / enabling service…';
+  if(msg)msg.textContent=t("ui_checking_enabling_service");
   try{
     // After "Enable RF & Restart" the session may drop briefly — surface that clearly.
     const st=await fetch('/api/setup/systemd',{
@@ -17049,7 +19810,7 @@ async function setupEnsureAutostart(inWizard){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'status'})
     });
-    if(st.status===401){ if(msg)msg.textContent='Session expired — log in again, then retry.'; return; }
+    if(st.status===401){ if(msg)msg.textContent=t("setup_session"); return; }
     if(st.ok){
       const s=await st.json();
       if(s && s.enabled==='enabled'){
@@ -17062,7 +19823,7 @@ async function setupEnsureAutostart(inWizard){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'enable'})
     });
-    if(r.status===401){ if(msg)msg.textContent='Session expired — log in again, then retry.'; return; }
+    if(r.status===401){ if(msg)msg.textContent=t("setup_session"); return; }
     const text=await r.text();
     let d={}; try{d=JSON.parse(text);}catch{d={ok:false,error:text||('HTTP '+r.status)};}
     if(msg)msg.textContent=d.ok?(d.output||'enabled'):(d.error||('failed (HTTP '+r.status+')'));
@@ -17111,8 +19872,8 @@ async function pollPublic(){
     setT('pub-ms', d.registered_ms ?? '—');
     setT('pub-calls', (d.active_calls ?? 0) + (d.active_calls ? ' ('+d.group_calls+'G / '+d.individual_calls+'I)' : ''));
     setT('pub-freq', d.center_freq_hz ? (d.center_freq_hz/1e6).toFixed(4)+' MHz' : '—');
-    setT('pub-rf', d.rf_active ? 'Active' : 'Idle');
-    setT('pub-brew', d.brew_online ? 'Online' : 'Offline');
+    setT('pub-rf', d.rf_active ? t("ui_active") : t("lst_phase_idle"));
+    setT('pub-brew', d.brew_online ? t("ui_online") : t("ui_offline"));
     setT('pub-ver', d.stack_version || '—');
     const STAT_STATES=['is-ok','is-idle','is-info','is-warn','is-danger'];
     const rfc=document.getElementById('pub-rf-card');
@@ -17328,6 +20089,8 @@ input:focus{border-color:var(--accent2);background:var(--bg4);}
 
 <script>
 const LOGIN_I18N={
+  pt:{user:'Utilizador',pass:'Palavra-passe',enter:'Entrar',entering:'A iniciar sessão…',bad:'Credenciais incorretas',err:'Erro de acesso (',net:'Erro de rede: ',credit:'Versão melhorada por Aitor, EA4HBL',title:'Iniciar sessão'},
+  fr:{user:'Utilisateur',pass:'Mot de passe',enter:'Se connecter',entering:'Connexion…',bad:'Identifiants incorrects',err:'Erreur de connexion (',net:'Erreur réseau : ',credit:'Version améliorée par Aitor, EA4HBL',title:'Connexion'},
   en:{user:'Username',pass:'Password',enter:'Sign in',entering:'Signing in…',bad:'Invalid credentials',err:'Login error (',net:'Network error: ',credit:'Enhanced version by Aitor, EA4HBL',title:'Sign in'},
   es:{user:'Usuario',pass:'Contraseña',enter:'Entrar',entering:'Entrando…',bad:'Credenciales incorrectas',err:'Error de acceso (',net:'Error de red: ',credit:'Versión mejorada por Aitor, EA4HBL',title:'Acceso'},
   de:{user:'Benutzer',pass:'Passwort',enter:'Anmelden',entering:'Anmeldung…',bad:'Ungültige Anmeldedaten',err:'Anmeldefehler (',net:'Netzwerkfehler: ',credit:'Verbesserte Version von Aitor, EA4HBL',title:'Anmeldung'},
@@ -17335,8 +20098,10 @@ const LOGIN_I18N={
   hu:{user:'Felhasználó',pass:'Jelszó',enter:'Belépés',entering:'Belépés…',bad:'Hibás hitelesítő adatok',err:'Belépési hiba (',net:'Hálózati hiba: ',credit:'Fejlesztett verzió: Aitor, EA4HBL',title:'Belépés'},
   zh:{user:'用户名',pass:'密码',enter:'登录',entering:'登录中…',bad:'凭据无效',err:'登录错误 (',net:'网络错误: ',credit:'改进版本：Aitor, EA4HBL',title:'登录'},
 };
-const _pref=localStorage.getItem('fs_lang')||((navigator.language||'es').slice(0,2).toLowerCase());
-const L=LOGIN_I18N[_pref]||LOGIN_I18N.es;
+const _pref=String(localStorage.getItem('fs_lang')||navigator.language||'es').toLowerCase().split('-')[0];
+const _lang=Object.prototype.hasOwnProperty.call(LOGIN_I18N,_pref)?_pref:'es';
+const L=LOGIN_I18N[_lang];
+document.documentElement.lang=_lang==='pt'?'pt-PT':_lang;
 document.title='{{PRODUCT_NAME}} — '+L.title;
 document.getElementById('lbl-user').textContent=L.user;
 document.getElementById('lbl-pass').textContent=L.pass;
