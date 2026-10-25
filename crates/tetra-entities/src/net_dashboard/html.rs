@@ -137,7 +137,8 @@ body.touch-mode .btn,
 body.touch-mode .btn-sm{min-height:44px;padding:10px 16px;font-size:13px;}
 body.touch-mode .nav-item{min-height:44px;padding:11px 14px;font-size:15px;}
 body.touch-mode .theme-btn,
-body.touch-mode .lang-btn,
+body.touch-mode .language-btn,
+body.touch-mode .language-opt,
 body.touch-mode .touch-btn{min-height:40px;padding:8px 12px;font-size:13px;}
 body.touch-mode .logout-btn{width:42px;height:42px;font-size:18px;}
 body.touch-mode .power-opt{min-height:44px;padding:12px 10px;}
@@ -1038,19 +1039,30 @@ body{
 .theme-btn:hover{color:var(--text);background:var(--bg3);}
 .theme-btn.active{color:var(--accent);background:rgba(0,212,168,0.08);}
 
-/* Lang picker */
-.lang-picker{display:flex;gap:2px;}
-.lang-btn{
-  padding:3px 6px;border-radius:4px;cursor:pointer;
-  font-family:var(--mono);font-size:10px;font-weight:600;
-  color:var(--text3);background:transparent;
-  border:1px solid transparent;
-  transition:all 0.15s;
+/* Language menu — same surface and row rhythm as Readability. */
+.language-wrap{position:relative;display:flex;}
+.language-btn{
+  min-height:30px;display:flex;align-items:center;gap:6px;padding:4px 8px;
+  background:transparent;border:1px solid var(--border);border-radius:6px;
+  color:var(--text2);cursor:pointer;font-family:var(--sans);font-size:11px;font-weight:600;
 }
-.lang-btn:hover{color:var(--text);background:var(--bg3);}
-.lang-btn.active{color:var(--accent);background:rgba(0,212,168,0.08);border-color:rgba(0,212,168,0.2);}
+.language-btn svg{width:15px;height:15px;flex-shrink:0;}
+.language-btn .language-chevron{width:12px;height:12px;color:var(--text3);transition:transform .15s;}
+.language-btn[aria-expanded="true"] .language-chevron{transform:rotate(180deg);}
+.language-btn:hover,.language-btn[aria-expanded="true"]{color:var(--accent);border-color:var(--border2);background:var(--bg3);}
+.language-current{font-family:var(--mono);font-size:10px;}
+.language-pop[hidden]{display:none;}
+.language-pop{max-height:min(440px,calc(100dvh - 84px));overflow-y:auto;overscroll-behavior:contain;}
+.read-pop.language-pop{background:var(--bg2);}
+.language-opt{min-height:39px;gap:10px;font-family:var(--sans);}
+.language-opt-name{flex:1;min-width:0;font-size:13px;font-weight:600;}
+.language-code{width:24px;font-family:var(--mono);font-size:10px;color:var(--text2);}
+.language-opt.active .language-opt-name{color:var(--accent);}
+.language-opt.active .read-check{opacity:1;transform:scale(1);}
+.language-btn:focus-visible,.language-opt:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+@media (max-width:700px){.language-btn{padding:5px 7px;}}
 
-/* Mobile prefs pop (theme + language) — hidden on desktop; mirrors .power-pop */
+/* Mobile theme popover — hidden on desktop; mirrors .power-pop. */
 .prefs-wrap{display:none;position:relative;}
 .prefs-btn{
   width:30px;height:30px;display:flex;align-items:center;justify-content:center;
@@ -1086,8 +1098,6 @@ body{
 }
 .prefs-pop .theme-picker{width:100%;margin:0 4px 8px;}
 .prefs-pop .theme-btn{flex:1;padding:8px 6px;font-size:11px;}
-.prefs-pop .lang-picker{display:flex;flex-wrap:wrap;gap:4px;margin:0 4px 6px;padding:0 2px 4px;}
-.prefs-pop .lang-btn{min-width:36px;padding:8px 6px;font-size:11px;}
 @media (max-width:1100px){
   .prefs-wrap{display:flex;}
   .topbar-inline-prefs{display:none!important;}
@@ -4237,44 +4247,65 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)"><span data-i18n="ui_light">Light</span></button>
         <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)"><span data-i18n="ui_blue">Blue</span></button>
       </div>
-      <div class="lang-picker topbar-inline-prefs">
-        <button class="lang-btn" data-lang="en" onclick="setLang('en',this)">EN</button>
-        <button class="lang-btn" data-lang="ro" onclick="setLang('ro',this)">RO</button>
-        <button class="lang-btn" data-lang="de" onclick="setLang('de',this)">DE</button>
-        <button class="lang-btn active" data-lang="es" onclick="setLang('es',this)">ES</button>
-        <button class="lang-btn" data-lang="pt" onclick="setLang('pt',this)" title="Português (Portugal)">PT</button>
-        <button class="lang-btn" data-lang="fr" onclick="setLang('fr',this)" title="Français">FR</button>
-        <button class="lang-btn" data-lang="hu" onclick="setLang('hu',this)">HU</button>
-        <button class="lang-btn" data-lang="zh" onclick="setLang('zh',this)">CN</button>
+      <div class="language-wrap">
+        <button type="button" class="language-btn" id="language-btn" onclick="toggleLanguagePop(event)" onkeydown="languageTriggerKeydown(event)"
+                aria-haspopup="menu" aria-controls="language-pop" aria-expanded="false" aria-label="Language">
+          <span class="language-current" id="language-current">ES</span>
+          <svg class="language-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+        </button>
+        <div class="read-pop language-pop" id="language-pop" role="menu" aria-label="Language" data-i18n-aria-label="ui_language" onkeydown="languageMenuKeydown(event)" hidden>
+          <button type="button" class="read-opt language-opt" data-lang="en" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('en')">
+            <span class="language-code" aria-hidden="true">EN</span><span class="language-opt-name" lang="en">English</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="read-opt language-opt" data-lang="es" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('es')">
+            <span class="language-code" aria-hidden="true">ES</span><span class="language-opt-name" lang="es">Español</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="read-opt language-opt" data-lang="fr" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('fr')">
+            <span class="language-code" aria-hidden="true">FR</span><span class="language-opt-name" lang="fr">Français</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="read-opt language-opt" data-lang="pt" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('pt')">
+            <span class="language-code" aria-hidden="true">PT</span><span class="language-opt-name" lang="pt-PT">Português (Portugal)</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="read-opt language-opt" data-lang="ro" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('ro')">
+            <span class="language-code" aria-hidden="true">RO</span><span class="language-opt-name" lang="ro">Română</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="read-opt language-opt" data-lang="de" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('de')">
+            <span class="language-code" aria-hidden="true">DE</span><span class="language-opt-name" lang="de">Deutsch</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="read-opt language-opt" data-lang="hu" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('hu')">
+            <span class="language-code" aria-hidden="true">HU</span><span class="language-opt-name" lang="hu">Magyar</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="read-opt language-opt" data-lang="zh" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseLanguage('zh')">
+            <span class="language-code" aria-hidden="true">CN</span><span class="language-opt-name" lang="zh-CN">简体中文</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+        </div>
       </div>
-      <!-- Phone: theme + language collapsed into one popover (desktop keeps inline pickers). -->
+      <!-- Phone: theme choices use a compact popover; language has its own menu. -->
       <div class="prefs-wrap">
         <button class="prefs-btn" id="prefs-btn" onclick="togglePrefsPop(event)"
-                title="Theme &amp; language" aria-haspopup="true" aria-expanded="false" aria-label="Theme and language" data-i18n-title="prefs_menu_hint">
+                title="Theme" aria-haspopup="true" aria-expanded="false" aria-label="Theme" data-i18n-title="prefs_theme">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="4"/>
             <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
           </svg>
         </button>
-        <div class="prefs-pop" id="prefs-pop" role="menu" aria-label="Theme and language">
+        <div class="prefs-pop" id="prefs-pop" role="menu" aria-label="Theme" data-i18n-aria-label="prefs_theme">
           <div class="prefs-pop-title" data-i18n="prefs_theme">THEME</div>
           <div class="theme-picker">
             <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)"><span data-i18n="ui_dark">Dark</span></button>
             <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)"><span data-i18n="ui_light">Light</span></button>
             <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)"><span data-i18n="ui_blue">Blue</span></button>
           </div>
-          <div class="prefs-pop-title" data-i18n="prefs_lang">LANGUAGE</div>
-          <div class="lang-picker">
-            <button class="lang-btn" data-lang="en" onclick="setLang('en',this)">EN</button>
-            <button class="lang-btn" data-lang="ro" onclick="setLang('ro',this)">RO</button>
-            <button class="lang-btn" data-lang="de" onclick="setLang('de',this)">DE</button>
-            <button class="lang-btn active" data-lang="es" onclick="setLang('es',this)">ES</button>
-            <button class="lang-btn" data-lang="pt" onclick="setLang('pt',this)" title="Português (Portugal)">PT</button>
-            <button class="lang-btn" data-lang="fr" onclick="setLang('fr',this)" title="Français">FR</button>
-            <button class="lang-btn" data-lang="hu" onclick="setLang('hu',this)">HU</button>
-            <button class="lang-btn" data-lang="zh" onclick="setLang('zh',this)">CN</button>
-          </div>
+
         </div>
       </div>
       <!-- Session logout (person + arrow). Only when auth is on. -->
@@ -7176,6 +7207,7 @@ function paintIcons(root){
 // ── i18n ─────────────────────────────────────────────────────────────────
 const LANGS={
   en:{
+    "ui_language":"Language",
     "ui_monitor":"MONITOR",
     "ui_toggle_sidebar":"Toggle sidebar",
     "ui_text_size":"Text size",
@@ -7859,6 +7891,7 @@ const LANGS={
     tg_cat_backhaul:'Brew backhaul up/down',tg_cat_logs:'Critical log (warnings/errors)',
   },
   ro:{
+    "ui_language":"Limbă",
     bts_ip:'IP BTS',offline:'DECONECTAT',online:'CONECTAT',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Acasă',calls:'Apeluri',lastheard:'Ultima Activitate',log:'Log',rf:'RF',health:'Sănătate',echolink:'EchoLink',echolink_title:'EchoLink',config:'Config',
@@ -7989,6 +8022,7 @@ const LANGS={
     tg_cat_backhaul:'Backhaul Brew up/down',tg_cat_logs:'Log critic (avertismente/erori)',
   },
   de:{
+    "ui_language":"Sprache",
     bts_ip:'BTS-IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Start',calls:'Anrufe',lastheard:'Zuletzt Gehört',log:'Log',rf:'RF',health:'Gesundheit',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',config:'Config',
@@ -8094,6 +8128,7 @@ const LANGS={
     sys_bts:'BTS-Verbindung',
   },
   es:{
+    "ui_language":"Idioma",
     cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
     cells_carrier:'Portadora',cells_cc:'Código de color',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',cells_radios:'{n} radio(s)',
     cells_single:'Celda única',rf_cells_note:'Elige una celda para ver su SDR en esta página.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
@@ -8424,6 +8459,7 @@ const LANGS={
     sys_bts:'Conexión BTS',
   },
   hu:{
+    "ui_language":"Nyelv",
     bts_ip:'BTS IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
     stations:'Kezdőlap',calls:'Hívások',lastheard:'Utoljára Hallott',log:'Napló',rf:'RF',health:'Állapot',echolink:'EchoLink',echolink_title:'EchoLink',config:'Konfig',
@@ -8506,6 +8542,7 @@ const LANGS={
     network:'Hálózat',network_links:'Kapcsolatok',network_ethernet:'Ethernet',network_wifi_sec:'WiFi',network_primary_hint:'Az alapértelmezett útvonal címét használja az U-STATUS és a kimenő forgalom. A vezérlőpult bármely listázott IP-n elérhető.',network_default_route:'ALAPÉRTELMEZETT ÚTVONAL',network_iface:'Interfész',network_kind:'Típus',network_state:'Állapot',network_no_links:'Nincs hálózati interfész.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WiFi',network_kind_other:'Egyéb',network_conn_wired:'Vezetékes kapcsolat',network_nm_connected:'Csatlakoztatva',network_nm_disconnected:'Szétkapcsolva',network_nm_unavailable:'Nem elérhető',network_nm_connecting:'Csatlakozás',network_nm_disconnecting:'Szétkapcsolás',network_nm_unmanaged:'Nem kezelt',network_nm_deactivating:'Kikapcsolás',eth_warn_lose_access:'Ha Etherneten csatlakozik, a kábeles profil bontása megszakíthatja a munkamenetet. Tartson WiFi-t vagy más útvonalat készenlétben.',eth_no_saved:'Nincs mentett Ethernet-profil.',eth_connected:'KAPCSOLÓDVA',wifi_status:'Jelenlegi kapcsolat',wifi_saved:'Mentett hálózatok',wifi_visible:'Elérhető hálózatok',wifi_loading:'Betöltés…',wifi_scanning:'Keresés…',wifi_no_device:'Nem észlelhető WiFi eszköz.',wifi_radio_disabled:'WiFi rádió letiltva.',wifi_not_connected:'Nincs kapcsolat hálózathoz.',wifi_no_saved:'Nincs mentett hálózat.',wifi_no_networks:'Nincs hálózat hatótávolságon belül.',wifi_ssid:'Hálózat',wifi_signal:'Jelerősség',wifi_ip:'IP-cím',wifi_actions:'Műveletek',wifi_disconnect:'Bontás',wifi_connect:'Csatlakozás',wifi_connect_to:'Csatlakozás:',wifi_connecting:'Csatlakozás…',wifi_connected:'KAPCSOLÓDVA',wifi_connected_ok:'Csatlakoztatva.',wifi_saved_tag:'MENTETT',wifi_open:'NYITOTT',wifi_forget:'Elfelejtés',wifi_confirm_forget:'Hálózat elfelejtése',wifi_password:'Jelszó',wifi_hidden:'Rejtett hálózat (SSID nem sugárzott)',wifi_add_hidden:'Rejtett hálózat',wifi_scan:'Keresés',wifi_refresh:'Frissítés',wifi_radio_off:'WiFi letiltása',wifi_radio_on:'WiFi engedélyezése',wifi_warn_lose_access:'Ha WiFi-n keresztül csatlakozol a vezérlőpulthoz, a hálózat módosítása lecsatlakoztathat. Biztosíts alternatív hozzáférést.',wifi_err_no_ssid:'SSID szükséges',cancel:'Mégse',sys_sensors:'Gazdagép szenzorok',sys_sensors_empty:'Nem észlelhetők szenzorok.',
   },
   zh:{
+    "ui_language":"语言",
     bts_ip:'BTS IP',offline:'离线',online:'在线',
     brew_online:'在线',brew_offline:'离线',
     stations:'主页',calls:'通话',lastheard:'最近通话',log:'日志',rf:'RF',health:'健康',echolink:'EchoLink',echolink_title:'EchoLink',config:'配置',
@@ -8597,6 +8634,7 @@ const LANGS={
   },
 // Portuguese (Portugal) and French translations by Gustavo Encarnação — CS7ATL.
   pt:{
+    "ui_language":"Idioma",
     "bts_ip": "IP da BTS",
     "offline": "DESLIGADO",
     "online": "LIGADO",
@@ -9811,6 +9849,7 @@ const LANGS={
     "confirm_clear_log": "Limpar o registo?"
 },
   fr:{
+    "ui_language":"Langue",
     "bts_ip": "IP de la BTS",
     "offline": "HORS LIGNE",
     "online": "EN LIGNE",
@@ -11077,12 +11116,60 @@ function applyLang(){
 }
 function setLang(l,btn){
   l=dashboardLanguage(l);currentLang=l;localStorage.setItem('fs_lang',l);
-  document.querySelectorAll('.lang-btn').forEach(b=>{
-    const code=b.dataset.lang||'';
-    b.classList.toggle('active',code===l);
-  });
   applyLang();
+  syncLanguageMenuUi();
   try{syncPrefsMenuUi();}catch{}
+}
+
+const LANGUAGE_NAMES={en:'English',ro:'Română',de:'Deutsch',es:'Español',pt:'Português (Portugal)',fr:'Français',hu:'Magyar',zh:'简体中文'};
+function syncLanguageMenuUi(){
+  document.querySelectorAll('.language-opt').forEach(option=>{
+    const selected=option.dataset.lang===currentLang;
+    option.classList.toggle('active',selected);
+    option.setAttribute('aria-checked',selected?'true':'false');
+  });
+  const current=document.getElementById('language-current');
+  if(current)current.textContent=currentLang==='zh'?'CN':currentLang.toUpperCase();
+  const btn=document.getElementById('language-btn');
+  if(btn)btn.setAttribute('aria-label',t('ui_language')+': '+LANGUAGE_NAMES[currentLang]);
+}
+function closeLanguagePop(restoreFocus=false){
+  const pop=document.getElementById('language-pop'),btn=document.getElementById('language-btn');
+  const wasOpen=!!pop?.classList.contains('open');
+  if(pop){pop.classList.remove('open');pop.hidden=true;}
+  if(btn){btn.setAttribute('aria-expanded','false');if(restoreFocus&&wasOpen)btn.focus();}
+}
+function toggleLanguagePop(e){
+  if(e)e.stopPropagation();
+  const pop=document.getElementById('language-pop'),btn=document.getElementById('language-btn');
+  if(!pop||!btn)return;
+  if(pop.classList.contains('open')){closeLanguagePop();return;}
+  closeReadPop();closePowerPop();closePrefsPop();
+  syncLanguageMenuUi();
+  pop.hidden=false;pop.classList.add('open');btn.setAttribute('aria-expanded','true');
+  pop.querySelector('.language-opt.active')?.focus();
+}
+function chooseLanguage(language){setLang(language);closeLanguagePop(true);}
+function languageTriggerKeydown(e){
+  if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;
+  e.preventDefault();
+  const pop=document.getElementById('language-pop');
+  if(!pop?.classList.contains('open'))toggleLanguagePop(e);
+  const options=pop?.querySelectorAll('.language-opt');
+  if(options?.length)options[e.key==='ArrowUp'?options.length-1:0].focus();
+}
+function languageMenuKeydown(e){
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeLanguagePop(true);return;}
+  if(e.key==='Tab'){closeLanguagePop(true);return;}
+  if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key))return;
+  e.preventDefault();
+  const options=Array.from(document.querySelectorAll('#language-pop .language-opt'));
+  if(!options.length)return;
+  let index=options.indexOf(document.activeElement);
+  if(e.key==='Home')index=0;
+  else if(e.key==='End')index=options.length-1;
+  else index=(index+(e.key==='ArrowDown'?1:-1)+options.length)%options.length;
+  options[index].focus();
 }
 
 let currentTheme=localStorage.getItem('fs_theme')||'light';
@@ -11108,6 +11195,7 @@ function setUiSize(s){
 }
 function toggleReadPop(e){
   if(e)e.stopPropagation();
+  closeLanguagePop();
   closePowerPop();
   closePrefsPop();
   const pop=document.getElementById('read-pop'),btn=document.getElementById('read-btn');
@@ -11121,6 +11209,7 @@ function closeReadPop(){
 }
 function togglePowerPop(e){
   if(e)e.stopPropagation();
+  closeLanguagePop();
   closeReadPop();
   closePrefsPop();
   const pop=document.getElementById('power-pop'),btn=document.getElementById('power-menu-btn');
@@ -11136,6 +11225,7 @@ function closePowerPop(){
 }
 function togglePrefsPop(e){
   if(e)e.stopPropagation();
+  closeLanguagePop();
   closeReadPop();
   closePowerPop();
   const pop=document.getElementById('prefs-pop'),btn=document.getElementById('prefs-btn');
@@ -11152,12 +11242,12 @@ function closePrefsPop(){
 function syncPrefsMenuUi(){
   const btn=document.getElementById('prefs-btn');
   if(btn){
-    const hint=t('prefs_menu_hint');
+    const hint=t('prefs_theme');
     btn.title=hint;
     btn.setAttribute('aria-label',hint);
   }
   const pop=document.getElementById('prefs-pop');
-  if(pop)pop.setAttribute('aria-label',t('prefs_menu_hint'));
+  if(pop)pop.setAttribute('aria-label',t('prefs_theme'));
 }
 function syncPowerMenuUi(){
   const lab=document.getElementById('power-opt-suspend-label');
@@ -11185,6 +11275,8 @@ function powerMenuRun(action){
 }
 // Outside-click + Esc dismissal (matches native popover behavior)
 document.addEventListener('click',e=>{
+  const language=document.getElementById('language-pop');
+  if(language?.classList.contains('open')&&!e.target.closest('.language-wrap'))closeLanguagePop();
   const pop=document.getElementById('read-pop');
   if(pop&&pop.classList.contains('open')&&!e.target.closest('.eye-wrap'))closeReadPop();
   const pp=document.getElementById('power-pop');
@@ -11194,6 +11286,7 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
+    closeLanguagePop(true);
     closeReadPop();
     closePowerPop();
     closePrefsPop();
