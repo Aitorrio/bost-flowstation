@@ -7,7 +7,7 @@
 
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use super::types::{DomainHealth, HealthDomain, HealthLevel, HealthSnapshot};
@@ -79,6 +79,11 @@ pub struct HealthRegistry {
     last_radio_activity_ms: AtomicU64,
     dl_queue_depth: AtomicUsize,
     sds_queue_depth: AtomicUsize,
+    /// Cumulative SDS messages logged (rx + tx) since process start.
+    sds_seen: AtomicU64,
+    /// Cached roll-up of the last sampled overall health level (0=Ok, 1=Degraded, 2=Critical),
+    /// written by the health sampler so cheap readers (e.g. the WAP status page) need no recompute.
+    last_overall: AtomicU8,
     /// Panics caught at the entity-dispatch boundary (message router), since process start.
     caught_panics: AtomicU64,
     /// Millis-since-`start` of the most recent caught panic; 0 = none.
@@ -105,6 +110,8 @@ impl HealthRegistry {
             last_radio_activity_ms: AtomicU64::new(0),
             dl_queue_depth: AtomicUsize::new(0),
             sds_queue_depth: AtomicUsize::new(0),
+            sds_seen: AtomicU64::new(0),
+            last_overall: AtomicU8::new(0),
             caught_panics: AtomicU64::new(0),
             last_caught_panic_ms: AtomicU64::new(0),
             last_action: Mutex::new(None),
@@ -144,6 +151,14 @@ impl HealthRegistry {
     pub fn set_sds_queue_depth(&self, n: usize) {
         self.sds_queue_depth.store(n, Ordering::Relaxed);
     }
+    /// Count one SDS message logged on the air (rx or tx).
+    pub fn note_sds(&self) {
+        self.sds_seen.fetch_add(1, Ordering::Relaxed);
+    }
+    /// Cache the rolled-up overall health level (written by the health sampler each tick).
+    pub fn set_overall(&self, level: HealthLevel) {
+        self.last_overall.store(level as u8, Ordering::Relaxed);
+    }
     /// Note a panic caught at the entity-dispatch boundary (see `messagerouter::guard_entity`).
     /// Cold path — only runs when a panic was actually caught.
     pub fn note_caught_panic(&self) {
@@ -153,6 +168,27 @@ impl HealthRegistry {
     /// Total panics caught at the entity-dispatch boundary since process start.
     pub fn caught_panics(&self) -> u64 {
         self.caught_panics.load(Ordering::Relaxed)
+    }
+    /// Currently-attached radio count (maintained from registration telemetry).
+    pub fn registered_radios(&self) -> usize {
+        self.registered_radios.load(Ordering::Relaxed)
+    }
+    /// Cumulative SDS messages logged since process start.
+    pub fn sds_seen(&self) -> u64 {
+        self.sds_seen.load(Ordering::Relaxed)
+    }
+    /// Seconds since the last uplink was heard from any radio; `None` if none yet.
+    pub fn last_radio_activity_age_secs(&self) -> Option<u64> {
+        let last = self.last_radio_activity_ms.load(Ordering::Relaxed);
+        (last != 0).then(|| self.now_ms().saturating_sub(last) / 1000)
+    }
+    /// The most recently sampled overall health level (`Ok` until the sampler first runs).
+    pub fn overall_level(&self) -> HealthLevel {
+        match self.last_overall.load(Ordering::Relaxed) {
+            2 => HealthLevel::Critical,
+            1 => HealthLevel::Degraded,
+            _ => HealthLevel::Ok,
+        }
     }
     /// Record a remediation action (shown in the snapshot / dashboard / Telegram).
     pub fn record_action(&self, what: String) {
@@ -311,6 +347,31 @@ mod tests {
         let snap = reg.snapshot(&t);
         assert_eq!(snap.overall, HealthLevel::Critical);
         assert_eq!(snap.domains[3].level, HealthLevel::Critical);
+    }
+
+    #[test]
+    fn live_status_counters_round_trip() {
+        // The fields the WAP status page reads back through build_snapshot.
+        let reg = HealthRegistry::new();
+        assert_eq!(reg.registered_radios(), 0);
+        assert_eq!(reg.sds_seen(), 0);
+        assert_eq!(reg.overall_level(), HealthLevel::Ok); // Ok until the sampler runs
+        assert_eq!(reg.last_radio_activity_age_secs(), None);
+
+        reg.set_registered_radios(3);
+        assert_eq!(reg.registered_radios(), 3);
+
+        reg.note_sds();
+        reg.note_sds();
+        assert_eq!(reg.sds_seen(), 2);
+
+        reg.set_overall(HealthLevel::Degraded);
+        assert_eq!(reg.overall_level(), HealthLevel::Degraded);
+        reg.set_overall(HealthLevel::Critical);
+        assert_eq!(reg.overall_level(), HealthLevel::Critical);
+
+        reg.note_radio_activity();
+        assert!(reg.last_radio_activity_age_secs().is_some());
     }
 
     #[test]

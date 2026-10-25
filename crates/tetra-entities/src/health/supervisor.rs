@@ -127,6 +127,7 @@ pub fn spawn_health_monitor(sink: TelemetrySink, cfg: HealthMonitorConfig) {
                 thread::sleep(interval);
 
                 let snapshot = registry().snapshot(&cfg.thresholds);
+                registry().set_overall(snapshot.overall);
                 sink.send(TelemetryEvent::HealthSnapshot(snapshot));
 
                 if !cfg.restart_on_core_stall {

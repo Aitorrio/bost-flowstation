@@ -819,6 +819,7 @@ fn main() {
                                         health_registry().set_registered_radios(radio_count);
                                     }
                                     TelemetryEvent::MsRssi { .. } => health_registry().note_radio_activity(),
+                                    TelemetryEvent::SdsLog { .. } => health_registry().note_sds(),
                                     _ => {}
                                 }
                                 // Feed decoded TETRA LIP positions (SDS protocol-id 10, inbound from
