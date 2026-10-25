@@ -76,6 +76,12 @@ sudo systemctl reload NetworkManager
 
 You can switch presets later under **System → Panel access → Dashboard ports** (applies config and restarts the service). Existing installs keep their current ports until you change them.
 
+## Packet data (WAP / SNDCP)
+
+To let a WAP-capable radio browse a live status page over packet data, see
+[wap-setup.md](wap-setup.md). It is off unless you add the `[cell_info.wap_ip]`
+section to `config.toml`.
+
 ## Degraded boot (no SDR)
 
 If `backend = "None"` or SoapySDR open fails, the process **keeps running**. The dashboard exposes RF state in `/api/system` (`rf_status`: `online` | `offline` | `error` | `starting`) and shows a banner when RF is not online.

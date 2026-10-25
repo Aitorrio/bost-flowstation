@@ -181,19 +181,34 @@ impl Sndcp {
     /// Build the snapshot the WAP status pages render from. Live cell counters (registrations,
     /// groups, SDS, last activity) are populated by the dashboard; until that is wired in the page
     /// reflects the cell identity and stack version, which is enough for a reachability probe.
+    /// Build the status snapshot served over WAP from live station state. The scalar counters,
+    /// uptime, last-heard age and health roll-up come from the always-on process health registry
+    /// (`crate::health::registry()`), which the telemetry-fanout thread feeds whether or not the
+    /// HTTP dashboard is running. The per-radio table (`radio_lines`) and the group/private split
+    /// need the dashboard's per-ISSI mirror (`ms_map`) and remain a follow-up.
     fn build_snapshot(&self) -> wap_status::WapStatusSnapshot {
+        let reg = crate::health::registry();
+        let health = match reg.overall_level() {
+            crate::health::HealthLevel::Ok => "OK",
+            crate::health::HealthLevel::Degraded => "DEGRADED",
+            crate::health::HealthLevel::Critical => "CRITICAL",
+        };
+        let last_activity = match reg.last_radio_activity_age_secs() {
+            Some(age) => format!("{} ago", wap_status::compact_tiny_uptime(age)),
+            None => "none".to_string(),
+        };
         wap_status::WapStatusSnapshot {
             title: "FlowStation".to_string(),
             version: tetra_core::PRODUCT_VERSION.to_string(),
             state: "ON AIR".to_string(),
-            registered_ms: 0,
+            registered_ms: reg.registered_radios() as u32,
             group_count: 0,
             private_count: 0,
-            sds_count: 0,
+            sds_count: reg.sds_seen().min(u32::MAX as u64) as u32,
             radio_lines: Vec::new(),
-            uptime_secs: 0,
-            last_activity: String::new(),
-            health: "OK".to_string(),
+            uptime_secs: reg.uptime_secs(),
+            last_activity,
+            health: health.to_string(),
         }
     }
 

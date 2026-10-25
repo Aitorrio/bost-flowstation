@@ -1,0 +1,110 @@
+# WAP packet data (SNDCP) — setup guide
+
+FlowStation can serve **WAP** to a packet-data-capable TETRA radio (e.g. a
+Motorola MXP600 with the Openwave browser). Once configured, a radio can:
+
+- activate a **PDP context** (packet-data session), authenticated with CHAP,
+- be granted a dedicated **PDCH** (packet data channel), and
+- **browse a live base-station status page** over WAP — registered radios,
+  uptime, SDS activity and station health.
+
+Under the hood this is the TETRA SNDCP service (ETSI EN 300 392-2 clause 28)
+plus an IPv4/UDP stack and a WTP/WSP/WAE gateway on the base station.
+
+---
+
+## The feature is OFF until you configure it
+
+There is **no WAP service unless you add the `[cell_info.wap_ip]` section** to
+your `config.toml` with `enabled = true`. If the section is absent (or
+`enabled = false`), the base station does not advertise or answer packet data
+at all — that is by design, not a bug.
+
+## Requirements
+
+All three of these must be set, and they must agree, or **the service refuses
+to start** (you will see a config error on the dashboard Config page):
+
+| Setting | Where | Value |
+|---|---|---|
+| `sndcp_service` | `[cell_info]` | `true` |
+| `advanced_link` | `[cell_info]` | `true` |
+| `enabled`       | `[cell_info.wap_ip]` | `true` |
+
+Rules the loader enforces:
+
+- `sndcp_service` and `[cell_info.wap_ip].enabled` **must match** — both `true`
+  or both `false`. Turning one on without the other is rejected.
+- `[cell_info.wap_ip].enabled = true` **requires** `advanced_link = true`.
+
+## config.toml
+
+Add this to your `[cell_info]` block (uncomment and adjust):
+
+```toml
+[cell_info]
+# ... your existing cell settings ...
+sndcp_service = true        # advertise packet data (SNDCP) in SYSINFO
+advanced_link = true        # SNDCP requires the advanced link
+
+[cell_info.wap_ip]
+enabled                   = true        # master switch
+address                   = "10.0.0.1"  # BS gateway IPv4 the radio targets — MUST be quoted
+port                      = 9200        # UDP port the radio sends the WAP request to
+response_ttl              = 32          # IPv4 TTL on the downlink reply
+max_request_payload_bytes = 1024        # cap on an inbound request, in bytes (1–1024)
+```
+
+### Field reference
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | bool | `false` | Master switch for the gateway. |
+| `address` | string | `"10.0.0.1"` | Gateway IPv4 the radio's browser points at. **Quote it** — a bare `10.0.0.1` is not valid TOML. |
+| `port` | integer | `9200` | UDP port. `0` is rejected (falls back to the default). |
+| `response_ttl` | integer | `32` | TTL on the reply datagram. `0` is rejected. |
+| `max_request_payload_bytes` | integer | `1024` | Inbound request cap; clamped to `1`–`1024`. |
+
+`[cell_info.wap_ip]` is a sub-table of `[cell_info]`, so it must appear **after**
+the plain `[cell_info]` keys and before the next top-level `[section]`.
+
+## Radio-side setup
+
+Point the radio's WAP/Openwave browser homepage at the gateway, e.g.:
+
+```
+http://10.0.0.1:9200/
+```
+
+Use the same `address` and `port` you set above. The status page is served at
+`/` (and `/status.wml`); the browser follows the links from there.
+
+## Verifying it works
+
+1. Restart the service and confirm it boots (no config error on the dashboard).
+2. On the dashboard, `sndcp_service` shows as advertised in the cell's SYSINFO.
+3. From the radio, open the browser homepage — you should get the FlowStation
+   status page. The figures (registered radios, uptime, SDS count, health)
+   update from live station state.
+
+## Troubleshooting
+
+**"config.toml does not parse — fix it on the Config page first"** (dashboard)
+A TOML syntax error. The most common cause is an **unquoted IP address** —
+write `address = "10.0.0.1"`, not `address = 10.0.0.1`. Also check the
+`[cell_info.wap_ip]` header is placed after the plain `[cell_info]` keys.
+
+**Startup rejected: "cell.sndcp_service requires [cell_info.wap_ip].enabled =
+true, and vice versa"**
+`sndcp_service` and `wap_ip.enabled` disagree. Set both `true` (or both
+`false`). Remember `advanced_link = true` is also required when enabling.
+
+**The radio can't reach the page**
+Confirm the browser homepage host/port exactly match `address`/`port`, and that
+the radio has an active packet-data (PDP) context.
+
+See also: [install-and-setup.md](install-and-setup.md).
+
+---
+
+*WAP packet-data (SNDCP) gateway and status page by **David Harcus, MM7FDM**.*
