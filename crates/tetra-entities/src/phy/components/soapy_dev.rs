@@ -242,6 +242,24 @@ impl RxTxDevSoapySdr {
         }
     }
 
+    /// Consume one buffered air slot, accounting for any real gaps in its samples.
+    /// Used for ordinary delivery and for a TX catch-up tick: advancing only the
+    /// stack while leaving the RX slot buffered permanently shifts every later
+    /// uplink indication (including the MCCH reservation) into the wrong TDMA slot.
+    fn receive_air_slot(&mut self, tx_slot: &[TxSlotBits]) -> Result<(), RxTxDevError> {
+        while self.process_rx_block()? {
+            while self.process_tx_block(tx_slot)? {}
+        }
+        if let Some(rx_dsp) = &mut self.rx_dsp {
+            let skipped = rx_dsp.take_skipped_slots();
+            if skipped > 0 {
+                tracing::warn!("RX skipped {} slot(s) over lost samples, advancing the stack to match", skipped);
+                self.pending_skipped_slots += skipped;
+            }
+        }
+        Ok(())
+    }
+
     /// Produce a block of transmit signal.
     /// Return true if processing can be continued,
     /// false if more data is needed
@@ -294,36 +312,30 @@ impl RxTxDev for RxTxDevSoapySdr {
             return Ok(Vec::new());
         }
 
-        // 2. The stack's clock has fallen behind the SDR for another reason (a stall, RX
-        //    latency) while the air kept flowing. The slot it is handing us can no longer be
-        //    sent, so tick it forward with an empty slot until it is back in front of the SDR.
-        //    The uplink demodulators are driven by sample arrival, so here they are already on
-        //    real air-time — do NOT skip them with the stack, or they run one slot ahead of the
-        //    air for every tick and every uplink burst (registration included) lands on the
-        //    wrong slot. Case 1 above is the only situation where the demodulators lead and the
-        //    stack must be ticked to follow them.
+        // 2. A TX deadline was missed without an RX sample gap. The stream can still
+        //    contain the corresponding old RX slot. Consume and discard that air slot
+        //    before the stack advances; returning empty without consuming it shifts all
+        //    subsequent uplink indications by one slot. Do not artificially advance the
+        //    demodulator's sample counter: real lost samples are accounted for separately.
         if let (Some(tx_dsp), Some(sdr)) = (self.tx_dsp.as_ref(), self.sdr.as_ref()) {
             let behind = tx_dsp.stack_slots_behind(sdr, tx_slot)?;
             if behind > 0 {
                 if may_warn_catch_up(&mut self.catch_up_log_next) {
-                    tracing::warn!("Stack is {} slot(s) behind the SDR clock, ticking it forward to catch up", behind);
+                    tracing::warn!(
+                        "Stack is {} slot(s) behind the SDR clock, consuming buffered RX while ticking forward",
+                        behind
+                    );
+                }
+                self.receive_air_slot(tx_slot)?;
+                if let Some(rx_dsp) = &mut self.rx_dsp {
+                    // This slot belongs to the catch-up tick, never to the next tick.
+                    drop(rx_dsp.take_slot_bits());
                 }
                 return Ok(Vec::new());
             }
         }
 
-        while self.process_rx_block()? {
-            // Continue producing TX signal if possible.
-            while self.process_tx_block(tx_slot)? {}
-        }
-
-        if let Some(rx_dsp) = &mut self.rx_dsp {
-            let skipped = rx_dsp.take_skipped_slots();
-            if skipped > 0 {
-                tracing::warn!("RX skipped {} slot(s) over lost samples, advancing the stack to match", skipped);
-                self.pending_skipped_slots += skipped;
-            }
-        }
+        self.receive_air_slot(tx_slot)?;
 
         // SDR health: temperature readback, throttled to once every ~10 s.
         // Done here (not on a separate thread) so we can borrow &self.sdr safely
