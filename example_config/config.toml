@@ -238,6 +238,10 @@ voice_service = true
 # aie_service               = false  # advertise Air Interface Encryption (AIE) service
 # sndcp_service             = false  # advertise TETRA packet-data (SNDCP) service
 # advanced_link             = false  # advertise the advanced (enhanced data) link
+#   NOTE: to actually serve WAP you must set BOTH sndcp_service = true AND
+#   advanced_link = true, AND add the [cell_info.wap_ip] sub-section below with
+#   enabled = true. sndcp_service and wap_ip.enabled must agree, or startup is
+#   rejected. See the [cell_info.wap_ip] block further down for the full setup.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OPTIONAL: SYNC / low-level cell parameters. Defaults are fine for nearly all
@@ -358,6 +362,29 @@ voice_service = true
 # protocol_id = 130               # SDS protocol ID (default: 220 — change to avoid conflict)
 # text_coding_scheme = "LATIN"    # "LATIN" = ISO-8859-1, "UTF16" = UCS-2/UTF-16BE
 # text = "YO6RZV"                 # Text payload to broadcast
+###############################################################################
+
+###############################################################################
+# OPTIONAL: WAP packet-data gateway (SNDCP / WAP-IP) — FlowStation
+#
+# Lets a WAP/Openwave radio (e.g. MXP600) activate a PDP context, get a
+# dedicated PDCH, and browse a live base-station status page over WAP.
+#
+# OFF BY DEFAULT: the feature exists ONLY when this sub-section is present with
+# enabled = true. Remove the section (or set enabled = false) to disable it.
+#
+# REQUIREMENTS — all of these must agree or the service refuses to start:
+#   [cell_info]  sndcp_service = true    # advertise packet data in SYSINFO
+#   [cell_info]  advanced_link = true    # SNDCP requires the advanced link
+#   [cell_info.wap_ip]  enabled = true   # turn the gateway on
+# (sndcp_service and wap_ip.enabled must both be true, or both be false.)
+#
+# [cell_info.wap_ip]
+# enabled                   = true        # master switch (default: false)
+# address                   = "10.0.0.1"  # BS gateway IPv4 the radio targets; MUST be quoted (default: "10.0.0.1")
+# port                      = 9200        # UDP port the WAP request is sent to (default: 9200)
+# response_ttl              = 32          # IPv4 TTL on the downlink reply (default: 32)
+# max_request_payload_bytes = 1024        # cap on an inbound request, bytes (1–1024; default: 1024)
 ###############################################################################
 
 ###############################################################################

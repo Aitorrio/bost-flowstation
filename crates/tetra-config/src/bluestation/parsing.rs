@@ -412,6 +412,15 @@ u_plane_dtx = false
 frame_18_ext = false
 ms_txpwr_max_cell = 4
 subscriber_class = 0xFFFF
+sndcp_service = true
+advanced_link = true
+
+[cell_info.wap_ip]
+enabled = true
+address = "10.0.0.1"
+port = 9200
+response_ttl = 32
+max_request_payload_bytes = 1024
 
 [cell_info.cell_reselect]
 slow_threshold_db = 20
@@ -577,6 +586,12 @@ sds_queue_critical = 128
         assert!(cfg.asterisk.enabled);
         assert_eq!(cfg.asterisk.service_numbers, vec!["600".to_string(), "601".to_string()]);
         assert!(cfg.dapnet.enabled);
+        let wap = cfg.cell.wap_ip.expect("[cell_info.wap_ip] must parse when uncommented");
+        assert!(wap.enabled);
+        assert_eq!(wap.address, [10, 0, 0, 1]);
+        assert_eq!(wap.port, 9200);
+        assert_eq!(wap.response_ttl, 32);
+        assert_eq!(wap.max_request_payload_bytes, 1024);
         assert!(cfg.dapnet.rwth_core_enabled);
         assert_eq!(cfg.dapnet.callout_incident_base, 2);
         assert_eq!(cfg.dapnet.ric_issi_routes.get(&632585), Some(&2632585));
