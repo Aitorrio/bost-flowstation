@@ -7208,6 +7208,51 @@ function paintIcons(root){
 const LANGS={
   en:{
     "ui_language":"Language",
+    "sys_power_reporting": "{n} sensor(s) reporting",
+    "sys_power_total": "{value} W total",
+    "dapnet_no_messages": "No DAPNET messages yet",
+    "geo_no_events": "No GeoAlarm events yet",
+    "geo_alarm_status": "ALARM",
+    "geo_outside": "outside",
+    "dgna_pending": "PENDING",
+    "dgna_failed": "FAIL",
+    "ui_hangtime": "HangTime — {seconds} s",
+    "ui_help": "Help",
+    "ui_energy_economy_mode": "Energy Economy Mode {mode} — wake {wake}",
+    "ui_caller": "CALLER",
+    "ui_called": "CALLED",
+    "ui_talker": "TALKER",
+    "ui_shared": "Shared",
+    "ui_allocated": "Allocated",
+    "ui_group_short": "GROUP",
+    "dgna_no_groups": "No DGNA groups yet",
+    "dgna_no_matching_groups": "No matching groups",
+    "dgna_no_registered_radios": "No registered radios",
+    "dgna_no_activity": "No DGNA activity yet",
+    "dgna_coverage_radios": "{attached}/{total} radios",
+    "dgna_dynamic_count": "{n} dynamic",
+    "dgna_template_tag": "template",
+    "dgna_selected_count": "Selected: {n}",
+    "dgna_state_dynamic": "dynamic",
+    "dgna_state_static": "static",
+    "dgna_state_attached": "attached",
+    "dgna_state_detached": "detached",
+    "dgna_state_not_present": "not present",
+    "health_level_ok": "OK",
+    "health_level_degraded": "DEGRADED",
+    "health_level_critical": "CRITICAL",
+    "sys_profiles_load_failed": "Failed to load profiles",
+    "sys_cpu_cores": "{n} cores",
+    "setup_no_sdr": "No SDR devices reported by SoapySDRUtil --find.",
+    "setup_device_number": "Device {n}",
+    "setup_yes": "yes",
+    "setup_no": "no",
+    "setup_yes_skipped": "yes (skipped)",
+    "setup_autostart_enabled": "Autostart OK — {unit} is enabled (active={active}).",
+    "ui_failed": "failed",
+    "cfg_auto_band_required": "Automatic calculation requires freq_band=4.",
+    "cfg_auto_reverse_required": "Automatic calculation requires reverse_operation=false.",
+    "cfg_auto_result": "Calculated: main_carrier={carrier}, rx_freq={frequency} MHz",
     "ui_monitor":"MONITOR",
     "ui_toggle_sidebar":"Toggle sidebar",
     "ui_text_size":"Text size",
@@ -8635,6 +8680,51 @@ const LANGS={
 // Portuguese (Portugal) and French translations by Gustavo Encarnação — CS7ATL.
   pt:{
     "ui_language":"Idioma",
+    "sys_power_reporting": "{n} sensor(es) a enviar dados",
+    "sys_power_total": "Total: {value} W",
+    "dapnet_no_messages": "Ainda não há mensagens DAPNET",
+    "geo_no_events": "Ainda não há eventos GeoAlarm",
+    "geo_alarm_status": "ALARME",
+    "geo_outside": "fora",
+    "dgna_pending": "PENDENTE",
+    "dgna_failed": "FALHOU",
+    "ui_hangtime": "HangTime — {seconds} s",
+    "ui_help": "Ajuda",
+    "ui_energy_economy_mode": "Modo de poupança de energia {mode} — despertar {wake}",
+    "ui_caller": "ORIGEM",
+    "ui_called": "DESTINO",
+    "ui_talker": "EMISSOR",
+    "ui_shared": "Partilhado",
+    "ui_allocated": "Atribuído",
+    "ui_group_short": "GRUPO",
+    "dgna_no_groups": "Ainda não há grupos DGNA",
+    "dgna_no_matching_groups": "Nenhum grupo corresponde à pesquisa",
+    "dgna_no_registered_radios": "Nenhum rádio registado",
+    "dgna_no_activity": "Ainda não há atividade DGNA",
+    "dgna_coverage_radios": "{attached}/{total} rádios",
+    "dgna_dynamic_count": "{n} dinâmicos",
+    "dgna_template_tag": "modelo",
+    "dgna_selected_count": "Selecionados: {n}",
+    "dgna_state_dynamic": "dinâmico",
+    "dgna_state_static": "estático",
+    "dgna_state_attached": "associado",
+    "dgna_state_detached": "não associado",
+    "dgna_state_not_present": "não presente",
+    "health_level_ok": "OK",
+    "health_level_degraded": "DEGRADADO",
+    "health_level_critical": "CRÍTICO",
+    "sys_profiles_load_failed": "Não foi possível carregar os perfis",
+    "sys_cpu_cores": "{n} núcleos",
+    "setup_no_sdr": "O comando SoapySDRUtil --find não detetou dispositivos SDR.",
+    "setup_device_number": "Dispositivo {n}",
+    "setup_yes": "sim",
+    "setup_no": "não",
+    "setup_yes_skipped": "sim (ignorada)",
+    "setup_autostart_enabled": "Arranque automático OK — {unit} está ativado (active={active}).",
+    "ui_failed": "falhou",
+    "cfg_auto_band_required": "O cálculo automático requer freq_band=4.",
+    "cfg_auto_reverse_required": "O cálculo automático requer reverse_operation=false.",
+    "cfg_auto_result": "Calculado: main_carrier={carrier}, rx_freq={frequency} MHz",
     "bts_ip": "IP da BTS",
     "offline": "DESLIGADO",
     "online": "LIGADO",
@@ -9850,6 +9940,51 @@ const LANGS={
 },
   fr:{
     "ui_language":"Langue",
+    "sys_power_reporting": "{n} capteur(s) transmettent des données",
+    "sys_power_total": "Total : {value} W",
+    "dapnet_no_messages": "Aucun message DAPNET pour le moment",
+    "geo_no_events": "Aucun événement GeoAlarm pour le moment",
+    "geo_alarm_status": "ALARME",
+    "geo_outside": "à l’extérieur",
+    "dgna_pending": "EN ATTENTE",
+    "dgna_failed": "ÉCHEC",
+    "ui_hangtime": "HangTime — {seconds} s",
+    "ui_help": "Aide",
+    "ui_energy_economy_mode": "Mode économie d’énergie {mode} — réveil {wake}",
+    "ui_caller": "APPELANT",
+    "ui_called": "APPELÉ",
+    "ui_talker": "ÉMETTEUR",
+    "ui_shared": "Partagé",
+    "ui_allocated": "Attribué",
+    "ui_group_short": "GROUPE",
+    "dgna_no_groups": "Aucun groupe DGNA pour le moment",
+    "dgna_no_matching_groups": "Aucun groupe correspondant",
+    "dgna_no_registered_radios": "Aucune radio enregistrée",
+    "dgna_no_activity": "Aucune activité DGNA pour le moment",
+    "dgna_coverage_radios": "{attached}/{total} radios",
+    "dgna_dynamic_count": "{n} dynamiques",
+    "dgna_template_tag": "modèle",
+    "dgna_selected_count": "Sélection : {n}",
+    "dgna_state_dynamic": "dynamique",
+    "dgna_state_static": "statique",
+    "dgna_state_attached": "rattaché",
+    "dgna_state_detached": "non rattaché",
+    "dgna_state_not_present": "absent",
+    "health_level_ok": "OK",
+    "health_level_degraded": "DÉGRADÉ",
+    "health_level_critical": "CRITIQUE",
+    "sys_profiles_load_failed": "Impossible de charger les profils",
+    "sys_cpu_cores": "{n} cœurs",
+    "setup_no_sdr": "Aucun appareil SDR détecté par SoapySDRUtil --find.",
+    "setup_device_number": "Appareil {n}",
+    "setup_yes": "oui",
+    "setup_no": "non",
+    "setup_yes_skipped": "oui (ignorée)",
+    "setup_autostart_enabled": "Démarrage automatique OK — {unit} est activé (active={active}).",
+    "ui_failed": "échec",
+    "cfg_auto_band_required": "Le calcul automatique nécessite freq_band=4.",
+    "cfg_auto_reverse_required": "Le calcul automatique nécessite reverse_operation=false.",
+    "cfg_auto_result": "Calculé : main_carrier={carrier}, rx_freq={frequency} MHz",
     "bts_ip": "IP de la BTS",
     "offline": "HORS LIGNE",
     "online": "EN LIGNE",
@@ -11082,7 +11217,7 @@ function applyLang(){
   document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n')));
   document.querySelectorAll('[data-i18n-tab]').forEach(el=>el.textContent=t(el.getAttribute('data-i18n-tab')));
   // Update nav labels
-  ['stations','dgna','calls','lastheard','rf','health','log','sdslog','asterisk','dapnet','geoalarm','telegram','lst_dispatch','network','setup','config','system'].forEach(p=>{
+  Object.keys(PAGE_TITLES).concat('security').forEach(p=>{
     const el=document.querySelector(`#nav-${p} .nav-label`);
     if(el)el.textContent=t(p);
   });
@@ -11092,27 +11227,41 @@ function applyLang(){
     const tt=document.getElementById('topbar-title');
     if(tt)tt.textContent=t(pn)||pn;
   }
-  renderStations();renderCalls();renderLastHeard();renderEmergencyBanner();
-  // Refresh generated labels without reloading configuration or changing settings.
-  [renderDgnaPage,renderSdsLog,renderDapnetLog,renderGeoalarmEvents,
-    renderRemoteIssis,renderRemoteCmds,renderTgChips,lstRenderRoster,
-    lstRenderScan,lstRenderActivity,lstRenderSdsInbox,updateTsBlocksCarrier]
-    .forEach(render=>{try{render();}catch{}});
-  try{updateWhitelistBanner();renderWhitelist();}catch{}
-  try{applyServiceStateUi();}catch{}
-  try{if(typeof updateHwRfUi==='function')updateHwRfUi();}catch{}
-  try{syncPowerMenuUi();}catch{}
-  try{syncPrefsMenuUi();}catch{}
-  try{installCfgHelp();}catch{}
-  try{setDcSub(dcState.running_active||dcState.active);}catch{}
-  try{
-    if(document.getElementById('page-network')?.classList.contains('active')){
-      if(typeof networkRenderLinks==='function')networkRenderLinks();
-      if(typeof networkLoadEthernetSaved==='function')networkLoadEthernetSaved();
-      if(typeof wifiRenderStatus==='function')wifiRenderStatus();
-      if(typeof wifiLoadSaved==='function')wifiLoadSaved();
-    }
-  }catch{}
+  const refreshers=[
+    renderStations,renderCalls,renderLastHeard,renderEmergencyBanner,
+    ()=>renderDgnaPage({labelsOnly:true}),renderSdsLog,renderDapnetLog,renderGeoalarmEvents,
+    renderRemoteIssis,refreshRemoteCommandTranslations,renderTgChips,
+    renderAsteriskStatus,renderDetectedTelegramChats,
+    lstRenderRoster,lstRenderScan,lstRenderActivity,lstRenderSdsInbox,
+    refreshProfileSelectTranslations,
+    ()=>{if(btsInfoCache)renderBtsInfo(btsInfoCache);},
+    ()=>{if(cellsCache)renderCells(cellsCache.cells,cellsCache.siteLinked);},
+    ()=>{if(rfCellsCache)renderRfCells(rfCellsCache.cells,rfCellsCache.siteLinked);},
+    renderTsGridCarrier,
+    ()=>setDashLinkState(dashLinkState),
+    ()=>setBrewStatus(state.brewOnline,state.brewVer),
+    ()=>setCellSecurity(state.cellSec),
+    updateWhitelistBanner,renderWhitelist,applyServiceStateUi,
+    ()=>{if(typeof updateHwRfUi==='function')updateHwRfUi();},
+    syncPowerMenuUi,syncPrefsMenuUi,installCfgHelp,
+    ()=>setDcSub(dcState.running_active||dcState.active),
+    ()=>{if(networkState.status||networkState.statusError)networkRenderLinks();},
+    ()=>{if(networkState.ethSavedLoaded||networkState.ethSavedError)networkRenderEthernetSaved();},
+    ()=>{if(wifiState.status||wifiState.statusError)wifiRenderStatus();},
+    ()=>{if(wifiState.savedLoaded||wifiState.savedError)wifiRenderSaved();},
+    ()=>{if(wifiState.scanLoaded||wifiState.scanLoading||wifiState.scanError)wifiRenderScan();},
+    ()=>{
+      if(document.getElementById('wifi-modal')?.classList.contains('open')){
+        const title=document.getElementById('wifi-modal-title');
+        if(title)title.textContent=wifiState.modalMode==='hidden'?t('wifi_add_hidden'):
+          t('wifi_connect_to')+': '+(wifiState.modalSsid||'');
+      }
+    },
+    ()=>{if(typeof refreshCachedPanelTranslations==='function')refreshCachedPanelTranslations();},
+    refreshOtaTranslations,
+    ()=>document.querySelectorAll('.table-stack tbody').forEach(applyTableStackLabels),
+  ];
+  refreshers.forEach(refresh=>{try{refresh();}catch(error){console.warn('Language refresh',error);}});
 }
 function setLang(l,btn){
   l=dashboardLanguage(l);currentLang=l;localStorage.setItem('fs_lang',l);
@@ -11389,8 +11538,8 @@ function showPage(name,el){
 // stay on /api/wifi/*. Mutations are last-write-wins and idempotent on the
 // server — fire request, wait, then refresh.
 
-let wifiState = { status: null, saved: [], scan: [], modalMode: null, modalSsid: null };
-let networkState = { status: null, ethSaved: [] };
+let wifiState = { status: null, saved: [], scan: [], savedLoaded:false, scanLoaded:false, statusError:null, savedError:null, scanError:null, scanLoading:false, modalMode: null, modalSsid: null };
+let networkState = { status: null, ethSaved: [], ethSavedLoaded:false, statusError:null, ethSavedError:null };
 
 /// One-shot probe at boot: is nmcli installed on this host? Toggles the
 /// sidebar nav item visibility. Falls back to hidden if the request fails
@@ -11410,21 +11559,21 @@ async function networkRefresh(){
   await Promise.all([networkLoadStatus(), networkLoadEthernetSaved(), wifiRefresh()]);
 }
 
+function renderNetworkError(el,error){
+  if(!error)return false;
+  el.innerHTML='<div class="wifi-list-empty" style="color:var(--danger)">'+escHtml(String(error))+'</div>';
+  return true;
+}
+
 async function networkLoadStatus(){
-  const el = document.getElementById('network-links-list');
-  if(!el) return;
+  if(!document.getElementById('network-links-list'))return;
   try{
-    const r = await fetch('/api/network/status');
-    const j = await r.json();
-    if(!j.ok){
-      el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(j.error&&j.error.msg||'Error')}</div>`;
-      return;
-    }
-    networkState.status = j.status;
-    networkRenderLinks();
-  }catch(e){
-    el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(String(e))}</div>`;
-  }
+    const r=await fetch('/api/network/status');
+    const j=await r.json();
+    networkState.statusError=j.ok?null:(j.error?.msg||'Error');
+    if(j.ok)networkState.status=j.status;
+  }catch(e){networkState.statusError=String(e);}
+  networkRenderLinks();
 }
 
 function networkKindLabel(kind){
@@ -11455,6 +11604,7 @@ function networkLocalizeConn(name){
 function networkRenderLinks(){
   const el = document.getElementById('network-links-list');
   if(!el) return;
+  if(renderNetworkError(el,networkState.statusError))return;
   const st = networkState.status;
   const ifaces = (st && st.interfaces) || [];
   if(!ifaces.length){
@@ -11497,45 +11647,53 @@ async function networkLoadEthernetSaved(){
   try{
     const r = await fetch('/api/network/ethernet/saved');
     const j = await r.json();
-    if(!j.ok){
-      el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(j.error&&j.error.msg||'Error')}</div>`;
-      return;
-    }
+    if(!j.ok){ networkState.ethSavedError=j.error?.msg||'Error'; networkRenderEthernetSaved(); return; }
+    networkState.ethSavedError=null;
     networkState.ethSaved = j.profiles || [];
-    if(cnt) cnt.textContent = networkState.ethSaved.length ? `${networkState.ethSaved.length}` : '';
-    if(networkState.ethSaved.length === 0){
-      el.innerHTML = `<div class="wifi-list-empty">${t('eth_no_saved')||'No saved Ethernet profiles.'}</div>`;
-      return;
-    }
-    el.innerHTML = '';
-    networkState.ethSaved.forEach(p => {
-      const row=document.createElement('div');
-      row.className='wifi-row'+(p.active?' active':'');
-      const main=document.createElement('div');main.className='wifi-row-main';
-      const name=document.createElement('div');name.className='wifi-row-ssid';
-      name.appendChild(document.createTextNode(networkLocalizeConn(p.name||'')||p.name||''));
-      if(p.active){
-        const tag=document.createElement('span');tag.className='wifi-tag active';
-        tag.textContent=' '+(t('eth_connected')||'CONNECTED');
-        name.appendChild(tag);
-      }
-      main.appendChild(name);row.appendChild(main);
-      const actions=document.createElement('div');actions.className='wifi-row-actions';
-      if(p.active){
-        const b=document.createElement('button');b.className='btn btn-sm btn-warn';
-        b.textContent=t('wifi_disconnect')||'Disconnect';
-        b.onclick=()=>networkEthDown(p.uuid);actions.appendChild(b);
-      }else{
-        const b=document.createElement('button');b.className='btn btn-sm';
-        b.textContent=t('wifi_connect')||'Connect';
-        b.onclick=()=>networkEthUp(p.uuid);actions.appendChild(b);
-      }
-      row.appendChild(actions);
-      el.appendChild(row);
-    });
+    networkState.ethSavedLoaded=true;
+    networkRenderEthernetSaved();
   }catch(e){
-    el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(String(e))}</div>`;
+    networkState.ethSavedError=String(e);
+    networkRenderEthernetSaved();
   }
+}
+function networkRenderEthernetSaved(){
+  const el = document.getElementById('eth-saved-list');
+  const cnt = document.getElementById('eth-saved-count');
+  if(!el) return;
+  if(renderNetworkError(el,networkState.ethSavedError))return;
+
+  if(cnt) cnt.textContent = networkState.ethSaved.length ? `${networkState.ethSaved.length}` : '';
+  if(networkState.ethSaved.length === 0){
+    el.innerHTML = `<div class="wifi-list-empty">${t('eth_no_saved')||'No saved Ethernet profiles.'}</div>`;
+    return;
+  }
+  el.innerHTML = '';
+  networkState.ethSaved.forEach(p => {
+    const row=document.createElement('div');
+    row.className='wifi-row'+(p.active?' active':'');
+    const main=document.createElement('div');main.className='wifi-row-main';
+    const name=document.createElement('div');name.className='wifi-row-ssid';
+    name.appendChild(document.createTextNode(networkLocalizeConn(p.name||'')||p.name||''));
+    if(p.active){
+      const tag=document.createElement('span');tag.className='wifi-tag active';
+      tag.textContent=' '+(t('eth_connected')||'CONNECTED');
+      name.appendChild(tag);
+    }
+    main.appendChild(name);row.appendChild(main);
+    const actions=document.createElement('div');actions.className='wifi-row-actions';
+    if(p.active){
+      const b=document.createElement('button');b.className='btn btn-sm btn-warn';
+      b.textContent=t('wifi_disconnect')||'Disconnect';
+      b.onclick=()=>networkEthDown(p.uuid);actions.appendChild(b);
+    }else{
+      const b=document.createElement('button');b.className='btn btn-sm';
+      b.textContent=t('wifi_connect')||'Connect';
+      b.onclick=()=>networkEthUp(p.uuid);actions.appendChild(b);
+    }
+    row.appendChild(actions);
+    el.appendChild(row);
+  });
 }
 
 async function networkEthUp(uuid){
@@ -11942,8 +12100,9 @@ function lstEnsureTimerTick(){
     if(stripT)stripT.textContent=txt;
   },500);
 }
-function lstUpdateCallUi(j){
-  lstEnsureTimerTick();
+function lstUpdateCallUi(j,opts){
+  const labelsOnly=!!(opts&&opts.labelsOnly);
+  if(!labelsOnly)lstEnsureTimerTick();
   const phase=j.call_phase||'idle';
   const kind=j.call_kind||'';
   const peer=j.call_peer!=null?j.call_peer:null;
@@ -12006,7 +12165,7 @@ function lstUpdateCallUi(j){
   const inbound=!!j.call_inbound&&phase==='ringing';
   // Auto-popup only for the active dispatcher — other dashboard sessions still
   // receive lst_status over WS but must not be interrupted by the ringing modal.
-  if(inbound&&peer!=null&&lstToken){
+  if(!labelsOnly&&inbound&&peer!=null&&lstToken){
     lstCallPeer=peer;
     const modal=document.getElementById('lst-call-modal');
     if(modal&&!modal.classList.contains('open'))openLstCallModal(peer);
@@ -12036,8 +12195,10 @@ function lstUpdateCallUi(j){
     pttWrap.style.display=showPtt?'':'none';
   }
   // Sync tabs with live kind when private is up.
-  if(kind==='duplex'&&lstCallTab!=='dx')lstCallSetTab('dx');
-  else if(kind==='simplex'&&phase!=='idle'&&lstCallTab!=='sx')lstCallSetTab('sx');
+  if(!labelsOnly){
+    if(kind==='duplex'&&lstCallTab!=='dx')lstCallSetTab('dx');
+    else if(kind==='simplex'&&phase!=='idle'&&lstCallTab!=='sx')lstCallSetTab('sx');
+  }
 
   if(typeof paintIcons==='function'){
     paintIcons(document.getElementById('lst-call-modal'));
@@ -13065,6 +13226,7 @@ async function wifiLoadStatus(){
     const r = await fetch('/api/wifi/status');
     const j = await r.json();
     if(!j.ok){ wifiRenderStatusError(j.error); return; }
+    wifiState.statusError=null;
     wifiState.status = j.status;
     wifiRenderStatus();
   }catch(e){ wifiRenderStatusError({kind:'Io', msg: String(e)}); }
@@ -13074,6 +13236,7 @@ function wifiRenderStatus(){
   const el = document.getElementById('wifi-status-grid');
   const radioBtn = document.getElementById('wifi-radio-btn');
   if(!el) return;
+  if(renderNetworkError(el,wifiState.statusError))return;
   const s = wifiState.status;
   if(!s){ el.innerHTML = '<div class="wifi-status-loading">'+(t('wifi_loading')||'Loading…')+'</div>'; return; }
 
@@ -13118,10 +13281,8 @@ function wifiRenderStatus(){
 }
 
 function wifiRenderStatusError(err){
-  const el = document.getElementById('wifi-status-grid');
-  if(!el) return;
-  const msg = err && err.msg ? err.msg : (typeof err === 'string' ? err : 'Error');
-  el.innerHTML = `<div class="wifi-status-loading" style="color:var(--danger)">${escHtml(msg)}</div>`;
+  wifiState.statusError=err?.msg||(typeof err==='string'?err:'Error');
+  wifiRenderStatus();
 }
 
 async function wifiLoadSaved(){
@@ -13131,92 +13292,118 @@ async function wifiLoadSaved(){
   try{
     const r = await fetch('/api/wifi/saved');
     const j = await r.json();
-    if(!j.ok){ el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(j.error&&j.error.msg||'Error')}</div>`; return; }
+    if(!j.ok){ wifiState.savedError=j.error?.msg||'Error'; wifiRenderSaved(); return; }
+    wifiState.savedError=null;
     wifiState.saved = j.profiles || [];
-    if(cnt) cnt.textContent = wifiState.saved.length ? `${wifiState.saved.length}` : '';
-    if(wifiState.saved.length === 0){
-      el.innerHTML = `<div class="wifi-list-empty">${t('wifi_no_saved')||'No saved networks.'}</div>`;
-      return;
-    }
-    // Build rows with the DOM so the profile name/uuid never enter an inline handler string: a saved
-    // SSID/name is raw 802.11 data set by whoever broadcast the AP, and an inline onclick would let it
-    // break out of the attribute and run as script. textContent + closures keep it inert.
-    el.innerHTML = '';
-    wifiState.saved.forEach(p => {
-      const row=document.createElement('div');
-      row.className='wifi-row'+(p.active?' active':'');
-      const main=document.createElement('div');main.className='wifi-row-main';
-      const ssid=document.createElement('div');ssid.className='wifi-row-ssid';
-      ssid.appendChild(document.createTextNode(p.name||''));
-      if(p.active){const tag=document.createElement('span');tag.className='wifi-tag active';tag.textContent=' '+(t('wifi_connected')||'CONNECTED');ssid.appendChild(tag);}
-      main.appendChild(ssid);row.appendChild(main);
-      const actions=document.createElement('div');actions.className='wifi-row-actions';
-      if(!p.active){
-        const b=document.createElement('button');b.className='btn btn-sm';b.textContent=t('wifi_connect')||'Connect';
-        b.onclick=()=>wifiConnectSaved(p.uuid);actions.appendChild(b);
-      }
-      const forget=document.createElement('button');forget.className='btn btn-sm btn-danger';forget.textContent=t('wifi_forget')||'Forget';
-      forget.onclick=()=>wifiForget(p.uuid,p.name);actions.appendChild(forget);
-      row.appendChild(actions);
-      el.appendChild(row);
-    });
+    wifiState.savedLoaded=true;
+    wifiRenderSaved();
   }catch(e){
-    el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(String(e))}</div>`;
+    wifiState.savedError=String(e);
+    wifiRenderSaved();
   }
+}
+function wifiRenderSaved(){
+  const el = document.getElementById('wifi-saved-list');
+  const cnt = document.getElementById('wifi-saved-count');
+  if(!el) return;
+  if(renderNetworkError(el,wifiState.savedError))return;
+
+  if(cnt) cnt.textContent = wifiState.saved.length ? `${wifiState.saved.length}` : '';
+  if(wifiState.saved.length === 0){
+    el.innerHTML = `<div class="wifi-list-empty">${t('wifi_no_saved')||'No saved networks.'}</div>`;
+    return;
+  }
+  // Build rows with the DOM so the profile name/uuid never enter an inline handler string: a saved
+  // SSID/name is raw 802.11 data set by whoever broadcast the AP, and an inline onclick would let it
+  // break out of the attribute and run as script. textContent + closures keep it inert.
+  el.innerHTML = '';
+  wifiState.saved.forEach(p => {
+    const row=document.createElement('div');
+    row.className='wifi-row'+(p.active?' active':'');
+    const main=document.createElement('div');main.className='wifi-row-main';
+    const ssid=document.createElement('div');ssid.className='wifi-row-ssid';
+    ssid.appendChild(document.createTextNode(p.name||''));
+    if(p.active){const tag=document.createElement('span');tag.className='wifi-tag active';tag.textContent=' '+(t('wifi_connected')||'CONNECTED');ssid.appendChild(tag);}
+    main.appendChild(ssid);row.appendChild(main);
+    const actions=document.createElement('div');actions.className='wifi-row-actions';
+    if(!p.active){
+      const b=document.createElement('button');b.className='btn btn-sm';b.textContent=t('wifi_connect')||'Connect';
+      b.onclick=()=>wifiConnectSaved(p.uuid);actions.appendChild(b);
+    }
+    const forget=document.createElement('button');forget.className='btn btn-sm btn-danger';forget.textContent=t('wifi_forget')||'Forget';
+    forget.onclick=()=>wifiForget(p.uuid,p.name);actions.appendChild(forget);
+    row.appendChild(actions);
+    el.appendChild(row);
+  });
 }
 
 async function wifiScan(){
   const el = document.getElementById('wifi-scan-list');
   if(!el) return;
-  el.innerHTML = `<div class="wifi-list-empty">${t('wifi_scanning')||'Scanning…'}</div>`;
+  wifiState.scanLoading=true;
+  wifiState.scanError=null;
+  wifiRenderScan();
   try{
     const r = await fetch('/api/wifi/scan');
     const j = await r.json();
-    if(!j.ok){ el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(j.error&&j.error.msg||'Error')}</div>`; return; }
+    wifiState.scanLoading=false;
+    if(!j.ok){ wifiState.scanError=j.error?.msg||'Error'; wifiRenderScan(); return; }
+    wifiState.scanError=null;
     wifiState.scan = j.networks || [];
-    if(wifiState.scan.length === 0){
-      el.innerHTML = `<div class="wifi-list-empty">${t('wifi_no_networks')||'No networks in range.'}</div>`;
-      return;
-    }
-    // Build rows with the DOM. A scanned SSID is raw 802.11 data from whoever is broadcasting in
-    // range, so it must never enter an inline handler string — textContent + onclick closures keep it
-    // inert. wifiSignalBars() is static, trusted markup, so it stays as innerHTML on its own cell.
-    el.innerHTML = '';
-    wifiState.scan.forEach(n => {
-      const isOpen = !n.security || n.security === '--';
-      const secCls = isOpen ? 'sec open' : 'sec';
-      const secLabel = isOpen ? (t('wifi_open')||'OPEN') : n.security;
-      const row=document.createElement('div');
-      row.className='wifi-row'+(n.active?' active':'');
-
-      const sig=document.createElement('div');sig.className='wifi-row-signal';sig.innerHTML=wifiSignalBars(n.signal);row.appendChild(sig);
-
-      const main=document.createElement('div');main.className='wifi-row-main';
-      const ssid=document.createElement('div');ssid.className='wifi-row-ssid';
-      ssid.appendChild(document.createTextNode(n.ssid||''));
-      if(n.active){const tag=document.createElement('span');tag.className='wifi-tag active';tag.textContent=' '+(t('wifi_connected')||'CONNECTED');ssid.appendChild(tag);}
-      else if(n.saved){const tag=document.createElement('span');tag.className='wifi-tag saved';tag.textContent=' '+(t('wifi_saved_tag')||'SAVED');ssid.appendChild(tag);}
-      main.appendChild(ssid);
-      const meta=document.createElement('div');meta.className='wifi-row-meta';
-      const sg=document.createElement('span');sg.textContent=n.signal+'%';meta.appendChild(sg);
-      const sec=document.createElement('span');sec.className=secCls;sec.textContent=secLabel;meta.appendChild(sec);
-      main.appendChild(meta);
-      row.appendChild(main);
-
-      // Action button differs by state: connected = none; saved = quick reconnect; else prompt for password.
-      const actions=document.createElement('div');actions.className='wifi-row-actions';
-      if(!n.active){
-        const b=document.createElement('button');
-        if(n.saved){b.className='btn btn-sm';b.textContent=t('wifi_connect')||'Connect';b.onclick=()=>wifiConnectBySsid(n.ssid);}
-        else{b.className='btn btn-sm btn-primary';b.textContent=t('wifi_connect')||'Connect';b.onclick=()=>wifiShowPasswordModal(n.ssid,isOpen);}
-        actions.appendChild(b);
-      }
-      row.appendChild(actions);
-      el.appendChild(row);
-    });
+    wifiState.scanLoaded=true;
+    wifiRenderScan();
   }catch(e){
-    el.innerHTML = `<div class="wifi-list-empty" style="color:var(--danger)">${escHtml(String(e))}</div>`;
+    wifiState.scanLoading=false;
+    wifiState.scanError=String(e);
+    wifiRenderScan();
   }
+}
+function wifiRenderScan(){
+  const el = document.getElementById('wifi-scan-list');
+  if(!el) return;
+  if(renderNetworkError(el,wifiState.scanError))return;
+  if(wifiState.scanLoading){el.innerHTML='<div class="wifi-list-empty">'+t('wifi_scanning')+'</div>';return;}
+
+  if(wifiState.scan.length === 0){
+    el.innerHTML = `<div class="wifi-list-empty">${t('wifi_no_networks')||'No networks in range.'}</div>`;
+    return;
+  }
+  // Build rows with the DOM. A scanned SSID is raw 802.11 data from whoever is broadcasting in
+  // range, so it must never enter an inline handler string — textContent + onclick closures keep it
+  // inert. wifiSignalBars() is static, trusted markup, so it stays as innerHTML on its own cell.
+  el.innerHTML = '';
+  wifiState.scan.forEach(n => {
+    const isOpen = !n.security || n.security === '--';
+    const secCls = isOpen ? 'sec open' : 'sec';
+    const secLabel = isOpen ? (t('wifi_open')||'OPEN') : n.security;
+    const row=document.createElement('div');
+    row.className='wifi-row'+(n.active?' active':'');
+
+    const sig=document.createElement('div');sig.className='wifi-row-signal';sig.innerHTML=wifiSignalBars(n.signal);row.appendChild(sig);
+
+    const main=document.createElement('div');main.className='wifi-row-main';
+    const ssid=document.createElement('div');ssid.className='wifi-row-ssid';
+    ssid.appendChild(document.createTextNode(n.ssid||''));
+    if(n.active){const tag=document.createElement('span');tag.className='wifi-tag active';tag.textContent=' '+(t('wifi_connected')||'CONNECTED');ssid.appendChild(tag);}
+    else if(n.saved){const tag=document.createElement('span');tag.className='wifi-tag saved';tag.textContent=' '+(t('wifi_saved_tag')||'SAVED');ssid.appendChild(tag);}
+    main.appendChild(ssid);
+    const meta=document.createElement('div');meta.className='wifi-row-meta';
+    const sg=document.createElement('span');sg.textContent=n.signal+'%';meta.appendChild(sg);
+    const sec=document.createElement('span');sec.className=secCls;sec.textContent=secLabel;meta.appendChild(sec);
+    main.appendChild(meta);
+    row.appendChild(main);
+
+    // Action button differs by state: connected = none; saved = quick reconnect; else prompt for password.
+    const actions=document.createElement('div');actions.className='wifi-row-actions';
+    if(!n.active){
+      const b=document.createElement('button');
+      if(n.saved){b.className='btn btn-sm';b.textContent=t('wifi_connect')||'Connect';b.onclick=()=>wifiConnectBySsid(n.ssid);}
+      else{b.className='btn btn-sm btn-primary';b.textContent=t('wifi_connect')||'Connect';b.onclick=()=>wifiShowPasswordModal(n.ssid,isOpen);}
+      actions.appendChild(b);
+    }
+    row.appendChild(actions);
+    el.appendChild(row);
+  });
 }
 
 function wifiSignalBars(signal){
@@ -13823,7 +14010,7 @@ function eeLabel(mode){
   const variants=['','pill-ok','pill-ok','pill-info','pill-info','pill-warn','pill-danger','pill-danger'];
   const tips=['','~1s','~2s','~3s','~4s','~5s','~6s','~7s'];
   const v=variants[mode]||'pill-idle';
-  return `<span class="pill ${v} no-dot" title="Energy Economy Mode ${mode} — wake ${tips[mode]}"><span class="pill-icon">${EE_ICON}</span>${labels[mode]}</span>`;
+  return `<span class="pill ${v} no-dot" title="${escHtmlAttr(t('ui_energy_economy_mode',{mode:mode,wake:tips[mode]}))}"><span class="pill-icon">${EE_ICON}</span>${labels[mode]}</span>`;
 }
 function lastSeenLabel(secs){
   if(secs==null)return'<span class="muted num">—</span>';
@@ -13938,7 +14125,7 @@ function updateTsBlocks(){
       sub.textContent=lines.bottom?('â–¶ '+lines.bottom):'â–¶ TX';
     } else {
       block.className='ts-block call';
-      sub.textContent=lines.bottom||(st.sub||'Alloc');
+      sub.textContent=lines.bottom||(st.sub||t('ui_allocated'));
     }
     // Emergency call (ETSI priority 15): overlay the danger ring on the call/voice state.
     if((st.priority||0)>=15)block.classList.add('emergency');
@@ -13976,7 +14163,7 @@ function tsLines(st){
   const speaker=st.speaker_issi||st.caller_issi;
   if(st.call_type==='group'){
     // Group calls (the normal traffic-channel case): GSSI on top, speaking ISSI below.
-    return {top: st.gssi!=null?('GSSI '+st.gssi):'GROUP', bottom: tsIssiText(speaker)};
+    return {top: st.gssi!=null?('GSSI '+st.gssi):t('ui_group_short'), bottom: tsIssiText(speaker)};
   }
   // Individual / point-to-point calls have no talkgroup — label the top line clearly
   // so it never shows a bare "ISSI" that reads like a misplaced GSSI.
@@ -14145,9 +14332,9 @@ function tsIssiTextCarrier(issi){
 }
 function privatePartyRole(call,issi){
   if(!call||issi==null)return '';
-  if(issi===call.caller_issi)return 'CALLER';
-  if(issi===call.called_issi)return 'CALLED';
-  return 'TALKER';
+  if(issi===call.caller_issi)return t('ui_caller');
+  if(issi===call.called_issi)return t('ui_called');
+  return t('ui_talker');
 }
 function privateSlotRef(carrierNum,ts){
   return carrierNum!=null&&ts!=null?('C'+carrierNum+'/TS'+ts):'-';
@@ -14158,12 +14345,12 @@ function privateAllocText(call){
   const peerCarrier=call.peer_carrier_num!=null?call.peer_carrier_num:call.carrier_num;
   const peerTs=call.peer_ts!=null?call.peer_ts:call.ts;
   const hasPeer=call.peer_carrier_num!=null||call.peer_ts!=null;
-  if(call.simplex||!hasPeer)return 'Shared '+main+' UL/DL';
-  return 'Caller '+main+' UL/DL | Called '+privateSlotRef(peerCarrier,peerTs)+' UL/DL';
+  if(call.simplex||!hasPeer)return t('ui_shared')+' '+main+' UL/DL';
+  return t('ui_caller')+' '+main+' UL/DL | '+t('ui_called')+' '+privateSlotRef(peerCarrier,peerTs)+' UL/DL';
 }
 function tsLinesCarrier(st){
   const speaker=st.speaker_issi;
-  if(st.call_type==='group')return {top:st.gssi!=null?('GSSI '+st.gssi):'GROUP',bottom:tsIssiTextCarrier(speaker||st.caller_issi)};
+  if(st.call_type==='group')return {top:st.gssi!=null?('GSSI '+st.gssi):t('ui_group_short'),bottom:tsIssiTextCarrier(speaker||st.caller_issi)};
   const slotRole=st.private_slot_role||'shared';
   const top=`${st.caller_issi||'?'} <-> ${st.called_issi||'?'}`;
   const shownIssi=speaker||(slotRole==='called'?st.called_issi:st.caller_issi);
@@ -14288,7 +14475,7 @@ function updateTsBlocksCarrier(){
         sub.textContent=lines.bottom?('TX '+lines.bottom):'TX';
       }else{
         block.className='ts-block call';
-        sub.textContent=lines.bottom||(st.sub||'Alloc');
+        sub.textContent=lines.bottom||(st.sub||t('ui_allocated'));
       }
       if((st.priority||0)>=15)block.classList.add('emergency');
       if(timer){
@@ -14641,7 +14828,7 @@ function renderDapnetLog(){
   const rows=state.dapnetLog||[];
   dapnetLogPageIndex=clampLogPage(dapnetLogPageIndex,rows.length);
   setLogPager('dapnetlog-page',dapnetLogPageIndex,rows.length);
-  if(!rows.length){tb.innerHTML=`<tr><td colspan="6" class="sds-empty" style="text-align:center;padding:24px">No DAPNET messages yet</td></tr>`;return;}
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="6" class="sds-empty" style="text-align:center;padding:24px">${escHtml(t('dapnet_no_messages'))}</td></tr>`;return;}
   const start=dapnetLogPageIndex*LOG_PAGE_SIZE;
   tb.innerHTML=rows.slice(start,start+LOG_PAGE_SIZE).map(dapnetRow).join('');
 }
@@ -14710,9 +14897,9 @@ async function loadDapnet(){
     // Hero pill — DAPNET has no live link probe; reflect the enabled feed state.
     setIntegrationHero('dap', !!d.enabled, !!d.enabled,
       d.enabled?t('integ_enabled'):t('integ_disabled'),
-      d.api_url||d.rwth_core_host||'');
+      d.api_url||d.rwth_core_host||'', d.enabled?'integ_enabled':'integ_disabled');
     setDapMsg('',true);
-  }catch{setDapMsg(t('conn_error'),false);setIntegrationHero('dap',false,false,t('conn_error'),'');}
+  }catch{setDapMsg(t('conn_error'),false);setIntegrationHero('dap',false,false,t('conn_error'),'','conn_error');}
 }
 async function saveDapnet(){
   const ricRoutes=dapRicRoutesBody('dap-ric-routes',t("ui_ric_to_issi"));
@@ -14829,8 +15016,8 @@ function geoIssiListBody(id,label){
 }
 function geoEventRow(e){
   const status=e.alarmed
-    ? '<span class="badge badge-green" style="font-size:10px">ALARM</span>'
-    : (e.inside_radius?("<span class=\"badge badge-blue\" style=\"font-size:10px\">"+t("ui_inside")+"</span>"):'<span class="badge" style="font-size:10px">outside</span>');
+    ? '<span class="badge badge-green" style="font-size:10px">'+escHtml(t('geo_alarm_status'))+'</span>'
+    : (e.inside_radius?("<span class=\"badge badge-blue\" style=\"font-size:10px\">"+t("ui_inside")+"</span>"):'<span class="badge" style="font-size:10px">'+escHtml(t('geo_outside'))+'</span>');
   return `<tr>
     <td class="sds-time">${escHtml(e.ts||'')}</td>
     <td>${escHtml(e.source||'—')}</td>
@@ -14846,7 +15033,7 @@ function renderGeoalarmEvents(){
   const rows=state.geoalarmEvents||[];
   geoalarmPageIndex=clampLogPage(geoalarmPageIndex,rows.length);
   setLogPager('geo-events-page',geoalarmPageIndex,rows.length);
-  if(!rows.length){tb.innerHTML=`<tr><td colspan="7" class="sds-empty" style="text-align:center;padding:24px">No GeoAlarm events yet</td></tr>`;return;}
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="7" class="sds-empty" style="text-align:center;padding:24px">${escHtml(t('geo_no_events'))}</td></tr>`;return;}
   const start=geoalarmPageIndex*LOG_PAGE_SIZE;
   tb.innerHTML=rows.slice(start,start+LOG_PAGE_SIZE).map(geoEventRow).join('');
 }
@@ -14893,12 +15080,12 @@ async function loadGeoalarm(){
     const geoErr=rt.last_error&&rt.last_error!=='—';
     setIntegrationHero('geo', !!d.enabled, !!d.enabled&&!geoErr,
       d.enabled?(geoErr?t('integ_error'):t('integ_enabled')):t('integ_disabled'),
-      rt.center||`${d.flowstation_lat??0}, ${d.flowstation_lon??0}`);
+      rt.center||`${d.flowstation_lat??0}, ${d.flowstation_lon??0}`, d.enabled?(geoErr?'integ_error':'integ_enabled'):'integ_disabled');
     state.geoalarmEvents=d.events||[];
     geoalarmPageIndex=0;
     renderGeoalarmEvents();
     setGeoMsg('',true);
-  }catch{setGeoMsg(t('conn_error'),false);setIntegrationHero('geo',false,false,t('conn_error'),'');}
+  }catch{setGeoMsg(t('conn_error'),false);setIntegrationHero('geo',false,false,t('conn_error'),'','conn_error');}
 }
 async function saveGeoalarm(){
   const tetraWhite=geoIssiListBody('geo-tetra-white','whitelist');
@@ -14977,17 +15164,30 @@ function exportLog(){
 }
 
 // ── Asterisk SIP ───────────────────────────────────────────────────────────
+let asteriskStatusCache=null,asteriskStatusFailed=false;
 async function loadAsteriskStatus(){
-  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=(v===null||v===undefined||v==='')?'—':v;};
   try{
     const r=await fetch('/api/asterisk/status');
     if(!r.ok)throw new Error('http '+r.status);
-    const d=await r.json();
+    asteriskStatusCache=await r.json();asteriskStatusFailed=false;
+  }catch(e){asteriskStatusFailed=true;}
+  renderAsteriskStatus();
+}
+function renderAsteriskStatus(){
+  if(!asteriskStatusCache&&!asteriskStatusFailed)return;
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=(v===null||v===undefined||v==='')?'—':v;};
+  if(asteriskStatusFailed){
+    set('ast-configured','—');set('ast-enabled',t("ui_status_unavailable"));set('ast-register','—');
+    set('ast-last-error',t('conn_error'));
+    setIntegrationHero('ast', false, false, t('conn_error'), '');
+    return;
+  }
+  const d=asteriskStatusCache;
     const c=d.config||{}, rt=d.runtime||{};
-    set('ast-configured', (c.configured||rt.configured)?'YES':'NO');
-    set('ast-enabled', (c.enabled||rt.enabled)?'enabled':'disabled');
+    set('ast-configured', t((c.configured||rt.configured)?'setup_yes':'setup_no').toUpperCase());
+    set('ast-enabled', t((c.enabled||rt.enabled)?'ui_enabled':'ui_disabled'));
     set('ast-register', rt.register_status||'—');
-    set('ast-dialogs', (rt.active_dialogs??0)+' active dialogs');
+    set('ast-dialogs', (rt.active_dialogs??0)+t('ui_active_dialogs'));
     set('ast-sip-listen', rt.sip_listen||c.sip_listen);
     set('ast-remote', rt.remote||c.remote);
     set('ast-rtp', rt.rtp_port_range||c.rtp_port_range);
@@ -14999,28 +15199,26 @@ async function loadAsteriskStatus(){
     const enabled=!!(c.enabled||rt.enabled);
     const reg=(rt.register_status||'').toLowerCase();
     const registered=/regist|ok|online|200/.test(reg)&&!/fail|error|unreach|timeout/.test(reg);
-    setIntegrationHero('ast', enabled, registered, rt.register_status||(enabled?t('offline'):'disabled'),
+    setIntegrationHero('ast', enabled, registered, rt.register_status||(enabled?t('offline'):t('ui_disabled')),
       (c.configured||rt.configured)?(rt.sip_listen||c.sip_listen||''):'');
     const cc=document.getElementById('ast-configured-card');
     if(cc){cc.classList.remove('is-ok','is-danger','is-idle');cc.classList.add((c.configured||rt.configured)?'is-ok':'is-idle');}
     const rc=document.getElementById('ast-register-card');
     if(rc){rc.classList.remove('is-ok','is-warn','is-danger','is-idle');rc.classList.add(registered?'is-ok':enabled?'is-warn':'is-idle');}
-  }catch(e){
-    set('ast-configured','—');set('ast-enabled',t("ui_status_unavailable"));set('ast-register','—');
-    set('ast-last-error',t('conn_error'));
-    setIntegrationHero('ast', false, false, t('conn_error'), '');
-  }
 }
 // Shared helper: drive an integration tab's hero dot + connection pill from
 // (enabled, connected) state. Calm severity language: connected=ok, enabled-but-down=warn,
 // disabled=idle. No color literals — all via .hero-dot/.pill variants.
-function setIntegrationHero(prefix, enabled, connected, pillText, subText){
+function setIntegrationHero(prefix, enabled, connected, pillText, subText, translationKey){
   const dot=document.getElementById(prefix+'-hero-dot');
   const pill=document.getElementById(prefix+'-hero-pill');
   const sub=document.getElementById(prefix+'-hero-sub');
   const lvl=!enabled?'idle':connected?'ok':'warn';
   if(dot) dot.className='hero-dot is-'+lvl;
-  if(pill){pill.className='pill pill-'+lvl;pill.textContent=pillText||'—';}
+  if(pill){
+    pill.className='pill pill-'+lvl;pill.textContent=pillText||'—';
+    if(translationKey)pill.setAttribute('data-i18n',translationKey);else pill.removeAttribute('data-i18n');
+  }
   if(sub&&subText!=null) sub.textContent=subText||'—';
 }
 
@@ -15431,9 +15629,11 @@ function installCfgHelp(){
       btn.type='button';
       btn.className='cfg-help';
       btn.textContent='?';
-      btn.setAttribute('aria-label','Help');
+      btn.setAttribute('data-i18n-aria-label','ui_help');
+      btn.setAttribute('aria-label',t('ui_help'));
       row.appendChild(btn);
     }
+    btn.setAttribute('aria-label',t('ui_help'));
     btn.setAttribute('data-help',CFG_HELP_BY_ID[id]);
   });
 }
@@ -15643,6 +15843,16 @@ function fillBrewProfileSelect(sel,brews,pick){
   else if(keep&&[...sel.options].some(o=>o.value===keep))sel.value=keep;
   else sel.value='';
 }
+function refreshProfileSelectTranslations(){
+  ['vc-brew-profile','home-brew-profile'].forEach(id=>{
+    const sel=document.getElementById(id);
+    if(!sel)return;
+    Array.from(sel.options).forEach(option=>{
+      if(option.value==='')option.textContent=t('cfg_brew_offline');
+      else if(option.value==='__lst_dispatch__')option.textContent=t('cfg_brew_lst');
+    });
+  });
+}
 let profileSelectsInflight=null;
 async function refreshProfileSelects(active){
   const cellSels=[document.getElementById('vc-cell-profile'),document.getElementById('home-cell-profile')];
@@ -15768,14 +15978,14 @@ function autoCalcCarrier(){
   if(duplexMhz!==null&&!Number.isFinite(duplexMhz))return;
   const duplex=duplexMhz===null?5000000:Math.round(duplexMhz*1e6);
   if(txMhz===null||!Number.isFinite(txMhz)){vcMsg('vc-rf-msg',t("ui_tx_freq_required"),false);return;}
-  if(band!==4){vcMsg('vc-rf-msg','Auto supports freq_band=4',false);return;}
-  if(reverse){vcMsg('vc-rf-msg','Auto supports reverse_operation=false',false);return;}
+  if(band!==4){vcMsg('vc-rf-msg',t('cfg_auto_band_required'),false);return;}
+  if(reverse){vcMsg('vc-rf-msg',t('cfg_auto_reverse_required'),false);return;}
   const tx=Math.round(txMhz*1e6);
   const main=(tx-400000000-offset)/25000;
   if(!Number.isInteger(main)){vcMsg('vc-rf-msg',t("ui_main_carrier_is_not_an_integer"),false);return;}
   vcSet('vc-main-carrier',main);
   vcSet('vc-rx-freq',hzToMhzDisplay(tx-duplex));
-  vcMsg('vc-rf-msg','Auto OK: main_carrier='+main+', rx_freq='+hzToMhzDisplay(tx-duplex)+' MHz',true);
+  vcMsg('vc-rf-msg',t('cfg_auto_result',{carrier:main,frequency:hzToMhzDisplay(tx-duplex)}),true);
 }
 async function openCellProfileSheet(mode){
   if(cfgSheetKind){vcMsg('vc-profiles-msg',t('cfg_sheet_busy'),false);return;}
@@ -16058,6 +16268,17 @@ function renderRemoteCmds(){
       '</button></div>';
   }).join('');
 }
+function refreshRemoteCommandTranslations(){
+  const box=document.getElementById('remote-cmd-rows');
+  if(!box)return;
+  if(!remoteCmds.length){renderRemoteCmds();return;}
+  box.querySelectorAll('.remote-cmd-code').forEach(input=>input.placeholder=t('remote_status_code'));
+  box.querySelectorAll('.remote-cmd-del').forEach(button=>{
+    button.title=t('remote_cmd_del');button.setAttribute('aria-label',t('remote_cmd_del'));
+    const label=button.querySelector('.remote-cmd-del-text');
+    if(label)label.textContent=t('remote_cmd_del');
+  });
+}
 function addRemoteCommand(){
   remoteCmds.push({status_code:61000,action:'ip'});
   renderRemoteCmds();
@@ -16120,6 +16341,7 @@ function setWxMsg(txt,ok){const el=document.getElementById('wx-msg');el.textCont
 // ── Telegram alerts ─────────────────────────────────────────────────────────
 let tgChats=[];            // recipient chat IDs (numbers)
 let tgChatNames={};        // id -> best-effort friendly name (display only)
+let tgDetectedLoaded=false;
 let tgDetected=[];         // last "detect" result, for the Add buttons
 let tgTokenDirty=false;    // true once the user edits the token field (so we send it)
 function tgEsc(s){return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
@@ -16128,8 +16350,21 @@ function tgTokenField(){const v=(document.getElementById('tg-token').value||'').
 // ── Security page ─────────────────────────────────────────────────────────────
 let secpData=null,secpSubs=[],secpSckDirty=false,secpChanged=false,secpOtar={};
 function secpEsc(s){return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function secpMsg(txt,ok,id){const el=document.getElementById(id||'secp-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';if(ok)setTimeout(()=>{if(el.textContent===txt)el.textContent='';},6000);}
-function secpDirty(){secpChanged=true;const el=document.getElementById('secp-msg');el.textContent=t('secp_unsaved');el.style.color='var(--warn)';}
+function secpMsg(txt,ok,id){
+  const el=document.getElementById(id||'secp-msg');
+  // A later response replaces the unsaved hint, including raw backend errors.
+  delete el.dataset.translationKey;
+  el.textContent=txt;
+  el.style.color=ok?'var(--accent)':'var(--danger)';
+  if(ok)setTimeout(()=>{if(el.textContent===txt)el.textContent='';},6000);
+}
+function secpDirty(){
+  secpChanged=true;
+  const el=document.getElementById('secp-msg');
+  el.dataset.translationKey='secp_unsaved';
+  el.textContent=t('secp_unsaved');
+  el.style.color='var(--warn)';
+}
 function secpPosture(p){
   if(!p)return '—';
   const a={off:t('secp_auth_off').split(' — ')[0],optional:t('secp_auth_optional').split(' — ')[0],required:t('secp_auth_required').split(' — ')[0]}[p.authentication]||p.authentication;
@@ -16212,7 +16447,7 @@ function secpFill(d){
   document.getElementById('secp-ksg-note').textContent=k?k.note:'';
   document.getElementById('secp-tea1-warn').style.display=(k&&k.weak)?'':'none';
   secpRenderAlgos();
-  if(s.aie_error){secpMsg(s.aie_error,false);}else if(!secpChanged){document.getElementById('secp-msg').textContent='';}
+  if(s.aie_error){secpMsg(s.aie_error,false);}else if(!secpChanged){const msg=document.getElementById('secp-msg');msg.textContent='';delete msg.dataset.translationKey;}
   secpChanged=false;
 }
 async function loadSecurity(){
@@ -16262,7 +16497,7 @@ async function loadTelegram(){
     document.getElementById('tg-backhaul').checked=!!d.alert_backhaul;
     document.getElementById('tg-logs').checked=!!d.alert_critical_logs;
     document.getElementById('tg-verify-status').textContent='';
-    document.getElementById('tg-detected').innerHTML='';
+    document.getElementById('tg-detected').innerHTML='';tgDetectedLoaded=false;
   }catch{setTgMsg(t('conn_error'),false);}
 }
 function renderTgChips(){
@@ -16301,6 +16536,14 @@ async function detectTelegramChats(){
     const d=await r.json();
     if(!d.ok){box.innerHTML='<span style="color:var(--danger);font-size:13px">✗ '+tgEsc(d.error||'error')+'</span>';return;}
     tgDetected=d.chats||[];
+    tgDetectedLoaded=true;
+    renderDetectedTelegramChats();
+  }catch{box.innerHTML='<span style="color:var(--danger);font-size:13px">'+t('conn_error')+'</span>';}
+}
+function renderDetectedTelegramChats(){
+  if(!tgDetectedLoaded)return;
+  const box=document.getElementById('tg-detected');
+  if(!box)return;
     if(!tgDetected.length){box.innerHTML='<span style="color:var(--muted);font-size:13px">'+t('tg_detect_none')+'</span>';return;}
     box.innerHTML='<div style="color:var(--muted);font-size:13px;margin-bottom:6px">'+t('tg_detect_found')+'</div>'+
       tgDetected.map((c,i)=>
@@ -16308,8 +16551,8 @@ async function detectTelegramChats(){
         '<span style="font-size:13px">'+tgEsc(c.name)+' <span style="color:var(--muted)">('+c.id+' · '+tgEsc(c.kind)+')</span></span>'+
         '<button class="btn" onclick="addDetected('+i+')">+ '+t('tg_add')+'</button></div>'
       ).join('');
-  }catch{box.innerHTML='<span style="color:var(--danger);font-size:13px">'+t('conn_error')+'</span>';}
 }
+
 async function saveTelegram(){
   const body={
     enabled:document.getElementById('tg-enabled').checked,
@@ -16664,13 +16907,13 @@ function renderDgnaGroups(issi){
   const groups=dgnaGroupsFor(issi);
   if(!groups.length){cur.innerHTML='<span class="badge badge-dim">-</span>';syncDgnaDeassignState();return;}
   cur.innerHTML=groups.map(g=>{
-    const kind=g.is_dynamic?'dynamic':'static';
-    const attach=g.is_attached?'attached':'detached';
+    const kind=t(g.is_dynamic?'dgna_state_dynamic':'dgna_state_static');
+    const attach=t(g.is_attached?'dgna_state_attached':'dgna_state_detached');
     const bg=g.is_dynamic?(g.is_attached?'rgba(0,212,168,.16)':'rgba(255,178,36,.16)'):'rgba(77,166,255,.16)';
     const fg=g.is_dynamic?(g.is_attached?'var(--accent)':'var(--warn)'):'var(--accent2)';
-    const meta=`${kind}${g.is_attached?'':' detached'}`;
+    const meta=kind+(g.is_attached?'':' '+attach);
     const name=g.mnemonic?` <span style="opacity:.9">${tgEsc(g.mnemonic)}</span>`:'';
-    return `<button type="button" onclick="selectDgnaGroup(${issi},${g.gssi})" title="${meta}" style="border:1px solid ${fg};background:${bg};color:${fg};border-radius:999px;padding:4px 8px;font-size:10px;cursor:pointer">${g.gssi}${name} <span style="opacity:.8">${meta}</span></button>`;
+    return `<button type="button" onclick="selectDgnaGroup(${issi},${g.gssi})" title="${escHtmlAttr(meta)}" style="border:1px solid ${fg};background:${bg};color:${fg};border-radius:999px;padding:4px 8px;font-size:10px;cursor:pointer">${g.gssi}${name} <span style="opacity:.8">${escHtml(meta)}</span></button>`;
   }).join('');
   syncDgnaDeassignState();
 }
@@ -16881,11 +17124,11 @@ function dgnaStatusPresentation(msg){
   const parseFail=detail.includes('parse failed');
   const queued=detail.startsWith('Queued:')||detail.startsWith('Waiting for backend:');
   const final=rejected||ack||parseFail;
-  if(queued&&!final)return {kind:'pending',final:false,label:'PENDING'};
-  if(final&&!!msg.accepted)return {kind:'ok',final:true,label:'OK'};
-  if(final)return {kind:'fail',final:true,label:'FAIL'};
-  if(source==='MM'||source==='CMCE')return {kind:'pending',final:false,label:'PENDING'};
-  return {kind:(msg&&msg.accepted)?'ok':'fail',final:false,label:(msg&&msg.accepted)?'PENDING':'FAIL'};
+  if(queued&&!final)return {kind:'pending',final:false,label:t('dgna_pending')};
+  if(final&&!!msg.accepted)return {kind:'ok',final:true,label:t('ok')};
+  if(final)return {kind:'fail',final:true,label:t('dgna_failed')};
+  if(source==='MM'||source==='CMCE')return {kind:'pending',final:false,label:t('dgna_pending')};
+  return {kind:(msg&&msg.accepted)?'ok':'fail',final:false,label:t((msg&&msg.accepted)?'dgna_pending':'dgna_failed')};
 }
 function pushDgnaActivity(msg){
   const entry={ts:nowStamp(),issi:msg.issi,gssi:msg.gssi,accepted:!!msg.accepted,detail:msg.detail||'',attach:!!msg.attach,source:msg.source||''};
@@ -16938,18 +17181,18 @@ function renderDgnaLibrary(){
   const groups=dgnaLibraryGroups();
   document.getElementById('dgna-hero-groups').textContent=String(groups.length);
   if(!groups.length){
-    tb.innerHTML='<tr><td colspan="4"><div class="empty-state"><span class="empty-msg">No DGNA groups yet</span></div></td></tr>';
+    tb.innerHTML='<tr><td colspan="4"><div class="empty-state"><span class="empty-msg">'+escHtml(t('dgna_no_groups'))+'</span></div></td></tr>';
     return;
   }
   tb.innerHTML=groups.map(g=>{
     const active=dgnaUi.selectedGssi===g.gssi;
-    const coverage=`${g.attached_count}/${g.device_count} radios${g.dynamic_count?` · ${g.dynamic_count} dynamic`:''}${g.template_only?' · template':''}`;
+    const coverage=t('dgna_coverage_radios',{attached:g.attached_count,total:g.device_count})+(g.dynamic_count?' · '+t('dgna_dynamic_count',{n:g.dynamic_count}):'')+(g.template_only?' · '+t('dgna_template_tag'):'');
     const canDelete=!!g.template_only||g.dynamic_count>0;
     const actions=`<div style="display:flex;gap:6px;justify-content:flex-end"><button type="button" class="btn btn-sm" onclick="event.stopPropagation();openDgnaTemplateModal(${g.gssi})">${svgIcon('edit',14)}</button>${canDelete?`<button type="button" class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteDgnaGroupEverywhere(${g.gssi})">${svgIcon('delete',14)}</button>`:''}</div>`;
     return `<tr class="${active?'is-active':''}" onclick="dgnaSelectLibraryGroup(${g.gssi})"><td><code>${g.gssi}</code></td><td>${escHtml(g.mnemonic||'-')}</td><td>${escHtml(coverage)}</td><td>${actions}</td></tr>`;
   }).join('');
 }
-function renderDgnaGroupPicker(){
+function renderDgnaGroupPicker(opts){
   const el=document.getElementById('dgna-group-picker');
   const menu=document.getElementById('dgna-group-picker-menu');
   const wrap=document.getElementById('dgna-picker');
@@ -16960,10 +17203,10 @@ function renderDgnaGroupPicker(){
   const filtered=groups.filter(g=>!query||String(g.gssi).includes(query)||String(g.mnemonic||'').toLowerCase().includes(query));
   wrap.classList.toggle('open',!!dgnaUi.groupPickerOpen);
   menu.innerHTML=filtered.length
-    ? filtered.map(g=>`<button type="button" class="dgna-picker-option ${current===g.gssi?'active':''}" onclick="dgnaSelectPickerGroup('${g.gssi}')"><span class="dgna-picker-main"><span class="dgna-picker-code">${g.gssi}</span><span class="dgna-picker-name">${escHtml(g.mnemonic||t("ui_unnamed_group"))}</span></span><span class="dgna-picker-meta">${escHtml(`${g.attached_count}/${g.device_count} radios`)}</span></button>`).join('')
-    : '<div class="dgna-picker-empty">No matching groups</div>';
+    ? filtered.map(g=>`<button type="button" class="dgna-picker-option ${current===g.gssi?'active':''}" onclick="dgnaSelectPickerGroup('${g.gssi}')"><span class="dgna-picker-main"><span class="dgna-picker-code">${g.gssi}</span><span class="dgna-picker-name">${escHtml(g.mnemonic||t("ui_unnamed_group"))}</span></span><span class="dgna-picker-meta">${escHtml(t('dgna_coverage_radios',{attached:g.attached_count,total:g.device_count}))}</span></button>`).join('')
+    : '<div class="dgna-picker-empty">'+escHtml(t('dgna_no_matching_groups'))+'</div>';
   const selected=groups.find(g=>g.gssi===current);
-  el.value=(el===document.activeElement&&dgnaUi.groupPickerOpen&&query)?dgnaUi.groupQuery:(selected?dgnaGroupPickerLabel(selected):'');
+  if(!(opts&&opts.labelsOnly))el.value=(el===document.activeElement&&dgnaUi.groupPickerOpen&&query)?dgnaUi.groupQuery:(selected?dgnaGroupPickerLabel(selected):'');
 }
 function renderDgnaTargetsTable(){
   const tb=document.getElementById('dgna-targets-tbody');
@@ -16971,18 +17214,18 @@ function renderDgnaTargetsTable(){
   const gssi=dgnaUi.selectedGssi||0;
   const radios=dgnaAllRadios();
   document.getElementById('dgna-hero-targets').textContent=String(dgnaSelectedTargets().length);
-  document.getElementById('dgna-selected-count').textContent=`${dgnaSelectedTargets().length} selected`;
+  document.getElementById('dgna-selected-count').textContent=t('dgna_selected_count',{n:dgnaSelectedTargets().length});
   const master=document.getElementById('dgna-targets-master');
   if(master)master.checked=!!radios.length&&dgnaSelectedTargets().length===radios.length;
   if(!radios.length){
-    tb.innerHTML='<tr><td colspan="4"><div class="empty-state"><span class="empty-msg">No registered radios</span></div></td></tr>';
+    tb.innerHTML='<tr><td colspan="4"><div class="empty-state"><span class="empty-msg">'+escHtml(t('dgna_no_registered_radios'))+'</span></div></td></tr>';
     return;
   }
   tb.innerHTML=radios.map(ms=>{
     const checked=dgnaUi.targetChecks[ms.issi]===true;
     const st=gssi?dgnaTargetState(ms.issi,gssi):null;
     const last=dgnaUi.lastByIssi[ms.issi];
-    const stateHtml=!gssi?("<span class=\"dgna-state-note\">"+t("ui_choose_a_group")+"</span>"):st?`<span class="dgna-status-pill"><span class="badge ${st.is_dynamic?'badge-blue':'badge-dim'}">${st.is_dynamic?'dynamic':'static'}</span><span class="badge ${st.is_attached?'badge-green':'badge-dim'}">${st.is_attached?'attached':'detached'}</span>${st.mnemonic?`<span class="dgna-state-note">${escHtml(st.mnemonic)}</span>`:''}</span>`:'<span class="dgna-state-note">not present</span>';
+    const stateHtml=!gssi?("<span class=\"dgna-state-note\">"+t("ui_choose_a_group")+"</span>"):st?`<span class="dgna-status-pill"><span class="badge ${st.is_dynamic?'badge-blue':'badge-dim'}">${t(st.is_dynamic?'dgna_state_dynamic':'dgna_state_static')}</span><span class="badge ${st.is_attached?'badge-green':'badge-dim'}">${t(st.is_attached?'dgna_state_attached':'dgna_state_detached')}</span>${st.mnemonic?`<span class="dgna-state-note">${escHtml(st.mnemonic)}</span>`:''}</span>`:'<span class="dgna-state-note">'+escHtml(t('dgna_state_not_present'))+'</span>';
     const lastState=(last&&(!gssi||last.gssi===gssi))?dgnaStatusPresentation(last):null;
     const lastClass=!lastState?'dgna-state-note':(lastState.kind==='ok'?'dgna-status-ok':lastState.kind==='pending'?'dgna-state-note':'dgna-status-bad');
     const lastHtml=(last&&(!gssi||last.gssi===gssi))?`<span class="${lastClass}">${escHtml(last.detail||'')}</span>`:'<span class="dgna-state-note">-</span>';
@@ -16994,7 +17237,7 @@ function renderDgnaActivity(){
   if(!tb)return;
   const rows=dgnaUi.statusLog||[];
   if(!rows.length){
-    tb.innerHTML='<tr><td colspan="5"><div class="empty-state"><span class="empty-msg">No DGNA activity yet</span></div></td></tr>';
+    tb.innerHTML='<tr><td colspan="5"><div class="empty-state"><span class="empty-msg">'+escHtml(t('dgna_no_activity'))+'</span></div></td></tr>';
     return;
   }
   tb.innerHTML=rows.map(r=>{const s=dgnaStatusPresentation(r);const cls=s.kind==='ok'?'dgna-status-ok':s.kind==='pending'?'dgna-state-note':'dgna-status-bad';return `<tr><td class="num">${escHtml(r.ts)}</td><td>${idCell(r.issi)}</td><td><code>${r.gssi}</code></td><td><span class="${cls}">${s.label}</span></td><td>${escHtml(r.detail||'')}</td></tr>`;}).join('');
@@ -17011,11 +17254,11 @@ function renderDgnaAssignmentSummary(){
     if(el)el.disabled=!hasGroup;
   });
 }
-function renderDgnaPage(){
-  syncDgnaAttachmentModePicker();
+function renderDgnaPage(opts){
+  if(!(opts&&opts.labelsOnly))syncDgnaAttachmentModePicker();
   if(!document.getElementById('page-dgna'))return;
   renderDgnaLibrary();
-  renderDgnaGroupPicker();
+  renderDgnaGroupPicker(opts);
   renderDgnaAssignmentSummary();
   renderDgnaTargetsTable();
   renderDgnaActivity();
@@ -17162,6 +17405,7 @@ async function pollServiceBackOnline(){
 let updatePollTimer=null;
 let updateLogExpanded=false;
 let otaPendingCheck=null;
+let otaProgressSnapshot=null,otaChannelHintSnapshot=null;
 
 function showOtaStep(step){
   ['choose','review','progress'].forEach(name=>{
@@ -17219,7 +17463,12 @@ function tipForOtaPhase(phaseKey,failed,overrideLine){
       return t('update_waiting');
   }
 }
-function setUpdateProgress(pct,phaseKey,friendlyLine,failed,active){
+function setUpdateProgress(pct,phaseKey,friendlyLine,failed,active,opts){
+  if(!(opts&&opts.labelsOnly)){
+    const friendlyKey=!failed&&['update_waiting','update_lost_link','update_done_ok','update_done_current']
+      .find(key=>friendlyLine===t(key));
+    otaProgressSnapshot={pct,phaseKey,friendlyLine,failed,active,friendlyKey};
+  }
   const bar=document.getElementById('update-progress-bar');
   const pctEl=document.getElementById('update-progress-pct');
   const phaseEl=document.getElementById('update-phase');
@@ -17291,7 +17540,7 @@ function finishUpdatePoll(){
 function enterOtaLostContact(){
   finishUpdatePoll();
   const msgEl=document.getElementById('update-status-msg');
-  if(msgEl){msgEl.className='update-status running';msgEl.textContent=t('update_lost_link');}
+  if(msgEl){msgEl.className='update-status running';setOtaStatus(t('update_lost_link'),'update_lost_link');}
   setUpdateProgress(96,'update_phase_restart',t('update_lost_link'),false,true);
   document.getElementById('update-modal')?.classList.remove('open');
   beginOtaRestartWait();
@@ -17313,11 +17562,42 @@ function otaTargetLabel(d){
   }
   return d.latest||'';
 }
-function setOtaChannelHint(text,upToDate){
+function setOtaChannelHint(text,upToDate,key,vars){
+  otaChannelHintSnapshot={text,upToDate,key,vars};
   const hint=document.getElementById('ota-channel-hint');
   if(!hint)return;
   hint.textContent=text||'';
   hint.classList.toggle('is-up-to-date',!!upToDate);
+}
+function setOtaChannelHintKey(key,vars,upToDate){
+  setOtaChannelHint(t(key,vars),!!upToDate,key,vars);
+}
+function setOtaStatus(text,key){
+  const el=document.getElementById('update-status-msg');
+  if(!el)return;
+  el.textContent=text;
+  if(key)el.dataset.translationKey=key;else delete el.dataset.translationKey;
+}
+function refreshOtaTranslations(){
+  if(otaLastCheck)applyUpdateCheckUi(otaLastCheck);
+  if(otaPendingCheck)paintOtaReview(otaPendingCheck,{labelsOnly:true});
+  if(otaChannelHintSnapshot){
+    const cached=otaChannelHintSnapshot;
+    const hint=document.getElementById('ota-channel-hint');
+    if(hint){
+      hint.textContent=cached.key?t(cached.key,cached.vars):cached.text;
+      hint.classList.toggle('is-up-to-date',!!cached.upToDate);
+    }
+  }
+  if(otaProgressSnapshot){
+    const p=otaProgressSnapshot;
+    setUpdateProgress(p.pct,p.phaseKey,p.friendlyKey?t(p.friendlyKey):p.friendlyLine,p.failed,p.active,{labelsOnly:true});
+  }
+  const msg=document.getElementById('update-status-msg');
+  if(msg?.dataset.translationKey)msg.textContent=t(msg.dataset.translationKey);
+  const toggle=document.getElementById('update-log-toggle');
+  if(toggle)toggle.textContent=t(updateLogExpanded?'update_hide_log':'update_show_log');
+  if(updateStartedAt)formatUpdateElapsed();
 }
 function escapeHtml(s){
   return String(s||'')
@@ -17356,7 +17636,7 @@ function toggleOtaTechCommits(){
   if(!wrap)return;
   wrap.classList.toggle('is-open');
 }
-function paintOtaReview(d){
+function paintOtaReview(d,opts){
   const versions=document.getElementById('ota-review-versions');
   const notesEl=document.getElementById('ota-notes');
   const list=document.getElementById('ota-changelog-list');
@@ -17381,6 +17661,7 @@ function paintOtaReview(d){
     else if(src==='commits')title+=' · '+t('ota_notes_from_commits');
     notesTitle.textContent=title;
   }
+  if(opts&&opts.labelsOnly)return;
   if(notesEl){
     if(notes){
       notesEl.style.display='block';
@@ -17429,7 +17710,7 @@ async function startUpdate(opts){
   // can take tens of seconds and used to freeze the Update button).
   const sel=document.getElementById('ota-channel-select');
   if(sel&&otaChannelCache.channel)sel.value=otaChannelCache.channel;
-  setOtaChannelHint(t('ota_channel_help'),false);
+  setOtaChannelHintKey('ota_channel_help');
   modal.classList.add('open');
   showOtaStep(opts.fromBanner?'review':'choose');
   loadOtaChannel().then(()=>{
@@ -17450,10 +17731,10 @@ async function startUpdate(opts){
           showOtaStep('review');
           return;
         }
-        setOtaChannelHint(t('ota_up_to_date',{
+        setOtaChannelHintKey('ota_up_to_date',{
           channel:(d&&d.channel)||otaChannelCache.channel,
           latest:(d&&d.latest)||'—',
-        }),true);
+        },true);
         showOtaStep('choose');
         return;
       }
@@ -17470,7 +17751,7 @@ async function startUpdate(opts){
 async function checkOtaInModal(){
   const btn=document.getElementById('ota-check-btn');
   if(btn)btn.disabled=true;
-  setOtaChannelHint(t('ota_checking'),false);
+  setOtaChannelHintKey('ota_checking');
   try{
     const sel=document.getElementById('ota-channel-select');
     const channel=(sel&&sel.value)||'stable';
@@ -17493,24 +17774,24 @@ async function checkOtaInModal(){
     }
     applyUpdateCheckUi(d);
     if(d.check_failed){
-      setOtaChannelHint(t('ota_check_failed'),false);
+      setOtaChannelHintKey('ota_check_failed');
       return;
     }
     if(!d.update_available){
-      setOtaChannelHint(t('ota_up_to_date',{
+      setOtaChannelHintKey('ota_up_to_date',{
         channel:d.channel||otaChannelCache.channel,
         latest:d.latest||(d.branch||'—'),
-      }),true);
+      },true);
       return;
     }
     if(d.voice_rebuild_needed){
-      setOtaChannelHint(t('lst_install_voice'),false);
+      setOtaChannelHintKey('lst_install_voice');
     }
     otaPendingCheck=d;
     paintOtaReview(d);
     showOtaStep('review');
   }catch{
-    setOtaChannelHint(t('ota_check_failed'),false);
+    setOtaChannelHintKey('ota_check_failed');
   }finally{
     if(btn)btn.disabled=false;
   }
@@ -17527,7 +17808,7 @@ async function confirmOtaUpdate(){
   updateFailStreak=0;
   updateStartedAt=Date.now();
   resetUpdateModalUi();
-  msgEl.className='update-status running';msgEl.textContent=t('update_running');
+  msgEl.className='update-status running';setOtaStatus(t('update_running'),'update_running');
   closeBtn.disabled=true;
   setUpdateProgress(3,'update_phase_prepare',t('update_waiting'),false,true);
   formatUpdateElapsed();
@@ -17543,7 +17824,7 @@ async function confirmOtaUpdate(){
     }
   }catch(e){
     finishUpdatePoll();
-    msgEl.className='update-status err';msgEl.textContent='✗ '+(e&&e.message?e.message:e);
+    msgEl.className='update-status err';setOtaStatus('✗ '+(e&&e.message?e.message:e));
     setUpdateProgress(100,'update_phase_error','',true,false);
     closeBtn.disabled=false;
     if(!updateLogExpanded)toggleUpdateLog();
@@ -17553,13 +17834,13 @@ async function confirmOtaUpdate(){
   try{
     const r=await fetch('/api/update',{method:'POST',credentials:'same-origin'});
     if(!r.ok&&r.status!==409){
-      msgEl.className='update-status err';msgEl.textContent='✗ '+await r.text();
+      msgEl.className='update-status err';setOtaStatus('✗ '+await r.text());
       setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();
       if(!updateLogExpanded)toggleUpdateLog();
       return;
     }
   }catch(e){
-    msgEl.className='update-status err';msgEl.textContent='✗ '+e.message;
+    msgEl.className='update-status err';setOtaStatus('✗ '+e.message);
     setUpdateProgress(100,'update_phase_error','',true,false);closeBtn.disabled=false;finishUpdatePoll();
     if(!updateLogExpanded)toggleUpdateLog();
     return;
@@ -17586,7 +17867,7 @@ async function confirmOtaUpdate(){
         }
         if(j.status==='running'){
           msgEl.className='update-status running';
-          msgEl.textContent=t('update_running');
+          setOtaStatus(t('update_running'),'update_running');
         }
         const est=estimateUpdateProgress(j.log,j.status);
         // Bold = short phase; gray box = tip (or raw log line on error).
@@ -17596,7 +17877,7 @@ async function confirmOtaUpdate(){
         finishUpdatePoll();
         const willRestart=otaLogSchedulesRestart(j.log||'');
         msgEl.className='update-status ok';
-        msgEl.textContent=willRestart?t('update_done_ok'):t('update_done_current');
+        setOtaStatus(t(willRestart?'update_done_ok':'update_done_current'),willRestart?'update_done_ok':'update_done_current');
         setUpdateProgress(100,'update_phase_done',willRestart?t('update_done_ok'):t('update_done_current'),false,false);
         closeBtn.disabled=false;
         if(willRestart){
@@ -17615,7 +17896,7 @@ async function confirmOtaUpdate(){
       }else if(j.status==='done_err'){
         finishUpdatePoll();
         updateSucceeded=false;
-        msgEl.className='update-status err';msgEl.textContent=t('update_done_err');
+        msgEl.className='update-status err';setOtaStatus(t('update_done_err'),'update_done_err');
         const est=estimateUpdateProgress(j.log||'','done_err');
         setUpdateProgress(est.pct,est.phase,est.line,true,false);
         closeBtn.disabled=false;
@@ -17629,8 +17910,53 @@ async function confirmOtaUpdate(){
   },1000);
 }
 
+// Repaint generated labels from the latest responses. Language changes must not
+// fetch configuration, reset edits, change dispatch state, or mark telemetry fresh.
+function renderSecurityLabels(){
+  if(!secpData)return;
+  const put=(id,text)=>{const el=document.getElementById(id);if(el)el.innerHTML=text;};
+  put('secp-running',secpPosture(secpData.running));
+  put('secp-saved',secpData.saved?secpPosture(secpData.saved):'—');
+  secpRenderSubs();
+  secpRenderAlgos();
+  const parse=document.getElementById('secp-parse-error');
+  if(parse&&secpData.parse_error)parse.textContent=t('secp_parse_error')+secpData.parse_error;
+  const saved=secpData.saved||secpData.running;
+  const invalid=document.getElementById('secp-invalid');
+  if(invalid&&(saved.invalid_subscriber_keys||[]).length)invalid.textContent=t('secp_invalid_keys')+saved.invalid_subscriber_keys.join(', ');
+  const sel=document.getElementById('secp-ksg');
+  if(sel)Array.from(sel.options).forEach(option=>{
+    const k=(secpData.ksgs||[]).find(item=>item.id===option.value);
+    if(k)option.textContent=k.name+(k.weak?t('ui_research_only'):'')+(k.available?'':t('ui_not_available'));
+  });
+  const msg=document.getElementById('secp-msg');
+  if(secpChanged&&msg?.dataset.translationKey==='secp_unsaved')msg.textContent=t('secp_unsaved');
+}
+function refreshCachedPanelTranslations(){
+  const renderers=[
+    ()=>renderSystemInfo(),
+    ()=>{if(systemProfilesCache!==null&&!systemProfilesLoadFailed)renderConfigProfiles(systemProfilesCache);},
+    ()=>{if(liveSdsItemsCache!==null&&!liveSdsLoadFailed)renderLiveSds(liveSdsItemsCache);},
+    ()=>{if(dashboardAuthCache){const badge=document.getElementById('sys-auth-badge');if(badge)badge.textContent=t(dashboardAuthCache.auth_enabled?'sys_account_protected':'sys_account_open');}},
+    ()=>{if(setupStateCache)renderSetupStatus(setupStateCache);},
+    renderSecurityLabels,
+    ()=>{if(stationHealthCache)renderStationHealth(stationHealthCache);},
+    ()=>{if(systemHealthCache)renderSystemHealth(systemHealthCache);},
+    renderHealthIntegrations,
+    ()=>{if(displayedSdrHealthCache)handleSdrHealth(displayedSdrHealthCache,{labelsOnly:true});},
+    ()=>{if(lstLastStatus){lstUpdateCallUi(lstLastStatus,{labelsOnly:true});lstSyncPttButtonHint(lstLastStatus);}},
+    ()=>{if(lstGeoOpen)lstGeoRenderTable();},
+  ];
+  renderers.forEach(render=>{try{render();}catch(error){console.warn('Could not refresh translated panel',error);}});
+}
+
 // ── System tab ────────────────────────────────────────────────────────────
 let sysData=null;
+let systemProfilesCache=null,liveSdsItemsCache=null,dashboardAuthCache=null;
+let systemProfilesLoadFailed=false,liveSdsLoadFailed=false;
+let stationHealthCache=null,systemHealthCache=null,displayedSdrHealthCache=null;
+let setupStateCache=null;
+let healthIntegrationState={asterisk:null,dapnet:null,geoalarm:null,lastLoad:0};
 let sysAutoRefreshTimer = null;
 function toggleSysAutoRefresh(on) {
   if (sysAutoRefreshTimer) { clearInterval(sysAutoRefreshTimer); sysAutoRefreshTimer = null; }
@@ -17738,6 +18064,7 @@ function gotoDualCarrierConfig(){
     el?.scrollIntoView({behavior:'smooth',block:'center'});
   },120);
 }
+let cellsCache=null;
 async function loadCells(){
   const list=document.getElementById('cells-list');
   if(!list)return;
@@ -17746,7 +18073,6 @@ async function loadCells(){
     if(!r.ok)return;
     const d=await r.json();
     const cells=d.cells||[];
-    const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4):'—';
     tsCells=cells.map(c=>{
       (c.carriers||[]).forEach(k=>tsEnsureCarrierInfo(k.carrier_num,k.tx_freq_hz,k.rx_freq_hz));
       const nums=(c.carriers||[]).map(k=>k.carrier_num).filter(n=>n!=null&&isFinite(n));
@@ -17755,18 +18081,25 @@ async function loadCells(){
     });
     renderTsGridCarrier();
     renderRfCells(cells,d.site_linked);
-    setText('cells-link', cells.length>1?(d.site_linked?t('cells_linked'):t('cells_independent')):t('cells_single'));
-    list.innerHTML=cells.map(c=>{
-      const rf=c.rf_state||'starting';
-      const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' '+mhz(k.tx_freq_hz)+'/'+mhz(k.rx_freq_hz)+' MHz').join(' · ');
-      const meta=[carriers,'CC '+c.colour_code,'LA '+c.location_area,
-        t('cells_radios',{n:c.registered_radios}),c.device?('SDR '+c.device):''].filter(Boolean).join(' — ');
-      const rm=c.primary?'':'<button class="btn btn-sm btn-danger" onclick="cellsRemove('+c.id+')">'+escHtml(t('cells_remove'))+'</button>';
-      return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
-        '<span class="cell-rf '+escHtmlAttr(rf)+'" title="'+escHtmlAttr(c.rf_detail||'')+'">'+escHtml(rf)+'</span>'+
-        '<span class="cell-meta">'+escHtml(meta)+'</span>'+rm+'</div>';
-    }).join('');
+    cellsCache={cells,siteLinked:d.site_linked};
+    renderCells(cells,d.site_linked);
   }catch(e){}
+}
+function renderCells(cells,siteLinked){
+  const list=document.getElementById('cells-list');
+  if(!list)return;
+  const mhz=hz=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(4):'—';
+  setText('cells-link', cells.length>1?(siteLinked?t('cells_linked'):t('cells_independent')):t('cells_single'));
+  list.innerHTML=cells.map(c=>{
+    const rf=c.rf_state||'starting';
+    const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' '+mhz(k.tx_freq_hz)+'/'+mhz(k.rx_freq_hz)+' MHz').join(' · ');
+    const meta=[carriers,'CC '+c.colour_code,'LA '+c.location_area,
+      t('cells_radios',{n:c.registered_radios}),c.device?('SDR '+c.device):''].filter(Boolean).join(' — ');
+    const rm=c.primary?'':'<button class="btn btn-sm btn-danger" onclick="cellsRemove('+c.id+')">'+escHtml(t('cells_remove'))+'</button>';
+    return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
+      '<span class="cell-rf '+escHtmlAttr(rf)+'" title="'+escHtmlAttr(c.rf_detail||'')+'">'+escHtml(rf)+'</span>'+
+      '<span class="cell-meta">'+escHtml(meta)+'</span>'+rm+'</div>';
+  }).join('');
 }
 // RF page: a compact tab per cell (state dot, name, main TX frequency) that picks whose SDR the
 // page shows, plus one detail line for the picked cell. Hidden on a single-cell station.
@@ -17835,97 +18168,20 @@ function cellsRemove(id){
   if(!confirm(t('cells_confirm_remove',{n:id})))return;
   cellsPost('/api/cells/remove',{id:id});
 }
+let btsInfoCache=null;
 async function loadBtsInfo(){
-  try{
-    const r=await fetch('/api/btsinfo',{credentials:'same-origin'});
-    if(!r.ok)return;
-    const d=await r.json();
-    const set=(id,v)=>setText(id,(v==null||v==='')?'—':v);
-    const mhz=(hz,dp)=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'—';
-    set('bts-tx', mhz(d.tx_freq_hz));
-    set('bts-rx', mhz(d.rx_freq_hz));
-    set('bts-shift', (d.shift_hz!=null&&isFinite(d.shift_hz))?((d.shift_hz>=0?'+':'')+(d.shift_hz/1e6).toFixed(3)+' MHz'):'—');
-    set('bts-mcc', d.mcc);
-    set('bts-mnc', d.mnc);
-    set('bts-carrier', d.main_carrier!=null?('#'+d.main_carrier):'—');
-    state.mainCarrierNum=d.main_carrier!=null?d.main_carrier:state.mainCarrierNum;
-    if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
-
-    const carriers=(Array.isArray(d.carriers)&&d.carriers.length)?d.carriers:[{
-      carrier_num:d.main_carrier,tx_freq_hz:d.tx_freq_hz,rx_freq_hz:d.rx_freq_hz,
-    }];
-    carriers.forEach(c=>tsEnsureCarrierInfo(c.carrier_num,c.tx_freq_hz,c.rx_freq_hz));
-    if(d.secondary_carrier!=null&&d.dual_carrier_active){
-      const secC=carriers.find(c=>c.carrier_num===d.secondary_carrier);
-      tsEnsureCarrierInfo(d.secondary_carrier,secC&&secC.tx_freq_hz,secC&&secC.rx_freq_hz);
-    }
-    renderTsGridCarrier();
-
-    const secWrap=document.getElementById('bts-secondary-wrap');
-    const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier)
-      ||(d.secondary_carrier!=null?carriers.find(c=>c.carrier_num===d.secondary_carrier):null);
-    const dualOn=!!d.dual_carrier_active;
-    setDcSub(dualOn);
-    if(secWrap){
-      if(dualOn){
-        const s=sec||{};
-        secWrap.classList.add('is-on');
-        set('bts-sec-carrier', (s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—')));
-        set('bts-sec-tx', mhz(s.tx_freq_hz));
-        set('bts-sec-rx', mhz(s.rx_freq_hz));
-        const secShift=(s.tx_freq_hz!=null&&s.rx_freq_hz!=null)?(s.rx_freq_hz-s.tx_freq_hz):d.shift_hz;
-        set('bts-sec-shift', (secShift!=null&&isFinite(secShift))?((secShift>=0?'+':'')+(secShift/1e6).toFixed(3)+' MHz'):'—');
-      }else{
-        secWrap.classList.remove('is-on');
-      }
-    }
-
-    const nb=document.getElementById('bts-neighbor');
-    if(nb){
-      const n=d.neighbor_count||0;
-      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?t("ui_neighbor"):t("ui_neighbors"))+')'):t("ui_off"));
-      nb.className='bts-chip '+(n>0?'on':'off');
-    }
-    const hg=document.getElementById('bts-hang');
-    if(hg){
-      hg.innerHTML=BTS_CLOCK_ICON+'HangTime — '+(d.hangtime_secs!=null?d.hangtime_secs:'—')+' sec';
-      hg.className='bts-chip time';
-    }
-    const acc=document.getElementById('bts-access');
-    if(acc){
-      const restricted=!!d.whitelist_restricted;
-      acc.textContent=restricted?t("ui_restricted"):t("sys_account_open");
-      acc.className='bts-access '+(restricted?'restricted':'open');
-    }
-    const sub=document.getElementById('bts-access-sub');
-    if(sub){
-      sub.textContent=d.whitelist_restricted
-        ? ((d.whitelist_count||0)+' '+t('bts_wl_entries'))
-        : t('bts_wl_open');
-    }
-    loadDualCarrier();
-  }catch(e){/* config endpoint unavailable — leave placeholders */}
+  await loadBtsInfoLegacy();
+  loadDualCarrier();
 }
 async function loadBtsInfoLegacy(){
   try{
     const r=await fetch('/api/btsinfo',{credentials:'same-origin'});
     if(!r.ok)return;
     const d=await r.json();
-    const set=(id,v)=>setText(id,(v==null||v==='')?'—':v);
-    const mhz=(hz,dp)=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'—';
+    btsInfoCache=d;
     const carriers=(Array.isArray(d.carriers)&&d.carriers.length)?d.carriers:[{
-      carrier_num:d.main_carrier,
-      tx_freq_hz:d.tx_freq_hz,
-      rx_freq_hz:d.rx_freq_hz,
+      carrier_num:d.main_carrier,tx_freq_hz:d.tx_freq_hz,rx_freq_hz:d.rx_freq_hz,
     }];
-
-    set('bts-tx', mhz(d.tx_freq_hz));
-    set('bts-rx', mhz(d.rx_freq_hz));
-    set('bts-shift', (d.shift_hz!=null&&isFinite(d.shift_hz))?((d.shift_hz>=0?'+':'')+(d.shift_hz/1e6).toFixed(3)+' MHz'):'—');
-    set('bts-mcc', d.mcc);
-    set('bts-mnc', d.mnc);
-    set('bts-carrier', d.main_carrier!=null?('#'+d.main_carrier):'—');
-
     state.mainCarrierNum=d.main_carrier!=null?d.main_carrier:state.mainCarrierNum;
     if(d.sample_rate_hz)dcState.sample_rate_hz=d.sample_rate_hz;
     Object.keys(tsCarrierInfo).forEach(key=>delete tsCarrierInfo[key]);
@@ -17938,49 +18194,68 @@ async function loadBtsInfoLegacy(){
     }
     renderTsGridCarrier();
 
-    const secWrap=document.getElementById('bts-secondary-wrap');
-    const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier)
-      ||(d.secondary_carrier!=null?carriers.find(c=>c.carrier_num===d.secondary_carrier):null);
-    const dualOn=!!d.dual_carrier_active;
-    setDcSub(dualOn);
-    if(secWrap){
-      if(dualOn){
-        const s=sec||{};
-        secWrap.classList.add('is-on');
-        set('bts-sec-carrier', (s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—')));
-        set('bts-sec-tx', mhz(s.tx_freq_hz));
-        set('bts-sec-rx', mhz(s.rx_freq_hz));
-        const secShift=(s.tx_freq_hz!=null&&s.rx_freq_hz!=null)?(s.rx_freq_hz-s.tx_freq_hz):d.shift_hz;
-        set('bts-sec-shift', (secShift!=null&&isFinite(secShift))?((secShift>=0?'+':'')+(secShift/1e6).toFixed(3)+' MHz'):'—');
-      }else{
-        secWrap.classList.remove('is-on');
-      }
-    }
-
-    const nb=document.getElementById('bts-neighbor');
-    if(nb){
-      const n=d.neighbor_count||0;
-      nb.innerHTML=BTS_TOWER_ICON+'Neighbor Cell — '+(n>0?('ON ('+n+' '+(n===1?t("ui_neighbor"):t("ui_neighbors"))+')'):t("ui_off"));
-      nb.className='bts-chip '+(n>0?'on':'off');
-    }
-    const hg=document.getElementById('bts-hang');
-    if(hg){
-      hg.innerHTML=BTS_CLOCK_ICON+'HangTime — '+(d.hangtime_secs!=null?d.hangtime_secs:'—')+' sec';
-      hg.className='bts-chip time';
-    }
-    const acc=document.getElementById('bts-access');
-    if(acc){
-      const restricted=!!d.whitelist_restricted;
-      acc.textContent=restricted?t("ui_restricted"):t("sys_account_open");
-      acc.className='bts-access '+(restricted?'restricted':'open');
-    }
-    const sub=document.getElementById('bts-access-sub');
-    if(sub){
-      sub.textContent=d.whitelist_restricted
-        ? ((d.whitelist_count||0)+' '+t('bts_wl_entries'))
-        : t('bts_wl_open');
-    }
+    renderBtsInfo(d);
   }catch(e){/* config endpoint unavailable — leave placeholders */}
+}
+function renderBtsInfo(d){
+  if(!d)return;
+  const set=(id,v)=>setText(id,(v==null||v==='')?'—':v);
+  const mhz=(hz,dp)=>(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'—';
+  const carriers=(Array.isArray(d.carriers)&&d.carriers.length)?d.carriers:[{
+    carrier_num:d.main_carrier,
+    tx_freq_hz:d.tx_freq_hz,
+    rx_freq_hz:d.rx_freq_hz,
+  }];
+
+  set('bts-tx', mhz(d.tx_freq_hz));
+  set('bts-rx', mhz(d.rx_freq_hz));
+  set('bts-shift', (d.shift_hz!=null&&isFinite(d.shift_hz))?((d.shift_hz>=0?'+':'')+(d.shift_hz/1e6).toFixed(3)+' MHz'):'—');
+  set('bts-mcc', d.mcc);
+  set('bts-mnc', d.mnc);
+  set('bts-carrier', d.main_carrier!=null?('#'+d.main_carrier):'—');
+
+  const secWrap=document.getElementById('bts-secondary-wrap');
+  const sec=carriers.find(c=>c.carrier_num!=null&&c.carrier_num!==d.main_carrier)
+    ||(d.secondary_carrier!=null?carriers.find(c=>c.carrier_num===d.secondary_carrier):null);
+  const dualOn=!!d.dual_carrier_active;
+  setDcSub(dualOn);
+  if(secWrap){
+    if(dualOn){
+      const s=sec||{};
+      secWrap.classList.add('is-on');
+      set('bts-sec-carrier', (s.carrier_num!=null?('#'+s.carrier_num):(d.secondary_carrier!=null?('#'+d.secondary_carrier):'—')));
+      set('bts-sec-tx', mhz(s.tx_freq_hz));
+      set('bts-sec-rx', mhz(s.rx_freq_hz));
+      const secShift=(s.tx_freq_hz!=null&&s.rx_freq_hz!=null)?(s.rx_freq_hz-s.tx_freq_hz):d.shift_hz;
+      set('bts-sec-shift', (secShift!=null&&isFinite(secShift))?((secShift>=0?'+':'')+(secShift/1e6).toFixed(3)+' MHz'):'—');
+    }else{
+      secWrap.classList.remove('is-on');
+    }
+  }
+
+  const nb=document.getElementById('bts-neighbor');
+  if(nb){
+    const n=d.neighbor_count||0;
+    nb.innerHTML=BTS_TOWER_ICON+escHtml(t('ui_neighbor_cell'))+(n>0?(escHtml(t('ui_on'))+n+' '+escHtml(n===1?t('ui_neighbor'):t('ui_neighbors'))+')'):escHtml(t('ui_off')));
+    nb.className='bts-chip '+(n>0?'on':'off');
+  }
+  const hg=document.getElementById('bts-hang');
+  if(hg){
+    hg.innerHTML=BTS_CLOCK_ICON+escHtml(t('ui_hangtime',{seconds:d.hangtime_secs!=null?d.hangtime_secs:'—'}));
+    hg.className='bts-chip time';
+  }
+  const acc=document.getElementById('bts-access');
+  if(acc){
+    const restricted=!!d.whitelist_restricted;
+    acc.textContent=restricted?t("ui_restricted"):t("sys_account_open");
+    acc.className='bts-access '+(restricted?'restricted':'open');
+  }
+  const sub=document.getElementById('bts-access-sub');
+  if(sub){
+    sub.textContent=d.whitelist_restricted
+      ? ((d.whitelist_count||0)+' '+t('bts_wl_entries'))
+      : t('bts_wl_open');
+  }
 }
 
 async function loadDashboardAuth(){
@@ -17988,6 +18263,7 @@ async function loadDashboardAuth(){
     const r=await fetch('/api/dashboard-auth',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)return;
     const d=await r.json();
+    dashboardAuthCache=d;
     const badge=document.getElementById('sys-auth-badge');
     const userEl=document.getElementById('sys-auth-username');
     const avatar=document.getElementById('sys-auth-avatar');
@@ -18165,6 +18441,12 @@ async function loadSystemInfo(opts){
     const url=opts.probe?'/api/system?probe=1':'/api/system';
     const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;
     sysData=await r.json();
+    renderSystemInfo(opts);
+  }catch(e){console.error('loadSystemInfo',e);}
+}
+function renderSystemInfo(opts){
+  if(!sysData)return;
+  opts=opts||{};
     document.getElementById('sysHostname').textContent=sysData.hostname||'—';
     document.getElementById('sysVersion').textContent=sysData.stack_version||'—';
     document.getElementById('sysOs').textContent=sysData.os||'—';
@@ -18180,7 +18462,7 @@ async function loadSystemInfo(opts){
       if (name && name !== 'unknown' && name.length > 0) {
         sdrLabel.textContent = name;
         sdrBadge.style.display = 'flex';
-        sdrBadge.title = 'Detected SDR hardware: ' + name;
+        sdrBadge.title = t('ui_detected_sdr_hardware') + name;
       } else if (rf && rf.state && rf.state !== 'online') {
         sdrLabel.textContent = 'RF ' + rf.state;
         sdrBadge.style.display = 'flex';
@@ -18193,7 +18475,7 @@ async function loadSystemInfo(opts){
 
     // CPU — gauge fill width + threshold state class on the .gauge wrapper.
     const cpuEl=document.getElementById('sysCpu');
-    if(cpuEl) cpuEl.textContent=(sysData.cpu_model||'—')+(sysData.cpu_cores?` (${sysData.cpu_cores} cores)`:'');
+    if(cpuEl) cpuEl.textContent=(sysData.cpu_model||'—')+(sysData.cpu_cores?(' ('+t('sys_cpu_cores',{n:sysData.cpu_cores})+')'):'');
     const cpuPct=sysData.cpu_pct||0;
     const cpuBarEl=document.getElementById('sysCpuBar');
     const cpuPctEl=document.getElementById('sysCpuPct');
@@ -18240,8 +18522,8 @@ async function loadSystemInfo(opts){
 
     updateSystemUptime();
     updateSysHero();
-  }catch(e){console.error('loadSystemInfo',e);}
 }
+
 function probeSystemSdr(){return loadSystemInfo({probe:true});}
 function updateSystemUptime(){
   if(!sysData||!sysData.uptime_secs)return;
@@ -18267,8 +18549,15 @@ function updateSysHero(){
 async function loadConfigProfiles(){
   const list=document.getElementById('profileList');
   try{
-    const r=await fetch('/api/configs');if(!r.ok){list.innerHTML='<div style="color:var(--danger);font-family:var(--mono);font-size:12px;">Failed to load profiles</div>';return;}
-    const profiles=await r.json();
+    const r=await fetch('/api/configs');if(!r.ok){systemProfilesLoadFailed=true;list.innerHTML='<div style="color:var(--danger);font-family:var(--mono);font-size:12px;">'+escHtml(t('sys_profiles_load_failed'))+'</div>';return;}
+    systemProfilesCache=await r.json();
+    systemProfilesLoadFailed=false;
+    renderConfigProfiles(systemProfilesCache);
+  }catch(e){systemProfilesLoadFailed=true;list.innerHTML=`<div style="color:var(--danger);font-family:var(--mono);font-size:12px;">${escHtml(t('ui_error'))}${escHtml(e.message)}</div>`;}
+}
+function renderConfigProfiles(profiles){
+  const list=document.getElementById('profileList');
+  if(!list)return;
     if(!profiles||!profiles.length){list.innerHTML=`<div style="color:var(--text3);font-family:var(--mono);font-size:12px;">${t('sys_no_profiles')}</div>`;return;}
     list.innerHTML='';
     profiles.forEach(p=>{
@@ -18287,7 +18576,6 @@ async function loadConfigProfiles(){
       }
       list.appendChild(row);
     });
-  }catch(e){list.innerHTML=`<div style="color:var(--danger);font-family:var(--mono);font-size:12px;">Error: ${e.message}</div>`;}
 }
 
 async function activateProfile(name){
@@ -18330,7 +18618,7 @@ async function openEditProfile(name) {
   editProfileName = name;
   document.getElementById('edit-profile-name').textContent = name;
   document.getElementById('edit-profile-msg').textContent = '';
-  document.getElementById('edit-profile-editor').value = 'Loading...';
+  document.getElementById('edit-profile-editor').value = t('ui_loading');
   document.getElementById('edit-profile-modal').classList.add('open');
   try {
     const r = await fetch(`/api/configs/${encodeURIComponent(name)}`);
@@ -18338,12 +18626,12 @@ async function openEditProfile(name) {
       document.getElementById('edit-profile-editor').value = await r.text();
     } else {
       document.getElementById('edit-profile-editor').value = '';
-      document.getElementById('edit-profile-msg').textContent = 'Failed to load: ' + await r.text();
+      document.getElementById('edit-profile-msg').textContent = t('ui_failed_to_load') + await r.text();
       document.getElementById('edit-profile-msg').style.color = 'var(--danger)';
     }
   } catch(e) {
     document.getElementById('edit-profile-editor').value = '';
-    document.getElementById('edit-profile-msg').textContent = 'Error: ' + e.message;
+    document.getElementById('edit-profile-msg').textContent = t('ui_error') + e.message;
     document.getElementById('edit-profile-msg').style.color = 'var(--danger)';
   }
 }
@@ -18371,7 +18659,7 @@ async function saveEditProfile() {
       msgEl.style.color = 'var(--danger)';
     }
   } catch(e) {
-    msgEl.textContent = 'Error: ' + e.message;
+    msgEl.textContent = t('ui_error') + e.message;
     msgEl.style.color = 'var(--danger)';
   }
 }
@@ -18379,11 +18667,21 @@ async function saveEditProfile() {
 // ── Live SDS Broadcast ────────────────────────────────────────────────────
 async function loadLiveSds() {
   const list = document.getElementById('live-sds-list');
-  const clearBtn = document.getElementById('live-sds-clear-btn');
   try {
     const r = await fetch('/api/live-sds');
-    if (!r.ok) { list.innerHTML = `<div style="color:var(--danger);font-size:12px">Error ${r.status}</div>`; return; }
-    const items = await r.json();
+    if (!r.ok) { liveSdsLoadFailed=true; list.innerHTML = `<div style="color:var(--danger);font-size:12px">${escHtml(t('ui_error'))}${r.status}</div>`; return; }
+    liveSdsItemsCache = await r.json();
+    liveSdsLoadFailed=false;
+    renderLiveSds(liveSdsItemsCache);
+  } catch(e) {
+    liveSdsLoadFailed=true;
+    list.innerHTML = `<div style="color:var(--danger);font-size:12px">${escHtml(t('ui_error'))}${escHtml(e.message)}</div>`;
+  }
+}
+function renderLiveSds(items) {
+  const list = document.getElementById('live-sds-list');
+  const clearBtn = document.getElementById('live-sds-clear-btn');
+  if(!list)return;
     if (!items || !items.length) {
       list.innerHTML = `<div style="color:var(--text3);font-family:var(--mono);font-size:12px">${t('live_sds_empty')}</div>`;
       if (clearBtn) clearBtn.style.display = 'none';
@@ -18407,9 +18705,6 @@ async function loadLiveSds() {
         <button class="btn btn-sm btn-danger" onclick="deleteLiveSds(${m.id})" title="${t('live_sds_delete')}">${t('live_sds_delete')}</button>`;
       list.appendChild(row);
     });
-  } catch(e) {
-    list.innerHTML = `<div style="color:var(--danger);font-size:12px">Error: ${escHtml(e.message)}</div>`;
-  }
 }
 
 async function addLiveSds() {
@@ -18487,7 +18782,6 @@ setInterval(()=>{
 if(sidebarCollapsed&&window.innerWidth>700)document.getElementById('sidebar').classList.add('collapsed');
 else document.getElementById('sidebar').classList.remove('collapsed');
 paintIcons();
-setLang(currentLang);
 setTheme(currentTheme);
 applyUiSize();
 applyTouchMode();
@@ -18573,6 +18867,7 @@ function rfSelectCell(id){
 }
 // Blank every RF readout and canvas, for a cell that has not reported yet.
 function rfResetView(){
+  displayedSdrHealthCache=null;
   rfState.lastTs = 0; rfState.lastHwTs = 0;
   rfState.sampleRate = 0; rfState.centerFreq = 0;
   rfState.carriers = []; rfState.constellationCarrier = null; rfState.evmCarrier = null;
@@ -18807,9 +19102,12 @@ function handleTxQuality(msg){
   paintQuality('rf-obw',     'rf-q-obw-wrap',  fmtKhz(obw) + (multi ? ' agg' : ''), evalObw(obw));
 }
 
-function handleSdrHealth(msg){
-  rfState.lastHwTs = Date.now();
-  setText('rf-hw-age', t('rf_just_now')||'just now');
+function handleSdrHealth(msg,opts){
+  if(!(opts&&opts.labelsOnly)){
+    displayedSdrHealthCache=msg;
+    rfState.lastHwTs = Date.now();
+    setText('rf-hw-age', t('rf_just_now')||'just now');
+  }
 
   // Temperature with named state. Thresholds chosen so a typical LimeSDR running
   // at room temp (~45-55°C) reads "nominal", >65 is "warm", >80 is "hot".
@@ -18901,7 +19199,11 @@ const HEALTH_ADVICE = {
 function healthColor(lvl){ return lvl==='critical' ? 'var(--danger)' : (lvl==='degraded' ? 'var(--warn)' : 'var(--ok)'); }
 // Map a health level to the premium status class suffix used by .h-pill / .h-ring / .h-ico.
 function healthLevelClass(lvl){ return lvl==='critical' ? 'bad' : (lvl==='degraded' ? 'warn' : 'ok'); }
-function healthDomainLabel(d){ return ({service:t("ui_core_loop"),backhaul:t("ui_backhaul_brew"),radios:'Radios',congestion:'Congestion'})[d] || d; }
+function healthLevelLabel(level){
+  const key={ok:'health_level_ok',degraded:'health_level_degraded',critical:'health_level_critical'}[level];
+  return key?t(key):String(level||'').toUpperCase();
+}
+function healthDomainLabel(d){ return ({service:t("ui_core_loop"),backhaul:t("ui_backhaul_brew"),radios:t('terminals'),congestion:t('ui_congestion')})[d] || d; }
 // Clean inline SVGs replace the old emoji domain icons. {svg, accent} where accent
 // drives the tinted .h-ico colour (default accent / blue / purple for domain variety).
 const HEALTH_SVG = {
@@ -18939,13 +19241,13 @@ function renderHealthTab(h){
   const act   = document.getElementById('health-action');
   // Hero ring: status-tinted via class (was a bg colour) — keeps the SVG check inside.
   if(dot)   dot.className = 'h-ring ' + healthLevelClass(overall);
-  if(title) title.textContent = 'Station health: ' + overall.toUpperCase();
+  if(title) title.textContent = t('ui_station_health_2') + healthLevelLabel(overall);
   const bad = (h.domains||[]).filter(function(d){return d.level!=='ok';});
   if(sub) sub.textContent = bad.length
-      ? (bad.length+' domain(s) need attention: '+bad.map(function(d){return healthDomainLabel(d.domain);}).join(', '))
+      ? (bad.length+t('ui_domain_s_need_attention')+bad.map(function(d){return healthDomainLabel(d.domain);}).join(', '))
       : t("ui_all_systems_nominal");
-  if(up)  up.textContent  = (typeof h.uptime_secs==='number') ? ('Uptime '+healthDur(h.uptime_secs)) : '';
-  if(act) act.textContent = h.last_action ? ('Last action: '+h.last_action) : '';
+  if(up)  up.textContent  = (typeof h.uptime_secs==='number') ? (t('ui_uptime')+healthDur(h.uptime_secs)) : '';
+  if(act) act.textContent = h.last_action ? (t('ui_last_action')+h.last_action) : '';
 
   grid.innerHTML = '';
   (h.domains||[]).forEach(function(d){
@@ -18957,7 +19259,7 @@ function renderHealthTab(h){
     card.className = 'h-card';
     let todoHtml = '';
     if(d.level!=='ok' && adv.do && adv.do.length){
-      todoHtml = '<div class="h-todo"><span class="h-todo-h">What to do</span><ul>'
+      todoHtml = '<div class="h-todo"><span class="h-todo-h">'+escHtml(t('ui_what_to_do'))+'</span><ul>'
              + adv.do.map(function(x){return '<li>'+escHtml(t(x))+'</li>';}).join('')
              + '</ul></div>';
     }
@@ -18966,9 +19268,9 @@ function renderHealthTab(h){
       + '<div class="h-col">'
         + '<div class="h-head">'
           + '<span class="h-ttl">'+escHtml(healthDomainLabel(d.domain))+'</span>'
-          + '<span class="h-pill '+lvlCls+'">'+(d.level||'').toUpperCase()+'</span>'
+          + '<span class="h-pill '+lvlCls+'">'+escHtml(healthLevelLabel(d.level))+'</span>'
         + '</div>'
-        + '<div class="h-det"><span class="h-status-lbl">Status:</span> '+escHtml(d.detail||'')+'</div>'
+        + '<div class="h-det"><span class="h-status-lbl">'+escHtml(t('ui_status'))+'</span> '+escHtml(d.detail||'')+'</div>'
         + (adv.why ? '<div class="h-det">'+escHtml(t(adv.why))+'</div>' : '')
         + todoHtml
       + '</div>';
@@ -18976,7 +19278,6 @@ function renderHealthTab(h){
   });
 }
 
-let healthIntegrationState={asterisk:null,dapnet:null,geoalarm:null,lastLoad:0};
 // title, iconKey (asterisk|dapnet|geoalarm), accent (blue|purple|''), level, detail, extra.
 function integrationHealthCard(title,iconKey,accent,level,detail,extra){
   const lvlCls = healthLevelClass(level);
@@ -18988,9 +19289,9 @@ function integrationHealthCard(title,iconKey,accent,level,detail,extra){
     + '<div class="h-col">'
       + '<div class="h-head">'
         + '<span class="h-ttl">'+escHtml(title)+'</span>'
-        + '<span class="h-pill '+lvlCls+'">'+level.toUpperCase()+'</span>'
+        + '<span class="h-pill '+lvlCls+'">'+escHtml(healthLevelLabel(level))+'</span>'
       + '</div>'
-      + '<div class="h-det"><span class="h-status-lbl">Status:</span> '+escHtml(detail||'')+'</div>'
+      + '<div class="h-det"><span class="h-status-lbl">'+escHtml(t('ui_status'))+'</span> '+escHtml(detail||'')+'</div>'
       + (extra?'<div class="h-det">'+escHtml(extra)+'</div>':'')
     + '</div>';
   return card;
@@ -18998,19 +19299,19 @@ function integrationHealthCard(title,iconKey,accent,level,detail,extra){
 function classifyAsteriskHealth(data){
   const c=(data&&data.config)||{},rt=(data&&data.runtime)||{};
   const enabled=!!(c.enabled||rt.enabled);
-  if(!enabled)return {level:'ok',detail:'disabled',extra:t("ui_sip_bridge_is_configured_but_not_active")};
+  if(!enabled)return {level:'ok',detail:t('ui_disabled'),extra:t("ui_sip_bridge_is_configured_but_not_active")};
   const reg=String(rt.register_status||'').toLowerCase();
   const dialogs=rt.active_dialogs??0;
   const err=rt.last_error||'';
   let level='ok';
   if(err)level='degraded';
   if(c.register && reg && !/(registered|reachable|ok|disabled)/.test(reg))level='degraded';
-  const detail=(rt.register_status||'enabled')+' · '+dialogs+' active dialog(s)';
-  const extra=err?('Last error: '+err):('Remote '+(rt.remote||c.remote||'—')+' · codec '+(rt.codec||c.codec||'—'));
+  const detail=(rt.register_status||t('ui_enabled'))+' · '+dialogs+t('ui_active_dialog_s');
+  const extra=err?(t('ui_last_error')+err):('Remote '+(rt.remote||c.remote||'—')+' · codec '+(rt.codec||c.codec||'—'));
   return {level,detail,extra};
 }
 function classifyDapnetHealth(data){
-  if(!data||!data.enabled)return {level:'ok',detail:'disabled',extra:t("ui_dapnet_worker_is_not_active")};
+  if(!data||!data.enabled)return {level:'ok',detail:t('ui_disabled'),extra:t("ui_dapnet_worker_is_not_active")};
   const rt=data.runtime||{};
   const paths=[];
   if(data.forward_sds||rt.forward_sds)paths.push('SDS');
@@ -19023,20 +19324,20 @@ function classifyDapnetHealth(data){
   if(data.rwth_core_enabled){
     if(!data.rwth_core_callsign)notes.push(t("ui_rwth_callsign_missing"));
     if(!data.rwth_core_authkey_set)notes.push(t("ui_rwth_authkey_missing"));
-    if(lastError)notes.push('Last error: '+lastError);
-    if(rwthStatus && !/(logged in|connected)/.test(rwthStatus))notes.push('RWTH status '+rt.rwth_core_status);
+    if(lastError)notes.push(t('ui_last_error')+lastError);
+    if(rwthStatus && !/(logged in|connected)/.test(rwthStatus))notes.push(t('ui_rwth_status')+rt.rwth_core_status);
   } else {
     notes.push(t("ui_rwth_receive_feed_disabled"));
   }
   if(!paths.length)notes.push(t("ui_no_forwarding_path_enabled"));
   if(notes.length)level='degraded';
-  const status=rt.rwth_core_status||(data.rwth_core_enabled?'enabled':'disabled');
+  const status=rt.rwth_core_status||(data.rwth_core_enabled?t('ui_enabled'):t('ui_disabled'));
   const detail='RWTH '+status+' · '+(paths.length?paths.join(', '):t("ui_no_forwarding"));
-  const extra=notes.length?notes.join(' · '):('Host '+(rt.endpoint||((data.rwth_core_host||'—')+':'+(data.rwth_core_port||'—')))+' · seen '+(rt.seen_messages??0)+(rt.last_rx?' · last RX '+rt.last_rx:''));
+  const extra=notes.length?notes.join(' · '):('Host '+(rt.endpoint||((data.rwth_core_host||'—')+':'+(data.rwth_core_port||'—')))+' · seen '+(rt.seen_messages??0)+(rt.last_rx?t('ui_last_rx')+rt.last_rx:''));
   return {level,detail,extra};
 }
 function classifyGeoalarmHealth(data){
-  if(!data||!data.enabled)return {level:'ok',detail:'disabled',extra:t("ui_geoalarm_is_not_active")};
+  if(!data||!data.enabled)return {level:'ok',detail:t('ui_disabled'),extra:t("ui_geoalarm_is_not_active")};
   const rt=data.runtime||{};
   const err=rt.last_error||'';
   const paths=[];
@@ -19047,7 +19348,7 @@ function classifyGeoalarmHealth(data){
   const notes=[];
   if(!paths.length)notes.push(t("ui_no_forwarding_path_enabled"));
   if(!data.trigger_tetra&&!data.trigger_meshcom)notes.push(t("ui_no_input_source_enabled"));
-  if(err)notes.push('Last error: '+err);
+  if(err)notes.push(t('ui_last_error')+err);
   const level=notes.length?'degraded':'ok';
   const detail=(rt.seen_positions??0)+' position(s) · '+(rt.alarm_count??0)+' alarm(s)';
   const extra=notes.length?notes.join(' · '):('Center '+(rt.center||'—')+' · radius '+Number(rt.radius_m||data.radius_m||0).toFixed(0)+' m · routes '+paths.join(', '));
@@ -19092,6 +19393,13 @@ async function loadHealthIntegrations(){
 }
 
 function handleHealth(h){
+  stationHealthCache=h;
+  renderStationHealth(h);
+  if(document.getElementById('page-health')?.classList.contains('active') && Date.now()-healthIntegrationState.lastLoad>10000){
+    loadHealthIntegrations();
+  }
+}
+function renderStationHealth(h){
   // Topbar station-health badge: colour + label by overall level, details in the tooltip.
   const badge = document.getElementById('health-badge');
   const lbl   = document.getElementById('health-badge-label');
@@ -19099,24 +19407,25 @@ function handleHealth(h){
   if(!h || !h.overall){ badge.style.display='none'; return; }
   const lvl = h.overall; // "ok" | "degraded" | "critical"
   const color = lvl==='critical' ? 'var(--danger)' : (lvl==='degraded' ? 'var(--warn)' : '#3fb950');
-  lbl.textContent = lvl.toUpperCase();
+  lbl.textContent = healthLevelLabel(lvl);
   lbl.style.color = color;
   badge.style.display = 'flex';
   const bad = (h.domains||[]).filter(function(d){return d.level!=='ok';})
-                             .map(function(d){return '• '+d.domain+': '+d.level+' ('+d.detail+')';});
-  let tip = 'Station health: '+lvl.toUpperCase();
+                             .map(function(d){return '• '+healthDomainLabel(d.domain)+': '+healthLevelLabel(d.level)+' ('+d.detail+')';});
+  let tip = t('ui_station_health_2')+healthLevelLabel(lvl);
   tip += bad.length ? '\n'+bad.join('\n') : t("ui_all_domains_nominal");
-  if(h.last_action) tip += '\nAction: '+h.last_action;
-  if(typeof h.uptime_secs==='number') tip += '\nUptime: '+h.uptime_secs+'s';
+  if(h.last_action) tip += '\n'+t('ui_action')+h.last_action;
+  if(typeof h.uptime_secs==='number') tip += '\n'+t('ui_uptime')+h.uptime_secs+'s';
   badge.title = tip;
   // Also refresh the full Health "Looking Glass" tab.
   renderHealthTab(h);
-  if(document.getElementById('page-health')?.classList.contains('active') && Date.now()-healthIntegrationState.lastLoad>10000){
-    loadHealthIntegrations();
-  }
 }
 
 function handleSysHealth(msg){
+  systemHealthCache=msg;
+  renderSystemHealth(msg);
+}
+function renderSystemHealth(msg){
   // Topbar badge
   const badge = document.getElementById('pwr-badge');
   const lbl   = document.getElementById('pwr-badge-label');
@@ -19124,7 +19433,7 @@ function handleSysHealth(msg){
     if(msg && typeof msg.total_power_w === 'number' && isFinite(msg.total_power_w) && msg.total_power_w > 0){
       lbl.textContent = msg.total_power_w.toFixed(1) + ' W';
       badge.style.display = 'flex';
-      badge.title = 'Host power draw — '+(msg.sensors||[]).length+' sensor(s) reporting';
+      badge.title = t('ui_host_power_draw')+t('sys_power_reporting',{n:(msg.sensors||[]).length});
     } else {
       badge.style.display = 'none';
     }
@@ -19171,7 +19480,7 @@ function handleSysHealth(msg){
   // Power total in card header
   if(totEl){
     if(typeof msg.total_power_w === 'number' && isFinite(msg.total_power_w) && msg.total_power_w > 0){
-      totEl.innerHTML = '<span class="btn-icon" style="margin:0 4px 0 0;width:13px;height:13px;vertical-align:-2px">'+svgIcon('power')+'</span>' + msg.total_power_w.toFixed(2) + ' W total';
+      totEl.innerHTML = '<span class="btn-icon" style="margin:0 4px 0 0;width:13px;height:13px;vertical-align:-2px">'+svgIcon('power')+'</span>' + escHtml(t('sys_power_total',{value:msg.total_power_w.toFixed(2)}));
     } else {
       totEl.textContent = '';
     }
@@ -19623,9 +19932,9 @@ async function saveOtaChannel(){
     otaChannelCache={channel:d.channel||channel,branch:d.branch||(channel==='beta'?'beta':'main')};
     const modalOpen=document.getElementById('update-modal')?.classList.contains('open');
     if(!modalOpen){
-      setOtaChannelHint(t('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch}),false);
+      setOtaChannelHintKey('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch});
     }else{
-      setOtaChannelHint(t('ota_channel_help'),false);
+      setOtaChannelHintKey('ota_channel_help');
     }
     // Refresh badge for the newly selected channel (silent).
     await checkUpdate();
@@ -19693,7 +20002,6 @@ async function boot(){
 }
 
 // ── Setup wizard / Setup tab ────────────────────────────────────────────────
-let setupStateCache=null;
 let wizStep=0;
 let setupSelectedDevice='';
 
@@ -19723,14 +20031,14 @@ function renderDeviceList(targetId, devices, inputId){
   if(!box)return;
   box.innerHTML='';
   if(!devices||!devices.length){
-    box.innerHTML='<div class="help-text">No SDR devices reported by SoapySDRUtil --find.</div>';
+    box.innerHTML='<div class="help-text">'+escHtml(t('setup_no_sdr'))+'</div>';
     return;
   }
   devices.forEach((d,i)=>{
     const btn=document.createElement('button');
     btn.type='button';
     btn.className='setup-device'+(setupSelectedDevice&&d.device===setupSelectedDevice?' selected':'');
-    const label=d.label||d.name||d.driver||('Device '+(i+1));
+    const label=d.label||d.name||d.driver||t('setup_device_number',{n:i+1});
     btn.textContent=label+(d.device?(' — '+d.device):'');
     btn.onclick=()=>{
       setupSelectedDevice=d.device||('driver='+(d.driver||''));
@@ -19746,12 +20054,16 @@ async function refreshSetupPage(){
   try{
     const r=await fetch('/api/setup/status',{credentials:'same-origin'});
     if(!r.ok)return;
-    const d=await r.json();
-    setupStateCache=d;
+    setupStateCache=await r.json();
+    renderSetupStatus(setupStateCache,{initializeDevice:true});
+  }catch(e){/* silent */}
+}
+function renderSetupStatus(d,opts){
+  if(!d)return;
     paintRfPill(document.getElementById('setup-rf-pill'), d.rf_status);
     paintRfPill(document.getElementById('wiz-rf-pill'), d.rf_status);
     const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-    set('setup-complete-val', d.setup&&d.setup.setup_complete?(d.setup.skipped?'yes (skipped)':'yes'):'no');
+    set('setup-complete-val', d.setup&&d.setup.setup_complete?(d.setup.skipped?t('setup_yes_skipped'):t('setup_yes')):t('setup_no'));
     set('setup-backend-val', d.config_backend||'—');
     set('setup-device-val', d.config_device||'—');
     set('setup-unit-val', d.service_unit||'—');
@@ -19760,13 +20072,12 @@ async function refreshSetupPage(){
     set('wiz-rf-detail', (d.rf_status&&d.rf_status.detail)||'');
     renderDeviceList('setup-device-list', d.devices||[], 'wiz-device');
     renderDeviceList('wiz-device-list', d.devices||[], 'wiz-device');
-    if(d.config_device){
+    if(opts&&opts.initializeDevice&&d.config_device){
       const inp=document.getElementById('wiz-device');
       if(inp && !inp.value) inp.value=d.config_device;
       setupSelectedDevice=d.config_device;
     }
     updateRfStatusBanner(d.rf_status);
-  }catch(e){/* silent */}
 }
 
 async function maybeShowSetupWizard(){
@@ -19907,7 +20218,7 @@ async function setupEnsureAutostart(inWizard){
     if(st.ok){
       const s=await st.json();
       if(s && s.enabled==='enabled'){
-        if(msg)msg.textContent='Autostart OK — '+s.unit+' is enabled (active='+s.active+').';
+        if(msg)msg.textContent=t('setup_autostart_enabled',{unit:s.unit,active:s.active});
         return;
       }
     }
@@ -19919,8 +20230,8 @@ async function setupEnsureAutostart(inWizard){
     if(r.status===401){ if(msg)msg.textContent=t("setup_session"); return; }
     const text=await r.text();
     let d={}; try{d=JSON.parse(text);}catch{d={ok:false,error:text||('HTTP '+r.status)};}
-    if(msg)msg.textContent=d.ok?(d.output||'enabled'):(d.error||('failed (HTTP '+r.status+')'));
-  }catch(e){if(msg)msg.textContent='failed: '+(e&&e.message?e.message:e);}
+    if(msg)msg.textContent=d.ok?(d.output||t('ui_enabled')):(d.error||(t('ui_failed')+' (HTTP '+r.status+')'));
+  }catch(e){if(msg)msg.textContent=t('ui_failed')+': '+(e&&e.message?e.message:e);}
 }
 
 async function setupMarkComplete(skipped){
@@ -19975,6 +20286,7 @@ async function pollPublic(){
     if(pbc){ pbc.classList.remove(...STAT_STATES); pbc.classList.add(d.brew_online?'is-info':'is-danger'); }
   }catch{/* silent */}
 }
+setLang(currentLang);
 boot();
 </script>
 </body>
