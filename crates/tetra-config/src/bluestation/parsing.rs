@@ -718,6 +718,20 @@ main_carrier_number = 1586
     }
 
     #[test]
+    fn try_from_parts_errors_instead_of_panicking_on_bad_config() {
+        use crate::bluestation::SharedConfig;
+        // ms_txpwr_max_cell = 8 is out of the 0-7 range and fails validate().
+        let bad = from_toml_str(&minimal_toml("ms_txpwr_max_cell = 8")).expect("parses");
+        assert!(
+            SharedConfig::try_from_parts(bad, None).is_err(),
+            "an invalid config must return Err, not panic the station"
+        );
+        // A valid config still builds.
+        let good = from_toml_str(&minimal_toml("")).expect("parses");
+        assert!(SharedConfig::try_from_parts(good, None).is_ok());
+    }
+
+    #[test]
     fn wap_ip_profile_resolves_with_overrides_and_defaults() {
         let cfg = from_toml_str(&minimal_toml(
             "sndcp_service = true\nadvanced_link = true\n\n[cell_info.wap_ip]\nenabled = true\naddress = \"10.0.0.5\"\nport = 9201\nresponse_ttl = 16",
