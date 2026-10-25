@@ -1241,6 +1241,100 @@ fn binary_built_from(binary_git_hash: &str, repo_head: &str) -> Option<bool> {
     Some(repo_head.starts_with(h))
 }
 
+/// Refuse to align an OTA checkout while tracked, staged, submodule, or untracked files
+/// would be lost. Ignored build output is deliberately allowed.
+fn ota_worktree_is_clean(src_dir: &std::path::Path) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(src_dir)
+        .args(["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"])
+        .output()
+        .map_err(|e| format!("cannot inspect OTA source changes: {e}"))?;
+    if !output.status.success() {
+        return Err("cannot inspect OTA source changes; refusing to change the checkout".into());
+    }
+    if !output.stdout.is_empty() {
+        return Err(
+            "local source changes or untracked files exist; preserve and integrate them before OTA. No sources were changed and RF remains online"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+/// `checkout -B` also overwrites an existing channel branch, which may differ from HEAD.
+/// Require both histories to be contained in the fetched channel before resetting either.
+fn ota_local_commits_are_preserved(src_dir: &std::path::Path, remote_ref: &str, branch: &str) -> Result<(), String> {
+    let target_branch = format!("refs/heads/{branch}");
+    let target_exists = std::process::Command::new("git")
+        .arg("-C")
+        .arg(src_dir)
+        .args(["show-ref", "--verify", "--quiet", &target_branch])
+        .status()
+        .map_err(|e| format!("cannot inspect OTA channel branch: {e}"))?;
+    if !target_exists.success() && target_exists.code() != Some(1) {
+        return Err("cannot inspect OTA channel branch; refusing to change the checkout".into());
+    }
+    let mut refs = vec!["HEAD"];
+    if target_exists.success() {
+        refs.push(&target_branch);
+    }
+    for local_ref in refs {
+        let range = format!("{remote_ref}..{local_ref}");
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(src_dir)
+            .args(["rev-list", "--count", &range])
+            .output()
+            .map_err(|e| format!("cannot compare OTA source history: {e}"))?;
+        if !output.status.success() {
+            return Err("cannot compare OTA source history; refusing to change the checkout".into());
+        }
+        let count = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "invalid OTA history comparison; refusing to change the checkout".to_string())?;
+        if count != 0 {
+            return Err(format!(
+                "{local_ref} contains {count} local commit(s) absent from {remote_ref}; preserve and integrate them before OTA. No sources were changed and RF remains online"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Git otherwise overwrites ignored files when the destination starts tracking their path.
+fn ota_checkout_command(src_dir: &std::path::Path, branch: &str, remote_ref: &str) -> std::process::Command {
+    let mut command = std::process::Command::new("git");
+    command.arg("-C").arg(src_dir).args(["checkout", "--no-overwrite-ignore", "-B", branch, remote_ref]);
+    command.current_dir(src_dir);
+    command
+}
+
+/// Once the SDR has been closed, only a fresh service process can reopen it. Any early
+/// return or unwind after that point must schedule recovery, including failed builds.
+struct OtaRfRecoveryGuard<F: FnOnce()> {
+    recover: Option<F>,
+}
+
+impl<F: FnOnce()> OtaRfRecoveryGuard<F> {
+    fn new(recover: F) -> Self {
+        Self { recover: Some(recover) }
+    }
+
+    fn disarm(&mut self) {
+        self.recover = None;
+    }
+}
+
+impl<F: FnOnce()> Drop for OtaRfRecoveryGuard<F> {
+    fn drop(&mut self) {
+        if let Some(recover) = self.recover.take() {
+            recover();
+        }
+    }
+}
+
 /// Run git sync + cargo build --release in a background thread.
 /// Steps:
 ///   1. Resolve source dir (config override -> walk-up -> well-known paths -> CWD)
@@ -1289,11 +1383,6 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         update.lock().unwrap().finish(false);
         return;
     }
-
-    // Drop the cell from the air before the long compile — otherwise RF dies mid-build and
-    // radios stay "registered" while the BS registry is wiped on restart.
-    crate::rf_status::request_ota_rf_off();
-    log!(update, "RF: offline for OTA (SDR will reopen after service restart)");
 
     /// Run a command, streaming stdout+stderr into the log; return collected stdout or None.
     fn run_cmd_output(update: &SharedUpdateState, program: &str, args: &[&str], dir: &std::path::Path) -> Option<String> {
@@ -1348,6 +1437,14 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
             return;
         }
         log!(update, "✓ safe.directory registered, continuing.");
+    }
+
+    // Reject local edits before changing origin or fetching. A failed preflight must not
+    // take a working cell off the air or hide experimental station changes.
+    if let Err(e) = ota_worktree_is_clean(&src_dir) {
+        log!(update, "ERROR: {}", e);
+        update.lock().unwrap().finish(false);
+        return;
     }
 
     // Step 3: channel → branch, point origin at the Bost repo, fetch.
@@ -1505,6 +1602,18 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     log!(update, "Local  commit: {}", &local_commit[..local_commit.len().min(12)]);
     log!(update, "Remote commit: {}", &remote_commit[..remote_commit.len().min(12)]);
 
+    if let Err(e) = ota_local_commits_are_preserved(&src_dir, &remote_ref, ota_branch) {
+        log!(update, "ERROR: {}", e);
+        update.lock().unwrap().finish(false);
+        return;
+    }
+    // Fetch can take time; refuse edits made while it was running too.
+    if let Err(e) = ota_worktree_is_clean(&src_dir) {
+        log!(update, "ERROR: {}", e);
+        update.lock().unwrap().finish(false);
+        return;
+    }
+
     let tree_moved = local_commit != remote_commit || local_branch != ota_branch;
     if tree_moved {
         let range = format!("HEAD..{}", remote_ref);
@@ -1517,18 +1626,17 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         }
     }
 
-    // Step 4: hard-align to origin/<branch>. Unlike ff-only merge, this recovers after a remote
-    // force-push (Pi clone can be "ahead" of a rewritten branch). `target/` is never deleted.
+    // Step 4: align only after verifying that no local edits or commits will be lost.
+    // `target/` is never deleted; divergent history requires explicit manual integration.
     log!(
         update,
         "--- Aligning sources to {} (reset --hard; keeps target/ for incremental builds) ---",
         remote_ref
     );
-    if run_cmd_output(
+    if stream_cmd(
         &update,
-        "git",
-        &["-C", src_str, "checkout", "-B", ota_branch, &remote_ref],
-        &src_dir,
+        format!("$ git -C {src_str} checkout --no-overwrite-ignore -B {ota_branch} {remote_ref}"),
+        ota_checkout_command(&src_dir, ota_branch, &remote_ref),
     )
     .is_none()
     {
@@ -1660,6 +1768,23 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     } else {
         format!("$ cargo build --release -p bluestation-bs -j {jobs}")
     };
+    let recovery_update = Arc::clone(&update);
+    let mut rf_recovery = OtaRfRecoveryGuard::new(move || {
+        let message = "OTA failed after RF was taken offline; restarting the installed service to restore RF in 5s";
+        tracing::warn!("UPDATE: {}", message);
+        if let Ok(mut state) = recovery_update.lock() {
+            state.append(message);
+            state.finish(false);
+        }
+        crate::service_control::schedule_service_action(
+            crate::service_control::ServiceAction::Restart,
+            std::time::Duration::from_secs(5),
+        );
+    });
+    // Only stop RF once all preflight and no-op checks have passed and compilation will run.
+    crate::rf_status::request_ota_rf_off();
+    log!(update, "RF: offline for OTA (SDR will reopen after service restart)");
+
     if stream_cmd(&update, label, build).is_none() {
         return;
     }
@@ -1693,6 +1818,7 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         crate::service_control::ServiceAction::Restart,
         std::time::Duration::from_secs(5),
     );
+    rf_recovery.disarm();
 }
 
 pub struct DashboardServer {
@@ -8940,6 +9066,162 @@ mod tests {
     use crate::net_dashboard::state::DashboardStateInner;
     use crate::net_telemetry::TelemetryEvent;
     use std::sync::{Arc, Mutex, RwLock};
+
+    struct OtaTestRepository(std::path::PathBuf);
+
+    impl OtaTestRepository {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "flowstation-ota-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&path).expect("create OTA test repository");
+            let repo = Self(path);
+            repo.git(&["init", "--quiet", "--initial-branch=main"]);
+            repo.git(&["config", "user.name", "Station Test"]);
+            repo.git(&["config", "user.email", "station@example.invalid"]);
+            std::fs::write(repo.0.join("source.txt"), "original\n").unwrap();
+            std::fs::write(repo.0.join(".gitignore"), "/target/\n").unwrap();
+            repo.git(&["add", "source.txt", ".gitignore"]);
+            repo.git(&["commit", "--quiet", "--no-gpg-sign", "-m", "Initial source"]);
+            repo.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+            repo
+        }
+
+        fn git(&self, args: &[&str]) -> String {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&self.0)
+                .args(["-c", "core.hooksPath=/dev/null"])
+                .args(args)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .expect("run test git");
+            assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+            String::from_utf8(output.stdout).unwrap().trim().to_string()
+        }
+
+        fn commit_change(&self, text: &str) {
+            std::fs::write(self.0.join("source.txt"), text).unwrap();
+            self.git(&["add", "source.txt"]);
+            self.git(&["commit", "--quiet", "--no-gpg-sign", "-m", "Update source"]);
+        }
+    }
+
+    impl Drop for OtaTestRepository {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn ota_preflight_rejects_untracked_staged_and_unstaged_changes_without_mutation() {
+        let repo = OtaTestRepository::new();
+        let head = repo.git(&["rev-parse", "HEAD"]);
+        std::fs::write(repo.0.join("local-weather.rs"), "local extension\n").unwrap();
+        assert!(super::ota_worktree_is_clean(&repo.0).unwrap_err().contains("untracked"));
+        assert_eq!(std::fs::read_to_string(repo.0.join("local-weather.rs")).unwrap(), "local extension\n");
+        std::fs::remove_file(repo.0.join("local-weather.rs")).unwrap();
+
+        std::fs::write(repo.0.join("source.txt"), "station changes\n").unwrap();
+        assert!(super::ota_worktree_is_clean(&repo.0).is_err(), "unstaged changes must block OTA");
+        repo.git(&["add", "source.txt"]);
+        assert!(super::ota_worktree_is_clean(&repo.0).is_err(), "staged changes must block OTA");
+        assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+        assert_eq!(std::fs::read_to_string(repo.0.join("source.txt")).unwrap(), "station changes\n");
+    }
+
+    #[test]
+    fn ota_preflight_accepts_clean_sources_and_ignored_incremental_builds() {
+        let repo = OtaTestRepository::new();
+        std::fs::create_dir(repo.0.join("target")).unwrap();
+        std::fs::write(repo.0.join("target/incremental.bin"), "cached build").unwrap();
+        super::ota_worktree_is_clean(&repo.0).unwrap();
+        super::ota_local_commits_are_preserved(&repo.0, "origin/main", "main").unwrap();
+    }
+
+    #[test]
+    fn ota_preflight_accepts_fast_forward_and_refuses_local_commits() {
+        let repo = OtaTestRepository::new();
+        let original = repo.git(&["rev-parse", "HEAD"]);
+        repo.commit_change("upstream update\n");
+        repo.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        repo.git(&["reset", "--hard", &original]);
+        super::ota_local_commits_are_preserved(&repo.0, "origin/main", "main").unwrap();
+        repo.commit_change("local station extension\n");
+        let local_head = repo.git(&["rev-parse", "HEAD"]);
+        let error = super::ota_local_commits_are_preserved(&repo.0, "origin/main", "main").unwrap_err();
+        assert!(error.contains("local commit(s)"));
+        assert_eq!(repo.git(&["rev-parse", "HEAD"]), local_head, "preflight must preserve local history");
+        assert_eq!(std::fs::read_to_string(repo.0.join("source.txt")).unwrap(), "local station extension\n");
+    }
+
+    #[test]
+    fn ota_preflight_protects_existing_target_branch_when_head_is_elsewhere() {
+        let repo = OtaTestRepository::new();
+        let original = repo.git(&["rev-parse", "HEAD"]);
+        repo.commit_change("local channel customization\n");
+        let local_main = repo.git(&["rev-parse", "HEAD"]);
+        repo.git(&["checkout", "--quiet", "--detach", &original]);
+        let error = super::ota_local_commits_are_preserved(&repo.0, "origin/main", "main").unwrap_err();
+        assert!(error.contains("refs/heads/main"));
+        assert_eq!(repo.git(&["rev-parse", "main"]), local_main);
+    }
+
+    #[test]
+    fn ota_checkout_preserves_ignored_local_files_newly_tracked_upstream() {
+        let repo = OtaTestRepository::new();
+        std::fs::write(repo.0.join(".gitignore"), "/target/\n/station-local.toml\n").unwrap();
+        repo.git(&["add", ".gitignore"]);
+        repo.git(&["commit", "--quiet", "--no-gpg-sign", "-m", "Ignore station settings"]);
+        let original = repo.git(&["rev-parse", "HEAD"]);
+        std::fs::write(repo.0.join("station-local.toml"), "upstream defaults\n").unwrap();
+        repo.git(&["add", "--force", "station-local.toml"]);
+        repo.git(&["commit", "--quiet", "--no-gpg-sign", "-m", "Add default station settings"]);
+        repo.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        repo.git(&["reset", "--hard", &original]);
+        std::fs::write(repo.0.join("station-local.toml"), "local station settings\n").unwrap();
+        super::ota_worktree_is_clean(&repo.0).unwrap();
+        super::ota_local_commits_are_preserved(&repo.0, "origin/main", "main").unwrap();
+        let output = super::ota_checkout_command(&repo.0, "main", "origin/main").output().unwrap();
+        assert!(!output.status.success(), "checkout must refuse to overwrite ignored station settings");
+        assert_eq!(repo.git(&["rev-parse", "HEAD"]), original);
+        assert_eq!(std::fs::read_to_string(repo.0.join("station-local.toml")).unwrap(), "local station settings\n");
+    }
+
+    #[test]
+    fn ota_preflight_fails_closed_for_unavailable_git_history() {
+        let repo = OtaTestRepository::new();
+        assert!(super::ota_local_commits_are_preserved(&repo.0, "origin/missing", "main").is_err());
+        std::fs::rename(repo.0.join(".git"), repo.0.join("saved-git")).unwrap();
+        assert!(super::ota_worktree_is_clean(&repo.0).is_err());
+    }
+
+    #[test]
+    fn ota_rf_recovery_runs_on_failure_and_unwind_but_not_after_success() {
+        use std::cell::Cell;
+        let recoveries = Cell::new(0);
+        let fail_build = || -> Result<(), ()> {
+            let _guard = super::OtaRfRecoveryGuard::new(|| recoveries.set(recoveries.get() + 1));
+            Err(())
+        };
+        assert!(fail_build().is_err());
+        assert_eq!(recoveries.get(), 1);
+        {
+            let mut guard = super::OtaRfRecoveryGuard::new(|| recoveries.set(recoveries.get() + 1));
+            guard.disarm();
+        }
+        assert_eq!(recoveries.get(), 1, "success already schedules its own restart");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = super::OtaRfRecoveryGuard::new(|| recoveries.set(recoveries.get() + 1));
+            panic!("simulated interrupted OTA build");
+        }));
+        assert!(panic.is_err());
+        assert_eq!(recoveries.get(), 2, "unwind must also restore RF through a restart");
+    }
 
     /// A minimal config.toml that parses + validates (mirrors tetra-config's own minimal fixture).
     const MINIMAL_CONFIG: &str = r#"
