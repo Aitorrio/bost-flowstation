@@ -161,8 +161,8 @@ impl Sndcp {
     /// WAP-IP profile is enabled. Config validation keeps these two in lock-step (spec §6.1), so
     /// this single predicate is authoritative.
     fn wap_enabled(&self) -> bool {
-        let c = self.config.config();
-        c.cell.sndcp_service && c.cell.wap_ip.is_some_and(|w| w.enabled)
+        // Single source of truth: the `[cell_info.wap_ip].enabled` master switch.
+        self.config.config().cell.wap_enabled()
     }
 
     /// The BS WAP endpoint responses originate from (source address/port and the TTL to send with),

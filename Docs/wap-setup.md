@@ -22,20 +22,17 @@ at all — that is by design, not a bug.
 
 ## Requirements
 
-All three of these must be set, and they must agree, or **the service refuses
-to start** (you will see a config error on the dashboard Config page):
+There is **one switch**: `[cell_info.wap_ip].enabled = true`. When set, the cell
+runs the gateway and advertises `sndcp_service` + `advanced_link` in SYSINFO for
+you — you do **not** need to set those flags by hand. Disabling (or removing)
+the section is always safe and never affects startup.
 
 | Setting | Where | Value |
 |---|---|---|
-| `sndcp_service` | `[cell_info]` | `true` |
-| `advanced_link` | `[cell_info]` | `true` |
-| `enabled`       | `[cell_info.wap_ip]` | `true` |
+| `enabled` | `[cell_info.wap_ip]` | `true` to turn WAP on |
 
-Rules the loader enforces:
-
-- `sndcp_service` and `[cell_info.wap_ip].enabled` **must match** — both `true`
-  or both `false`. Turning one on without the other is rejected.
-- `[cell_info.wap_ip].enabled = true` **requires** `advanced_link = true`.
+The plain `sndcp_service` / `advanced_link` flags under `[cell_info]` are
+advisory; the WAP switch drives what is actually advertised and run.
 
 ## config.toml
 
@@ -44,11 +41,9 @@ Add this to your `[cell_info]` block (uncomment and adjust):
 ```toml
 [cell_info]
 # ... your existing cell settings ...
-sndcp_service = true        # advertise packet data (SNDCP) in SYSINFO
-advanced_link = true        # SNDCP requires the advanced link
 
 [cell_info.wap_ip]
-enabled                   = true        # master switch
+enabled                   = true        # the only switch needed to turn WAP on
 address                   = "10.0.0.1"  # BS gateway IPv4 the radio targets — MUST be quoted
 port                      = 9200        # UDP port the radio sends the WAP request to
 response_ttl              = 32          # IPv4 TTL on the downlink reply
@@ -94,10 +89,12 @@ A TOML syntax error. The most common cause is an **unquoted IP address** —
 write `address = "10.0.0.1"`, not `address = 10.0.0.1`. Also check the
 `[cell_info.wap_ip]` header is placed after the plain `[cell_info]` keys.
 
-**Startup rejected: "cell.sndcp_service requires [cell_info.wap_ip].enabled =
-true, and vice versa"**
-`sndcp_service` and `wap_ip.enabled` disagree. Set both `true` (or both
-`false`). Remember `advanced_link = true` is also required when enabling.
+**WAP isn't working but the station starts fine**
+Check `[cell_info.wap_ip].enabled = true` is actually set and the section is
+placed after the plain `[cell_info]` keys. Enabling it is all that is needed;
+`sndcp_service`/`advanced_link` are advertised automatically. (Disabling WAP
+never prevents startup — if the station won't boot, it is a different config
+error; read the message on the dashboard Config page.)
 
 **The radio can't reach the page**
 Confirm the browser homepage host/port exactly match `address`/`port`, and that

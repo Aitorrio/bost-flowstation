@@ -32,8 +32,10 @@ pub struct CfgHomeModeDisplay {
 /// answers WAP/HTTP requests over the packet-data (SNDCP) bearer; see the SNDCP entity.
 #[derive(Debug, Clone, Copy)]
 pub struct CfgWapIp {
-    /// Master switch. Must agree with `sndcp_service`: enabling packet-data service without the
-    /// WAP gateway (or vice versa) is rejected at config validation.
+    /// Master switch for the WAP/SNDCP packet-data gateway. When true the cell runs the gateway
+    /// and advertises `sndcp_service` + `advanced_link` in SYSINFO automatically; when false (the
+    /// default) packet data is simply off. This is the single source of truth — see
+    /// [`CfgCellInfo::wap_enabled`].
     pub enabled: bool,
     /// Source IPv4 address the gateway's responses originate from (the BS "server" address).
     pub address: [u8; 4],
@@ -316,6 +318,16 @@ pub struct CfgCellInfo {
     /// config knob rather than a per-click operator choice unless the advanced dashboard picker is
     /// enabled. Default: 0 (Attached permanently), per EN 300 392-2 Table 16.51.
     pub dgna_attachment_mode: u8,
+}
+
+impl CfgCellInfo {
+    /// Whether the WAP/SNDCP packet-data gateway is active. This is the single source of truth:
+    /// the runtime gateway and the SNDCP/advanced-link SYSINFO advertisement all derive from it,
+    /// so `[cell_info.wap_ip].enabled` is the one master switch — toggling it can never leave the
+    /// cell advertising a service it does not run, and disabling it can never fail validation.
+    pub fn wap_enabled(&self) -> bool {
+        self.wap_ip.is_some_and(|w| w.enabled)
+    }
 }
 
 #[derive(Default, Deserialize)]
