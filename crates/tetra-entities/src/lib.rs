@@ -10,6 +10,7 @@ pub mod mle;
 pub mod mm;
 pub mod phy;
 pub mod sndcp;
+pub mod radio_directory;
 pub mod umac;
 
 pub mod network;
