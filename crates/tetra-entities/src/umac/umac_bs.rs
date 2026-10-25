@@ -217,9 +217,10 @@ impl UmacBs {
         // Security part of the broadcast (AIE service bit, extended services element).
         let (aie_service, mut ext_services) = crate::aie::sysinfo_security(crate::aie::effective(&c));
         // Advertise the WAP-IP / data-priority service to Openwave terminals when the packet-data
-        // gateway is enabled: the MSB of the extended-services section_data (spec §6.3). Config
-        // validation ties `sndcp_service` to the WAP-IP profile, so this predicate is sufficient.
-        if c.cell.sndcp_service {
+        // gateway is enabled: the MSB of the extended-services section_data (spec §6.3). Driven by
+        // the single WAP master switch so the advertisement always matches the running gateway.
+        let wap = c.cell.wap_enabled();
+        if wap {
             ext_services.section_data |= 0x40;
         }
 
@@ -287,9 +288,11 @@ impl UmacBs {
                 system_wide_services,
                 voice_service: c.cell.voice_service,
                 circuit_mode_data_service: c.cell.circuit_mode_data_service,
-                sndcp_service: c.cell.sndcp_service,
+                // SNDCP and the advanced link are advertised whenever the WAP gateway is on; a
+                // radio needs BOTH to start packet data, so enabling WAP implies both.
+                sndcp_service: wap,
                 aie_service: c.cell.aie_service || aie_service,
-                advanced_link: c.cell.advanced_link,
+                advanced_link: c.cell.advanced_link || wap,
             },
         };
 
@@ -297,11 +300,12 @@ impl UmacBs {
         // A radio that wants advanced-link packet data (class_of_ms.original_advanced_link=1) needs
         // BOTH sndcp_service AND advanced_link advertised, or it won't start the SNDCP procedure.
         tracing::info!(
-            "SYSINFO advertising: sndcp_service={} advanced_link={} voice_service={} circuit_mode_data={}",
-            c.cell.sndcp_service,
-            c.cell.advanced_link,
+            "SYSINFO advertising: sndcp_service={} advanced_link={} voice_service={} circuit_mode_data={} (wap_gateway={})",
+            wap,
+            c.cell.advanced_link || wap,
             c.cell.voice_service,
-            c.cell.circuit_mode_data_service
+            c.cell.circuit_mode_data_service,
+            wap
         );
 
         let mac_sync_pdu = MacSync {

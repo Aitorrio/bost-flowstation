@@ -238,10 +238,10 @@ voice_service = true
 # aie_service               = false  # advertise Air Interface Encryption (AIE) service
 # sndcp_service             = false  # advertise TETRA packet-data (SNDCP) service
 # advanced_link             = false  # advertise the advanced (enhanced data) link
-#   NOTE: to actually serve WAP you must set BOTH sndcp_service = true AND
-#   advanced_link = true, AND add the [cell_info.wap_ip] sub-section below with
-#   enabled = true. sndcp_service and wap_ip.enabled must agree, or startup is
-#   rejected. See the [cell_info.wap_ip] block further down for the full setup.
+#   NOTE: you do NOT need to set these by hand for WAP — enabling the
+#   [cell_info.wap_ip] sub-section below turns the gateway on and advertises
+#   sndcp_service + advanced_link automatically. These two flags are advisory;
+#   leaving them at their defaults is fine.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OPTIONAL: SYNC / low-level cell parameters. Defaults are fine for nearly all
@@ -371,13 +371,12 @@ voice_service = true
 # dedicated PDCH, and browse a live base-station status page over WAP.
 #
 # OFF BY DEFAULT: the feature exists ONLY when this sub-section is present with
-# enabled = true. Remove the section (or set enabled = false) to disable it.
+# enabled = true. Remove the section (or set enabled = false) to disable it —
+# disabling is always safe and never affects startup.
 #
-# REQUIREMENTS — all of these must agree or the service refuses to start:
-#   [cell_info]  sndcp_service = true    # advertise packet data in SYSINFO
-#   [cell_info]  advanced_link = true    # SNDCP requires the advanced link
-#   [cell_info.wap_ip]  enabled = true   # turn the gateway on
-# (sndcp_service and wap_ip.enabled must both be true, or both be false.)
+# enabled = true is the ONLY switch you need: the cell then runs the gateway and
+# advertises sndcp_service + advanced_link in SYSINFO for you. (The plain
+# sndcp_service / advanced_link flags above are advisory and need not be set.)
 #
 # [cell_info.wap_ip]
 # enabled                   = true        # master switch (default: false)
