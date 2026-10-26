@@ -385,16 +385,15 @@ cargo build --release -p bluestation-bs
 
 | Branch | Purpose |
 |---|---|
-| **`bost`** | This fork — install script, Setup, visual config, OTA, Spanish UI |
-| `main` | Upstream-aligned mirror — **do not** use for Bost features |
-| `alpha` | Upstream active development |
+| **`main`** | This fork — install script, Setup, visual config, OTA, Spanish UI |
+| `beta` | Upstream active development |
 
 ---
 
 ## Upstream & community
 
 - **This fork:** [github.com/Aitorrio/bost-flowstation](https://github.com/Aitorrio/bost-flowstation) (branch `main`)
-- **Upstream project:** [FlowStation](https://github.com/razvanzeces/flowstation) · [flowstation.dev](https://flowstation.dev) · [Telegram](https://t.me/+fktnT-th7dcxYWNk)
+- **Community:** [Telegram](https://t.me/+CKsriSWVp_oxNTg0)
 
 For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream docs — this fork inherits those features but documents the **Pi + dashboard** path here.
 
