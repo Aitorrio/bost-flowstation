@@ -3075,6 +3075,44 @@ fn test_site_linked_restore_from_sibling_cell_matches_group() {
     assert_eq!(restore.call_identifier, call_id, "the radio adopts this cell's call id");
 }
 
+/// An MS that reselected mid individual (private) call restores with the sibling cell's call id;
+/// the private call is matched here by the (sender, peer) ISSI pair, not by the id.
+#[test]
+fn test_site_linked_restore_from_sibling_cell_matches_individual() {
+    debug::setup_logging_verbose();
+
+    const CALLER: u32 = 1_000_111;
+    const CALLED: u32 = 1_000_222;
+
+    let mut config = brew_test_config();
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+    test.config.state_write().subscribers.register(CALLED);
+
+    // Active simplex individual call CALLER -> CALLED.
+    test.submit_message(build_individual_u_setup_msg_with_mode(CALLER, CALLED, false));
+    test.run_stack(Some(1));
+    let call_id = first_d_setup_call_id(&test.dump_sinks(), CALLED);
+    test.submit_message(build_u_connect_msg(CALLED, call_id, false));
+    test.run_stack(Some(1));
+    let _ = test.dump_sinks();
+
+    // CALLED reselects to a sibling cell and restores with the OLD cell's id + the peer (CALLER).
+    let sibling_call_id = call_id + 100;
+    test.submit_message(build_u_call_restore_msg(CALLED, sibling_call_id, CALLER, false));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let (mut sdu, _) = find_lcmc_req(&msgs, CALLED, CmcePduTypeDl::DCallRestore)
+        .expect("D-CALL RESTORE, not D-RELEASE — the private call is matched by the ISSI pair");
+    let restore = DCallRestore::from_bitbuf(&mut sdu).expect("parse DCallRestore");
+    assert_eq!(restore.call_identifier, call_id, "the radio adopts this cell's local call id");
+}
+
 /// Without site linking an unknown call identifier is still rejected (single-cell behaviour).
 #[test]
 fn test_restore_with_unknown_call_id_rejected_when_not_site_linked() {

@@ -30,6 +30,31 @@ impl CcBsSubentity {
             call_id = id;
         }
 
+        // Multi-cell individual (private/duplex) call: an MS that reselected mid-call restores with
+        // the OLD cell's call identifier, which does not exist here. Match the same private call by
+        // the (this MS, peer) ISSI pair; the leg was pre-provisioned on this cell by the site
+        // switch's individual-call handover (see net_site prepare_handover). D-CALL RESTORE then
+        // carries our local id.
+        if !self.individual_calls.contains_key(&call_id)
+            && !self.active_calls.contains_key(&call_id)
+            && brew::is_site_linked(&self.config)
+            && let Some(peer) = pdu.other_party_ssi
+            && let Some((&id, _)) = self.individual_calls.iter().find(|(_, c)| {
+                c.is_active()
+                    && ((c.calling_addr.ssi == sender.ssi && c.called_addr.ssi as u64 == peer)
+                        || (c.called_addr.ssi == sender.ssi && c.calling_addr.ssi as u64 == peer))
+            })
+        {
+            tracing::info!(
+                "CMCE: U-CALL RESTORE from ISSI {} for call_id={} (sibling cell, individual) → local call_id={} peer={}",
+                sender.ssi,
+                call_id,
+                id,
+                peer
+            );
+            call_id = id;
+        }
+
         if let Some(call) = self.individual_calls.get_mut(&call_id) {
             if !call.is_active() || (sender.ssi != call.calling_addr.ssi && sender.ssi != call.called_addr.ssi) {
                 self.reject_call_restore(queue, sender, handle, link_id, endpoint_id, call_id);
