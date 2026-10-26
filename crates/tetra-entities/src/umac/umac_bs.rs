@@ -2409,7 +2409,8 @@ impl UmacBs {
             | CallControl::SiteCallPriority { .. }
             | CallControl::SiteHandoverPrepare { .. }
             | CallControl::SiteForwardRegistration { .. }
-            | CallControl::SiteForwardRegistrationResult { .. } => {
+            | CallControl::SiteForwardRegistrationResult { .. }
+            | CallControl::SiteHandoverIndividualCall { .. } => {
                 tracing::trace!("rx_control: ignoring CMCE-Brew notification (not for UMAC)");
             }
         }

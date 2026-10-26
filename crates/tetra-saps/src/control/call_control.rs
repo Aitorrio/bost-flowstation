@@ -215,4 +215,16 @@ pub enum CallControl {
     /// Multi-cell only: that MM's answer (None: the target isn't one of our cells, or no answer),
     /// for the serving cell to return inside D-NEW-CELL / D-PREPARE-FAIL.
     SiteForwardRegistrationResult { issi: u32, sdu: Option<BitBuffer> },
+    /// Multi-cell only (site switch → target cell's CMCE): `issi` is reselecting into this cell
+    /// while in an active individual (private/duplex) call with `peer_issi` (reachable via the
+    /// switch). Pre-provision a restoring leg so the MS's U-CALL RESTORE on arrival is answered
+    /// with D-CALL RESTORE (seamless), instead of being rejected. `brew_uuid` is the switch's
+    /// site-wide id for the call; `simplex_duplex` and `priority` carry the call's parameters.
+    SiteHandoverIndividualCall {
+        brew_uuid: uuid::Uuid,
+        issi: u32,
+        peer_issi: u32,
+        simplex_duplex: bool,
+        priority: u8,
+    },
 }
