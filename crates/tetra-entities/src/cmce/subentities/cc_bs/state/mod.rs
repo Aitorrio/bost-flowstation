@@ -451,6 +451,13 @@ pub(super) struct IndividualCall {
     /// Ambience-listening call (SS-AL): the called radio is set up directly with the floor
     /// and keeps it; the network side only listens.
     pub(super) ambience: bool,
+    /// Multi-cell only: this leg was pre-provisioned on the target cell by the site switch's
+    /// individual-call handover (see `fsm_on_site_handover_individual_call`) for an MS that is
+    /// reselecting into this cell mid-call. The MS is not yet on this cell's traffic channel, so
+    /// the D-CALL RESTORE answering its U-CALL RESTORE must carry a channel allocation to move it
+    /// there — unlike an ordinary same-cell restore, where the MS never left the channel. Set at
+    /// pre-provision, cleared once the restore completes.
+    pub(super) restoring_cross_cell: bool,
 }
 
 impl IndividualCall {
@@ -560,6 +567,9 @@ impl IndividualCall {
 
     pub(super) fn complete_restore(&mut self) {
         self.formal_state = self.formal_state.after(CcFormalEvent::RestoreComplete);
+        // The MS is now back on a traffic channel on this cell; any pre-provisioned channel
+        // allocation has been delivered, so subsequent restores follow the ordinary same-cell path.
+        self.restoring_cross_cell = false;
     }
 
     pub(super) fn apply_modify(&mut self) -> Result<(), CcFormalTransitionError> {

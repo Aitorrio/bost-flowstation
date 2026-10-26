@@ -256,6 +256,7 @@ impl CcBsSubentity {
                 floor_holder: None,
                 queued_tx_demand: None,
                 ambience,
+                restoring_cross_cell: false,
             },
         ) {
             match err {
@@ -275,6 +276,149 @@ impl CcBsSubentity {
                 | IndividualTransitionError::ConnectRequestAlreadySent(_) => {}
             }
         }
+    }
+
+    /// Multi-cell only: pre-provision a restoring individual-call leg on this cell for an MS that
+    /// is reselecting into it mid-call (announced handover). The site switch sends this ahead of
+    /// the MS's arrival (see net_site `prepare_handover`). When the MS then sends U-CALL RESTORE on
+    /// this cell it is matched to this leg by ISSI pair (see `fsm_on_u_call_restore`) and answered
+    /// with a D-CALL RESTORE carrying the channel allocation built here, so the private/duplex call
+    /// continues seamlessly instead of being rejected as unknown.
+    ///
+    /// `issi` is the reselecting MS (served locally after handover); `peer_issi` is the other party,
+    /// reachable through the switch over `brew_uuid`. The leg is created already `Active` (the call
+    /// is live elsewhere on the site) with a traffic channel allocated and opened, its downlink fed
+    /// from the network bridge (`SwMI`) because the peer is on another cell.
+    pub(in crate::cmce::subentities::cc_bs) fn fsm_on_site_handover_individual_call(
+        &mut self,
+        queue: &mut MessageQueue,
+        brew_uuid: uuid::Uuid,
+        issi: u32,
+        peer_issi: u32,
+        simplex_duplex: bool,
+        priority: u8,
+    ) {
+        if !brew::is_site_linked(&self.config) {
+            tracing::debug!(
+                "CMCE: ignoring SiteHandoverIndividualCall uuid={} issi={} (cell not site-linked)",
+                brew_uuid,
+                issi
+            );
+            return;
+        }
+
+        // Idempotent: announced handover may re-issue the prepare. If a leg for this ISSI pair is
+        // already present, leave it (and its channel) in place rather than allocating a second.
+        if self.individual_calls.values().any(|c| {
+            (c.calling_addr.ssi == issi && c.called_addr.ssi == peer_issi)
+                || (c.called_addr.ssi == issi && c.calling_addr.ssi == peer_issi)
+        }) {
+            tracing::debug!(
+                "CMCE: SiteHandoverIndividualCall uuid={} issi={} peer={} already provisioned, skipping",
+                brew_uuid,
+                issi,
+                peer_issi
+            );
+            return;
+        }
+
+        let main_carrier = self.config.config().cell.main_carrier;
+        let circuit = {
+            let mut state = self.config.state_write();
+            match self.circuits.allocate_circuit_with_allocator(
+                Direction::Both,
+                CommunicationType::P2p,
+                simplex_duplex,
+                &mut state.timeslot_alloc,
+                TimeslotOwner::Cmce,
+            ) {
+                Ok(circuit) => circuit.clone(),
+                Err(e) => {
+                    tracing::warn!(
+                        "CMCE: SiteHandoverIndividualCall uuid={} issi={} peer={} channel allocation failed ({:?}); restore will be rejected",
+                        brew_uuid,
+                        issi,
+                        peer_issi,
+                        e
+                    );
+                    return;
+                }
+            }
+        };
+
+        let call_id = circuit.call_id;
+        let ts = circuit.ts;
+        let usage = circuit.usage;
+
+        // Open the traffic channel now so the slot is held and UMAC is ready the instant the MS
+        // arrives. The peer is on another cell, so downlink voice is bridged from the network
+        // (SwMI) rather than looped back locally.
+        let cmce_circuit = CmceCircuit {
+            ts_created: self.dltime,
+            direction: Direction::Both,
+            ts,
+            carrier_num: main_carrier,
+            call_id,
+            usage,
+            circuit_mode: CircuitModeType::TchS,
+            comm_type: CommunicationType::P2p,
+            simplex_duplex,
+            speech_service: Some(0),
+            etee_encrypted: false,
+        };
+        Self::signal_umac_circuit_open(queue, &cmce_circuit, self.dltime, None, None, CircuitDlMediaSource::SwMI);
+
+        tracing::info!(
+            "CMCE: pre-provisioned restoring individual leg uuid={} call_id={} issi={} peer={} ts={} duplex={} (awaiting U-CALL RESTORE)",
+            brew_uuid,
+            call_id,
+            issi,
+            peer_issi,
+            ts,
+            simplex_duplex
+        );
+
+        let call = IndividualCall {
+            calling_addr: TetraAddress::new(issi, SsiType::Issi),
+            called_addr: TetraAddress::new(peer_issi, SsiType::Issi),
+            calling_handle: 0,
+            calling_link_id: 0,
+            calling_endpoint_id: 0,
+            called_handle: None,
+            called_link_id: None,
+            called_endpoint_id: None,
+            calling_carrier_num: main_carrier,
+            calling_ts: ts,
+            called_carrier_num: main_carrier,
+            called_ts: ts,
+            calling_usage: usage,
+            called_usage: usage,
+            simplex_duplex,
+            priority,
+            // Live elsewhere on the site: created directly Active so the restore path accepts it
+            // (Active --RestoreRequest--> Restore is the only transition U-CALL RESTORE can take).
+            state: IndividualCallState::Active,
+            formal_state: CcFormalState::Idle
+                .after(CcFormalEvent::SetupRequest)
+                .after(CcFormalEvent::SetupComplete),
+            setup_timer_started: None,
+            setup_timeout: None,
+            active_timer_started: Some(self.dltime),
+            call_timeout: Self::p2p_call_timeout(simplex_duplex),
+            // The peer is reachable only through the switch/backhaul; the local MS is the near leg.
+            called_over_brew: true,
+            calling_over_brew: false,
+            network_entity: TetraEntity::Brew,
+            brew_uuid: Some(brew_uuid),
+            network_call: None,
+            connect_request_sent: false,
+            // Simplex: leave the floor free so the arriving MS can request to transmit at restore.
+            floor_holder: None,
+            queued_tx_demand: None,
+            ambience: false,
+            restoring_cross_cell: true,
+        };
+        self.individual_calls.insert(call_id, call);
     }
 
     /// Handle network circuit connect request (Brew -> local called MS).

@@ -80,8 +80,20 @@ impl CcBsSubentity {
             } else {
                 TransmissionGrant::GrantedToOtherUser
             };
+            // A leg pre-provisioned for cross-cell handover has the MS arriving from another cell,
+            // so it is not yet on this cell's traffic channel: the restore reply must carry a
+            // channel allocation to move it there. An ordinary same-cell restore needs none (the
+            // MS never left the channel). `restoring_cross_cell` is cleared by complete_restore, so
+            // capture the channel first.
+            let cross_cell_chan = call
+                .restoring_cross_cell
+                .then_some((call.calling_carrier_num, call.calling_ts, call.calling_usage));
             call.complete_restore();
-            self.send_d_call_restore(queue, sender, handle, link_id, endpoint_id, call_id, grant);
+            if let Some((carrier_num, ts, usage)) = cross_cell_chan {
+                self.send_d_call_restore_with_chan_alloc(queue, sender, handle, link_id, endpoint_id, call_id, grant, carrier_num, ts, usage);
+            } else {
+                self.send_d_call_restore(queue, sender, handle, link_id, endpoint_id, call_id, grant);
+            }
             return;
         }
 
@@ -136,6 +148,59 @@ impl CcBsSubentity {
     ) {
         let sdu = Self::build_d_call_restore(call_id, grant, Some(CallStatus::Callcontinue));
         let msg = Self::build_sapmsg_direct(sdu, self.dltime, sender, handle, link_id, endpoint_id);
+        queue.push_back(msg);
+    }
+
+    /// D-CALL RESTORE that also hands the MS a channel allocation, moving it onto this cell's
+    /// traffic channel. Used only for a leg pre-provisioned by cross-cell individual-call handover,
+    /// where the MS is arriving from a sibling cell and is not yet on channel. Channel allocation
+    /// rides as a MAC resource element alongside the CC PDU, exactly as D-CONNECT assigns the
+    /// traffic channel at ordinary call setup.
+    #[allow(clippy::too_many_arguments)]
+    fn send_d_call_restore_with_chan_alloc(
+        &self,
+        queue: &mut MessageQueue,
+        sender: TetraAddress,
+        handle: u32,
+        link_id: u32,
+        endpoint_id: u32,
+        call_id: u16,
+        grant: TransmissionGrant,
+        carrier_num: u16,
+        ts: u8,
+        usage: u8,
+    ) {
+        let mut timeslots = [false; 4];
+        timeslots[ts as usize - 1] = true;
+        let chan_alloc = CmceChanAllocReq {
+            usage: Some(usage),
+            alloc_type: ChanAllocType::Replace,
+            carrier: Some(carrier_num),
+            timeslots,
+            ul_dl_assigned: UlDlAssignment::Both,
+        };
+        let sdu = Self::build_d_call_restore(call_id, grant, Some(CallStatus::Callcontinue));
+        let msg = SapMsg {
+            sap: Sap::LcmcSap,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Mle,
+            msg: SapMsgInner::LcmcMleUnitdataReq(LcmcMleUnitdataReq {
+                sdu,
+                handle,
+                endpoint_id,
+                link_id,
+                // Match the other individual-call CC sends (D-CONNECT/ACK): unacknowledged BL-UDATA
+                // carried with FACCH stealing so the allocation reaches the MS on the control path.
+                layer2service: Layer2Service::Unacknowledged,
+                pdu_prio: 0,
+                layer2_qos: 0,
+                stealing_permission: true,
+                stealing_repeats_flag: true,
+                chan_alloc: Some(chan_alloc),
+                main_address: sender,
+                tx_reporter: None,
+            }),
+        };
         queue.push_back(msg);
     }
 

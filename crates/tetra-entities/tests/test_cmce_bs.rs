@@ -3113,6 +3113,72 @@ fn test_site_linked_restore_from_sibling_cell_matches_individual() {
     assert_eq!(restore.call_identifier, call_id, "the radio adopts this cell's local call id");
 }
 
+/// Multi-cell individual-call handover, target side: the site switch pre-provisions a restoring
+/// leg on this cell (SiteHandoverIndividualCall) for an MS reselecting in mid-call. When the MS
+/// then sends U-CALL RESTORE with the old cell's id, it is matched by ISSI pair and answered with
+/// a D-CALL RESTORE that *carries a channel allocation* — the MS is arriving from a sibling cell
+/// and must be told this cell's traffic channel (an ordinary same-cell restore carries none).
+#[test]
+fn test_site_handover_preprovisions_individual_leg_and_restores_with_channel() {
+    debug::setup_logging_verbose();
+
+    const MOVER: u32 = 1_000_333;
+    const PEER: u32 = 1_000_444;
+    // High fixed id for the "old cell" so it never collides with the small id auto-allocated to
+    // the pre-provisioned leg; the point is that the reply uses this cell's id, not this one.
+    // (Call identifier is a 14-bit field, so this must stay <= 16383.)
+    const SIBLING_CALL_ID: u16 = 9_000;
+
+    let mut config = brew_test_config();
+    config.site_linked = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    // Switch pre-provisions the restoring leg ahead of the MS arriving (duplex call MOVER <-> PEER).
+    let brew_uuid = uuid::Uuid::parse_str("b1c2d3e4-f5a6-47b8-9c0d-1e2f3a4b5c6d").unwrap();
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::SiteHandoverIndividualCall {
+            brew_uuid,
+            issi: MOVER,
+            peer_issi: PEER,
+            simplex_duplex: true,
+            priority: 1,
+        }),
+    });
+    test.run_stack(Some(1));
+    // Pre-provision opens a traffic channel for the leg before the radio ever appears.
+    let provision_msgs = test.dump_sinks();
+    assert!(
+        provision_msgs
+            .iter()
+            .any(|m| matches!(&m.msg, SapMsgInner::CmceCallControl(CallControl::Open(_)))),
+        "pre-provision must open a traffic channel so U-CALL RESTORE lands on a real circuit"
+    );
+
+    // The MS arrives on this cell and restores with the OLD cell id + the peer; matched by pair.
+    test.submit_message(build_u_call_restore_msg(MOVER, SIBLING_CALL_ID, PEER, false));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    let (mut sdu, chan) = find_lcmc_req(&msgs, MOVER, CmcePduTypeDl::DCallRestore)
+        .expect("D-CALL RESTORE, not D-RELEASE — the pre-provisioned leg is matched by the ISSI pair");
+    let restore = DCallRestore::from_bitbuf(&mut sdu).expect("parse DCallRestore");
+    assert_ne!(
+        restore.call_identifier, SIBLING_CALL_ID,
+        "the radio is moved onto this cell's pre-provisioned call id, not the sibling cell's"
+    );
+    assert!(
+        chan.is_some(),
+        "cross-cell restore must carry a channel allocation to move the MS onto this cell's traffic channel"
+    );
+}
+
 /// Without site linking an unknown call identifier is still rejected (single-cell behaviour).
 #[test]
 fn test_restore_with_unknown_call_id_rejected_when_not_site_linked() {
