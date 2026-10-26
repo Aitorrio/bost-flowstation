@@ -15,7 +15,7 @@ jobs:
     name: build · test · clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # soapysdr-sys links against the system SoapySDR library (pkg-config SoapySDR.pc);
       # without it the whole workspace build fails before anything else runs.

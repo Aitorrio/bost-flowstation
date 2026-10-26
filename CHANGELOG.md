@@ -6,7 +6,7 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 - **Wizard µCell.** El asistente y la página Setup pueden instalar el driver `mucell` (placa µCell BB, distinto de SXceiver): clona/compila SoapyMuCell y el overlay `mu-cell-bb_raspberrypi`, escribe `device = "driver=mucell"`, y si el helper imprime `NEED_REBOOT` ofrece reiniciar la Pi (`POST /api/system/reboot`) para cargar el device-tree. Familias de ganancia/antenas alineadas con SXceiver; validación `SoapyDriverFamily::MuCell`.
 
-## Pendiente de publicar — Autenticación, TEA2/TEA3, OTAR y USRP B210
+## Pendiente de publicar — Autenticación, TEA2/TEA3, OTAR, E2EE de SDS, WAP y USRP B210
 
 - **Ticks de entrega de SDS en la consola.** Los informes de entrega SDS-TL que una radio envía al ISSI del despachador (o a 9999) ya no se descartan como «no registrado localmente»: se asocian al mensaje enviado por su referencia de mensaje y el registro SDS y la nueva vista «Enviados» de la consola muestran ✓ enviado, ✓✓ entregado o ✗ rechazado. Las entradas del registro guardan `message_ref` y `delivered`; nuevo evento de telemetría `SdsReport`.
 - **Nombres de radio.** Botón «Nombre» en la tabla de radios y en la lista de la consola de despacho para asignar un nombre a un ISSI (guardado en `radio_names.json` junto a la configuración, API `GET/POST /api/radio-names`). El nombre se muestra donde aparezca ese ISSI, por delante del indicativo de RadioID, y el chip del grupo en recepción indica quién ha pulsado el PTT («▶ Dave (2358245)»); el estado de despacho incluye `rx_issi`.
@@ -17,6 +17,11 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 - **OTAR de SCK (cláusula 4.5.2).** Entrega de la clave estática a una radio por el aire, sellada con la K de esa radio (TA41 + TA51); la respuesta de la radio (U-OTAR SCK RESULT) se muestra en el panel. Con `class = 1` y una clave configurada, la clave queda preparada solo para OTAR y la celda sigue en claro, de modo que la flota puede recibir la clave antes de activar el cifrado.
 - **Página Seguridad** en el panel: estado en ejecución frente a guardado con reinicio en un clic, modo de autenticación, tabla de claves de abonado con generador de claves, cifrado (algoritmo, SCK, número, versión, grupos en claro), «Enviar SCK» por radio y a todas las radios conectadas; columna **Seguridad** en la tabla de radios y fila SEGURIDAD en la barra lateral.
 - **USRP B210 (UHD):** opción «Instalar USRP (UHD)» en el asistente y en el instalador, valores por defecto correctos para full-duplex (TX en TX/RX, RX en RX2, PGA 40 dB), imagen FPGA abierta para los clones Kintex-7 (`fx3 is in state 5`), dependencias del paquete .deb y documentación.
+- **Cifrado extremo a extremo (E2EE) de SDS.** Desactivado por defecto (`[security.e2ee]`): sella el contenido de los mensajes de estado y texto entre radios con AES‑128/256 en modo CTR y MAC AES‑CMAC (cifra‑luego‑autentica), independiente del cifrado de aire TEA. Pensado para sistemas privados; en la red amateur se incluye como función aunque no se use.
+- **Página WAP con estado en vivo.** La página del punto de acceso muestra actividad real —SDS vistos, nivel de señal general, radios registradas y antigüedad de la última actividad de radio— con documentación de configuración para operadores. Se añade una **tabla por radio** que separa la actividad de grupo de la individual/privada.
+- **Corrección: desactivar el WAP ya no impide arrancar la estación.** `[cell_info.wap_ip].enabled` pasa a ser el único interruptor maestro del WAP; con el WAP desactivado la BTS arranca con normalidad (antes fallaba al iniciar).
+- **Mapa de posición (LIP) sin conexión.** La biblioteca del mapa (Leaflet) se sirve desde la propia estación, de modo que el mapa de ubicaciones funciona sin acceso a Internet.
+- **Un error de configuración ya no detiene una estación en marcha.** Al cargar las celdas adicionales, una celda con configuración inválida se omite con un aviso en lugar de abortar el arranque de toda la estación.
 
 ## v0.5.4 — Escucha de ambiente (SS-AL) y petición de posición
 

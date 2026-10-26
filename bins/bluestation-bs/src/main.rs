@@ -548,8 +548,16 @@ fn main() {
     // Multi-cell: every cell advertises its siblings as neighbours for reselection.
     stack_cfg.add_sibling_neighbours();
 
-    // Build immutable, cheaply clonable SharedConfig and build the base station stack
-    let mut cfg = SharedConfig::from_parts(stack_cfg, None);
+    // Build immutable, cheaply clonable SharedConfig and build the base station stack. The
+    // primary config was already parsed+validated by load_config_with_fallback, so this should
+    // not fail; exit cleanly rather than panic if it somehow does.
+    let mut cfg = match SharedConfig::try_from_parts(stack_cfg, None) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("ERROR: Invalid stack configuration: {e}");
+            std::process::exit(1);
+        }
+    };
 
     // If the dashboard OR Telegram alerts are enabled, set up the log capture channel BEFORE
     // logging initialises (Telegram forwards WARN/ERROR lines as its critical-status catch-all).
@@ -605,7 +613,17 @@ fn main() {
         stack_config
             .extra_cells
             .iter()
-            .filter_map(|c| Some((c.id, SharedConfig::from_parts(stack_config.for_extra_cell(c.id)?, None))))
+            .filter_map(|c| {
+                let cell_cfg = stack_config.for_extra_cell(c.id)?;
+                // A bad extra cell must not crash the whole station — skip it with a warning.
+                match SharedConfig::try_from_parts(cell_cfg, None) {
+                    Ok(sc) => Some((c.id, sc)),
+                    Err(e) => {
+                        eprintln!("WARNING: skipping extra cell {:?}: {e}", c.id);
+                        None
+                    }
+                }
+            })
             .collect()
     };
     tetra_entities::net_site::register_extra_cells(extra_cell_cfgs.clone());

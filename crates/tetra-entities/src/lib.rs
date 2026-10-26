@@ -11,6 +11,7 @@ pub mod mm;
 pub mod phy;
 pub mod sndcp;
 pub mod radio_directory;
+pub mod sds_e2ee;
 pub mod umac;
 
 pub mod network;

@@ -718,6 +718,20 @@ main_carrier_number = 1586
     }
 
     #[test]
+    fn try_from_parts_errors_instead_of_panicking_on_bad_config() {
+        use crate::bluestation::SharedConfig;
+        // ms_txpwr_max_cell = 8 is out of the 0-7 range and fails validate().
+        let bad = from_toml_str(&minimal_toml("ms_txpwr_max_cell = 8")).expect("parses");
+        assert!(
+            SharedConfig::try_from_parts(bad, None).is_err(),
+            "an invalid config must return Err, not panic the station"
+        );
+        // A valid config still builds.
+        let good = from_toml_str(&minimal_toml("")).expect("parses");
+        assert!(SharedConfig::try_from_parts(good, None).is_ok());
+    }
+
+    #[test]
     fn wap_ip_profile_resolves_with_overrides_and_defaults() {
         let cfg = from_toml_str(&minimal_toml(
             "sndcp_service = true\nadvanced_link = true\n\n[cell_info.wap_ip]\nenabled = true\naddress = \"10.0.0.5\"\nport = 9201\nresponse_ttl = 16",
@@ -737,20 +751,26 @@ main_carrier_number = 1586
     }
 
     #[test]
-    fn wap_profile_and_sndcp_service_must_agree() {
-        // `from_toml_str` resolves without validating; the cross-field rule runs in `validate()`.
+    fn wap_master_switch_never_fails_to_start() {
         let validated = |extra: &str| from_toml_str(&minimal_toml(extra)).expect("parses").validate();
 
-        // A consistent profile (SNDCP + gateway + advanced link) validates.
-        assert!(validated("sndcp_service = true\nadvanced_link = true\n\n[cell_info.wap_ip]\nenabled = true").is_ok());
-        // Both off is the default consistent state.
-        assert!(validated("").is_ok(), "both off is consistent");
-        // SNDCP advertised but no gateway behind it.
-        assert!(validated("sndcp_service = true\nadvanced_link = true").is_err(), "sndcp_service without an enabled wap_ip gateway must be rejected");
-        // Gateway running but SNDCP not advertised — no MS would ever reach it.
-        assert!(validated("advanced_link = true\n\n[cell_info.wap_ip]\nenabled = true").is_err(), "wap_ip gateway without sndcp_service must be rejected");
-        // Gateway needs the advanced link.
-        assert!(validated("sndcp_service = true\n\n[cell_info.wap_ip]\nenabled = true").is_err(), "wap_ip gateway requires advanced_link");
+        // Regression: turning the gateway off while a stale sndcp_service flag is still set must
+        // NEVER fail validation — disabling a feature can't crash the station at startup.
+        assert!(
+            validated("sndcp_service = true\n\n[cell_info.wap_ip]\nenabled = false").is_ok(),
+            "disabling WAP must never fail validation, even with sndcp_service still true"
+        );
+        // Every other combination is also accepted (the flags are advisory now).
+        assert!(validated("").is_ok(), "both off (default)");
+        assert!(validated("sndcp_service = true").is_ok(), "sndcp_service with no gateway: just off");
+        assert!(validated("[cell_info.wap_ip]\nenabled = true").is_ok(), "enabling needs no other flags");
+
+        // wap_enabled() is the single master switch, derived only from [cell_info.wap_ip].enabled.
+        let on = from_toml_str(&minimal_toml("[cell_info.wap_ip]\nenabled = true")).unwrap();
+        assert!(on.cell.wap_enabled());
+        let off = from_toml_str(&minimal_toml("sndcp_service = true\n\n[cell_info.wap_ip]\nenabled = false")).unwrap();
+        assert!(!off.cell.wap_enabled(), "enabled=false is off regardless of sndcp_service");
+        assert!(!from_toml_str(&minimal_toml("sndcp_service = true")).unwrap().cell.wap_enabled(), "no wap_ip section = off");
     }
 
     #[test]

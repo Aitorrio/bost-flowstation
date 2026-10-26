@@ -12253,14 +12253,22 @@ function lstGeoEnsureLeaflet(){
   if(window.L)return Promise.resolve(true);
   if(lstGeoLeafletLoading)return lstGeoLeafletLoading;
   lstGeoLeafletLoading=new Promise(resolve=>{
+    // Load the vendored (offline) copy served by the station first; only fall back to the CDN if
+    // the local asset is somehow missing, so the map works on a station with no internet.
     const css=document.createElement('link');
     css.rel='stylesheet';
-    css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    css.href='/assets/leaflet.css';
     document.head.appendChild(css);
     const s=document.createElement('script');
-    s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.src='/assets/leaflet.js';
     s.onload=()=>resolve(true);
-    s.onerror=()=>resolve(false);
+    s.onerror=()=>{
+      const cdn=document.createElement('script');
+      cdn.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      cdn.onload=()=>resolve(true);
+      cdn.onerror=()=>resolve(false);
+      document.head.appendChild(cdn);
+    };
     document.head.appendChild(s);
   });
   return lstGeoLeafletLoading;

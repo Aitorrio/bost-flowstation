@@ -448,16 +448,11 @@ impl StackConfig {
             return Err("ms_txpwr_max_cell must be 0-7 (3 bits)");
         }
 
-        // SNDCP packet-data service and the WAP-IP gateway must agree: the cell either advertises
-        // SNDCP and runs the gateway, or does neither (spec §6.1). A half-enabled profile would
-        // advertise a service with nothing behind it (or run a gateway nothing can reach).
-        let wap_enabled = self.cell.wap_ip.is_some_and(|w| w.enabled);
-        if self.cell.sndcp_service != wap_enabled {
-            return Err("cell.sndcp_service requires [cell_info.wap_ip].enabled = true, and vice versa");
-        }
-        if wap_enabled && !self.cell.advanced_link {
-            return Err("[cell_info.wap_ip].enabled requires cell.advanced_link = true");
-        }
+        // The WAP/SNDCP gateway is driven solely by `[cell_info.wap_ip].enabled`
+        // (CfgCellInfo::wap_enabled): when on, the cell advertises SNDCP + advanced-link and runs
+        // the gateway; when off it does neither. There is deliberately no cross-field agreement
+        // check here — a stale `sndcp_service`/`advanced_link` flag must never make the station
+        // fail to start (disabling a feature can't be fatal).
 
         // Validate timezone if configured
         if let Some(ref tz) = self.cell.timezone
@@ -576,26 +571,31 @@ pub struct SharedConfig {
 }
 
 impl SharedConfig {
-    pub fn from_parts(cfg: StackConfig, state: Option<StackState>) -> Self {
-        // Check config for validity before returning the SharedConfig object
-        match cfg.validate() {
-            Ok(_) => {}
-            Err(e) => panic!("Invalid stack configuration: {}", e),
-        }
+    /// Build a `SharedConfig`, validating the config and computing the carriers. Returns an error
+    /// instead of panicking, so the boot path can exit with a clear message (primary config) or
+    /// skip just the offending cell (extra cells) rather than crashing the whole station.
+    pub fn try_from_parts(cfg: StackConfig, state: Option<StackState>) -> Result<Self, String> {
+        cfg.validate()?;
 
         let mut state = state.unwrap_or_default();
         let carriers = cfg
-            .bs_phase_mod_carriers()
-            .expect("validated carrier configuration should compute")
+            .bs_phase_mod_carriers()?
             .into_iter()
             .map(|(carrier_num, _, _)| carrier_num)
             .collect::<Vec<_>>();
         state.timeslot_alloc.configure_carriers(&carriers);
 
-        Self {
+        Ok(Self {
             cfg: Arc::new(cfg),
             state: Arc::new(RwLock::new(state)),
-        }
+        })
+    }
+
+    /// Infallible constructor that panics on an invalid config. Kept for internal and test
+    /// callers that build a config already known to be valid; the boot path uses
+    /// [`Self::try_from_parts`] so a config error never panics a running station.
+    pub fn from_parts(cfg: StackConfig, state: Option<StackState>) -> Self {
+        Self::try_from_parts(cfg, state).unwrap_or_else(|e| panic!("Invalid stack configuration: {e}"))
     }
 
     /// Access immutable config.
