@@ -134,9 +134,18 @@ pub fn lines(max: usize) -> Vec<RadioLine> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // The directory is a single process-global table (`DIR`), so these tests all mutate the same
+    // shared state. Cargo runs tests in parallel by default, so without serialization one test's
+    // `clear()` can wipe another's entries mid-run (observed as a flaky `group_affiliation_count`
+    // reading 0 instead of 1 in CI). Hold this lock for the body of each test so they run one at a
+    // time. `into_inner` recovers from a poisoned lock left by an earlier panicking test.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn register_rssi_groups_and_counts() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear();
         on_register(1001);
         on_register(1002);
@@ -159,6 +168,7 @@ mod tests {
 
     #[test]
     fn detach_and_deregister() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear();
         on_register(2001);
         set_groups(2001, &[300, 400]);
@@ -170,6 +180,7 @@ mod tests {
 
     #[test]
     fn lines_cap_and_recency_order() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear();
         for issi in 0..30u32 {
             on_register(9000 + issi);
