@@ -197,19 +197,33 @@ impl Sndcp {
             Some(age) => format!("{} ago", wap_status::compact_tiny_uptime(age)),
             None => "none".to_string(),
         };
+        // Per-radio detail and the group/private split come from the always-on radio directory
+        // (fed by the telemetry fan-out, independent of the dashboard). Capped so the lines never
+        // blow the WAP page budget; the renderer's size ladder trims further if needed.
+        let radio_lines = crate::radio_directory::lines(16).iter().map(Self::format_radio_line).collect();
         wap_status::WapStatusSnapshot {
             title: "FlowStation".to_string(),
             version: tetra_core::PRODUCT_VERSION.to_string(),
             state: "ON AIR".to_string(),
             registered_ms: reg.registered_radios() as u32,
-            group_count: 0,
-            private_count: 0,
+            group_count: crate::radio_directory::group_affiliation_count() as u32,
+            private_count: crate::radio_directory::private_count() as u32,
             sds_count: reg.sds_seen().min(u32::MAX as u64) as u32,
-            radio_lines: Vec::new(),
+            radio_lines,
             uptime_secs: reg.uptime_secs(),
             last_activity,
             health: health.to_string(),
         }
+    }
+
+    /// Format one radio-directory row as a compact status line for the WAP page, e.g.
+    /// `1001 -85dBm 3s` (idle time), or `1002 -- 1m` when no signal reading is held.
+    fn format_radio_line(r: &crate::radio_directory::RadioLine) -> String {
+        let rssi = match r.rssi_dbfs {
+            Some(v) => format!("{}dBm", v.round() as i32),
+            None => "--".to_string(),
+        };
+        format!("{} {} {}", r.issi, rssi, wap_status::compact_tiny_uptime(r.idle_secs))
     }
 
     /// Handle an uplink SN-UNITDATA (type 4) or SN-DATA (type 1/5) carrying an IPv4/UDP N-PDU: parse

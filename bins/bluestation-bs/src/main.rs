@@ -817,6 +817,7 @@ fn main() {
                     use tetra_entities::health::registry as health_registry;
                     use tetra_entities::net_geoalarm::parse_lip_position_text;
                     use tetra_entities::net_telemetry::TelemetryEvent;
+                    use tetra_entities::radio_directory;
                     // Approximate attached-radio count, maintained from registration telemetry, fed to
                     // the health registry (Radios domain). Re-registrations of an already-known radio
                     // don't emit MsRegistration, so increment/decrement stays balanced.
@@ -827,16 +828,24 @@ fn main() {
                                 // Feed the lite health registry (cheap, before the fan-out clones).
                                 match &event {
                                     TelemetryEvent::BrewConnected { connected, .. } => health_registry().set_brew_up(*connected),
-                                    TelemetryEvent::MsRegistration { .. } => {
+                                    TelemetryEvent::MsRegistration { issi } => {
                                         radio_count += 1;
                                         health_registry().set_registered_radios(radio_count);
                                         health_registry().note_radio_activity();
+                                        radio_directory::on_register(*issi);
                                     }
-                                    TelemetryEvent::MsDeregistration { .. } | TelemetryEvent::MsTimeoutDrop { .. } => {
+                                    TelemetryEvent::MsDeregistration { issi } | TelemetryEvent::MsTimeoutDrop { issi } => {
                                         radio_count = radio_count.saturating_sub(1);
                                         health_registry().set_registered_radios(radio_count);
+                                        radio_directory::on_deregister(*issi);
                                     }
-                                    TelemetryEvent::MsRssi { .. } => health_registry().note_radio_activity(),
+                                    TelemetryEvent::MsRssi { issi, rssi_dbfs } => {
+                                        health_registry().note_radio_activity();
+                                        radio_directory::on_rssi(*issi, *rssi_dbfs);
+                                    }
+                                    TelemetryEvent::MsGroupsSnapshot { issi, gssis } => radio_directory::set_groups(*issi, gssis),
+                                    TelemetryEvent::MsGroupAttach { issi, gssis } => radio_directory::attach_groups(*issi, gssis),
+                                    TelemetryEvent::MsGroupDetach { issi, gssis } => radio_directory::detach_groups(*issi, gssis),
                                     TelemetryEvent::SdsLog { .. } => health_registry().note_sds(),
                                     _ => {}
                                 }
