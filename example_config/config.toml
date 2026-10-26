@@ -468,6 +468,19 @@ voice_service = true
 # sckn = 1                        # SCK number 1-32
 # sck_vn = 1                      # SCK version number
 # clear_groups = [900]            # talkgroups left in clear for radios without encryption
+#
+# OPTIONAL: End-to-end encryption (E2EE) of SDS — SFPG Rec 02-aligned, AES.
+# This protects the SDS payload sender-to-receiver so the infrastructure never
+# sees cleartext — distinct from the air-interface (AIE) encryption above. OFF
+# unless this sub-section is present with enabled = true. Like AIE, NOT permitted
+# under amateur licences — licensed private/commercial networks only; the operator
+# owns enabling it. See Docs/e2ee-setup.md.
+# [security.e2ee]
+# enabled = true
+# [[security.e2ee.teks]]
+# id = 1                          # 16-bit key id carried in each protected message
+# algorithm = "aes256"           # "aes128" or "aes256" (default aes256)
+# key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"  # 64 hex (aes256) / 32 hex (aes128)
 
 ###############################################################################
 

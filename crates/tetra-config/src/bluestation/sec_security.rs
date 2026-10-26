@@ -65,6 +65,8 @@ pub struct CfgSecurity {
     pub subscribers: Vec<SubscriberKey>,
     /// ISSIs whose `k` could not be parsed (reported at startup, never silently dropped).
     pub invalid_subscriber_keys: Vec<u32>,
+    /// End-to-end encryption of base-station SDS; `None` = off (the default).
+    pub e2ee: Option<CfgE2ee>,
 }
 
 /// Whether and how radios are authenticated when they register. With `Off` the cell trusts the
@@ -183,6 +185,47 @@ impl CfgAie {
     }
 }
 
+/// E2EE bulk algorithm (config-side mirror; the entity layer maps this to the crypto crate's
+/// own enum, keeping `tetra-config` independent of `tetra-security`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CfgE2eeAlg {
+    Aes128,
+    Aes256,
+}
+
+impl CfgE2eeAlg {
+    pub fn key_len(self) -> usize {
+        match self {
+            CfgE2eeAlg::Aes128 => 16,
+            CfgE2eeAlg::Aes256 => 32,
+        }
+    }
+}
+
+/// One Traffic Encryption Key for E2EE: a 16-bit id, an algorithm, and the raw key bytes.
+#[derive(Clone)]
+pub struct CfgTek {
+    pub id: u16,
+    pub alg: CfgE2eeAlg,
+    pub key: Vec<u8>,
+}
+
+impl std::fmt::Debug for CfgTek {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never print key material.
+        f.debug_struct("CfgTek").field("id", &self.id).field("alg", &self.alg).finish_non_exhaustive()
+    }
+}
+
+/// End-to-end encryption of the SDS the base station itself sends/receives (SFPG Rec 02-aligned,
+/// AES). `None` / `enabled = false` = off (the default). Lawful only on licensed
+/// private/commercial networks — never on amateur allocations; the operator owns enabling it.
+#[derive(Debug, Clone)]
+pub struct CfgE2ee {
+    pub enabled: bool,
+    pub teks: Vec<CfgTek>,
+}
+
 impl Default for CfgSecurity {
     fn default() -> Self {
         CfgSecurity {
@@ -196,6 +239,7 @@ impl Default for CfgSecurity {
             mutual_authentication: true,
             subscribers: Vec::new(),
             invalid_subscriber_keys: Vec::new(),
+            e2ee: None,
         }
     }
 }
@@ -281,6 +325,30 @@ pub struct CfgSecurityDto {
     pub mutual_authentication: Option<bool>,
     #[serde(default)]
     pub subscribers: Vec<SubscriberKeyDto>,
+    #[serde(default)]
+    pub e2ee: Option<CfgE2eeDto>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CfgE2eeDto {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub teks: Vec<E2eeTekDto>,
+}
+
+#[derive(Clone, Default, Deserialize)]
+pub struct E2eeTekDto {
+    pub id: u16,
+    #[serde(default)]
+    pub algorithm: Option<String>,
+    pub key: String,
+}
+
+impl std::fmt::Debug for E2eeTekDto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "E2eeTekDto {{ id: {}, algorithm: {:?}, key: <redacted> }}", self.id, self.algorithm)
+    }
 }
 
 #[derive(Clone, Default, Deserialize)]
@@ -358,6 +426,35 @@ fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
     }))
 }
 
+fn apply_e2ee_patch(dto: CfgE2eeDto) -> Result<Option<CfgE2ee>, String> {
+    let enabled = dto.enabled.unwrap_or(false);
+    let mut teks = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for t in dto.teks {
+        let alg = match t.algorithm.as_deref().unwrap_or("aes256").to_ascii_lowercase().as_str() {
+            "aes128" | "aes-128" => CfgE2eeAlg::Aes128,
+            "aes256" | "aes-256" => CfgE2eeAlg::Aes256,
+            other => return Err(format!("security.e2ee.teks.algorithm = {other:?}: use \"aes128\" or \"aes256\"")),
+        };
+        let key = match alg {
+            CfgE2eeAlg::Aes128 => parse_hex::<16>(&t.key).map(|a| a.to_vec()),
+            CfgE2eeAlg::Aes256 => parse_hex::<32>(&t.key).map(|a| a.to_vec()),
+        }
+        .ok_or_else(|| format!("security.e2ee.teks id {}: key must be {} hex digits for {:?}", t.id, alg.key_len() * 2, alg))?;
+        if !seen.insert(t.id) {
+            return Err(format!("security.e2ee: duplicate TEK id {}", t.id));
+        }
+        teks.push(CfgTek { id: t.id, alg, key });
+    }
+    if enabled && teks.is_empty() {
+        return Err("security.e2ee.enabled = true needs at least one [[security.e2ee.teks]]".into());
+    }
+    if !enabled && teks.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(CfgE2ee { enabled, teks }))
+}
+
 pub fn apply_security_patch(dto: CfgSecurityDto) -> Result<CfgSecurity, String> {
     let defaults = CfgSecurity::default();
     // An unrecognised mode falls back to "auto"; the effective posture is logged at startup
@@ -384,6 +481,7 @@ pub fn apply_security_patch(dto: CfgSecurityDto) -> Result<CfgSecurity, String> 
     }
     Ok(CfgSecurity {
         aie: apply_aie_patch(dto.aie.unwrap_or_default())?,
+        e2ee: apply_e2ee_patch(dto.e2ee.unwrap_or_default())?,
         authentication,
         mutual_authentication: dto.mutual_authentication.unwrap_or(defaults.mutual_authentication),
         subscribers,
@@ -401,6 +499,41 @@ pub fn apply_security_patch(dto: CfgSecurityDto) -> Result<CfgSecurity, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn e2ee_resolves_and_validates() {
+        let tek = |id, alg: Option<&str>, key: String| E2eeTekDto { id, algorithm: alg.map(Into::into), key };
+
+        // Off by default.
+        assert!(apply_e2ee_patch(CfgE2eeDto::default()).unwrap().is_none());
+
+        // Valid AES-256 TEK.
+        let cfg = apply_e2ee_patch(CfgE2eeDto { enabled: Some(true), teks: vec![tek(1, Some("aes256"), "00".repeat(32))] })
+            .unwrap()
+            .unwrap();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.teks[0].alg, CfgE2eeAlg::Aes256);
+        assert_eq!(cfg.teks[0].key.len(), 32);
+
+        // Default algorithm is AES-256.
+        let d = apply_e2ee_patch(CfgE2eeDto { enabled: Some(true), teks: vec![tek(5, None, "ab".repeat(32))] }).unwrap().unwrap();
+        assert_eq!(d.teks[0].alg, CfgE2eeAlg::Aes256);
+
+        // Enabled with no TEKs is rejected.
+        assert!(apply_e2ee_patch(CfgE2eeDto { enabled: Some(true), teks: vec![] }).is_err());
+        // Wrong key length for the algorithm is rejected.
+        assert!(apply_e2ee_patch(CfgE2eeDto { enabled: Some(true), teks: vec![tek(1, Some("aes128"), "00".repeat(32))] }).is_err());
+        // Unknown algorithm is rejected.
+        assert!(apply_e2ee_patch(CfgE2eeDto { enabled: Some(true), teks: vec![tek(1, Some("des"), "00".repeat(16))] }).is_err());
+        // Duplicate TEK id is rejected.
+        assert!(
+            apply_e2ee_patch(CfgE2eeDto {
+                enabled: Some(true),
+                teks: vec![tek(1, None, "11".repeat(32)), tek(1, None, "22".repeat(32))],
+            })
+            .is_err()
+        );
+    }
 
     /// The footgun: an empty list must stay "open" under the legacy default, but `enforce` must
     /// make the same empty list mean deny-all.

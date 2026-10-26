@@ -25,6 +25,7 @@
 #![forbid(unsafe_code)]
 
 pub mod aie;
+pub mod e2ee;
 pub mod auth;
 pub mod keys;
 pub mod ksg;

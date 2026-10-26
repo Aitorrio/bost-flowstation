@@ -407,7 +407,7 @@ For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream d
 - **MidnightBlueLabs** — [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)
 - **Aitor, EA4HBL** — this fork (install, Setup, visual config, OTA UX, Spanish UI).
 - **Yiannis Samouhos, ysamouhos** — Multi-cell support with multiple SDR and AIE.
-- **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, USRP B210 support, and the WAP packet-data (SNDCP) gateway with its live status page.
+- **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, USRP B210 support, the WAP packet-data (SNDCP) gateway with its live status page, and end-to-end encryption (E2EE) of SDS.
 
 ---
 
