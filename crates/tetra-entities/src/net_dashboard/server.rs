@@ -3141,6 +3141,19 @@ fn handle_connection(
         return;
     }
 
+    // Vendored static assets (public, no auth): Leaflet for the offline LIP/location map, so the
+    // map works on a station with no internet. Pinned and immutable.
+    if req_line.starts_with("GET /assets/leaflet.js") {
+        drain_http_headers(&mut stream);
+        serve_static_asset(stream, include_bytes!("assets/leaflet.js"), "application/javascript; charset=utf-8");
+        return;
+    }
+    if req_line.starts_with("GET /assets/leaflet.css") {
+        drain_http_headers(&mut stream);
+        serve_static_asset(stream, include_bytes!("assets/leaflet.css"), "text/css; charset=utf-8");
+        return;
+    }
+
     // Snapshot credentials for this connection. SharedAuth lets System-tab changes take
     // effect on the next request without restarting the service.
     let auth_creds = auth.read().unwrap_or_else(|e| e.into_inner()).clone();
@@ -7004,6 +7017,16 @@ fn serve_favicon(mut stream: PrefixedConn, svg: bool) {
     };
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nCache-Control: public, max-age=3600\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body);
+}
+
+/// Serve a vendored, immutable static asset (e.g. the bundled Leaflet library) with a long cache.
+fn serve_static_asset(mut stream: PrefixedConn, body: &[u8], ctype: &str) {
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {ctype}\r\nCache-Control: public, max-age=31536000, immutable\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(header.as_bytes());
