@@ -266,6 +266,10 @@ impl GroupSession {
 struct CellToCellCall {
     caller: CellId,
     called: CellId,
+    caller_issi: u32,
+    called_issi: u32,
+    simplex_duplex: bool,
+    priority: u8,
     circuits: HashMap<CellId, (u16, u8)>,
     last_activity: Instant,
 }
@@ -273,6 +277,26 @@ struct CellToCellCall {
 impl CellToCellCall {
     fn peer(&self, cell: CellId) -> CellId {
         if cell == self.caller { self.called } else { self.caller }
+    }
+    /// The cell a given party's ISSI is currently on, if it is one of this call's two parties.
+    fn cell_of_issi(&self, issi: u32) -> Option<CellId> {
+        if issi == self.caller_issi {
+            Some(self.caller)
+        } else if issi == self.called_issi {
+            Some(self.called)
+        } else {
+            None
+        }
+    }
+    /// The other party's ISSI, given one party's ISSI.
+    fn peer_issi(&self, issi: u32) -> Option<u32> {
+        if issi == self.caller_issi {
+            Some(self.called_issi)
+        } else if issi == self.called_issi {
+            Some(self.caller_issi)
+        } else {
+            None
+        }
     }
 }
 
@@ -714,6 +738,10 @@ impl SiteSwitch {
                             CellToCellCall {
                                 caller: cell,
                                 called,
+                                caller_issi: source,
+                                called_issi: destination,
+                                simplex_duplex: call.duplex == 1,
+                                priority: call.priority,
                                 circuits: HashMap::new(),
                                 last_activity: Instant::now(),
                             },
@@ -838,6 +866,26 @@ impl SiteSwitch {
         if !groups.is_empty() {
             self.deliver(queue, target, subscriber_update_from_mm(issi, groups, BrewSubscriberAction::Affiliate));
         }
+
+        // Individual (private/duplex) call: if the mover is a party to a cell-to-cell call,
+        // pre-provision a restoring leg on the target cell so the MS's U-CALL RESTORE on arrival is
+        // answered with D-CALL RESTORE (seamless) instead of being rejected. The call's routing is
+        // NOT re-pointed yet — that happens only once the MS actually restores on the target, so a
+        // handover the MS never completes cannot break the call.
+        let mover_ind: Option<(Uuid, u32, bool, u8)> = self
+            .cell_calls
+            .iter()
+            .find(|(_, c)| c.cell_of_issi(issi) == Some(from) && c.peer_issi(issi).is_some())
+            .map(|(&uuid, c)| (uuid, c.peer_issi(issi).unwrap(), c.simplex_duplex, c.priority));
+        if let Some((uuid, peer_issi, simplex_duplex, priority)) = mover_ind {
+            tracing::info!("SiteHandover: ISSI {issi} in individual call {uuid} (peer {peer_issi}) {from} → {target}; pre-provisioning restoring leg");
+            self.deliver_cc(
+                queue,
+                target,
+                CallControl::SiteHandoverIndividualCall { brew_uuid: uuid, issi, peer_issi, simplex_duplex, priority },
+            );
+        }
+
         self.handovers.retain(|(i, _, _)| *i != issi);
         self.handovers.push((issi, target, Instant::now() + HANDOVER_TIMEOUT));
     }
@@ -1786,6 +1834,46 @@ main_carrier = 1525
         assert!(
             !got.iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::SiteCallPriority { .. }))),
             "the priority hint itself never does"
+        );
+    }
+
+    #[test]
+    fn individual_call_handover_preprovisions_restoring_leg_on_target() {
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        site.member(1, 200, 91);
+
+        // Cell-to-cell individual (duplex) call: 200 (cell 1) → 100 (cell 0), priority 3.
+        let uuid = Uuid::from_u128(77);
+        let call = NetworkCircuitCall {
+            source_issi: 200,
+            destination: 100,
+            number: String::new(),
+            priority: 3,
+            service: 0,
+            mode: 0,
+            duplex: 1,
+            method: 0,
+            communication: 0,
+            grant: 0,
+            permission: 0,
+            timeout: 0,
+            ownership: 0,
+            queued: 0,
+        };
+        site.from_cell(1, cc(CallControl::NetworkCircuitSetupRequest { brew_uuid: uuid, call }));
+        site.tick();
+
+        // ISSI 100 (on cell 0) reselects to cell 1: the switch pre-provisions a restoring leg for
+        // 100 on the target cell, carrying the peer (200) and the call parameters.
+        site.from_cell(0, cc(CallControl::SiteHandoverPrepare { issi: 100, target_carrier: C1 }));
+        let (_, c1) = site.tick();
+        assert!(
+            c1.iter().any(|m| matches!(m,
+                SapMsgInner::CmceCallControl(CallControl::SiteHandoverIndividualCall {
+                    issi: 100, peer_issi: 200, simplex_duplex: true, priority: 3, brew_uuid
+                }) if *brew_uuid == uuid)),
+            "target cell receives a SiteHandoverIndividualCall pre-provision for the moving private call"
         );
     }
 
