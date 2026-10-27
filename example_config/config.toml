@@ -213,18 +213,24 @@ voice_service = true
 # Default: 3 seconds. Valid range: 1–30.
 # ul_inactivity_secs = 3
 
-# Periodic registration interval in seconds — ETSI T351 equivalent (FlowStation).
-# MS must re-register within this interval, signalled via D-LOCATION-UPDATE-ACCEPT
-# (PeriodicLocationUpdating).
-# On expiry the BS RE-ATTRACTS the terminal with D-LOCATION-UPDATE-COMMAND (addressed by ISSI),
-# and keeps its registration + group affiliations — it does NOT send REJECT(ExpiryOfTimer) and
-# does NOT remove the client. This is deliberate: removing wipes a Motorola's stored groups so a
-# later group-report-less re-registration leaves nothing to re-affiliate (PTT denied), and
-# REJECT(ExpiryOfTimer) drops Motorola radios to "no service". A gone radio is simply re-attracted
-# once per interval and re-affiliated automatically when it returns.
-# 0 = disabled — registrations never expire.
-# Default: 3600 (1 hour). Valid range when non-zero: 60–86400.
+# Periodic registration interval (T351 equivalent). This is independent of the
+# additional idle-radio presence checks below. 0 disables periodic re-registration.
+# Default: 3600; non-zero range: 60–86400 seconds.
 # periodic_registration_secs = 3600
+
+# Challenge idle radios with an individually addressed D-LOCATION-UPDATE-COMMAND
+# after this long without a decoded uplink or accepted registration. A quiet radio
+# remains registered throughout the response grace; unanswered checks mark it
+# unavailable in the dashboard/Brew while retaining its affiliations for return.
+# Explicit U-ITSI-DETACH is processed immediately, independently of these timers.
+# 0 disables the additional check and preserves T351-only behaviour.
+# Default: 30; non-zero range: 5–3600 seconds.
+# presence_check_secs = 30
+# Response grace after MAC transmits a check. Default: 30; range: 10–300 seconds.
+# presence_response_secs = 30
+# Example for a controlled small-cell test: presence_check_secs = 30 and
+# presence_response_secs = 30 (~60 seconds plus scheduling, not instant RF-loss detection).
+# Short intervals increase MCCH traffic and terminal battery use. Test the fleet first.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OPTIONAL: additional cell service flags (advertised in the SYSINFO broadcast).

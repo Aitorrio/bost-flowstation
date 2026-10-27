@@ -40,6 +40,8 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 
 ---
 
+For current RF registration and silent-radio reachability checks, see [Radio presence](Docs/radio-presence.md).
+
 ## Installation
 
 On **Raspberry Pi OS / Debian arm64** (always installs from branch **`main`** / channel Estable unless you override `BOST_BRANCH`):

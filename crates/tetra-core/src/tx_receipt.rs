@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// The three states a transmit receipt can be in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,6 +54,8 @@ impl TxState {
 pub struct TxReporter {
     expects_ack: bool,
     state: Arc<AtomicU8>,
+    /// Transmission evidence for this message survives LLC retry-state resets.
+    transmitted_once: Arc<AtomicBool>,
     // t_tx: Option<TdmaTime>,
     // t_ack: Option<TdmaTime>
 }
@@ -62,7 +64,11 @@ impl TxReporter {
     /// Creates a clonable TxReporter for acknowledged service. All clones share the same internal state.
     pub fn new() -> Self {
         let state = Arc::new(AtomicU8::new(TxState::Pending as u8));
-        Self { expects_ack: true, state }
+        Self {
+            expects_ack: true,
+            state,
+            transmitted_once: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     /// Creates a clonable TxReporter for unacknowledged service. All clones share the same internal state.
@@ -85,6 +91,12 @@ impl TxReporter {
     /// True once the PDU has been sent over the air (or further).
     pub fn is_transmitted(&self) -> bool {
         self.state.load(Ordering::Relaxed) >= TxState::Transmitted as u8
+    }
+
+    /// True once any attempt for this message was transmitted, including when a later
+    /// LLC retry is pending or locally discarded before the originator polls it.
+    pub fn has_been_transmitted(&self) -> bool {
+        self.transmitted_once.load(Ordering::Relaxed)
     }
 
     /// True once the remote side has acknowledged receipt.
@@ -128,6 +140,7 @@ impl TxReporter {
     /// Pending → Transmitted: MAC layer has sent the PDU over the air.
     pub fn mark_transmitted(&self) {
         self.mark(TxState::Pending, TxState::Transmitted);
+        self.transmitted_once.store(true, Ordering::Relaxed);
     }
 
     /// Pending → Discarded: MAC layer was too busy to transmit.
@@ -153,8 +166,8 @@ impl TxReporter {
         self.mark(TxState::Transmitted, TxState::Lost);
     }
 
-    /// Tricky function to re-use linked TxReporters. Resets state to the initial state.
-    /// Be very careful when using this.
+    /// Reset the current attempt for an LLC retransmission of the same message.
+    /// Historical transmission evidence is retained. Use a new reporter for a new message.
     pub fn reset(&self) {
         self.mark_unchecked(TxState::Pending);
     }
@@ -183,6 +196,29 @@ mod tests {
         reporter2.mark_transmitted();
         assert_eq!(receipt.get_state(), TxState::Transmitted);
         assert_eq!(reporter.get_state(), TxState::Transmitted);
+    }
+
+    #[test]
+    fn transmission_history_survives_a_later_discarded_retry() {
+        let receipt = TxReporter::new();
+        let reporter = receipt.clone();
+        assert!(!receipt.has_been_transmitted());
+        reporter.mark_transmitted();
+        reporter.reset();
+        reporter.mark_discarded();
+        assert!(!receipt.is_transmitted());
+        assert!(receipt.is_discarded());
+        assert!(receipt.has_been_transmitted());
+    }
+
+    #[test]
+    fn repeatedly_discarded_unsent_attempts_have_no_transmission_history() {
+        let receipt = TxReporter::new();
+        for _ in 0..4 {
+            receipt.mark_discarded();
+            assert!(!receipt.has_been_transmitted());
+            receipt.reset();
+        }
     }
 
     #[test]

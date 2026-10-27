@@ -1255,3 +1255,69 @@ fn test_moved_to_sibling_cell_drops_registration_silently() {
         "CMCE learns the radio is gone (drops its listener counts)"
     );
 }
+
+/// A clean radio power-off need not wait for either presence or periodic timers.
+#[test]
+fn test_authorized_itsi_detach_updates_dashboard_and_brew_immediately() {
+    const RADIO: u32 = 2260819;
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.cell.periodic_registration_secs = 3600;
+    config.cell.presence_check_secs = 30;
+    config.cell.presence_response_secs = 30;
+    config.security.honour_unauthenticated_detach = true;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let (sink, source) = tetra_entities::net_telemetry::channel::telemetry_channel();
+    let mm = MmBs::new(test.get_shared_config(), Some(sink), None);
+    test.register_entity(mm);
+    submit_location_update(&mut test, RADIO, 9, LocationUpdateType::ItsiAttach);
+    let _ = test.dump_sinks();
+    while source.try_recv().is_some() {}
+    assert!(test.config.state_read().subscribers.is_registered(RADIO));
+    submit_itsi_detach(&mut test, RADIO, 9);
+    let messages = test.dump_sinks();
+    assert!(!test.config.state_read().subscribers.is_registered(RADIO));
+    assert!(tore_down(&messages, RADIO));
+    assert!(matches!(
+        source.try_recv(),
+        Some(tetra_entities::net_telemetry::TelemetryEvent::MsDeregistration { issi: RADIO })
+    ));
+}
+
+/// Coverage return must recover a retained identity that timed out, even if it never
+/// changes its air-interface registration state or the user never toggles DMO/TMO.
+#[test]
+fn test_uplink_from_known_unavailable_radio_requests_registration_and_location_update_restores_it() {
+    const RADIO: u32 = 2260820;
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.recovery.reactive_enabled = false;
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let (sink, source) = tetra_entities::net_telemetry::channel::telemetry_channel();
+    test.register_entity(MmBs::new(test.get_shared_config(), Some(sink), None));
+    submit_location_update(&mut test, RADIO, 9, LocationUpdateType::ItsiAttach);
+    let _ = test.dump_sinks();
+    while source.try_recv().is_some() {}
+    // MM retains the identity and affiliations when a presence check expires; only
+    // its current subscriber registration is withdrawn.
+    test.config.state_write().subscribers.deregister(RADIO);
+    submit_uplink_rssi(&mut test, RADIO);
+    assert_eq!(find_location_update_command(&test.dump_sinks()), Some(RADIO));
+    assert!(!test.config.state_read().subscribers.is_registered(RADIO));
+    while let Some(event) = source.try_recv() {
+        assert!(!matches!(event, tetra_entities::net_telemetry::TelemetryEvent::MsRegistration { .. }));
+    }
+    submit_uplink_rssi(&mut test, RADIO);
+    assert_eq!(find_location_update_command(&test.dump_sinks()), None);
+    submit_location_update(&mut test, RADIO, 9, LocationUpdateType::DemandLocationUpdating);
+    assert!(test.config.state_read().subscribers.is_registered(RADIO));
+    assert!(test.dump_sinks().iter().any(|message| {
+        matches!(&message.msg, SapMsgInner::MmSubscriberUpdate(update)
+            if update.issi == RADIO && update.action == BrewSubscriberAction::Register)
+    }));
+    let mut registered_event = false;
+    while let Some(event) = source.try_recv() {
+        registered_event |= matches!(event, tetra_entities::net_telemetry::TelemetryEvent::MsRegistration { issi: RADIO });
+    }
+    assert!(registered_event);
+}

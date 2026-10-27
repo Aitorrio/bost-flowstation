@@ -78,6 +78,8 @@ pub struct MmClientProperties {
     /// If the terminal re-registers, this is cleared. If T351 expires again
     /// while this is still true, the terminal is silently removed (no response).
     pub pending_command_sent: bool,
+    /// When the current presence challenge was sent; only later RF activity can answer it.
+    pub command_sent_at: Option<std::time::Instant>,
     /// When Some, terminal has until this instant to respond to D-LOCATION-UPDATE-COMMAND.
     pub grace_expires_at: Option<std::time::Instant>,
     // pub last_seen: TdmaTime,
@@ -95,6 +97,7 @@ impl MmClientProperties {
             last_rssi: None,
             last_uplink_time: std::time::Instant::now(),
             pending_command_sent: false,
+            command_sent_at: None,
             grace_expires_at: None,
             last_registration_time: std::time::Instant::now(),
             class_of_ms: None,
@@ -326,9 +329,14 @@ impl MmClientMgr {
 
     /// Reset the periodic registration timer for a MS (called on each U-LOCATION-UPDATING-DEMAND).
     pub fn reset_registration_timer(&mut self, issi: u32) {
+        self.reset_registration_timer_at(issi, std::time::Instant::now());
+    }
+
+    pub fn reset_registration_timer_at(&mut self, issi: u32, now: std::time::Instant) {
         if let Some(client) = self.clients.get_mut(&issi) {
-            client.last_registration_time = std::time::Instant::now();
+            client.last_registration_time = now;
             client.pending_command_sent = false;
+            client.command_sent_at = None;
             client.grace_expires_at = None;
         }
     }
@@ -343,6 +351,7 @@ impl MmClientMgr {
     pub fn set_pending_command(&mut self, issi: u32, grace_secs: u32) {
         if let Some(client) = self.clients.get_mut(&issi) {
             client.pending_command_sent = true;
+            client.command_sent_at = Some(std::time::Instant::now());
             // Set last_registration_time so elapsed() > interval after grace_secs.
             // Achieved by back-dating: last_registration_time = now - (interval - grace_secs)
             // But we don't know interval here, so we use a simpler approach:
@@ -351,27 +360,77 @@ impl MmClientMgr {
         }
     }
 
-    /// Returns list of ISSIs whose periodic registration has expired.
-    /// interval_secs=0 means disabled — always returns empty list.
+    /// Reserve one challenge while it waits in the downlink queue. No response deadline
+    /// runs until MAC confirms that the command was actually transmitted.
+    pub fn queue_registration_command(&mut self, issi: u32, now: std::time::Instant) {
+        if let Some(client) = self.clients.get_mut(&issi) {
+            client.pending_command_sent = true;
+            client.command_sent_at = Some(now);
+            client.grace_expires_at = None;
+        }
+    }
+
+    pub fn arm_registration_response_grace(&mut self, issi: u32, grace_secs: u32, now: std::time::Instant) {
+        if let Some(client) = self.clients.get_mut(&issi) {
+            if client.pending_command_sent && client.grace_expires_at.is_none() {
+                client.grace_expires_at = Some(now + std::time::Duration::from_secs(grace_secs as u64));
+            }
+        }
+    }
+
+    /// Return expired T351 registrations, preserving the existing public interface.
     pub fn collect_expired_registrations(&self, interval_secs: u32) -> Vec<u32> {
-        if interval_secs == 0 {
+        self.collect_registration_checks(interval_secs, 0, std::time::Instant::now())
+    }
+
+    fn next_registration_check(client: &MmClientProperties, interval_secs: u32, presence_secs: u32) -> Option<std::time::Instant> {
+        let periodic = (interval_secs != 0).then(|| client.last_registration_time + std::time::Duration::from_secs(interval_secs as u64));
+        let presence = (presence_secs != 0)
+            .then(|| client.last_registration_time.max(client.last_uplink_time) + std::time::Duration::from_secs(presence_secs as u64));
+        match (periodic, presence) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// Due checks are challenges, not evidence of disconnection. Only an unanswered challenge
+    /// reaching its full grace period may make a registered radio unavailable.
+    pub fn collect_registration_checks(&self, interval_secs: u32, presence_secs: u32, now: std::time::Instant) -> Vec<u32> {
+        if interval_secs == 0 && presence_secs == 0 {
             return Vec::new();
         }
-        let threshold = std::time::Duration::from_secs(interval_secs as u64);
-        let now = std::time::Instant::now();
         self.clients
             .iter()
-            .filter(|(_, c)| {
-                if c.pending_command_sent {
-                    // Already sent COMMAND — remove if grace period expired
-                    c.grace_expires_at.map(|d| now >= d).unwrap_or(true)
+            .filter_map(|(&issi, client)| {
+                let due = if client.pending_command_sent {
+                    client.grace_expires_at.is_some_and(|deadline| now >= deadline)
                 } else {
-                    // Normal T351 check
-                    c.last_registration_time.elapsed() > threshold
-                }
+                    Self::next_registration_check(client, interval_secs, presence_secs).is_some_and(|deadline| now >= deadline)
+                };
+                due.then_some(issi)
             })
-            .map(|(&issi, _)| issi)
             .collect()
+    }
+
+    /// A valid decoded uplink after a challenge proves that the radio is still present.
+    pub fn heard_since_registration_command(&self, issi: u32) -> bool {
+        self.clients.get(&issi).is_some_and(|client| {
+            client
+                .command_sent_at
+                .is_some_and(|sent| client.last_uplink_time >= sent || client.last_registration_time >= sent)
+        })
+    }
+
+    /// An unavailable local RF path cannot establish that remote radios have disconnected.
+    /// Start fresh observation windows after the path resumes, without removing registrations.
+    pub fn resume_registration_checks(&mut self) {
+        let now = std::time::Instant::now();
+        for client in self.clients.values_mut() {
+            client.last_registration_time = now;
+            client.pending_command_sent = false;
+            client.command_sent_at = None;
+            client.grace_expires_at = None;
+        }
     }
 
     /// Decide whether the T351 D-LOCATION-UPDATE-COMMAND for `issi` should be sent on this tick.
@@ -388,6 +447,18 @@ impl MmClientMgr {
     ///     the interval, in which case send blind (`true`) so a stale/incorrect window can never
     ///     suppress the probe forever.
     pub fn should_send_t351_command_now(&self, issi: u32, ts: TdmaTime, interval_secs: u32, window_wait_secs: u64) -> bool {
+        self.should_send_registration_command_now(issi, ts, interval_secs, 0, window_wait_secs, std::time::Instant::now())
+    }
+
+    pub fn should_send_registration_command_now(
+        &self,
+        issi: u32,
+        ts: TdmaTime,
+        interval_secs: u32,
+        presence_secs: u32,
+        window_wait_secs: u64,
+        now: std::time::Instant,
+    ) -> bool {
         let Some(c) = self.clients.get(&issi) else {
             // Unknown client — let the caller proceed; the send is addressed by ISSI and harmless.
             return true;
@@ -403,7 +474,8 @@ impl MmClientMgr {
             return true;
         }
         // Sleeping EE MS outside its window: defer to a wake window, but bound the wait.
-        c.last_registration_time.elapsed().as_secs() >= interval_secs as u64 + window_wait_secs
+        Self::next_registration_check(c, interval_secs, presence_secs)
+            .is_some_and(|due| now.saturating_duration_since(due).as_secs() >= window_wait_secs)
     }
 
     pub fn set_client_class_of_ms(&mut self, issi: u32, class: Option<ClassOfMs>) -> Result<(), ClientMgrErr> {
@@ -651,5 +723,78 @@ mod tests {
         // EE radio whose monitoring window is unknown is never deferred (sent immediately).
         mgr.set_client_monitoring_window(100, None, None).unwrap();
         assert!(mgr.should_send_t351_command_now(100, TdmaTime { t: 1, f: 2, m: 1, h: 0 }, 300, 6));
+    }
+
+    #[test]
+    fn idle_presence_challenge_precedes_an_hour_long_t351_and_disabled_stays_legacy() {
+        let mut mgr = MmClientMgr::new(None);
+        mgr.try_register_client(100, true).unwrap();
+        let now = std::time::Instant::now();
+        let client = mgr.clients.get_mut(&100).unwrap();
+        client.last_registration_time = now - Duration::from_secs(61);
+        client.last_uplink_time = client.last_registration_time;
+        assert_eq!(mgr.collect_registration_checks(3600, 60, now), vec![100]);
+        assert!(mgr.collect_registration_checks(3600, 0, now).is_empty());
+        assert!(mgr.collect_registration_checks(0, 0, now + Duration::from_secs(90000)).is_empty());
+    }
+
+    #[test]
+    fn quiet_radio_keeps_registration_during_grace_and_a_response_cancels_the_probe() {
+        let mut mgr = MmClientMgr::new(None);
+        mgr.try_register_client(100, true).unwrap();
+        mgr.set_pending_command(100, 30);
+        let deadline = mgr.clients[&100].grace_expires_at.unwrap();
+        assert!(
+            mgr.collect_registration_checks(3600, 30, deadline - Duration::from_nanos(1))
+                .is_empty()
+        );
+        assert_eq!(mgr.collect_registration_checks(3600, 30, deadline), vec![100]);
+        mgr.reset_registration_timer(100);
+        assert!(!mgr.is_pending_command(100));
+        assert!(mgr.collect_registration_checks(3600, 30, std::time::Instant::now()).is_empty());
+        assert!(mgr.client_is_known(100));
+    }
+
+    #[test]
+    fn old_voice_is_not_a_probe_response_but_new_decoded_uplink_is() {
+        let mut mgr = MmClientMgr::new(None);
+        mgr.try_register_client(100, true).unwrap();
+        let old = std::time::Instant::now() - Duration::from_secs(100);
+        let client = mgr.clients.get_mut(&100).unwrap();
+        client.last_uplink_time = old;
+        client.last_registration_time = old;
+        mgr.set_pending_command(100, 30);
+        assert!(!mgr.heard_since_registration_command(100));
+        mgr.update_client_rssi(100, -40.0);
+        assert!(mgr.heard_since_registration_command(100));
+    }
+
+    #[test]
+    fn recent_uplink_defers_idle_probe_and_ee_wait_uses_its_actual_deadline() {
+        let mut mgr = MmClientMgr::new(None);
+        mgr.try_register_client(100, true).unwrap();
+        mgr.set_client_energy_saving_mode(100, EnergySavingMode::Eg1).unwrap();
+        mgr.set_client_monitoring_window(100, Some(1), Some(1)).unwrap();
+        let now = std::time::Instant::now();
+        let client = mgr.clients.get_mut(&100).unwrap();
+        client.last_registration_time = now - Duration::from_secs(1000);
+        client.last_uplink_time = now - Duration::from_secs(10);
+        assert!(mgr.collect_registration_checks(3600, 60, now).is_empty());
+        mgr.clients.get_mut(&100).unwrap().last_uplink_time = now - Duration::from_secs(61);
+        let asleep = TdmaTime { t: 1, f: 2, m: 1, h: 0 };
+        assert!(!mgr.should_send_registration_command_now(100, asleep, 3600, 60, 6, now));
+        assert!(mgr.should_send_registration_command_now(100, asleep, 3600, 60, 6, now + Duration::from_secs(6)));
+    }
+
+    #[test]
+    fn rf_resume_cancels_old_challenges_without_losing_affiliations() {
+        let mut mgr = MmClientMgr::new(None);
+        mgr.try_register_client(100, true).unwrap();
+        mgr.client_group_attach(100, 268, true).unwrap();
+        mgr.set_pending_command(100, 0);
+        mgr.resume_registration_checks();
+        assert!(!mgr.is_pending_command(100));
+        assert!(mgr.clients[&100].groups.contains(&268));
+        assert!(mgr.collect_registration_checks(3600, 30, std::time::Instant::now()).is_empty());
     }
 }

@@ -100,6 +100,8 @@ pub fn default_cell_info(freq_info: FreqInfo) -> CfgCellInfo {
         call_timeout_secs: 120,
         ul_inactivity_secs: 3,
         periodic_registration_secs: 3600,
+        presence_check_secs: 30,
+        presence_response_secs: 30,
         sds_command_control: None,
         release_group_on_same_speaker_retake: false,
         dgna_use_ss_facility: true,

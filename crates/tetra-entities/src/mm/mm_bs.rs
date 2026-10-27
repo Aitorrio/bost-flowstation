@@ -81,6 +81,10 @@ pub struct MmBs {
     telemetry: Option<TelemetrySink>,
     control: Option<ControlEndpoint>,
     client_mgr: MmClientMgr,
+    registration_checks_rf_ready: bool,
+    registration_command_last_frame: Option<i32>,
+    registration_check_last_tick: Option<Instant>,
+    registration_probe_receipts: HashMap<u32, tetra_core::tx_receipt::TxReporter>,
 
     // ── Air-interface security (EN 300 392-7) ──────────────────────────────────────────────
     /// Radios we have challenged and are waiting on (U-AUTHENTICATION RESPONSE / RESULT).
@@ -155,6 +159,10 @@ impl MmBs {
             telemetry,
             control,
             client_mgr,
+            registration_checks_rf_ready: false,
+            registration_command_last_frame: None,
+            registration_check_last_tick: None,
+            registration_probe_receipts: HashMap::new(),
             auth_pending: HashMap::new(),
             auth_passed: HashMap::new(),
             dck: HashMap::new(),
@@ -342,9 +350,11 @@ impl MmBs {
     /// gave up on it). Rate-limited per ISSI; gated by the access whitelist and the optional
     /// `[recovery] issi_allowlist`; on by default (`[recovery] reactive_enabled`).
     fn maybe_reactive_recovery(&mut self, queue: &mut MessageQueue, issi: u32) {
-        // Fast path, the overwhelming common case: a radio MM already knows needs no recovery.
-        // Checked before touching config so healthy traffic stays cheap.
-        if self.client_mgr.client_is_known(issi) {
+        // Known identity and current reachability are distinct. A radio returning after a
+        // presence timeout may still know its affiliations, but must re-register before the
+        // subscriber registry and Brew advertise it as reachable again.
+        let known = self.client_mgr.client_is_known(issi);
+        if known && self.config.state_read().subscribers.is_registered(issi) {
             return;
         }
         // Let the proactive boot sweep own any ISSI it is already replaying, to avoid double-keying.
@@ -354,12 +364,14 @@ impl MmBs {
 
         let cfg = self.config.config();
         let rec = &cfg.recovery;
-        if !rec.reactive_enabled {
+        let coverage_return = known && cfg.cell.presence_check_secs != 0;
+        if !coverage_return && !rec.reactive_enabled {
             return;
         }
         // Never key a radio that isn't permitted on this network â€” same scoping as init_recovery:
         // the access-control whitelist plus the optional recovery allowlist.
-        let permitted = cfg.security.is_issi_allowed(issi) && (rec.issi_allowlist.is_empty() || rec.issi_allowlist.contains(&issi));
+        let permitted = cfg.security.is_issi_allowed(issi)
+            && (coverage_return || rec.issi_allowlist.is_empty() || rec.issi_allowlist.contains(&issi));
         if !permitted {
             return;
         }
@@ -380,11 +392,18 @@ impl MmBs {
         self.reactive_recovery_cooldown.insert(issi, now);
 
         tracing::info!(
-            "MM: reactive recovery â€” unknown ISSI {} active on uplink, sending D-LOCATION-UPDATE-COMMAND to force re-registration",
+            "MM: ISSI {} active on uplink without a current registration; requesting a location update",
             issi
         );
         // handle = 0: addressed by ISSI on the MCCH (see send_d_location_update_command).
-        Self::send_d_location_update_command(queue, issi, 0);
+        if coverage_return {
+            if let Some(receipt) = self.send_registration_check(queue, issi, true) {
+                self.client_mgr.queue_registration_command(issi, now);
+                self.registration_probe_receipts.insert(issi, receipt);
+            }
+        } else {
+            Self::send_d_location_update_command(queue, issi, 0);
+        }
     }
 
     fn emit_subscriber_update(&self, queue: &mut MessageQueue, issi: u32, groups: Vec<u32>, action: BrewSubscriberAction) {
@@ -2241,10 +2260,21 @@ impl MmBs {
     }
 
     fn send_d_location_update_command(queue: &mut MessageQueue, issi: u32, handle: u32) {
+        Self::send_d_location_update_command_options(queue, issi, handle, true, None, None);
+    }
+
+    fn send_d_location_update_command_options(
+        queue: &mut MessageQueue,
+        issi: u32,
+        handle: u32,
+        group_identity_report: bool,
+        ciphering: Option<tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters>,
+        tx_reporter: Option<tetra_core::tx_receipt::TxReporter>,
+    ) {
         let pdu = DLocationUpdateCommand {
-            group_identity_report: true,
-            cipher_control: false,
-            ciphering_parameters: None,
+            group_identity_report,
+            cipher_control: ciphering.is_some(),
+            ciphering_parameters: ciphering.map(|parameters| parameters.to_bits()),
             address_extension: None,
             cell_type_control: None,
             proprietary: None,
@@ -2268,7 +2298,7 @@ impl MmBs {
                 stealing_repeats_flag: false,
                 encryption_flag: false,
                 is_null_pdu: false,
-                tx_reporter: None,
+                tx_reporter,
             }),
         };
         queue.push_back(msg);
@@ -2479,6 +2509,155 @@ impl MmBs {
     }
 }
 
+/// Explicit detach is immediate; an RF disappearance has no message, so challenge idle radios
+/// and retain their registration throughout the full response grace period.
+impl MmBs {
+    fn registration_probe_call_busy(&mut self, issi: u32) -> bool {
+        let groups = self
+            .client_mgr
+            .get_client_by_issi(issi)
+            .map(|client| client.groups.clone())
+            .unwrap_or_default();
+        let state = self.config.state_read();
+        state.registration_probe_busy_issis.contains(&issi)
+            || state.active_call_ts.contains_key(&issi)
+            || groups.iter().any(|group| state.active_call_ts.contains_key(group))
+    }
+
+    fn send_registration_check(
+        &mut self,
+        queue: &mut MessageQueue,
+        issi: u32,
+        presence_enabled: bool,
+    ) -> Option<tetra_core::tx_receipt::TxReporter> {
+        if presence_enabled {
+            let ciphering = self.client_mgr.get_client_by_issi(issi).and_then(|client| client.ciphering);
+            // A presence check must not detach all groups or change the agreed security class.
+            let receipt = tetra_core::tx_receipt::TxReporter::new();
+            Self::send_d_location_update_command_options(queue, issi, 0, false, ciphering, Some(receipt.clone()));
+            Some(receipt)
+        } else {
+            Self::send_d_location_update_command(queue, issi, 0);
+            None
+        }
+    }
+
+    fn drive_registration_checks(&mut self, queue: &mut MessageQueue, ts: TdmaTime, now: Instant, rf_ready: bool) {
+        let interval_secs = self.config.config().cell.periodic_registration_secs;
+        let presence_secs = self.config.config().cell.presence_check_secs;
+        let response_grace_secs = if presence_secs == 0 {
+            60
+        } else {
+            self.config.config().cell.presence_response_secs
+        };
+        let local_stall = self
+            .registration_check_last_tick
+            .is_some_and(|previous| now.saturating_duration_since(previous) >= Duration::from_secs(5));
+        self.registration_check_last_tick = Some(now);
+        if !rf_ready {
+            self.registration_checks_rf_ready = false;
+            return;
+        }
+        if !self.registration_checks_rf_ready || local_stall {
+            // Local RF downtime is not proof that any remote radio has gone away.
+            self.client_mgr.resume_registration_checks();
+            self.registration_checks_rf_ready = true;
+            self.registration_command_last_frame = None;
+            self.registration_probe_receipts.clear();
+        }
+        for issi in self.registration_probe_receipts.keys().copied().collect::<Vec<_>>() {
+            let receipt = &self.registration_probe_receipts[&issi];
+            if !self.client_mgr.is_pending_command(issi) {
+                self.registration_probe_receipts.remove(&issi);
+            } else if self.client_mgr.heard_since_registration_command(issi) || receipt.is_acknowledged() {
+                // An ACK or a decoded uplink proves presence.
+                self.client_mgr.reset_registration_timer_at(issi, now);
+                self.registration_probe_receipts.remove(&issi);
+            } else if receipt.has_been_transmitted() {
+                self.client_mgr.arm_registration_response_grace(issi, response_grace_secs, now);
+            } else if self.client_mgr.get_client_by_issi(issi).is_some_and(|client| {
+                client.grace_expires_at.is_none()
+                    && client.command_sent_at.is_some_and(|queued| now.saturating_duration_since(queued) >= Duration::from_secs(15))
+            }) {
+                // LLC can retry a locally discarded message. Once that retry/queue window is
+                // stale, start a fresh observation window instead of leaving the probe pending
+                // forever. No over-air transmission means no evidence that the radio is absent.
+                self.client_mgr.reset_registration_timer_at(issi, now);
+                self.registration_probe_receipts.remove(&issi);
+                tracing::debug!("MM: ISSI {} registration check was not transmitted; deferring without marking unavailable", issi);
+            }
+        }
+        let mut expired = self.client_mgr.collect_registration_checks(interval_secs, presence_secs, now);
+        expired.sort_unstable();
+        for issi in expired {
+            if self.recovery_attempts.contains_key(&issi) || self.auth_pending.contains_key(&issi) || self.otar_pending.contains_key(&issi)
+            {
+                continue;
+            }
+            // Group listeners are not necessarily listening to MCCH, even if they never PTT.
+            // Include individual setup/ringing, not only established traffic channels.
+            if self.registration_probe_call_busy(issi) {
+                self.client_mgr.reset_registration_timer_at(issi, now);
+                continue;
+            }
+            if self.client_mgr.is_pending_command(issi) {
+                let heard = if presence_secs != 0 {
+                    self.client_mgr.heard_since_registration_command(issi)
+                } else {
+                    self.client_mgr.heard_on_air_within(issi, Duration::from_secs(interval_secs as u64))
+                };
+                if heard {
+                    self.client_mgr.reset_registration_timer_at(issi, now);
+                    continue;
+                }
+                // No valid uplink or location update after the challenge. Preserve the client's
+                // affiliations for coverage return, but stop advertising it as reachable.
+                if self.config.state_read().subscribers.is_registered(issi) {
+                    let groups = self
+                        .client_mgr
+                        .get_client_by_issi(issi)
+                        .map(|client| client.groups.iter().copied().collect::<Vec<_>>())
+                        .unwrap_or_default();
+                    if !groups.is_empty() {
+                        self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
+                    }
+                    self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
+                    self.config.state_write().subscribers.deregister(issi);
+                    if let Some(sink) = &self.telemetry {
+                        sink.send(crate::net_telemetry::TelemetryEvent::MsTimeoutDrop { issi });
+                    }
+                    tracing::info!(
+                        "MM: ISSI {} did not answer the registration presence check; marking unavailable",
+                        issi
+                    );
+                }
+                self.client_mgr.reset_registration_timer_at(issi, now);
+                self.recovery_mark_dirty();
+                continue;
+            }
+            // Respect energy-economy monitoring windows. Bound a stale window to a six-second
+            // scheduling wait, and start the response grace only after MAC confirms transmission.
+            const EE_WINDOW_WAIT_SECS: u64 = 6;
+            let frame = ts.to_int() / 4;
+            if self.registration_command_last_frame == Some(frame) {
+                continue;
+            }
+            if self
+                .client_mgr
+                .should_send_registration_command_now(issi, ts, interval_secs, presence_secs, EE_WINDOW_WAIT_SECS, now)
+            {
+                if let Some(receipt) = self.send_registration_check(queue, issi, presence_secs != 0) {
+                    self.client_mgr.queue_registration_command(issi, now);
+                    self.registration_probe_receipts.insert(issi, receipt);
+                } else {
+                    self.client_mgr.set_pending_command(issi, response_grace_secs);
+                }
+                self.registration_command_last_frame = Some(frame);
+            }
+        }
+    }
+}
+
 impl TetraEntityTrait for MmBs {
     fn entity(&self) -> TetraEntity {
         TetraEntity::Mm
@@ -2526,169 +2705,10 @@ impl TetraEntityTrait for MmBs {
             }
         }
 
-        // Periodic registration expiry check (T351 equivalent, ETSI EN 300 392-2 Â§16.9).
-        // Uses wall-clock time â€” no TDMA precision needed.
-        let interval_secs = self.config.config().cell.periodic_registration_secs;
-        let expired = self.client_mgr.collect_expired_registrations(interval_secs);
-        for issi in expired {
-            // Restart-recovery interlock: never expire/remove a client the recovery sweep is
-            // still replaying to. The sweep owns its lifecycle until it confirms (re-register â†’
-            // recovery_confirm) or gives up (attempt cap). Without this, a restored client at
-            // the tail of the replay queue could reach T351 second-expiry and be removed â€”
-            // wiping its stored groups, the exact failure recovery exists to prevent â€” when
-            // periodic_registration_secs is clamped low. recovery_attempts is empty unless
-            // recovery is active, so this is a cheap no-op otherwise. It also prevents a
-            // double-COMMAND (T351 + recovery) to the same ISSI in one window.
-            if self.recovery_attempts.contains_key(&issi) {
-                continue;
-            }
-            tracing::info!(
-                "MM: ISSI {} periodic registration expired ({}s) â€” sending D-LOCATION-UPDATE-COMMAND",
-                issi,
-                interval_secs
-            );
-            // Send D-LOCATION-UPDATE-COMMAND to prompt re-registration.
-            //
-            // Analysis of real traffic (MTM800/MXP600/MTM5400) shows these terminals
-            // have their own T351 timer either disabled or set much longer than the BS.
-            // They rely entirely on BS initiative to re-register.
-            //
-            // - REJECT(ExpiryOfTimer): terminals enter waiting state, never re-attach. BAD.
-            // - Silent removal: terminals never notice, never re-register. BAD.
-            // - D-LOCATION-UPDATE-COMMAND: terminals respond with U-LOCATION-UPDATING-DEMAND
-            //   (DemandLocationUpdating), BS re-registers them immediately. GOOD.
-            //
-            // The Roaming loop bug from before is NOT triggered here because:
-            // 1. This command is sent once per expiry, not on every registration.
-            // 2. The fix in rx_u_location_updating_demand already skips sending
-            //    COMMAND after RoamingLocationUpdating.
-            let already_sent = self.client_mgr.is_pending_command(issi);
-            if already_sent {
-                // Second expiry â€” the terminal didn't answer the first COMMAND within the grace
-                // period. We deliberately do NOT remove the client and do NOT send
-                // D-LOCATION-UPDATE-REJECT(ExpiryOfTimer):
-                //   - removing wipes the terminal's stored groups, so a Motorola that later
-                //     re-registers WITHOUT a group report (it still believes it is affiliated â€”
-                //     persistent attachment_lifetime=0) leaves the coverage-return re-affiliation
-                //     nothing to restore, and the next group PTT is denied (FH-BUG-031);
-                //   - REJECT(ExpiryOfTimer) drops Motorola radios to "no service".
-                // Instead, re-attract once more (handle 0 â€” the L2 handle is inert) and reset the
-                // registration clock. The client and its groups stay in the registry; a genuinely
-                // gone radio just lingers harmlessly (re-attracted at most once per interval), and
-                // when it returns the coverage-return re-affiliation restores its group state so
-                // PTT works immediately. (Trade-off: the registry isn't pruned by T351 anymore â€”
-                // acceptable: it's bounded by the fleet and cleared on restart.)
-                tracing::info!(
-                    "MM: ISSI {} still unresponsive â€” re-attracting and keeping groups (no REJECT, no removal)",
-                    issi
-                );
-                Self::send_d_location_update_command(queue, issi, 0);
-                // Confirmed gone: the terminal ignored the first COMMAND through the whole grace
-                // period. NOW tear it down everywhere â€” Brew backhaul, the dashboard, and the local
-                // subscriber registry â€” but keep it in client_mgr so its groups survive for
-                // coverage-return re-affiliation if it ever comes back. The guard makes this fire
-                // once, on the registeredâ†’gone transition: this branch re-runs every interval for a
-                // radio that stays away. The client is NOT removed, so MsDeregistration is never
-                // emitted; MsTimeoutDrop is the sole drop signal here.
-                // Presence guard (FH-BUG-044 â€” present stations vanishing from the dashboard at
-                // the T351 interval): only tear a radio down if it is genuinely gone. A radio we
-                // have heard transmitting within the re-registration interval is demonstrably
-                // present even if it never answered the unsolicited COMMAND â€” e.g. an
-                // energy-economy radio that was asleep when the (un-gated) COMMAND was sent on the
-                // MCCH. Dropping it here would make a live station disappear from the dashboard
-                // every interval. Keep it (the reset_registration_timer below re-arms the clock);
-                // only a radio with NO sign of life on the air for a whole interval is torn down.
-                let interval = std::time::Duration::from_secs(interval_secs as u64);
-                let heard_on_air = self.client_mgr.heard_on_air_within(issi, interval);
-                let still_registered = self.config.state_read().subscribers.is_registered(issi);
-                if still_registered && heard_on_air {
-                    tracing::info!(
-                        "MM: ISSI {} ignored the T351 COMMAND but was heard on air within {}s â€” keeping it (present, not dropping from dashboard)",
-                        issi,
-                        interval_secs
-                    );
-                }
-                if still_registered && !heard_on_air {
-                    // Tell Brew to stop routing calls/SDS to this terminal until it re-registers.
-                    // Deferred to here (not first expiry) so a healthy radio that answers the
-                    // COMMAND within grace never flaps Brew; only a genuinely-gone radio is torn
-                    // down, exactly once.
-                    let groups: Vec<u32> = self
-                        .client_mgr
-                        .get_client_by_issi(issi)
-                        .map(|c| c.groups.iter().copied().collect())
-                        .unwrap_or_default();
-                    if !groups.is_empty() {
-                        self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
-                    }
-                    self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
-                    // Drop from the local subscriber registry + dashboard.
-                    self.config.state_write().subscribers.deregister(issi);
-                    if let Some(sink) = &self.telemetry {
-                        sink.send(crate::net_telemetry::TelemetryEvent::MsTimeoutDrop { issi });
-                    }
-                }
-                // Confirmed gone and holding nothing worth preserving â€” FULLY remove it. Keeping
-                // every client forever is what let an RF-unauthenticated registration flood grow
-                // the registry without bound (each forged ISSI was a permanent entry). Only a
-                // client with no group affiliations (nothing for coverage-return re-affiliation to
-                // restore) and no call in flight is dropped; an affiliated or mid-call radio is
-                // still kept exactly as before.
-                let has_groups = self
-                    .client_mgr
-                    .get_client_by_issi(issi)
-                    .map(|c| !c.groups.is_empty())
-                    .unwrap_or(false);
-                let in_call = self.config.state_read().active_call_ts.contains_key(&issi);
-                if !has_groups && !in_call {
-                    tracing::info!("MM: ISSI {} confirmed gone with no groups or calls â€” removing from the client registry", issi);
-                    self.client_mgr.remove_client(issi);
-                    self.config.state_write().subscribers.deregister(issi);
-                    self.recovery_mark_dirty();
-                    continue;
-                }
-                self.client_mgr.reset_registration_timer(issi);
-                self.recovery_mark_dirty();
-                continue;
-            }
-            // First expiry â€” send the COMMAND and arm the 60s grace, nothing else. Emit NO teardown
-            // (Brew, dashboard, or local registry). The terminal almost always answers within grace
-            // and re-registers (MTM800/MXP600/MTM5400 rely on BS initiative â€” see above), so any
-            // teardown here is a flap: it stayed registered on the air (PTT kept working) but, when
-            // it answered, the re-registration path took the `is_new == false` branch and never
-            // re-added it â€” so it vanished from the dashboard forever, SDS to it was misrouted as
-            // non-local, and Brew was needlessly deregistered+reregistered every interval. All
-            // teardown is deferred to the confirmed-gone second expiry above, which fires only if
-            // the grace elapses with no answer.
-            //
-            // Do NOT remove_client here either: keeping the client in registry preserves ESM and
-            // group state so the terminal re-registers cleanly without losing EE mode.
-            //
-            // handle = 0: the L2 handle is inert (MLE addresses downlink MM PDUs by ISSI; see
-            // mle_bs.rs rx_lmm_mle_unitdata_req + uplink ind hardcoded handle 0). The COMMAND
-            // reaches the camped radio by ISSI regardless. The second-expiry branch above no
-            // longer removes the client or sends REJECT, so the terminal's groups survive an
-            // unanswered COMMAND and are restored by coverage-return re-affiliation on its return
-            // (FH-BUG-031 fix).
-            //
-            // EE gating (FH-BUG-044 follow-up â€” present energy-economy radios vanishing from the
-            // dashboard): a sleeping EE MS only listens to the downlink during its monitoring
-            // window, so an un-gated COMMAND sent while it sleeps is missed; it then never answers
-            // and is dropped at the second expiry. Send the COMMAND only when the MS is reachable
-            // (StayAlive always; EE on its wake window), retrying on later ticks until the window
-            // opens. A bounded fallback (interval + T351_EE_WINDOW_WAIT_SECS) sends it blind so a
-            // stale/incorrect window can never suppress the probe forever. The grace clock only
-            // starts once the COMMAND is actually sent, so a deferred wake-window send still gets
-            // the full grace to answer.
-            const T351_EE_WINDOW_WAIT_SECS: u64 = 6;
-            if self
-                .client_mgr
-                .should_send_t351_command_now(issi, ts, interval_secs, T351_EE_WINDOW_WAIT_SECS)
-            {
-                Self::send_d_location_update_command(queue, issi, 0);
-                self.client_mgr.set_pending_command(issi, 60);
-            }
-        }
+        let rf_ready = crate::rf_status::get_all()
+            .into_iter()
+            .any(|(cell, status)| cell == self.config.config().cell_id && status.state == crate::rf_status::RfState::Online);
+        self.drive_registration_checks(queue, ts, Instant::now(), rf_ready);
 
         // Restart recovery: replay D-LOCATION-UPDATE-COMMANDs to cached terminals awaiting
         // re-registration (no-op once the sweep drains / when recovery is disabled), then flush
@@ -3308,5 +3328,296 @@ impl MmBs {
                 tx_reporter: None,
             }),
         });
+    }
+}
+
+#[cfg(test)]
+mod presence_tests {
+    use super::*;
+    use crate::net_telemetry::{TelemetryEvent, channel::telemetry_channel};
+
+    fn station() -> (MmBs, crate::net_telemetry::channel::TelemetrySource) {
+        let mut cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        cfg.cell.periodic_registration_secs = 3600;
+        cfg.cell.presence_check_secs = 30;
+        cfg.cell.presence_response_secs = 60;
+        let shared = SharedConfig::from_parts(cfg, None);
+        let (sink, events) = telemetry_channel();
+        let mut mm = MmBs::new(shared, Some(sink), None);
+        mm.registration_checks_rf_ready = true;
+        mm.registration_check_last_tick = Some(Instant::now());
+        (mm, events)
+    }
+
+    fn radio(mm: &mut MmBs, issi: u32) {
+        mm.client_mgr.try_register_client(issi, true).unwrap();
+        mm.config.state_write().subscribers.register(issi);
+        mm.client_mgr.client_group_attach(issi, 268, true).unwrap();
+    }
+
+    fn actions(queue: &mut MessageQueue) -> Vec<BrewSubscriberAction> {
+        let mut result = Vec::new();
+        while let Some(message) = queue.pop_front() {
+            if let SapMsgInner::MmSubscriberUpdate(update) = message.msg {
+                result.push(update.action);
+            }
+        }
+        result
+    }
+
+    #[test]
+    fn unanswered_check_drops_presence_once_and_preserves_identity_and_groups() {
+        let (mut mm, events) = station();
+        radio(&mut mm, 100);
+        while events.try_recv().is_some() {}
+        mm.client_mgr.set_pending_command(100, 0);
+        let mut queue = MessageQueue::new();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(!mm.config.state_read().subscribers.is_registered(100));
+        assert!(actions(&mut queue).contains(&BrewSubscriberAction::Deregister));
+        assert!(matches!(events.try_recv(), Some(TelemetryEvent::MsTimeoutDrop { issi: 100 })));
+        assert!(mm.client_mgr.get_client_by_issi(100).unwrap().groups.contains(&268));
+        assert_eq!(mm.client_mgr.snapshot_for_recovery()[0].1, vec![268]);
+        mm.client_mgr.set_pending_command(100, 0);
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(actions(&mut queue).is_empty());
+        assert!(events.try_recv().is_none());
+    }
+
+    #[test]
+    fn decoded_uplink_after_probe_keeps_a_quiet_registered_radio_online() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        mm.client_mgr.set_pending_command(100, 0);
+        mm.client_mgr.update_client_rssi(100, -45.0);
+        let mut queue = MessageQueue::new();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+        assert!(!mm.client_mgr.is_pending_command(100));
+        assert!(actions(&mut queue).is_empty());
+    }
+
+    #[test]
+    fn group_listeners_and_ringing_private_participants_are_not_dropped() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        radio(&mut mm, 101);
+        mm.config.state_write().active_call_ts.insert(268, (1521, 2, 1));
+        mm.client_mgr.set_pending_command(100, 0);
+        let mut queue = MessageQueue::new();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+        mm.config.state_write().active_call_ts.clear();
+        mm.config.state_write().registration_probe_busy_issis.insert(101);
+        mm.client_mgr.set_pending_command(101, 0);
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(mm.config.state_read().subscribers.is_registered(101));
+        assert!(actions(&mut queue).is_empty());
+    }
+
+    #[test]
+    fn unavailable_rf_and_local_stalls_restart_checks_without_offline_events() {
+        let (mut mm, events) = station();
+        radio(&mut mm, 100);
+        while events.try_recv().is_some() {}
+        mm.client_mgr.set_pending_command(100, 0);
+        let mut queue = MessageQueue::new();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), false);
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(!mm.client_mgr.is_pending_command(100));
+        mm.client_mgr.set_pending_command(100, 0);
+        mm.registration_check_last_tick = Some(Instant::now() - Duration::from_secs(20));
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+        assert!(!mm.client_mgr.is_pending_command(100));
+        assert!(events.try_recv().is_none());
+        assert!(actions(&mut queue).is_empty());
+    }
+
+    #[test]
+    fn presence_probe_preserves_group_attachment_and_ciphering_parameters() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        let cipher = tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters::class2(2, 3);
+        mm.client_mgr.set_client_ciphering(100, Some(cipher)).unwrap();
+        let mut queue = MessageQueue::new();
+        let _ = mm.send_registration_check(&mut queue, 100, true);
+        let message = queue.pop_front().unwrap();
+        let SapMsgInner::LmmMleUnitdataReq(mut request) = message.msg else {
+            panic!("presence command missing")
+        };
+        assert_eq!(
+            request.sdu.read_field(4, "pdu_type").unwrap(),
+            tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl::DLocationUpdateCommand.into_raw()
+        );
+        assert_eq!(request.sdu.read_field(1, "group_report").unwrap(), 0);
+        assert_eq!(request.sdu.read_field(1, "cipher_control").unwrap(), 1);
+        assert_eq!(request.sdu.read_field(10, "ciphering_parameters").unwrap(), cipher.to_bits());
+        assert!(mm.client_mgr.get_client_by_issi(100).unwrap().groups.contains(&268));
+    }
+
+    #[test]
+    fn new_presence_probes_are_limited_to_one_per_tdma_frame() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        radio(&mut mm, 101);
+        let now = Instant::now() + Duration::from_secs(31);
+        mm.registration_check_last_tick = Some(now - Duration::from_secs(1));
+        let ts = TdmaTime { t: 1, f: 1, m: 1, h: 0 };
+        let mut queue = MessageQueue::new();
+        mm.drive_registration_checks(&mut queue, ts, now, true);
+        assert!(queue.pop_front().is_some());
+        assert!(queue.pop_front().is_none());
+        mm.drive_registration_checks(&mut queue, ts, now, true);
+        assert!(queue.pop_front().is_none());
+        let next = TdmaTime { t: 1, f: 2, m: 1, h: 0 };
+        mm.drive_registration_checks(&mut queue, next, now, true);
+        assert!(queue.pop_front().is_some());
+        assert!(queue.pop_front().is_none());
+    }
+
+    #[test]
+    fn unsent_or_discarded_local_probe_retries_without_marking_a_radio_offline() {
+        for discarded in [false, true] {
+            let (mut mm, events) = station();
+            radio(&mut mm, 100);
+            while events.try_recv().is_some() {}
+            let mut queue = MessageQueue::new();
+            let receipt = mm.send_registration_check(&mut queue, 100, true).unwrap();
+            let queued_at = Instant::now();
+            mm.client_mgr.queue_registration_command(100, queued_at);
+            mm.registration_probe_receipts.insert(100, receipt.clone());
+            if discarded {
+                receipt.mark_discarded();
+            }
+            mm.drive_registration_checks(&mut queue, TdmaTime::default(), queued_at, true);
+            assert!(mm.client_mgr.get_client_by_issi(100).unwrap().grace_expires_at.is_none());
+            assert!(mm.client_mgr.is_pending_command(100));
+            let stale_at = queued_at + Duration::from_secs(16);
+            mm.registration_check_last_tick = Some(stale_at - Duration::from_secs(1));
+            mm.drive_registration_checks(&mut queue, TdmaTime::default(), stale_at, true);
+            assert!(!mm.client_mgr.is_pending_command(100));
+            assert!(mm.registration_probe_receipts.is_empty());
+            assert!(mm.config.state_read().subscribers.is_registered(100));
+            assert!(events.try_recv().is_none());
+            let retry_at = stale_at + Duration::from_secs(31);
+            mm.registration_check_last_tick = Some(retry_at - Duration::from_secs(1));
+            let _ = actions(&mut queue);
+            mm.drive_registration_checks(&mut queue, TdmaTime::default(), retry_at, true);
+            assert!(mm.client_mgr.is_pending_command(100));
+            assert_eq!(mm.registration_probe_receipts.len(), 1);
+            assert!(queue.pop_front().is_some());
+            assert!(mm.config.state_read().subscribers.is_registered(100));
+        }
+    }
+
+    #[test]
+    fn one_minute_profile_preserves_registration_until_a_transmitted_probe_gets_full_grace() {
+        let (mut mm, events) = station();
+        radio(&mut mm, 100);
+        while events.try_recv().is_some() {}
+        // The fixture uses a longer grace for separate ACK tests. Set the shipped profile.
+        let mut config = (*mm.config.config()).clone();
+        config.cell.presence_response_secs = 30;
+        mm.config = SharedConfig::from_parts(config, None);
+        mm.config.state_write().subscribers.register(100);
+        let probe_at = Instant::now() + Duration::from_secs(31);
+        mm.registration_check_last_tick = Some(probe_at - Duration::from_secs(1));
+        let mut queue = MessageQueue::new();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), probe_at, true);
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+        let receipt = mm.registration_probe_receipts[&100].clone();
+        receipt.mark_transmitted();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), probe_at, true);
+        let before = probe_at + Duration::from_secs(29);
+        mm.registration_check_last_tick = Some(before - Duration::from_secs(1));
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), before, true);
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+        let expires = probe_at + Duration::from_secs(30);
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), expires, true);
+        assert!(!mm.config.state_read().subscribers.is_registered(100));
+        assert!(matches!(events.try_recv(), Some(TelemetryEvent::MsTimeoutDrop { issi: 100 })));
+        assert!(actions(&mut queue).contains(&BrewSubscriberAction::Deregister));
+    }
+
+    #[test]
+    fn returning_known_radio_is_prompted_to_register_without_trusting_rssi_as_registration() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        mm.config.state_write().subscribers.deregister(100);
+        let cipher = tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters::class2(2, 3);
+        mm.client_mgr.set_client_ciphering(100, Some(cipher)).unwrap();
+        mm.client_mgr.update_client_rssi(100, -45.0);
+        let mut queue = MessageQueue::new();
+        mm.maybe_reactive_recovery(&mut queue, 100);
+        let message = queue.pop_front().expect("returning radio needs an immediate location update request");
+        let SapMsgInner::LmmMleUnitdataReq(mut request) = message.msg else {
+            panic!("unexpected coverage-return message")
+        };
+        assert_eq!(
+            request.sdu.read_field(4, "pdu_type").unwrap(),
+            tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl::DLocationUpdateCommand.into_raw()
+        );
+        assert_eq!(request.sdu.read_field(1, "group_report").unwrap(), 0);
+        assert_eq!(request.sdu.read_field(1, "cipher_control").unwrap(), 1);
+        assert_eq!(request.sdu.read_field(10, "ciphering_parameters").unwrap(), cipher.to_bits());
+        assert!(!mm.config.state_read().subscribers.is_registered(100));
+        assert!(mm.client_mgr.get_client_by_issi(100).unwrap().groups.contains(&268));
+        mm.maybe_reactive_recovery(&mut queue, 100);
+        assert!(queue.pop_front().is_none(), "a burst of returning PTT samples must not flood MCCH");
+    }
+
+    #[test]
+    fn transmitted_probe_arms_full_grace_and_link_ack_confirms_presence() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        let mut queue = MessageQueue::new();
+        let receipt = mm.send_registration_check(&mut queue, 100, true).unwrap();
+        mm.client_mgr.queue_registration_command(100, Instant::now());
+        mm.registration_probe_receipts.insert(100, receipt.clone());
+        receipt.mark_transmitted();
+        let now = Instant::now();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), now, true);
+        assert_eq!(
+            mm.client_mgr.get_client_by_issi(100).unwrap().grace_expires_at,
+            Some(now + Duration::from_secs(60))
+        );
+        assert!(
+            mm.client_mgr
+                .collect_registration_checks(3600, 30, now + Duration::from_secs(59))
+                .is_empty()
+        );
+        receipt.mark_acknowledged();
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
+        assert!(!mm.client_mgr.is_pending_command(100));
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+    }
+
+    #[test]
+    fn a_transmitted_probe_still_expires_when_a_discarded_retry_hid_its_current_state() {
+        let (mut mm, events) = station();
+        radio(&mut mm, 100);
+        while events.try_recv().is_some() {}
+        let mut queue = MessageQueue::new();
+        let receipt = mm.send_registration_check(&mut queue, 100, true).unwrap();
+        let queued_at = Instant::now();
+        mm.client_mgr.queue_registration_command(100, queued_at);
+        mm.registration_probe_receipts.insert(100, receipt.clone());
+        // All transitions happen before MM polls, as during an LLC catch-up burst.
+        receipt.mark_transmitted();
+        receipt.reset();
+        receipt.mark_discarded();
+        assert!(!receipt.is_transmitted());
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), queued_at, true);
+        let deadline = queued_at + Duration::from_secs(60);
+        assert_eq!(mm.client_mgr.get_client_by_issi(100).unwrap().grace_expires_at, Some(deadline));
+        let before = deadline - Duration::from_secs(1);
+        mm.registration_check_last_tick = Some(before - Duration::from_secs(1));
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), before, true);
+        assert!(mm.config.state_read().subscribers.is_registered(100));
+        mm.drive_registration_checks(&mut queue, TdmaTime::default(), deadline, true);
+        assert!(!mm.config.state_read().subscribers.is_registered(100));
+        assert!(matches!(events.try_recv(), Some(TelemetryEvent::MsTimeoutDrop { issi: 100 })));
     }
 }

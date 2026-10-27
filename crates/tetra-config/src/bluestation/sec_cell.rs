@@ -294,6 +294,13 @@ pub struct CfgCellInfo {
     /// Default: 3600 (1 hour). Valid range when non-zero: 60–86400.
     pub periodic_registration_secs: u32,
 
+    /// Check an idle radio with D-LOCATION-UPDATE-COMMAND independently of T351.
+    /// 0 disables the additional check. Default: 30 seconds; range: 5–3600.
+    pub presence_check_secs: u32,
+
+    /// Response grace for an independent presence check. Default: 30; range: 10–300.
+    pub presence_response_secs: u32,
+
     /// Remote control via SDS U-STATUS to ISSI 9999. None = disabled.
     pub sds_command_control: Option<CfgSdsCommandControl>,
 
@@ -403,6 +410,12 @@ pub struct CellInfoDto {
     /// Periodic registration interval in seconds. 0 = disabled. Default: 3600.
     pub periodic_registration_secs: Option<u32>,
 
+    /// Idle-radio presence check interval; 0 disables it. Default: 30.
+    pub presence_check_secs: Option<u32>,
+
+    /// Response grace for independent presence checks. Default: 30.
+    pub presence_response_secs: Option<u32>,
+
     /// Remote control via SDS U-STATUS. Optional section.
     pub sds_command_control: Option<SdsCommandControlDto>,
 
@@ -507,6 +520,11 @@ pub fn cell_dto_to_cfg(ci: CellInfoDto) -> CfgCellInfo {
             let v = ci.periodic_registration_secs.unwrap_or(3600);
             if v == 0 { 0 } else { v.clamp(60, 86400) }
         },
+        presence_check_secs: {
+            let v = ci.presence_check_secs.unwrap_or(30);
+            if v == 0 { 0 } else { v.clamp(5, 3600) }
+        },
+        presence_response_secs: ci.presence_response_secs.unwrap_or(30).clamp(10, 300),
         sds_command_control: ci.sds_command_control.map(|dto| CfgSdsCommandControl {
             authorized_issis: dto.authorized_issis,
             commands: dto
@@ -586,5 +604,41 @@ mod cell_reselect_tests {
             fast_hysteresis_db: 1,
         };
         assert_eq!(max.to_element(), 0xF0F0, "clamped to 30 dB, rounded down to 2 dB steps");
+    }
+}
+
+#[cfg(test)]
+mod presence_config_tests {
+    use super::*;
+
+    #[test]
+    fn presence_defaults_bounds_and_explicit_disable_preserve_t351() {
+        let defaults = cell_dto_to_cfg(CellInfoDto::default());
+        assert_eq!(
+            (
+                defaults.periodic_registration_secs,
+                defaults.presence_check_secs,
+                defaults.presence_response_secs
+            ),
+            (3600, 30, 30)
+        );
+        let low = cell_dto_to_cfg(CellInfoDto {
+            presence_check_secs: Some(1),
+            presence_response_secs: Some(1),
+            ..Default::default()
+        });
+        assert_eq!((low.presence_check_secs, low.presence_response_secs), (5, 10));
+        let off = cell_dto_to_cfg(CellInfoDto {
+            periodic_registration_secs: Some(3600),
+            presence_check_secs: Some(0),
+            ..Default::default()
+        });
+        assert_eq!((off.periodic_registration_secs, off.presence_check_secs), (3600, 0));
+        let high = cell_dto_to_cfg(CellInfoDto {
+            presence_check_secs: Some(u32::MAX),
+            presence_response_secs: Some(u32::MAX),
+            ..Default::default()
+        });
+        assert_eq!((high.presence_check_secs, high.presence_response_secs), (3600, 300));
     }
 }
