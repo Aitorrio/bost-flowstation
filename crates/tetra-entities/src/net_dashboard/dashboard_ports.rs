@@ -263,6 +263,12 @@ mod tests {
     }
 
     #[test]
+    fn keeps_explicit_private_http_8080_and_https_443_configuration() {
+        let src = "[dashboard]\nport = 8080\nhttps_port = 443\nusername = \"operator\"\npassword = \"test-password\"\nhttp_allowed_networks = [\"10.42.0.0/24\"]\n";
+        assert_eq!(compute_toml(src), src, "private HTTP is an explicit port choice, not a legacy default");
+    }
+
+    #[test]
     fn patch_ports_standard_and_high() {
         let src = "[dashboard]\nport = 80\nhttps_port = 443\nusername = \"admin\"\n";
         let high = patch_dashboard_ports(src, 0, 8443);

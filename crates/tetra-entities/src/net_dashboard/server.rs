@@ -329,6 +329,111 @@ type SharedSessionStore = Arc<Mutex<SessionStore>>;
 /// without restarting the service.
 type SharedAuth = Arc<RwLock<Option<(String, String)>>>;
 
+/// Only the socket's direct peer participates in private HTTP admission. Forwarded headers are
+/// intentionally irrelevant: the operator explicitly trusts these source networks, not a proxy.
+fn private_http_configured(shared_config: &Option<tetra_config::bluestation::SharedConfig>) -> bool {
+    shared_config
+        .as_ref()
+        .and_then(|cfg| cfg.config().dashboard.as_ref().map(|d| !d.http_allowed_networks.is_empty()))
+        .unwrap_or(false)
+}
+
+fn private_http_credentials(
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+    auth: &SharedAuth,
+    peer: Option<std::net::IpAddr>,
+) -> Option<(String, String)> {
+    let peer = peer?;
+    let config = shared_config.as_ref()?.config();
+    if !config.dashboard.as_ref()?.permits_http_peer(peer) {
+        return None;
+    }
+    // Runtime auth may have changed since the immutable startup config was parsed. Never let an
+    // admitted HTTP connection fall through to the normal no-credentials/open-dashboard mode.
+    auth.read()
+        .ok()?
+        .as_ref()
+        .filter(|(user, password)| !user.trim().is_empty() && !password.is_empty())
+        .cloned()
+}
+
+/// None means redirect. Some(true) means a mandatory authenticated HTTP connection; Some(false)
+/// retains the existing TLS-unavailable fallback only when no private HTTP policy is configured.
+fn primary_http_admission(
+    tls_available: bool,
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+    auth: &SharedAuth,
+    peer: Option<std::net::IpAddr>,
+) -> Option<bool> {
+    let scoped_http = private_http_configured(shared_config);
+    if private_http_credentials(shared_config, auth, peer).is_some() {
+        Some(true)
+    } else if tls_available || scoped_http {
+        None
+    } else {
+        Some(false)
+    }
+}
+
+fn credentials_unchanged(auth: &SharedAuth, expected: &(String, String)) -> bool {
+    auth.read()
+        .ok()
+        .and_then(|current| {
+            current.as_ref().map(|(user, password)| {
+                timing_safe_eq(user.as_bytes(), expected.0.as_bytes()) && timing_safe_eq(password.as_bytes(), expected.1.as_bytes())
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// An HTTP WebSocket must not retain management access after logout or an auth change. HTTPS keeps
+/// its existing session behaviour; this guard applies only to explicitly admitted private HTTP.
+struct PrivateHttpSession {
+    shared_config: Option<tetra_config::bluestation::SharedConfig>,
+    auth: SharedAuth,
+    sessions: SharedSessionStore,
+    peer: Option<std::net::IpAddr>,
+    credentials: (String, String),
+    token: String,
+}
+
+impl PrivateHttpSession {
+    fn is_authorized(&self) -> bool {
+        self.with_authorization(|| ())
+    }
+
+    /// Keep credential changes and logout ordered against a control dispatch. A check followed by
+    /// an unlocked dispatch could otherwise execute a queued command after revocation completed.
+    fn with_authorization(&self, action: impl FnOnce()) -> bool {
+        let Some(peer) = self.peer else {
+            return false;
+        };
+        let Some(config) = self.shared_config.as_ref().map(|config| config.config()) else {
+            return false;
+        };
+        if !config.dashboard.as_ref().is_some_and(|dashboard| dashboard.permits_http_peer(peer)) {
+            return false;
+        }
+        let Ok(current) = self.auth.read() else {
+            return false;
+        };
+        if !current.as_ref().is_some_and(|(user, password)| {
+            timing_safe_eq(user.as_bytes(), self.credentials.0.as_bytes())
+                && timing_safe_eq(password.as_bytes(), self.credentials.1.as_bytes())
+        }) {
+            return false;
+        }
+        let Ok(mut sessions) = self.sessions.lock() else {
+            return false;
+        };
+        if !sessions.validate(&self.token) {
+            return false;
+        }
+        action();
+        true
+    }
+}
+
 /// Failed-login tracking, shared across every dashboard connection.
 ///
 /// The previous throttle was a `thread::sleep(500ms)` on the connection that failed — per-connection
@@ -1953,8 +2058,9 @@ impl DashboardServer {
         let https_radioid = radioid.clone();
         let https_lst_handle = lst_handle.clone();
 
-        // HTTP is redirect-only when TLS is up; otherwise keep serving the full dashboard
-        // on the cleartext port so a missing openssl doesn't brick the UI.
+        // HTTP redirects by default when TLS is up. An explicit private-source allowlist may
+        // admit authenticated management on this primary HTTP port (including native apps).
+        // The historical TLS-unavailable fallback stays unchanged when no allowlist is configured.
         // port == 0 disables the HTTP listener (high-port / shared-host preset).
         let http_redirect_only = tls_cfg.is_some();
         let http_bind = bind.to_string();
@@ -1970,7 +2076,12 @@ impl DashboardServer {
                     let Some(listener) = bind_tcp_listener(&addr, BindMode::Canonical) else {
                         return;
                     };
-                    if http_redirect_only {
+                    if private_http_configured(&shared_config) {
+                        tracing::info!(
+                            "Dashboard primary HTTP listener on http://{}: authenticated management for explicitly allowed private peers; all other peers redirect to HTTPS",
+                            addr
+                        );
+                    } else if http_redirect_only {
                         tracing::info!(
                             "Dashboard HTTP redirect on http://{} → https (port {})",
                             addr,
@@ -1984,10 +2095,11 @@ impl DashboardServer {
                     }
                     for stream in listener.incoming() {
                         let Ok(stream) = stream else { continue };
-                        if http_redirect_only {
+                        let peer_ip = stream.peer_addr().ok().map(|peer| peer.ip());
+                        let Some(require_http_auth) = primary_http_admission(http_redirect_only, &shared_config, &auth, peer_ip) else {
                             serve_https_redirect_plain(stream, https_port_for_redirect);
                             continue;
-                        }
+                        };
                         if !dash_try_acquire_conn() {
                             tracing::warn!(
                                 "Dashboard: connection cap ({DASH_MAX_CONN}) reached — rejecting HTTP"
@@ -2025,6 +2137,7 @@ impl DashboardServer {
                                     radioid,
                                     public_overview,
                                     lst_handle,
+                                    require_http_auth,
                                     Some(DashConnGuard),
                                 )
                             })
@@ -2127,6 +2240,7 @@ impl DashboardServer {
                                     radioid,
                                     public_overview,
                                     lst_handle,
+                                    false,
                                     Some(guard),
                                 )
                             })
@@ -3082,6 +3196,7 @@ fn handle_connection(
     radioid: crate::net_dashboard::radioid::RadioIdCache,
     public_overview: bool,
     lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
+    require_http_auth: bool,
     // Held for short HTTP work; dropped before long-lived WebSocket loops so WS does not
     // permanently occupy a DASH_MAX_CONN slot (that starved polls and wedged the Pi UI).
     mut conn_guard: Option<DashConnGuard>,
@@ -3102,19 +3217,31 @@ fn handle_connection(
     let header_str = String::from_utf8_lossy(&header_buf).into_owned();
     let req_line = header_str.lines().next().unwrap_or("").to_string();
     let mut stream = PrefixedConn::with_prefix(header_buf, stream);
+    let auth_creds = if require_http_auth {
+        match private_http_credentials(&shared_config, &auth, peer_ip) {
+            Some(credentials) => Some(credentials),
+            None => {
+                http_response(stream, 401, "Private HTTP management requires configured credentials and an allowed direct peer");
+                return;
+            }
+        }
+    } else {
+        auth.read().unwrap_or_else(|e| e.into_inner()).clone()
+    };
 
     // Snom/desk-phone ActionURL endpoint. It has its own token and must work without the
     // dashboard cookie session, so handle it before the normal dashboard auth gate.
-    if is_tpg2200_action_request(&req_line) {
+    if !require_http_auth && is_tpg2200_action_request(&req_line) {
         drain_http_headers(&mut stream);
         serve_tpg2200_action_url(stream, &req_line, &shared_config, &cmd_tx, &state);
         return;
     }
 
     // Public TLS status (no auth) so the UI can advertise the canonical HTTPS URL.
-    if req_line.starts_with("GET /api/dashboard/tls ")
-        || req_line.starts_with("GET /api/dashboard/tls?")
-        || req_line.starts_with("GET /api/dashboard/tls HTTP")
+    if !require_http_auth
+        && (req_line.starts_with("GET /api/dashboard/tls ")
+            || req_line.starts_with("GET /api/dashboard/tls?")
+            || req_line.starts_with("GET /api/dashboard/tls HTTP"))
     {
         drain_http_headers(&mut stream);
         serve_dashboard_tls_status(stream);
@@ -3154,9 +3281,8 @@ fn handle_connection(
         return;
     }
 
-    // Snapshot credentials for this connection. SharedAuth lets System-tab changes take
-    // effect on the next request without restarting the service.
-    let auth_creds = auth.read().unwrap_or_else(|e| e.into_inner()).clone();
+    // Credentials were captured before public routing; scoped HTTP cannot become anonymous if
+    // runtime auth is removed between listener admission and this request's cookie gate.
     if let Some((ref expected_user, ref expected_pass)) = auth_creds {
         // Login page and login API must remain reachable without a session.
         let is_login_page = req_line.starts_with("GET /login ") || req_line.starts_with("GET /login?");
@@ -3238,6 +3364,20 @@ fn handle_connection(
             let ok = timing_safe_eq(user.as_bytes(), expected_user.as_bytes()) && timing_safe_eq(pass.as_bytes(), expected_pass.as_bytes());
 
             if ok {
+                // Keep runtime credentials stable while an admitted HTTP login issues its cookie.
+                // Without this guard an in-flight old-password login could outlive auth removal.
+                let private_auth_guard = if require_http_auth { auth.read().ok() } else { None };
+                if require_http_auth
+                    && !private_auth_guard.as_ref().is_some_and(|current| {
+                        current.as_ref().is_some_and(|(user, password)| {
+                            timing_safe_eq(user.as_bytes(), expected_user.as_bytes())
+                                && timing_safe_eq(password.as_bytes(), expected_pass.as_bytes())
+                        })
+                    })
+                {
+                    http_response(buf.into_inner(), 401, "Dashboard authentication changed; log in again");
+                    return;
+                }
                 // Recover from a poisoned lock instead of issuing an empty cookie: an empty token
                 // would "log in" the browser yet store no session, so every later request would fail
                 // the gate (logged in, but bounced). Poisoning only happens after a panic elsewhere;
@@ -3298,11 +3438,11 @@ fn handle_connection(
             // shell and read the narrow public snapshot — nothing else. Every other route (config,
             // controls, /ws, raw telemetry) still falls through to the redirect/401 below, so the
             // admin surface stays fully behind the session wall.
-            if public_overview && is_root {
+            if !require_http_auth && public_overview && is_root {
                 serve_html(inner);
                 return;
             }
-            if public_overview
+            if !require_http_auth && public_overview
                 && (req_line.starts_with("GET /api/public ")
                     || req_line.starts_with("GET /api/public?")
                     || req_line == "GET /api/public HTTP/1.1")
@@ -3322,6 +3462,28 @@ fn handle_connection(
         }
     }
 
+    // Auth may have changed while this request was being read. Scoped HTTP fails closed instead
+    // of inheriting the ordinary dashboard's no-auth mode; upgraded sessions also keep this check.
+    if require_http_auth
+        && !auth_creds.as_ref().is_some_and(|expected| credentials_unchanged(&auth, expected))
+    {
+        http_response(stream, 401, "Dashboard authentication changed; log in again");
+        return;
+    }
+    if require_http_auth && is_tpg2200_action_request(&req_line) {
+        drain_http_headers(&mut stream);
+        serve_tpg2200_action_url(stream, &req_line, &shared_config, &cmd_tx, &state);
+        return;
+    }
+    if require_http_auth && (req_line.starts_with("GET /api/dashboard/tls ")
+        || req_line.starts_with("GET /api/dashboard/tls?")
+        || req_line.starts_with("GET /api/dashboard/tls HTTP"))
+    {
+        drain_http_headers(&mut stream);
+        serve_dashboard_tls_status(stream);
+        return;
+    }
+
     // Access control is the cookie gate above: with credentials configured the dashboard requires a
     // login for everything; without credentials it is fully open (the home-network default). We do
     // NOT additionally restrict control by the peer's address — "is this localhost?" can't tell a
@@ -3330,7 +3492,19 @@ fn handle_connection(
     if req_line.contains("/ws") {
         // Release the HTTP concurrency slot before entering the WS read loop.
         drop(conn_guard.take());
-        handle_ws(stream, state, clients, cmd_tx, update_state, shared_config.clone(), lst_handle);
+        let private_http_session = if require_http_auth {
+            Some(PrivateHttpSession {
+                shared_config: shared_config.clone(),
+                auth: Arc::clone(&auth),
+                sessions: Arc::clone(&sessions),
+                peer: peer_ip,
+                credentials: auth_creds.expect("scoped HTTP credentials checked above"),
+                token: parse_session_cookie(&header_str).expect("scoped HTTP session checked above"),
+            })
+        } else {
+            None
+        };
+        handle_ws(stream, state, clients, cmd_tx, update_state, shared_config.clone(), lst_handle, private_http_session);
     } else if req_line.contains("GET /api/service/status") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4642,8 +4816,13 @@ fn handle_ws(
     update_state: SharedUpdateState,
     shared_config: Option<tetra_config::bluestation::SharedConfig>,
     lst_handle: Option<crate::net_lst_dispatch::LstDispatchHandle>,
+    private_http_session: Option<PrivateHttpSession>,
 ) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(50)));
+    if private_http_session.as_ref().is_some_and(|session| !session.is_authorized()) {
+        http_response(stream, 401, "Dashboard authentication changed; log in again");
+        return;
+    }
 
     // Note: cookie-based auth is checked by handle_connection BEFORE we get here, so we don't
     // re-validate during the WS upgrade. The cookie travelled on the Upgrade request.
@@ -4656,6 +4835,11 @@ fn handle_ws(
             return;
         }
     };
+
+    if private_http_session.as_ref().is_some_and(|session| !session.is_authorized()) {
+        let _ = ws.close(None);
+        return;
+    }
 
     // Register this connection for broadcasts. The queue is bounded (a non-draining client is dropped
     // in broadcast() rather than buffered without bound), and total clients are capped so many idle
@@ -4733,6 +4917,10 @@ fn handle_ws(
     let mut last_hello = std::time::Instant::now();
 
     loop {
+        if private_http_session.as_ref().is_some_and(|session| !session.is_authorized()) {
+            let _ = ws.close(None);
+            return;
+        }
         // Drain outbound broadcast messages first
         loop {
             match broadcast_rx.try_recv() {
@@ -4775,7 +4963,11 @@ fn handle_ws(
         // Then check for inbound messages from browser
         match ws.read() {
             Ok(Message::Text(text)) => {
-                handle_ws_command(&text, &state, &cmd_tx, &update_state, &shared_config, &lst_handle);
+                if private_http_session.as_ref().is_some_and(|session| !session.is_authorized()) {
+                    let _ = ws.close(None);
+                    return;
+                }
+                handle_ws_command(&text, &state, &cmd_tx, &update_state, &shared_config, &lst_handle, private_http_session.as_ref());
             }
             Ok(Message::Close(_)) => break,
             Ok(Message::Ping(data)) => {
@@ -4796,6 +4988,7 @@ fn handle_ws_command(
     update_state: &SharedUpdateState,
     shared_config: &Option<tetra_config::bluestation::SharedConfig>,
     lst_handle: &Option<crate::net_lst_dispatch::LstDispatchHandle>,
+    private_http_session: Option<&PrivateHttpSession>,
 ) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
         return;
@@ -4804,6 +4997,18 @@ fn handle_ws_command(
     let cmd_type = v.get("type").and_then(|t| t.as_str());
 
     let send_cmd = |cmd: ControlCommand| -> bool {
+        if let Some(session) = private_http_session {
+            // Only the nonblocking enqueue is inside the auth/session critical section. Parsing,
+            // state/log updates and dispatcher execution must never run with these locks held.
+            let mut sent = false;
+            return session.with_authorization(|| {
+                if let Ok(guard) = cmd_tx.lock() {
+                    if let Some(ref tx) = *guard {
+                        sent = tx.try_send(cmd).is_ok();
+                    }
+                }
+            }) && sent;
+        }
         if let Ok(guard) = cmd_tx.lock() {
             if let Some(ref tx) = *guard {
                 return tx.send(cmd).is_ok();
@@ -4839,17 +5044,31 @@ fn handle_ws_command(
         }
         Some("restart") => {
             tracing::info!("Dashboard: restart service requested");
-            crate::service_control::schedule_service_action(
-                crate::service_control::ServiceAction::Restart,
-                std::time::Duration::from_millis(500),
-            );
+            let schedule = || {
+                crate::service_control::schedule_service_action(
+                    crate::service_control::ServiceAction::Restart,
+                    std::time::Duration::from_millis(500),
+                );
+            };
+            if let Some(session) = private_http_session {
+                session.with_authorization(schedule);
+            } else {
+                schedule();
+            }
         }
         Some("shutdown") => {
             tracing::info!("Dashboard: soft shutdown (standby) requested");
-            crate::service_control::schedule_service_action(
-                crate::service_control::ServiceAction::Stop,
-                std::time::Duration::from_millis(500),
-            );
+            let schedule = || {
+                crate::service_control::schedule_service_action(
+                    crate::service_control::ServiceAction::Stop,
+                    std::time::Duration::from_millis(500),
+                );
+            };
+            if let Some(session) = private_http_session {
+                session.with_authorization(schedule);
+            } else {
+                schedule();
+            }
         }
         Some("update") => {
             let mut u = update_state.lock().unwrap();
@@ -9090,6 +9309,255 @@ mod tests {
     use crate::net_telemetry::TelemetryEvent;
     use std::sync::{Arc, Mutex, RwLock};
 
+    /// Exercise the production admission, HTTP handler and WebSocket loop over ephemeral loopback
+    /// sockets. Do not start DashboardServer: these tests must not run host service/Wi-Fi helpers,
+    /// materialise certificates, or open an RF backend.
+    mod private_http {
+        use super::super::*;
+        use std::time::Duration;
+        use tungstenite::client::IntoClientRequest;
+
+        struct Fixture {
+            server: DashboardServer,
+            commands: crossbeam_channel::Receiver<ControlCommand>,
+        }
+
+        impl Fixture {
+            fn new(networks: &[&str]) -> Self {
+                let mut config = tetra_config::bluestation::from_toml_str(super::MINIMAL_CONFIG).unwrap();
+                config.dashboard = Some(tetra_config::bluestation::CfgDashboard {
+                    username: Some("operator".into()),
+                    password: Some("test-password".into()),
+                    http_allowed_networks: networks.iter().map(|network| network.parse().unwrap()).collect(),
+                    public_overview: true,
+                    ..Default::default()
+                });
+                let shared_config = tetra_config::bluestation::SharedConfig::from_parts(config, None);
+                let mut server = DashboardServer::new("unused-private-http-test.toml".into());
+                server.set_shared_config(shared_config);
+                server.set_auth(Some(("operator".into(), "test-password".into())));
+                server.set_public_overview(true);
+                let (sender, commands) = crossbeam_channel::unbounded();
+                server.set_cmd_sender(sender);
+                Self { server, commands }
+            }
+
+            fn connect(&self) -> (TcpStream, std::thread::JoinHandle<()>) {
+                let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback test listener");
+                let address = listener.local_addr().unwrap();
+                let state = Arc::clone(&self.server.state);
+                let clients = Arc::clone(&self.server.clients);
+                let config_path = self.server.config_path.clone();
+                let cmd_tx = Arc::new(Mutex::new(self.server.cmd_tx.clone()));
+                let update_state = Arc::clone(&self.server.update_state);
+                let auth = Arc::clone(&self.server.auth);
+                let shared_config = self.server.shared_config.clone();
+                let sessions = Arc::clone(&self.server.sessions);
+                let throttle = Arc::clone(&self.server.login_throttle);
+                let radioid = self.server.radioid.clone();
+                let (admitted, ready) = std::sync::mpsc::channel();
+                let thread = std::thread::spawn(move || {
+                    let (stream, peer) = listener.accept().unwrap();
+                    let admission = primary_http_admission(true, &shared_config, &auth, Some(peer.ip()));
+                    admitted.send(()).unwrap();
+                    let Some(require_http_auth) = admission else {
+                        serve_https_redirect_plain(stream, 443);
+                        return;
+                    };
+                    assert!(require_http_auth);
+                    handle_connection(
+                        ConnStream::plain(stream),
+                        state,
+                        clients,
+                        config_path,
+                        cmd_tx,
+                        update_state,
+                        None,
+                        auth,
+                        shared_config,
+                        sessions,
+                        throttle,
+                        radioid,
+                        true,
+                        None,
+                        require_http_auth,
+                        None,
+                    );
+                });
+                let stream = TcpStream::connect(address).expect("connect loopback client");
+                stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+                ready.recv_timeout(Duration::from_secs(2)).expect("listener admission");
+                (stream, thread)
+            }
+
+            fn request(&self, method: &str, target: &str, headers: &str, body: &str) -> String {
+                let (mut stream, thread) = self.connect();
+                let request = format!(
+                    "{method} {target} HTTP/1.1\r\nHost: station.test:80\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(request.as_bytes()).unwrap();
+                let mut response = String::new();
+                stream.read_to_string(&mut response).expect("read HTTP response");
+                thread.join().expect("HTTP handler completed");
+                response
+            }
+
+            fn login(&self) -> String {
+                let response = self.request(
+                    "POST",
+                    "/api/login",
+                    "Content-Type: application/json\r\n",
+                    r#"{"user":"operator","password":"test-password"}"#,
+                );
+                assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+                let cookie = response.lines().find(|line| line.starts_with("Set-Cookie: fs_session=")).unwrap();
+                assert!(cookie.contains("HttpOnly"));
+                assert!(!cookie.contains("Secure"), "an HTTP session must be usable over HTTP");
+                cookie.strip_prefix("Set-Cookie: ").unwrap().split(';').next().unwrap().into()
+            }
+
+            fn websocket(&self, cookie: &str) -> (tungstenite::WebSocket<TcpStream>, std::thread::JoinHandle<()>) {
+                let (stream, thread) = self.connect();
+                let mut request = "ws://station.test/ws".into_client_request().unwrap();
+                request.headers_mut().insert("Cookie", cookie.parse().unwrap());
+                let (mut websocket, response) = tungstenite::client(request, stream).expect("authenticated WS upgrade");
+                assert_eq!(response.status(), 101);
+                let snapshot: serde_json::Value = serde_json::from_str(websocket.read().unwrap().to_text().unwrap()).unwrap();
+                assert_eq!(snapshot["type"], "snapshot");
+                (websocket, thread)
+            }
+        }
+
+        #[test]
+        fn private_http_default_and_denied_peer_redirect_even_with_forwarded_headers() {
+            let headers = "X-Forwarded-For: 10.0.0.11\r\nForwarded: for=10.0.0.11\r\n";
+            for fixture in [Fixture::new(&[]), Fixture::new(&["10.0.0.0/24"])] {
+                let response = fixture.request("GET", "/api/service/status", headers, "");
+                assert!(response.starts_with("HTTP/1.1 302"), "{response}");
+                assert!(response.contains("Location: https://station.test/api/service/status"));
+            }
+            let fixture = Fixture::new(&[]);
+            assert_eq!(
+                primary_http_admission(
+                    false,
+                    &fixture.server.shared_config,
+                    &fixture.server.auth,
+                    Some("127.0.0.1".parse().unwrap())
+                ),
+                Some(false)
+            );
+            let fixture = Fixture::new(&["10.0.0.0/24"]);
+            assert_eq!(
+                primary_http_admission(
+                    false,
+                    &fixture.server.shared_config,
+                    &fixture.server.auth,
+                    Some("127.0.0.1".parse().unwrap())
+                ),
+                None
+            );
+        }
+
+        #[test]
+        fn private_http_requires_cookie_for_public_snapshot_api_and_websocket() {
+            let fixture = Fixture::new(&["127.0.0.1"]);
+            for target in ["/api/public", "/api/service/status", "/api/dashboard/tls", "/ws"] {
+                let response = fixture.request("GET", target, "", "");
+                assert!(response.starts_with("HTTP/1.1 401"), "{target}: {response}");
+                assert!(!response.contains("\"type\":\"snapshot\""));
+            }
+            let root = fixture.request("GET", "/", "", "");
+            assert!(root.contains("Location: /login"), "anonymous overview must stay gated");
+            let basic = fixture.request(
+                "GET",
+                "/api/service/status",
+                "Authorization: Basic b3BlcmF0b3I6dGVzdC1wYXNzd29yZA==\r\n",
+                "",
+            );
+            assert!(
+                basic.starts_with("HTTP/1.1 401"),
+                "Basic credentials do not bypass the cookie session"
+            );
+            let cookie = fixture.login();
+            let authenticated = fixture.request("GET", "/api/dashboard/tls", &format!("Cookie: {cookie}\r\n"), "");
+            assert!(authenticated.starts_with("HTTP/1.1 200"), "{authenticated}");
+            let (mut websocket, thread) = fixture.websocket(&cookie);
+            websocket.close(None).unwrap();
+            drop(websocket);
+            thread.join().unwrap();
+        }
+
+        #[test]
+        fn private_http_auth_removed_after_accept_never_falls_open() {
+            let fixture = Fixture::new(&["127.0.0.1"]);
+            let (mut stream, thread) = fixture.connect();
+            *fixture.server.auth.write().unwrap() = None;
+            stream.write_all(b"GET /api/public HTTP/1.1\r\nHost: station.test\r\n\r\n").unwrap();
+            let mut response = String::new();
+            stream.read_to_string(&mut response).unwrap();
+            thread.join().unwrap();
+            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+            let next = fixture.request("GET", "/", "", "");
+            assert!(next.starts_with("HTTP/1.1 302"));
+            assert!(next.contains("Location: https://station.test/"));
+            assert!(fixture.commands.try_recv().is_err());
+        }
+
+        #[test]
+        fn private_http_logout_and_credential_removal_revoke_websocket_commands() {
+            for remove_credentials in [false, true] {
+                let fixture = Fixture::new(&["127.0.0.1"]);
+                let cookie = fixture.login();
+                let (mut websocket, thread) = fixture.websocket(&cookie);
+                // An authenticated harmless command reaches the in-memory dispatcher, not RF.
+                websocket.send(Message::Text(r#"{"type":"kick","issi":1234}"#.into())).unwrap();
+                assert!(matches!(
+                    fixture.commands.recv_timeout(Duration::from_secs(2)),
+                    Ok(ControlCommand::KickMs { issi: 1234 })
+                ));
+                if remove_credentials {
+                    *fixture.server.auth.write().unwrap() = None;
+                } else {
+                    let response = fixture.request("POST", "/api/logout", &format!("Cookie: {cookie}\r\n"), "");
+                    assert!(response.starts_with("HTTP/1.1 302"));
+                }
+                let _ = websocket.send(Message::Text(r#"{"type":"kick","issi":4321}"#.into()));
+                assert!(
+                    matches!(websocket.read(), Ok(Message::Close(_)) | Err(_)),
+                    "revoked socket must close"
+                );
+                drop(websocket);
+                thread.join().unwrap();
+                assert!(fixture.commands.try_recv().is_err(), "revoked command reached dispatcher");
+            }
+        }
+
+        #[test]
+        fn private_http_session_rejects_changed_credentials_missing_policy_and_expiry() {
+            let fixture = Fixture::new(&["127.0.0.1"]);
+            let token = fixture.server.sessions.lock().unwrap().create();
+            let mut session = PrivateHttpSession {
+                shared_config: fixture.server.shared_config.clone(),
+                auth: Arc::clone(&fixture.server.auth),
+                sessions: Arc::clone(&fixture.server.sessions),
+                peer: Some("127.0.0.1".parse().unwrap()),
+                credentials: ("operator".into(), "test-password".into()),
+                token,
+            };
+            assert!(session.is_authorized());
+            *fixture.server.auth.write().unwrap() = Some(("operator".into(), "new-password".into()));
+            assert!(!session.is_authorized());
+            *fixture.server.auth.write().unwrap() = Some(session.credentials.clone());
+            session.shared_config = None;
+            assert!(!session.is_authorized());
+            session.shared_config = fixture.server.shared_config.clone();
+            fixture.server.sessions.lock().unwrap().ttl = Duration::ZERO;
+            assert!(!session.is_authorized());
+        }
+    }
+
     struct OtaTestRepository(std::path::PathBuf);
 
     impl OtaTestRepository {
@@ -9520,7 +9988,7 @@ enabled = true
         let state = Arc::new(RwLock::new(DashboardStateInner::new("/tmp/fs_ws_cmd_test.toml".to_string())));
         let cmd_tx = Arc::new(Mutex::new(Some(tx)));
         let update_state = Arc::new(Mutex::new(UpdateState::new()));
-        handle_ws_command(json, &state, &cmd_tx, &update_state, &None, &None);
+        handle_ws_command(json, &state, &cmd_tx, &update_state, &None, &None, None);
         rx.try_iter().collect()
     }
 

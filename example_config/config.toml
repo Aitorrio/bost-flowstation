@@ -626,10 +626,10 @@ voice_service = true
 # Presets (installer asks; also System → Panel access):
 #   standard — port = 80, https_port = 443   (dedicated Pi; open https://IP/)
 #   high     — port = 0,  https_port = 8443  (shared host; open https://IP:8443/)
-# port = 0 disables the cleartext HTTP redirect listener.
+# port = 0 disables the cleartext HTTP listener.
 #
 # [dashboard]
-# port = 80                      # Cleartext HTTP — redirects to HTTPS (0 = disabled)
+# port = 80                      # Cleartext HTTP — redirects unless explicitly allowed below (0 = disabled)
 # https_port = 443               # Real dashboard over TLS (must not be 0)
 # bind = "0.0.0.0"               # bind address (default: 0.0.0.0 = all interfaces; use 127.0.0.1 for localhost-only)
 #
@@ -643,6 +643,18 @@ voice_service = true
 #
 # username = "admin"
 # password = "changeme"
+#
+# OPTIONAL: authenticated HTTP management for explicitly allowed private LAN or VPN peers.
+# Empty by default: HTTP keeps redirecting to HTTPS. This does not disable HTTPS.
+# Requires username AND password; every management request still needs a session cookie.
+# Matches the direct TCP peer only, never Forwarded/X-Forwarded-For headers.
+# http_allowed_networks = []
+# For clients using HTTP :8080, set port = 8080 AND https_port = 443 above.
+# This moves the primary HTTP listener from :80 to :8080; :80 is then not opened.
+# The allowlist applies only to the primary port; a separate legacy :8080 redirect
+# remains redirect-only when the primary port is different.
+# HTTP itself is unencrypted: restrict to a trusted LAN or encrypted VPN; no public forwarding.
+# See Docs/private-http-access.md for a complete example and supported address ranges.
 #
 # OPTIONAL: public read-only overview (FH-FEAT-033). When true AND username/password
 # are set, anonymous visitors see a small read-only status page (radio count, active

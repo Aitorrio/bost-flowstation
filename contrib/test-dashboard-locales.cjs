@@ -61,7 +61,7 @@ for (const [saved, browser, expected] of [[null, 'pt-PT', 'pt-PT'], ['fr', 'pt-P
   assert.ok(elements.get('submit-btn').textContent);
 }
 // The shared language menu exposes every existing dictionary, with native names.
-const menuMarkup = dashboard.slice(dashboard.indexOf('<div class="language-wrap">'), dashboard.indexOf('<!-- Phone:'));
+const menuMarkup = dashboard.slice(dashboard.indexOf('<div class="language-wrap">'), dashboard.indexOf('<!-- Session logout'));
 const menuCodes = [...menuMarkup.matchAll(/data-lang="([^"]+)"/g)].map(match => match[1]);
 assert.deepEqual(menuCodes.slice().sort(), Object.keys(langs).sort(), 'Every available language appears once');
 assert.deepEqual(menuCodes, ['en', 'es', 'fr', 'pt', 'ro', 'de', 'hu', 'zh'], 'Language menu order');
@@ -222,7 +222,7 @@ networkPage.classList.add('active');
 const powerTitle = refreshElement();
 const pageTitles = vm.runInNewContext(dashboard.match(/const PAGE_TITLES=([^;]+);/)[0] + ';PAGE_TITLES');
 const navLabels = new Map([...Object.keys(pageTitles), 'security'].map(name => [name, refreshElement()]));
-for (const id of ['topbar-title', 'bts-tx', 'bts-rx', 'bts-shift', 'bts-mcc', 'bts-mnc', 'bts-carrier', 'bts-neighbor', 'bts-hang', 'bts-access', 'bts-access-sub', 'bts-secondary-wrap', 'cells-list', 'cells-link', 'network-links-list', 'eth-saved-list', 'eth-saved-count', 'wifi-status-grid', 'wifi-radio-btn', 'wifi-saved-list', 'wifi-saved-count', 'wifi-scan-list', 'connLed', 'connText', 'brewLed', 'brewText', 'brewVerBadge', 'stat-brew-val', 'stat-brew-sub', 'stat-brew-card', 'sysBtsStatus', 'sysBrewStatus', 'power-opt-suspend-label', 'power-opt-restart', 'power-menu-btn', 'logout-btn', 'prefs-btn', 'prefs-pop', 'sys-auth-badge', 'sys-auth-new-user', 'setup-helper-val', 'setup-device-list', 'wiz-device-list', 'wiz-device', 'ast-configured', 'ast-enabled', 'ast-register', 'ast-dialogs', 'ast-last-error', 'ast-hero-dot', 'ast-hero-pill', 'ast-hero-sub', 'tg-detected', 'dap-hero-pill', 'geo-hero-pill']) element(id);
+for (const id of ['topbar-title', 'bts-tx', 'bts-rx', 'bts-shift', 'bts-mcc', 'bts-mnc', 'bts-carrier', 'bts-neighbor', 'bts-hang', 'bts-access', 'bts-access-sub', 'bts-secondary-wrap', 'cells-list', 'cells-link', 'network-links-list', 'eth-saved-list', 'eth-saved-count', 'wifi-status-grid', 'wifi-radio-btn', 'wifi-saved-list', 'wifi-saved-count', 'wifi-scan-list', 'connLed', 'connText', 'brewLed', 'brewText', 'brewVerBadge', 'stat-brew-val', 'stat-brew-sub', 'stat-brew-card', 'sysBtsStatus', 'sysBrewStatus', 'power-opt-suspend-label', 'power-opt-restart', 'power-menu-btn', 'logout-btn', 'theme-btn', 'theme-pop', 'theme-current', 'sys-auth-badge', 'sys-auth-new-user', 'setup-helper-val', 'setup-device-list', 'wiz-device-list', 'wiz-device', 'ast-configured', 'ast-enabled', 'ast-register', 'ast-dialogs', 'ast-last-error', 'ast-hero-dot', 'ast-hero-pill', 'ast-hero-sub', 'tg-detected', 'dap-hero-pill', 'geo-hero-pill']) element(id);
 const draft = element('config-editor');
 draft.value = 'unsaved station settings';
 const draftToggle = element('vc-brew-enabled');
@@ -280,7 +280,7 @@ const refreshDocument = {
 };
 const noop = () => {};
 const refreshGlobals = {
-  document: refreshDocument, currentLang: 'en', LANGS: langs,
+  document: refreshDocument, currentLang: 'en', currentTheme: 'light', LANGS: langs,
   localStorage: {setItem: noop}, location: {hostname: 'station.test', reload: forbiddenRequest('location.reload')},
   fetch: forbiddenRequest('fetch'), console: {...console, warn: (...args) => refreshWarnings.push(args)},
   PAGE_TITLES: pageTitles,
@@ -306,7 +306,7 @@ const refreshGlobals = {
 for (const name of ['renderStations', 'renderCalls', 'renderLastHeard', 'renderEmergencyBanner', 'renderDgnaPage', 'renderSdsLog', 'renderDapnetLog', 'renderGeoalarmEvents', 'renderRemoteIssis', 'renderRemoteCmds', 'renderTgChips', 'lstRenderRoster', 'lstRenderScan', 'lstRenderActivity', 'lstRenderSdsInbox', 'updateTsBlocksCarrier', 'updateWhitelistBanner', 'renderWhitelist', 'applyServiceStateUi', 'updateHwRfUi', 'installCfgHelp', 'setDcSub', 'tsEnsureCarrierInfo', 'renderTsGridCarrier', 'renderRfCells', 'updateSysHero', 'syncLanguageMenuUi', 'applyTableStackLabels', 'renderHealthIntegrations', 'updateRfStatusBanner']) refreshGlobals[name] = noop;
 for (const name of ['loadConfig', 'loadVisualConfig', 'loadBtsInfo', 'loadBtsInfoLegacy', 'loadCells', 'loadDualCarrier', 'refreshProfileSelects', 'networkLoadStatus', 'networkLoadEthernetSaved', 'wifiLoadSaved', 'wifiLoadStatus', 'wifiScan', 'loadSystemInfo']) refreshGlobals[name] = forbiddenRequest(name);
 const refreshContext = vm.createContext(refreshGlobals);
-for (const name of ['t', 'dashboardLanguage', 'renderBtsInfo', 'renderCells', 'renderRemoteCmds', 'refreshRemoteCommandTranslations', 'refreshProfileSelectTranslations', 'networkKindLabel', 'networkLocalizeState', 'networkLocalizeConn', 'renderNetworkError', 'networkRenderLinks', 'networkRenderEthernetSaved', 'wifiRenderStatus', 'wifiRenderSaved', 'wifiRenderScan', 'wifiSignalBars', 'setDashLinkState', 'setBrewStatus', 'setCellSecurity', 'updateSysBtsPanel', 'syncTopbarChips', 'syncPowerMenuUi', 'syncPrefsMenuUi', 'renderSystemInfo', 'renderSecurityLabels', 'renderSetupStatus', 'paintRfPill', 'renderDeviceList', 'renderAsteriskStatus', 'setIntegrationHero', 'renderDetectedTelegramChats', 'tgEsc', 'refreshCachedPanelTranslations', 'refreshOtaTranslations', 'applyLang', 'setLang']) vm.runInContext(dashboardFunction(name), refreshContext);
+for (const name of ['t', 'dashboardLanguage', 'renderBtsInfo', 'renderCells', 'renderRemoteCmds', 'refreshRemoteCommandTranslations', 'refreshProfileSelectTranslations', 'networkKindLabel', 'networkLocalizeState', 'networkLocalizeConn', 'renderNetworkError', 'networkRenderLinks', 'networkRenderEthernetSaved', 'wifiRenderStatus', 'wifiRenderSaved', 'wifiRenderScan', 'wifiSignalBars', 'setDashLinkState', 'setBrewStatus', 'setCellSecurity', 'updateSysBtsPanel', 'syncTopbarChips', 'syncPowerMenuUi', 'syncThemeMenuUi', 'syncPrefsMenuUi', 'renderSystemInfo', 'renderSecurityLabels', 'renderSetupStatus', 'paintRfPill', 'renderDeviceList', 'renderAsteriskStatus', 'setIntegrationHero', 'renderDetectedTelegramChats', 'tgEsc', 'refreshCachedPanelTranslations', 'refreshOtaTranslations', 'applyLang', 'setLang']) vm.runInContext(dashboardFunction(name), refreshContext);
 refreshContext.setIntegrationHero('dap', true, true, langs.en.online, '', 'online');
 refreshContext.setIntegrationHero('geo', false, false, langs.en.ui_disabled, '', 'ui_disabled');
 
@@ -345,7 +345,8 @@ for (const language of ['en', 'pt', 'fr']) {
   assert.equal(element('connText').textContent, tr.online, `${language}: live dashboard link state`);
   assert.equal(element('brewText').textContent, tr.brew_offline, `${language}: live Brew state`);
   assert.equal(element('power-opt-suspend-label').textContent, tr.svc_suspend, `${language}: power submenu`);
-  assert.equal(element('prefs-btn').attributes['aria-label'], tr.prefs_theme, `${language}: appearance submenu`);
+  assert.equal(element('theme-btn').attributes['aria-label'], tr.prefs_theme + ': ' + tr.ui_light, `${language}: appearance submenu`);
+  assert.equal(element('theme-current').textContent, tr.ui_light, `${language}: selected theme label`);
   assert.equal(element('cells-link').textContent, tr.cells_single, `${language}: cached cell summary`);
   assert.ok(element('cells-list').innerHTML.includes(tr.cells_radios.replace('{n}', '3')), `${language}: cached cell radio count`);
   assert.equal(draft.value, 'unsaved station settings');
