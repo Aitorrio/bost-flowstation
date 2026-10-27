@@ -51,28 +51,31 @@ pub fn on_deregister(issi: u32) {
     dir().write().unwrap_or_else(|e| e.into_inner()).remove(&issi);
 }
 
-/// Signal update (also counts as activity).
+/// Signal update for an attached radio (also counts as activity). RSSI alone cannot register it.
 pub fn on_rssi(issi: u32, rssi_dbfs: f32) {
     let mut d = dir().write().unwrap_or_else(|e| e.into_inner());
-    let e = d.entry(issi).or_insert_with(Entry::new);
-    e.rssi_dbfs = Some(rssi_dbfs);
-    e.last_seen = Instant::now();
+    if let Some(e) = d.get_mut(&issi) {
+        e.rssi_dbfs = Some(rssi_dbfs);
+        e.last_seen = Instant::now();
+    }
 }
 
 /// Replace a radio's full group set (from a groups snapshot).
 pub fn set_groups(issi: u32, gssis: &[u32]) {
     let mut d = dir().write().unwrap_or_else(|e| e.into_inner());
-    let e = d.entry(issi).or_insert_with(Entry::new);
-    e.groups = gssis.iter().copied().collect();
-    e.last_seen = Instant::now();
+    if let Some(e) = d.get_mut(&issi) {
+        e.groups = gssis.iter().copied().collect();
+        e.last_seen = Instant::now();
+    }
 }
 
 /// Add group affiliations.
 pub fn attach_groups(issi: u32, gssis: &[u32]) {
     let mut d = dir().write().unwrap_or_else(|e| e.into_inner());
-    let e = d.entry(issi).or_insert_with(Entry::new);
-    e.groups.extend(gssis.iter().copied());
-    e.last_seen = Instant::now();
+    if let Some(e) = d.get_mut(&issi) {
+        e.groups.extend(gssis.iter().copied());
+        e.last_seen = Instant::now();
+    }
 }
 
 /// Remove group affiliations.
@@ -176,6 +179,40 @@ mod tests {
         assert_eq!(group_affiliation_count(), 1);
         on_deregister(2001);
         assert_eq!(registered_count(), 0);
+    }
+
+    #[test]
+    fn unknown_signal_and_group_updates_do_not_register_a_radio() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear();
+        on_rssi(3001, -23.4);
+        set_groups(3001, &[268]);
+        attach_groups(3002, &[2682]);
+        detach_groups(3003, &[268]);
+        assert_eq!(registered_count(), 0);
+        assert_eq!(private_count(), 0);
+        assert_eq!(group_affiliation_count(), 0);
+        assert!(lines(16).is_empty());
+    }
+
+    #[test]
+    fn late_telemetry_cannot_resurrect_a_deregistered_radio() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear();
+        on_register(4001);
+        set_groups(4001, &[268]);
+        on_deregister(4001);
+        on_rssi(4001, -40.0);
+        set_groups(4001, &[268]);
+        attach_groups(4001, &[2682]);
+        assert!(lines(16).is_empty(), "only a registration may restore the radio");
+        on_register(4001);
+        on_rssi(4001, -25.0);
+        attach_groups(4001, &[2682]);
+        let rows = lines(16);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].rssi_dbfs, Some(-25.0));
+        assert_eq!(rows[0].group_count, 1);
     }
 
     #[test]

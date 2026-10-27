@@ -306,6 +306,18 @@ fn wrap_network_entity(entity: Box<dyn TetraEntityTrait>, cfg: &SharedConfig, si
     }
 }
 
+/// The WAP status pages consume live telemetry even on an otherwise headless station.
+fn needs_telemetry(cfg: &SharedConfig) -> bool {
+    let config = cfg.config();
+    config.telemetry.is_some()
+        || config.dashboard.is_some()
+        || config.telegram.is_some()
+        || config.geoalarm.enabled
+        || cfg.effective_snom_notify().enabled
+        || config.cell.wap_enabled()
+        || config.extra_cells.iter().any(|cell| cell.cell.wap_enabled())
+}
+
 fn build_bs_stack(
     cfg: &mut SharedConfig,
     config_path: &str,
@@ -319,13 +331,8 @@ fn build_bs_stack(
 ) {
     let mut router = MessageRouter::new(cfg.clone());
 
-    // Build telemetry sink/source — always create if either telemetry or dashboard is enabled
-    let needs_telemetry = cfg.config().telemetry.is_some()
-        || cfg.config().dashboard.is_some()
-        || cfg.config().telegram.is_some()
-        || cfg.config().geoalarm.enabled
-        || cfg.effective_snom_notify().enabled;
-    let (tsink, tsource) = if needs_telemetry {
+    // WAP status pages need the same events as the optional dashboard and integrations.
+    let (tsink, tsource) = if needs_telemetry(cfg) {
         let (a, b) = telemetry_channel();
         // Multi-cell: tag the primary's events with its cell (registrations get an MsCell).
         let a = if cfg.config().extra_cells.is_empty() { a } else { a.for_cell(0) };
@@ -973,5 +980,58 @@ fn main() {
         _ => {
             // Ctrl+C or other clean stop while the stack was running.
         }
+    }
+}
+
+#[cfg(test)]
+mod telemetry_tests {
+    use super::*;
+
+    fn headless_config() -> StackConfig {
+        let mut config = parsing::from_toml_str(include_str!("../../../example_config/config.toml")).expect("example config parses");
+        config.phy_io.backend = tetra_config::bluestation::PhyBackend::None;
+        config.dashboard = None;
+        config.telemetry = None;
+        config.telegram = None;
+        config.geoalarm.enabled = false;
+        config.snom_notify.enabled = false;
+        config.cell.wap_ip = None;
+        config.extra_cells.clear();
+        config
+    }
+
+    fn wap_profile() -> tetra_config::bluestation::CfgWapIp {
+        tetra_config::bluestation::CfgWapIp {
+            enabled: true,
+            address: [10, 0, 0, 1],
+            port: 9200,
+            response_ttl: 32,
+            max_request_payload_bytes: 1024,
+        }
+    }
+
+    #[test]
+    fn headless_without_consumers_needs_no_telemetry() {
+        let cfg = SharedConfig::try_from_parts(headless_config(), None).unwrap();
+        assert!(!needs_telemetry(&cfg));
+    }
+
+    #[test]
+    fn wap_only_station_starts_live_telemetry() {
+        let mut config = headless_config();
+        config.cell.wap_ip = Some(wap_profile());
+        let cfg = SharedConfig::try_from_parts(config, None).unwrap();
+        assert!(needs_telemetry(&cfg));
+    }
+
+    #[test]
+    fn wap_on_an_extra_cell_also_needs_telemetry() {
+        let mut config = headless_config();
+        let mut cell = config.cell.clone();
+        cell.main_carrier += 1;
+        cell.wap_ip = Some(wap_profile());
+        config.extra_cells.push(tetra_config::bluestation::CfgExtraCell { id: CellId(1), cell, soapysdr: None });
+        let cfg = SharedConfig::try_from_parts(config, None).unwrap();
+        assert!(needs_telemetry(&cfg));
     }
 }

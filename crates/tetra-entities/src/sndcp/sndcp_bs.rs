@@ -178,14 +178,8 @@ impl Sndcp {
         }
     }
 
-    /// Build the snapshot the WAP status pages render from. Live cell counters (registrations,
-    /// groups, SDS, last activity) are populated by the dashboard; until that is wired in the page
-    /// reflects the cell identity and stack version, which is enough for a reachability probe.
-    /// Build the status snapshot served over WAP from live station state. The scalar counters,
-    /// uptime, last-heard age and health roll-up come from the always-on process health registry
-    /// (`crate::health::registry()`), which the telemetry-fanout thread feeds whether or not the
-    /// HTTP dashboard is running. The per-radio table (`radio_lines`) and the group/private split
-    /// need the dashboard's per-ISSI mirror (`ms_map`) and remain a follow-up.
+    /// Build the WAP status snapshot from process health counters and the attached-radio directory.
+    /// Both are fed by telemetry even when no dashboard or telemetry server is configured.
     fn build_snapshot(&self) -> wap_status::WapStatusSnapshot {
         let reg = crate::health::registry();
         let health = match reg.overall_level() {
@@ -217,10 +211,10 @@ impl Sndcp {
     }
 
     /// Format one radio-directory row as a compact status line for the WAP page, e.g.
-    /// `1001 -85dBm 3s` (idle time), or `1002 -- 1m` when no signal reading is held.
+    /// `1001 -85dBFS 0d0h0m3s` (idle time), or `1002 -- 0d0h1m0s` when no signal reading is held.
     fn format_radio_line(r: &crate::radio_directory::RadioLine) -> String {
         let rssi = match r.rssi_dbfs {
-            Some(v) => format!("{}dBm", v.round() as i32),
+            Some(v) => format!("{}dBFS", v.round() as i32),
             None => "--".to_string(),
         };
         format!("{} {} {}", r.issi, rssi, wap_status::compact_tiny_uptime(r.idle_secs))
@@ -561,6 +555,14 @@ mod tests {
     #[test]
     fn no_chap_in_demand_returns_none() {
         assert_eq!(find_chap_response_id(&"0".repeat(256)), None);
+    }
+
+    #[test]
+    fn radio_line_preserves_the_measurement_unit() {
+        let row = crate::radio_directory::RadioLine { issi: 1001, rssi_dbfs: Some(-23.4), idle_secs: 3, group_count: 1 };
+        assert_eq!(Sndcp::format_radio_line(&row), "1001 -23dBFS 0d0h0m3s");
+        let unknown = crate::radio_directory::RadioLine { issi: 1002, rssi_dbfs: None, idle_secs: 3, group_count: 0 };
+        assert_eq!(Sndcp::format_radio_line(&unknown), "1002 -- 0d0h0m3s");
     }
 
     fn test_endpoint() -> wap_ip::WapEndpoint {
