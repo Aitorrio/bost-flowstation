@@ -137,6 +137,7 @@ body.touch-mode .btn,
 body.touch-mode .btn-sm{min-height:44px;padding:10px 16px;font-size:13px;}
 body.touch-mode .nav-item{min-height:44px;padding:11px 14px;font-size:15px;}
 body.touch-mode .theme-btn,
+body.touch-mode .theme-trigger,
 body.touch-mode .language-btn,
 body.touch-mode .language-opt,
 body.touch-mode .touch-btn{min-height:40px;padding:8px 12px;font-size:13px;}
@@ -157,8 +158,7 @@ body.touch-mode textarea{min-height:44px;font-size:15px;}
   body:not(.no-touch-mode) select,
   body:not(.no-touch-mode) textarea{min-height:44px;}
 }
-/* Touch toggle — its OWN class (never .theme-btn) so setTheme()'s active-reset
-   can't desync its highlight from the actual touch state. */
+/* Touch toggle keeps its highlight independent of the selected color theme. */
 .touch-btn{
   background:var(--bg3);color:var(--text2);border:1px solid var(--border);
   border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;
@@ -1028,16 +1028,32 @@ body{
 .power-opt:disabled{opacity:0.45;cursor:not-allowed;}
 @media (max-width:700px){ .power-pop{width:200px;} }
 
-/* Theme picker */
-.theme-picker{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
-.theme-btn{
-  padding:4px 9px;cursor:pointer;background:transparent;border:none;
-  font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:0.04em;
-  color:var(--text3);transition:all 0.15s;
+/* Theme menu — current choice in the toolbar, vertical choices on every screen. */
+.theme-wrap{position:relative;display:flex;}
+.theme-trigger{
+  min-height:30px;display:flex;align-items:center;gap:6px;padding:4px 8px;
+  background:transparent;border:1px solid var(--border);border-radius:6px;
+  color:var(--text2);cursor:pointer;font-family:var(--mono);font-size:10px;font-weight:600;
 }
-.theme-btn+.theme-btn{border-left:1px solid var(--border);}
-.theme-btn:hover{color:var(--text);background:var(--bg3);}
-.theme-btn.active{color:var(--accent);background:rgba(0,212,168,0.08);}
+.theme-trigger .theme-chevron{width:12px;height:12px;color:var(--text3);transition:transform .15s;}
+.theme-trigger[aria-expanded="true"] .theme-chevron{transform:rotate(180deg);}
+.theme-trigger:hover,.theme-trigger[aria-expanded="true"]{color:var(--accent);border-color:var(--border2);background:var(--bg3);}
+.read-pop.theme-pop{width:180px;max-width:calc(100vw - 24px);background:var(--bg2);}
+.theme-pop[hidden]{display:none;}
+.theme-opt{
+  display:flex;align-items:center;gap:12px;width:100%;min-height:39px;padding:9px 10px;
+  border:0;border-radius:9px;background:transparent;cursor:pointer;text-align:left;
+  color:var(--text);font-family:var(--sans);font-size:13px;font-weight:600;
+}
+.theme-opt+.theme-opt{box-shadow:inset 0 1px 0 var(--border);}
+.theme-opt:hover{background:var(--bg3);}
+.theme-opt:hover+.theme-opt{box-shadow:none;}
+.theme-opt-name{flex:1;min-width:0;}
+.theme-opt.active{color:var(--accent);}
+.theme-opt.active .read-check{opacity:1;transform:scale(1);}
+.theme-trigger:focus-visible,.theme-opt:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+body.touch-mode .theme-trigger,body.touch-mode .theme-opt{min-height:44px;}
+@media(pointer:coarse){.theme-trigger,.theme-opt{min-height:44px;}}
 
 /* Language menu — same surface and row rhythm as Readability. */
 .language-wrap{position:relative;display:flex;}
@@ -1061,48 +1077,6 @@ body{
 .language-opt.active .read-check{opacity:1;transform:scale(1);}
 .language-btn:focus-visible,.language-opt:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 @media (max-width:700px){.language-btn{padding:5px 7px;}}
-
-/* Mobile theme popover — hidden on desktop; mirrors .power-pop. */
-.prefs-wrap{display:none;position:relative;}
-.prefs-btn{
-  width:30px;height:30px;display:flex;align-items:center;justify-content:center;
-  background:transparent;border:1px solid var(--border);border-radius:6px;
-  color:var(--text3);cursor:pointer;transition:all 0.15s;
-}
-.prefs-btn svg{width:16px;height:16px;display:block;}
-.prefs-btn:hover{color:var(--text);border-color:var(--border2);background:var(--bg3);}
-.prefs-btn[aria-expanded="true"]{
-  color:var(--accent);
-  border-color:color-mix(in srgb,var(--accent) 45%,var(--border));
-  background:color-mix(in srgb,var(--accent) 8%,transparent);
-}
-.prefs-pop{
-  position:absolute;top:calc(100% + 9px);right:0;
-  width:248px;padding:6px;z-index:300;
-  background:color-mix(in srgb,var(--bg2) 88%,transparent);
-  -webkit-backdrop-filter:saturate(180%) blur(20px);
-  backdrop-filter:saturate(180%) blur(20px);
-  border:1px solid var(--border);border-radius:14px;
-  box-shadow:
-    0 18px 48px -16px rgba(20,30,50,0.34),
-    0 4px 12px rgba(20,30,50,0.10),
-    var(--hair);
-  opacity:0;transform:translateY(-6px) scale(0.98);transform-origin:top right;
-  pointer-events:none;
-  transition:opacity 0.16s ease,transform 0.16s cubic-bezier(.2,.8,.2,1);
-}
-.prefs-pop.open{opacity:1;transform:translateY(0) scale(1);pointer-events:auto;}
-.prefs-pop-title{
-  font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.12em;
-  text-transform:uppercase;color:var(--text3);padding:8px 10px 6px;
-}
-.prefs-pop .theme-picker{width:100%;margin:0 4px 8px;}
-.prefs-pop .theme-btn{flex:1;padding:8px 6px;font-size:11px;}
-@media (max-width:1100px){
-  .prefs-wrap{display:flex;}
-  .topbar-inline-prefs{display:none!important;}
-  .prefs-pop{width:min(248px,calc(100vw - 24px));}
-}
 
 /* ── Readability eye button + Apple-style level popover ───────────────────── */
 .eye-wrap{position:relative;display:flex;}
@@ -2079,7 +2053,7 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   .topbar-sub{display:none;}
   .topbar-sep{display:none;}
   .topbar-right{gap:4px;}
-  .prefs-btn,.eye-btn{width:36px;height:36px;}
+  .eye-btn{width:36px;height:36px;}
   .logout-btn{width:36px;height:36px;font-size:14px;}
 
   #content{padding:8px;padding-bottom:max(8px, env(safe-area-inset-bottom));}
@@ -2432,9 +2406,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 /* ── Badges: pill shape for a cleaner, app-like read ── */
 .badge{border-radius:999px;padding:2px 9px;}
 
-/* ── Pickers (theme/lang): unified segmented-control feel ── */
-.theme-picker{box-shadow:var(--hair);}
-.touch-btn,.theme-picker,.logout-btn,.sidebar-toggle{border-radius:8px;}
+/* ── Toolbar controls ── */
+.theme-trigger{box-shadow:var(--hair);}
+.touch-btn,.theme-trigger,.logout-btn,.sidebar-toggle{border-radius:8px;}
 
 /* ── Footer status rows: a touch more contrast for the LEDs ── */
 .conn-status-row,.brew-status-row{border-radius:8px;}
@@ -4242,10 +4216,26 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </button>
         </div>
       </div>
-      <div class="theme-picker topbar-inline-prefs">
-        <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)"><span data-i18n="ui_dark">Dark</span></button>
-        <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)"><span data-i18n="ui_light">Light</span></button>
-        <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)"><span data-i18n="ui_blue">Blue</span></button>
+      <div class="theme-wrap">
+        <button type="button" class="theme-trigger" id="theme-btn" onclick="toggleThemePop(event)" onkeydown="themeTriggerKeydown(event)"
+                aria-haspopup="menu" aria-controls="theme-pop" aria-expanded="false" aria-label="Theme: Light">
+          <span id="theme-current" data-i18n="ui_light">Light</span>
+          <svg class="theme-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+        </button>
+        <div class="read-pop theme-pop" id="theme-pop" role="menu" aria-label="Theme" data-i18n-aria-label="prefs_theme" onkeydown="themeMenuKeydown(event)" hidden>
+          <button type="button" class="theme-btn theme-opt" data-t="dark" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseTheme('dark')">
+            <span class="theme-opt-name" data-i18n="ui_dark">Dark</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="theme-btn theme-opt active" data-t="light" role="menuitemradio" aria-checked="true" tabindex="-1" onclick="chooseTheme('light')">
+            <span class="theme-opt-name" data-i18n="ui_light">Light</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+          <button type="button" class="theme-btn theme-opt" data-t="blue" role="menuitemradio" aria-checked="false" tabindex="-1" onclick="chooseTheme('blue')">
+            <span class="theme-opt-name" data-i18n="ui_blue">Blue</span>
+            <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </button>
+        </div>
       </div>
       <div class="language-wrap">
         <button type="button" class="language-btn" id="language-btn" onclick="toggleLanguagePop(event)" onkeydown="languageTriggerKeydown(event)"
@@ -4286,26 +4276,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <span class="language-code" aria-hidden="true">CN</span><span class="language-opt-name" lang="zh-CN">简体中文</span>
             <svg class="read-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
           </button>
-        </div>
-      </div>
-      <!-- Phone: theme choices use a compact popover; language has its own menu. -->
-      <div class="prefs-wrap">
-        <button class="prefs-btn" id="prefs-btn" onclick="togglePrefsPop(event)"
-                title="Theme" aria-haspopup="true" aria-expanded="false" aria-label="Theme" data-i18n-title="prefs_theme">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4"/>
-            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
-          </svg>
-        </button>
-        <div class="prefs-pop" id="prefs-pop" role="menu" aria-label="Theme" data-i18n-aria-label="prefs_theme">
-          <div class="prefs-pop-title" data-i18n="prefs_theme">THEME</div>
-          <div class="theme-picker">
-            <button class="theme-btn" data-t="dark" onclick="setTheme('dark',this)"><span data-i18n="ui_dark">Dark</span></button>
-            <button class="theme-btn active" data-t="light" onclick="setTheme('light',this)"><span data-i18n="ui_light">Light</span></button>
-            <button class="theme-btn" data-t="blue" onclick="setTheme('blue',this)"><span data-i18n="ui_blue">Blue</span></button>
-          </div>
-
         </div>
       </div>
       <!-- Session logout (person + arrow). Only when auth is on. -->
@@ -11323,10 +11293,62 @@ function languageMenuKeydown(e){
 
 let currentTheme=localStorage.getItem('fs_theme')||'light';
 function setTheme(theme,btn){
+  if(!['dark','light','blue'].includes(theme))theme='light';
   currentTheme=theme;localStorage.setItem('fs_theme',theme);
   document.documentElement.setAttribute('data-theme',theme==='dark'?'':theme);
-  document.querySelectorAll('.theme-btn').forEach(d=>d.classList.toggle('active',d.dataset.t===theme));
   try{syncPrefsMenuUi();}catch{}
+}
+function syncThemeMenuUi(){
+  const key='ui_'+currentTheme,label=t(key);
+  document.querySelectorAll('.theme-opt').forEach(option=>{
+    const selected=option.dataset.t===currentTheme;
+    option.classList.toggle('active',selected);
+    option.setAttribute('aria-checked',selected?'true':'false');
+  });
+  const current=document.getElementById('theme-current');
+  if(current){current.textContent=label;current.setAttribute('data-i18n',key);}
+  const btn=document.getElementById('theme-btn');
+  if(btn)btn.setAttribute('aria-label',t('prefs_theme')+': '+label);
+  const pop=document.getElementById('theme-pop');
+  if(pop)pop.setAttribute('aria-label',t('prefs_theme'));
+}
+function closeThemePop(restoreFocus=false){
+  const pop=document.getElementById('theme-pop'),btn=document.getElementById('theme-btn');
+  const wasOpen=!!pop?.classList.contains('open');
+  if(pop){pop.classList.remove('open');pop.hidden=true;}
+  if(btn){btn.setAttribute('aria-expanded','false');if(restoreFocus&&wasOpen)btn.focus();}
+}
+function toggleThemePop(e){
+  if(e)e.stopPropagation();
+  const pop=document.getElementById('theme-pop'),btn=document.getElementById('theme-btn');
+  if(!pop||!btn)return;
+  if(pop.classList.contains('open')){closeThemePop();return;}
+  closeLanguagePop();closeReadPop();closePowerPop();
+  syncThemeMenuUi();
+  pop.hidden=false;pop.classList.add('open');btn.setAttribute('aria-expanded','true');
+  pop.querySelector('.theme-opt.active')?.focus();
+}
+function chooseTheme(theme){setTheme(theme);closeThemePop(true);}
+function themeTriggerKeydown(e){
+  if(e.key!=='ArrowDown'&&e.key!=='ArrowUp')return;
+  e.preventDefault();
+  const pop=document.getElementById('theme-pop');
+  if(!pop?.classList.contains('open'))toggleThemePop(e);
+  const options=pop?.querySelectorAll('.theme-opt');
+  if(options?.length)options[e.key==='ArrowUp'?options.length-1:0].focus();
+}
+function themeMenuKeydown(e){
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeThemePop(true);return;}
+  if(e.key==='Tab'){closeThemePop(true);return;}
+  if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key))return;
+  e.preventDefault();
+  const options=Array.from(document.querySelectorAll('#theme-pop .theme-opt'));
+  if(!options.length)return;
+  let index=options.indexOf(document.activeElement);
+  if(e.key==='Home')index=0;
+  else if(e.key==='End')index=options.length-1;
+  else index=(index+(e.key==='ArrowDown'?1:-1)+options.length)%options.length;
+  options[index].focus();
 }
 
 // ── Readability (text size + contrast) ───────────────────────────────────────
@@ -11373,30 +11395,13 @@ function closePowerPop(){
   if(btn)btn.setAttribute('aria-expanded','false');
 }
 function togglePrefsPop(e){
-  if(e)e.stopPropagation();
-  closeLanguagePop();
-  closeReadPop();
-  closePowerPop();
-  const pop=document.getElementById('prefs-pop'),btn=document.getElementById('prefs-btn');
-  if(!pop)return;
-  const open=pop.classList.toggle('open');
-  if(btn)btn.setAttribute('aria-expanded',open?'true':'false');
-  if(open)syncPrefsMenuUi();
+  toggleThemePop(e);
 }
-function closePrefsPop(){
-  const pop=document.getElementById('prefs-pop'),btn=document.getElementById('prefs-btn');
-  if(pop)pop.classList.remove('open');
-  if(btn)btn.setAttribute('aria-expanded','false');
+function closePrefsPop(restoreFocus=false){
+  closeThemePop(restoreFocus);
 }
 function syncPrefsMenuUi(){
-  const btn=document.getElementById('prefs-btn');
-  if(btn){
-    const hint=t('prefs_theme');
-    btn.title=hint;
-    btn.setAttribute('aria-label',hint);
-  }
-  const pop=document.getElementById('prefs-pop');
-  if(pop)pop.setAttribute('aria-label',t('prefs_theme'));
+  syncThemeMenuUi();
 }
 function syncPowerMenuUi(){
   const lab=document.getElementById('power-opt-suspend-label');
@@ -11430,15 +11435,15 @@ document.addEventListener('click',e=>{
   if(pop&&pop.classList.contains('open')&&!e.target.closest('.eye-wrap'))closeReadPop();
   const pp=document.getElementById('power-pop');
   if(pp&&pp.classList.contains('open')&&!e.target.closest('.power-wrap'))closePowerPop();
-  const pr=document.getElementById('prefs-pop');
-  if(pr&&pr.classList.contains('open')&&!e.target.closest('.prefs-wrap'))closePrefsPop();
+  const theme=document.getElementById('theme-pop');
+  if(theme?.classList.contains('open')&&!e.target.closest('.theme-wrap'))closeThemePop();
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     closeLanguagePop(true);
     closeReadPop();
     closePowerPop();
-    closePrefsPop();
+    closePrefsPop(true);
     const cm=document.getElementById('svc-confirm-modal');
     if(cm&&cm.classList.contains('open')){
       const cancel=document.getElementById('svc-confirm-cancel');
