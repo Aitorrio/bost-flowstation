@@ -7282,6 +7282,90 @@ fn split_toml_str_assignment(line: &str) -> Option<(&str, &str)> {
     Some((key, inner))
 }
 
+#[derive(serde::Deserialize, Default)]
+struct ConfigE2eeSecrets {
+    security: Option<ConfigE2eeSecurity>,
+}
+
+#[derive(serde::Deserialize)]
+struct ConfigE2eeSecurity {
+    e2ee: Option<ConfigE2eeKeys>,
+}
+
+#[derive(serde::Deserialize)]
+struct ConfigE2eeKeys {
+    #[serde(default)]
+    teks: Vec<ConfigE2eeKey>,
+}
+
+#[derive(serde::Deserialize)]
+struct ConfigE2eeKey {
+    id: Option<u16>,
+    key: Option<toml::Spanned<String>>,
+}
+
+/// Parse TOML value spans rather than matching lines: TEKs can be inline tables, use literal or
+/// multiline strings, and put `id` after `key`. Spans let the editor retain comments and layout.
+fn config_e2ee_keys(content: &str) -> Result<Vec<ConfigE2eeKey>, toml::de::Error> {
+    let parsed: ConfigE2eeSecrets = toml::from_str(content)?;
+    Ok(parsed.security.and_then(|s| s.e2ee).map(|e| e.teks).unwrap_or_default())
+}
+
+fn replace_config_spans(content: &str, mut edits: Vec<(std::ops::Range<usize>, String)>) -> String {
+    edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start));
+    let mut out = content.to_string();
+    for (span, value) in edits {
+        out.replace_range(span, &toml::Value::String(value).to_string());
+    }
+    out
+}
+
+/// Do not expose even a prefix/suffix of an encryption key. Failed TOML parsing cannot establish
+/// where all key values end, so fail closed instead of returning possibly unredacted key material.
+fn mask_e2ee_config_keys(content: &str) -> String {
+    let Ok(keys) = config_e2ee_keys(content) else {
+        return "# Configuration cannot be displayed safely because it is not valid TOML.\n".into();
+    };
+    let edits = keys
+        .into_iter()
+        .filter_map(|tek| tek.key.map(|key| (key.span(), "\u{2022}".repeat(8))))
+        .collect();
+    replace_config_spans(content, edits)
+}
+
+/// Repeated [[security.e2ee.teks]] tables share the same section name, so restoring by
+/// `(section, key)` would overwrite every TEK with the last one. Resolve unique ids instead;
+/// missing, changed or duplicate ids retain their mask and are rejected by config validation.
+fn unmask_e2ee_config_keys(body: &str, current: &str) -> String {
+    let (Ok(posted), Ok(stored)) = (config_e2ee_keys(body), config_e2ee_keys(current)) else {
+        return body.to_string();
+    };
+    let mut stored_by_id: HashMap<u16, Option<String>> = HashMap::new();
+    for tek in stored {
+        if let (Some(id), Some(key)) = (tek.id, tek.key) {
+            stored_by_id.entry(id).and_modify(|value| *value = None).or_insert_with(|| Some(key.into_inner()));
+        }
+    }
+    let mut posted_counts = HashMap::<u16, usize>::new();
+    for tek in &posted {
+        if let Some(id) = tek.id {
+            *posted_counts.entry(id).or_default() += 1;
+        }
+    }
+    let edits = posted
+        .into_iter()
+        .filter_map(|tek| {
+            let (id, key) = (tek.id?, tek.key?);
+            if posted_counts.get(&id) != Some(&1) || !value_is_masked_secret(key.get_ref()) {
+                return None;
+            }
+            let original = stored_by_id.get(&id)?.as_ref()?;
+            Some((key.span(), original.clone()))
+        })
+        .collect();
+    replace_config_spans(body, edits)
+}
+
 /// Restore secret values that the editor posted back still masked, from the currently-stored config.
 ///
 /// `serve_config_get` masks secrets (`password`, `bot_token`, `rwth_core_authkey`, `ami_password`)
@@ -7328,7 +7412,7 @@ fn unmask_config_secrets(body: &str, current: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
-    out
+    unmask_e2ee_config_keys(&out, current)
 }
 
 /// Write `content` to `path` atomically: temp file in the SAME directory, flushed, then renamed
@@ -7468,7 +7552,7 @@ fn mask_config_secrets(content: &str) -> String {
         out.push_str(&mask_toml_secret_line(line, mask_for_key));
         out.push('\n');
     }
-    out
+    mask_e2ee_config_keys(&out)
 }
 
 /// Mask the value of a single TOML `key = "value"` line when `key` is a known secret. Leaves
@@ -9980,6 +10064,115 @@ enabled = true
             !resolved.contains('\u{2022}') && !resolved.contains('\u{2026}'),
             "mask characters must not be persisted"
         );
+    }
+
+    const E2EE_KEY_ONE: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    const E2EE_KEY_TWO: &str = "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f";
+
+    fn e2ee_config_fixture() -> String {
+        format!(
+            "{MINIMAL_CONFIG}\n[dashboard]\nusername = \"operator\"\npassword = \"station-test-password\"\n\n\
+             [security.e2ee]\nenabled = true\n\n\
+             [[security.e2ee.teks]]\n# first key precedes its id\nkey = '{E2EE_KEY_ONE}' # keep this comment\nid = 7\n\n\
+             [[security.e2ee.teks]]\nid = 8\nkey = \"{E2EE_KEY_TWO}\"\n"
+        )
+    }
+
+    fn e2ee_key_values(content: &str) -> std::collections::BTreeMap<u16, String> {
+        super::config_e2ee_keys(content)
+            .expect("valid TOML")
+            .into_iter()
+            .map(|tek| (tek.id.unwrap(), tek.key.unwrap().into_inner()))
+            .collect()
+    }
+
+    #[test]
+    fn e2ee_config_masks_entire_keys_and_preserves_two_key_round_trip() {
+        let stored = e2ee_config_fixture();
+        let served = mask_config_secrets(&stored);
+        assert!(!served.contains(E2EE_KEY_ONE) && !served.contains(E2EE_KEY_TWO));
+        assert!(!served.contains("station-test-password"));
+        assert!(e2ee_key_values(&served).values().all(|key| key == &"\u{2022}".repeat(8)));
+        assert!(served.contains("# keep this comment"), "keep operator annotations");
+
+        let posted = served.replace("# keep this comment", "# non-secret edit");
+        let restored = super::unmask_config_secrets(&posted, &stored);
+        assert_eq!(e2ee_key_values(&restored), e2ee_key_values(&stored));
+        assert!(restored.contains("# non-secret edit"));
+        assert!(restored.contains("station-test-password"), "legacy credentials still round-trip");
+    }
+
+    #[test]
+    fn e2ee_config_restores_reordered_teks_by_id() {
+        let stored = e2ee_config_fixture();
+        let served = mask_config_secrets(&stored);
+        let tables: Vec<&str> = served.split("[[security.e2ee.teks]]").collect();
+        let reordered = format!("{}[[security.e2ee.teks]]{}[[security.e2ee.teks]]{}", tables[0], tables[2], tables[1]);
+        let restored = super::unmask_config_secrets(&reordered, &stored);
+        assert_eq!(e2ee_key_values(&restored), e2ee_key_values(&stored));
+    }
+
+    #[test]
+    fn e2ee_config_masks_inline_and_multiline_toml_key_values() {
+        for stored in [
+            format!("security.e2ee.teks = [{{ key = '{E2EE_KEY_ONE}', id = 7 }}, {{ id = 8, key = \"{E2EE_KEY_TWO}\" }}]\n"),
+            format!("[[security . e2ee . teks]] # table comment\n\"key\" = '''{E2EE_KEY_ONE}''' # key comment\n\"id\" = 7\n"),
+        ] {
+            let served = mask_config_secrets(&stored);
+            assert!(!served.contains(E2EE_KEY_ONE) && !served.contains(E2EE_KEY_TWO));
+            assert_eq!(e2ee_key_values(&super::unmask_config_secrets(&served, &stored)), e2ee_key_values(&stored));
+        }
+    }
+
+    #[test]
+    fn e2ee_config_preserves_rotated_key_without_changing_other_teks() {
+        let stored = e2ee_config_fixture();
+        let rotated = "ab".repeat(32);
+        let posted = mask_config_secrets(&stored).replacen(&"\u{2022}".repeat(8), &rotated, 1);
+        let values = e2ee_key_values(&super::unmask_config_secrets(&posted, &stored));
+        assert_eq!(values[&7], rotated);
+        assert_eq!(values[&8], E2EE_KEY_TWO);
+    }
+
+    #[test]
+    fn e2ee_config_unmatched_or_duplicate_ids_do_not_copy_another_key() {
+        let stored = e2ee_config_fixture();
+        for posted in [
+            mask_config_secrets(&stored).replace("id = 7", "id = 9"),
+            mask_config_secrets(&stored).replace("id = 8", "id = 7"),
+        ] {
+            let restored = super::unmask_config_secrets(&posted, &stored);
+            assert!(restored.contains('\u{2022}'), "unmatched/ambiguous keys must stay masked and fail validation");
+            assert!(tetra_config::bluestation::parsing::from_toml_str(&restored).is_err());
+        }
+    }
+
+    #[test]
+    fn e2ee_config_masking_rejects_invalid_toml_without_leaking_key_text() {
+        let invalid = format!("[[security.e2ee.teks]]\nid = 7\nkey = \"{E2EE_KEY_ONE}");
+        let served = mask_config_secrets(&invalid);
+        assert!(!served.contains(E2EE_KEY_ONE));
+        assert!(served.contains("cannot be displayed safely"));
+    }
+
+    #[test]
+    fn e2ee_config_validated_save_keeps_distinct_keys_and_rejects_unknown_masked_id() {
+        let dir = std::env::temp_dir().join(format!("flowstation-e2ee-save-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let stored = e2ee_config_fixture();
+        std::fs::write(&path, &stored).unwrap();
+        let served = mask_config_secrets(&stored);
+        write_config_validated(path.to_str().unwrap(), &served).expect("masked save succeeds");
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(e2ee_key_values(&saved), e2ee_key_values(&stored));
+        let cfg = tetra_config::bluestation::parsing::from_toml_str(&saved).unwrap();
+        assert_eq!(cfg.security.e2ee.as_ref().unwrap().teks.len(), 2);
+
+        let invalid = served.replace("id = 7", "id = 9");
+        assert!(matches!(write_config_validated(path.to_str().unwrap(), &invalid), Err((400, _))));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), saved, "failed edit leaves stored keys untouched");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Drive `handle_ws_command` with a real command channel and report what reached CMCE.
