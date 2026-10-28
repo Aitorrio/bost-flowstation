@@ -267,7 +267,14 @@ impl CcBsSubentity {
                 map.insert(call.called_addr.ssi, (call.called_carrier_num, call.called_ts, call.called_usage));
             }
         }
-        self.config.state_write().active_call_ts = map;
+        let busy = self
+            .individual_calls
+            .values()
+            .flat_map(|call| [call.calling_addr.ssi, call.called_addr.ssi])
+            .collect();
+        let mut state = self.config.state_write();
+        state.active_call_ts = map;
+        state.registration_probe_busy_issis = busy;
     }
 
     /// Release active calls when their configured call timeout expires.

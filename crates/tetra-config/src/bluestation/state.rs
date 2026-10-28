@@ -579,6 +579,10 @@ pub struct StackState {
     /// the MCCH exactly as before.
     pub active_call_ts: std::collections::HashMap<u32, (u16, u8, u8)>,
 
+    /// Individual-call participants, including setup/ringing, that must not be polled on MCCH.
+    /// Rebuilt by CMCE every tick; active group listeners are resolved through their affiliations.
+    pub registration_probe_busy_issis: std::collections::HashSet<u32>,
+
     /// Per-MS energy-economy downlink monitoring window, republished every tick by MM from the
     /// live client registry (so it is never stale). Keyed by ISSI; value = (monitoring_frame
     /// 1..=18, monitoring_multiframe, cycle_len). Only MSs granted an actual energy-saving mode
@@ -756,6 +760,7 @@ impl Default for StackState {
             dapnet_status: DapnetRuntimeStatus::default(),
             geoalarm_status: GeoalarmRuntimeStatus::default(),
             active_call_ts: std::collections::HashMap::new(),
+            registration_probe_busy_issis: std::collections::HashSet::new(),
             ee_monitoring_windows: std::collections::HashMap::new(),
         }
     }

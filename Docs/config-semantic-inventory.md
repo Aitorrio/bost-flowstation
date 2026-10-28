@@ -65,6 +65,8 @@ Apply = combinar Cell × Brew opcional → fusionar en `config.toml` → validar
 | `cell_info.call_timeout_secs` | u32 | 120 | T310; 0=∞ | Sí |
 | `cell_info.ul_inactivity_secs` | u32 | 3 | UL silence → TX-CEASED | Sí |
 | `cell_info.periodic_registration_secs` | u32 | 3600 | T351; 0=off | Sí |
+| `cell_info.presence_check_secs` | u32 | 30 | Idle-radio challenge; 0=off, otherwise 5–3600 s | No (TOML/JSON) |
+| `cell_info.presence_response_secs` | u32 | 30 | Response grace; 10–300 s | No (TOML/JSON) |
 | `cell_info.home_mode_display.*` | bloque? | — | Callsign SDS PID 220 | Sí |
 | `cell_info.sds_broadcast.*` | bloque? | — | SDS periódico extra | Sí |
 | `cell_info.neighbor_cells_ca[]` | ≤7 | — | Vecinos CA | Sí |
