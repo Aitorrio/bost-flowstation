@@ -77,6 +77,15 @@ impl CcBsSubentity {
             CallControl::NetworkCircuitRelease { brew_uuid, cause } => {
                 self.rx_network_circuit_release(queue, brew_uuid, cause);
             }
+            CallControl::SiteHandoverIndividualCall {
+                brew_uuid,
+                issi,
+                peer_issi,
+                simplex_duplex,
+                priority,
+            } => {
+                self.fsm_on_site_handover_individual_call(queue, brew_uuid, issi, peer_issi, simplex_duplex, priority);
+            }
             // Brew/LST-bound late-entry signals — never ingress to CMCE.
             CallControl::NetworkCallHold { .. }
             | CallControl::GroupListenersAvailable { .. }

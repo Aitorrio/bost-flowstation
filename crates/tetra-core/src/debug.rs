@@ -1,4 +1,4 @@
-use chrono::Local;
+use chrono::Utc;
 use core::fmt;
 use std::fmt::Write as FmtWrite;
 use std::fs::OpenOptions;
@@ -145,8 +145,9 @@ where
             file_path.to_string()
         };
 
-        // Local time timestamp (HH:MM:SS.mmm)
-        let now = Local::now().format("%H:%M:%S%.3f").to_string();
+        // UTC timestamp (HH:MM:SS.ffffff). UTC + microseconds so lines from every cell and the
+        // brew-server share one zone and precision — cross-node correlation needs no tz maths.
+        let now = Utc::now().format("%H:%M:%S%.6f").to_string();
 
         // Format: "HH:MM:SS.mmm LEVEL ts [module] file:line: message"
         let location = format!(
@@ -164,7 +165,7 @@ where
         event.record(&mut FieldsVisitor { writer: &mut message_buf });
 
         // Check if the message starts with "->" or "<-" to reduce indentation
-        let mut padding = 83; // Default alignment (70 + 13 for timestamp)
+        let mut padding = 86; // Default alignment (70 + 16 for the UTC µs timestamp)
         if message_buf.starts_with("->") || message_buf.starts_with("<-") {
             padding -= 3; // Reduce by 3 characters
         }
