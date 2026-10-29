@@ -10,6 +10,7 @@
 //! monitoring health can never block the TETRA core. FlowStation-original work (not derived from
 //! any noncommercially-licensed source).
 
+pub mod clock_sync;
 pub mod registry;
 pub mod supervisor;
 pub mod types;

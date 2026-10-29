@@ -15,6 +15,7 @@ use crate::net_telemetry::TelemetryEvent;
 use crate::net_telemetry::channel::TelemetrySink;
 use crate::service_control::{self, ServiceAction};
 
+use super::clock_sync;
 use super::registry::{HealthThresholds, registry};
 
 /// Panic-storm escalation: catching panics at the router boundary keeps the cell alive, but each
@@ -123,12 +124,17 @@ pub fn spawn_health_monitor(sink: TelemetrySink, cfg: HealthMonitorConfig) {
             let mut stall_since: Option<Instant> = None;
             let mut panic_window_start = Instant::now();
             let mut panic_window_base = registry().caught_panics();
+            let mut clock_warn = clock_sync::WarnState::default();
             loop {
                 thread::sleep(interval);
 
                 let snapshot = registry().snapshot(&cfg.thresholds);
                 registry().set_overall(snapshot.overall);
                 sink.send(TelemetryEvent::HealthSnapshot(snapshot));
+
+                // Are this host's timestamps trustworthy? Warn if the clock is not NTP-disciplined,
+                // so cross-cell / brew-server log correlation is known-good (or known-suspect).
+                clock_sync::check_and_log(&mut clock_warn);
 
                 if !cfg.restart_on_core_stall {
                     continue;
