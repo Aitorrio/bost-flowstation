@@ -277,6 +277,8 @@ fn spawn_stdin_reader(clients: ClientRegistry) {
 
 fn main() {
     tracing_subscriber::fmt()
+        // UTC timestamps so this binary's logs line up with the station and brew-server.
+        .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
