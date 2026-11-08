@@ -1509,6 +1509,68 @@ fn test_network_group_call_released_when_backhaul_media_dies() {
     );
 }
 
+/// Long Brew QSO with `call_timeout_secs = 0` (unlimited): the call stays live because media keeps
+/// flowing, so nothing may tear it down — in particular not the CircuitMgr's 6-minute safety
+/// expiry. That expiry used to force-close the circuit (D-RELEASE) six minutes after it opened,
+/// mid-over and without telling Brew; the rest of the over was dropped as "DL voice on inactive
+/// circuit". Run past seven minutes with media flowing and assert the call and its timeslot survive.
+#[test]
+fn test_long_network_group_call_survives_circuit_safety_expiry() {
+    let gssi = 91;
+    let local_issi = 2635392;
+    let source_issi = 5301330;
+    let brew_uuid = uuid::Uuid::new_v4();
+
+    let mut config = default_test_config_bs();
+    config.cell.call_timeout_secs = 0; // unlimited
+    config.brew = Some(test_brew_cfg());
+
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+    register_subscriber(&mut test, local_issi, gssi);
+
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid,
+            source_issi,
+            dest_gssi: gssi,
+            priority: 1,
+        }),
+    });
+    test.run_stack(Some(5));
+    test.dump_sinks();
+
+    // 7 minutes = 30240 timeslots; media every 600 ts keeps the media-inactivity guard (720 ts) quiet.
+    for _ in 0..51 {
+        test.submit_message(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Brew,
+            dest: TetraEntity::Cmce,
+            msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallMediaActivity { brew_uuid }),
+        });
+        test.run_stack(Some(600));
+        let msgs = test.dump_sinks();
+        assert!(
+            !msgs
+                .iter()
+                .any(|msg| matches!(&msg.msg, SapMsgInner::CmceCallControl(CallControl::CallEnded { .. }))),
+            "a live network group call must not be released while media flows (call_timeout_secs = 0)"
+        );
+    }
+
+    let shared = test.get_shared_config();
+    assert!(
+        shared.state_read().active_call_ts.contains_key(&gssi),
+        "the live call must keep its traffic timeslot past the 6-minute circuit safety expiry"
+    );
+}
+
 #[test]
 fn test_simplex_individual_tx_ceased_without_queued_demand_releases_floor() {
     debug::setup_logging_verbose();
