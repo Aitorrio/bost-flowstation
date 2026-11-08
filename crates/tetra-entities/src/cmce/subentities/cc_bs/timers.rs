@@ -43,7 +43,14 @@ impl CcBsSubentity {
         // still receive the call. No-op for all-StayAlive groups.
         self.drive_group_ee_announce(queue);
 
-        if let Some(tasks) = self.circuits.tick_start(dltime) {
+        // Circuits of group calls that are still live are exempt from the CircuitMgr's 6-minute
+        // safety expiry: those calls have their own lifecycle timers (hangtime, call timeout,
+        // UL / network-media inactivity). Expiring them cut long Brew QSOs off mid-over.
+        let live_group_calls = &self.active_calls;
+        if let Some(tasks) = self
+            .circuits
+            .tick_start_with_live(dltime, &|call_id| live_group_calls.contains_key(&call_id))
+        {
             for task in tasks {
                 match task {
                     CircuitMgrCmd::SendDSetup(call_id, usage, carrier_num, ts) => {
