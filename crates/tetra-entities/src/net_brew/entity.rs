@@ -354,9 +354,11 @@ impl BrewEntity {
     }
 
     /// Tell the server which cell `issi` registered on: in a multi-cell site the one the site
-    /// directory has it on, otherwise the primary. The worker only sends it where offered.
+    /// directory has it on, otherwise this stack's own cell (the primary, or an additional cell
+    /// that serves its own network). The worker only sends it where offered.
     fn report_ms_cell(&self, issi: u32) {
-        let cell = ms_cell(self.site_directory.as_ref(), issi);
+        let own = self.config.config().cell_id;
+        let cell = ms_cell(self.site_directory.as_ref(), issi, own);
         let _ = self.command_sender.send(BrewCommand::ReportMsCell { issi, cell });
     }
 
@@ -2954,11 +2956,11 @@ impl Drop for BrewEntity {
 }
 
 /// The cell of this station `issi` is on: where the site directory has it in a multi-cell
-/// station, otherwise (or not known there) the primary.
-fn ms_cell(directory: Option<&SharedDirectory>, issi: u32) -> CellId {
+/// station, otherwise (or not known there) `own`, the cell this Brew entity runs on.
+fn ms_cell(directory: Option<&SharedDirectory>, issi: u32, own: CellId) -> CellId {
     directory
         .and_then(|d| d.read().expect("site directory").location(issi))
-        .unwrap_or(CellId::PRIMARY)
+        .unwrap_or(own)
 }
 
 #[cfg(test)]
@@ -2970,7 +2972,15 @@ mod ms_cell_tests {
 
     #[test]
     fn single_cell_stations_report_the_primary() {
-        assert_eq!(ms_cell(None, 2320001), CellId::PRIMARY);
+        assert_eq!(ms_cell(None, 2320001, CellId::PRIMARY), CellId::PRIMARY);
+    }
+
+    /// An additional cell serving its own network has its own Brew entity and no site
+    /// directory: its radios are on that cell, not on the primary (which its connection does
+    /// not even know, so nothing would be sent).
+    #[test]
+    fn a_cell_of_its_own_network_reports_itself() {
+        assert_eq!(ms_cell(None, 2320972, CellId(1)), CellId(1));
     }
 
     #[test]
@@ -2982,9 +2992,9 @@ mod ms_cell_tests {
             action: BrewSubscriberAction::Register,
         };
         directory.write().unwrap().apply(CellId(3), &register);
-        assert_eq!(ms_cell(Some(&directory), 2320001), CellId(3));
-        assert_eq!(ms_cell(Some(&directory), 2320002), CellId::PRIMARY, "unknown radio");
+        assert_eq!(ms_cell(Some(&directory), 2320001, CellId::PRIMARY), CellId(3));
+        assert_eq!(ms_cell(Some(&directory), 2320002, CellId::PRIMARY), CellId::PRIMARY, "unknown radio");
         directory.write().unwrap().apply(CellId(1), &register);
-        assert_eq!(ms_cell(Some(&directory), 2320001), CellId(1), "moved within the station");
+        assert_eq!(ms_cell(Some(&directory), 2320001, CellId::PRIMARY), CellId(1), "moved within the station");
     }
 }
