@@ -369,8 +369,11 @@ fn broadcast_values(config: &StackConfig, cell: &tetra_config::bluestation::CfgC
 /// requests (`handover-v1` offered). A linked multi-cell station too: its site switch hands each
 /// request to the cell of the target carrier and each answer back to the asking cell (between its
 /// own cells it never asks the server).
-fn handles_handover(_config: &StackConfig, server_extensions: &[String]) -> bool {
-    server_extensions.iter().any(|e| e == BREW_EXT_HANDOVER)
+/// Not with security class 3: the DCK stays in the station that authenticated the radio, so this
+/// build neither prepares a target nor restores calls for it; a radio that comes along registers
+/// and authenticates afresh.
+fn handles_handover(config: &StackConfig, server_extensions: &[String]) -> bool {
+    !config.security_class3() && server_extensions.iter().any(|e| e == BREW_EXT_HANDOVER)
 }
 
 /// This station restores individual calls of radios that come from another station: it takes
@@ -2413,6 +2416,20 @@ password = "x"
         assert!(multi.config().is_site_linked());
         let multi = bts_info_message(&multi.config(), &offered).unwrap();
         assert_eq!(json_of(&multi)["capabilities"], serde_json::json!(["handover-v1"]), "a multi-cell station is a target too");
+    }
+
+    /// SC3 and roaming between stations are either/or: an SC3 station keeps each DCK to itself, so
+    /// it offers neither handover nor its follow-ups (ms-moved, call-restore) to the server.
+    #[test]
+    fn bts_info_offers_no_handover_with_security_class_3() {
+        const SC3: &str = "\n[security]\nauthentication = \"required\"\n[[security.subscribers]]\nissi = 100\nk = \"11111111111111111111111111111111\"\n[security.aie]\nclass = 3\nksg = 2\ncck = \"22222222222222222222\"\ncck_id = 42\n";
+        let mut offered: Vec<String> = HANDOVER.iter().map(|e| e.to_string()).collect();
+        offered.extend([BREW_EXT_MS_MOVED.to_string(), BREW_EXT_CALL_RESTORE.to_string()]);
+        let sc3 = config(SC3);
+        assert!(sc3.config().security_class3());
+        let msg = bts_info_message(&sc3.config(), &offered).unwrap();
+        assert_eq!(json_of(&msg)["capabilities"], serde_json::json!([]));
+        assert!(!restores_calls(&sc3.config(), &offered));
     }
 
     #[test]

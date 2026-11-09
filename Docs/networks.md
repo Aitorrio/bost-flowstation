@@ -83,8 +83,11 @@ network, called `default`, and cells are linked only when Brew or LST is configu
   `tetrapack 901/9999 (core up|core down)`. The same appears in `/api/cells` and in the
   `CellsSnapshot` telemetry event as `network` and `link_up` on every cell, so brew-server and
   other consumers can tell the networks apart.
-- The Setup page's Brew **profiles** apply to a root `[brew]` and are refused on a station with
-  `[networks]`; edit the network's `brew` table in the configuration instead.
+- The Brew **profiles** (Home and Config pages, "Core Net (Brew)") apply to a root `[brew]`. With
+  several networks the select is greyed out as "Multi Network active": the core links are edited
+  per network (Infrastructure page or the network's `brew` table), and Apply / Save change only
+  the cell settings. A `[networks]` that holds only the primary network goes back to `[net_info]`
+  + `[brew]` on the next dashboard save.
 
 ## Reached through another network's Brew server (`via`)
 
@@ -125,8 +128,12 @@ and a network has either `brew` or `via`. `[multi_network]` is not needed for th
 of other networks registering on this network's cells by migration, and turns migration on for
 the cells while enabled). Networks and the network of
 each cell can also be set on the dashboard page **Infrastructure** ("Networks" card and the
-"Network" column of the location areas card); the first network added there turns `[net_info]`
-and `[brew]` into the network `home`. With Multi Network on and a brew-server that offers `mni`, the
+"Network" column of the location areas card); networks are added there only with the Multi
+Network switch on, and the first one turns `[net_info]` and `[brew]` into the network `home`.
+Switching Multi Network off on that card takes `[networks]` out again (after a confirmation, with
+a backup): the primary network goes back to `[net_info]` + `[brew]`, the other networks and the
+cells' network bindings are deleted. A hand-written `[networks]` keeps working without the switch
+as long as it is not turned off on the dashboard. With Multi Network on and a brew-server that offers `mni`, the
 card also lists the networks the server reports (its own and the ones it links to) with "Add
 network", and warns when a network reached `via` the server has an MCC/MNC the server does not
 reach ("Routing with this MCC/MNC not possible").

@@ -86,11 +86,65 @@ fn extra_cell_entry_mut(table: &mut Table, id: u8) -> Option<&mut Table> {
 /// Name of the network the classic `[net_info]` + `[brew]` becomes when `[networks]` is created.
 const CONVERTED_HOME: &str = "home";
 
+/// Turn `[networks]` back into the classic `[net_info]` + `[brew]`: the primary network's MCC /
+/// MNC and Brew link move to the root, every other network and every cell's `network` binding
+/// go. Used when Multi Network is switched off.
+pub(crate) fn collapse_networks(table: &mut Table) {
+    let Some(TomlValue::Table(mut networks)) = table.remove("networks") else {
+        return;
+    };
+    let primary = match table.remove("network") {
+        Some(TomlValue::String(s)) => s,
+        _ => String::new(),
+    };
+    if let Some(TomlValue::Table(mut home)) = networks.remove(&primary) {
+        for key in ["mcc", "mnc"] {
+            if let Some(v) = home.remove(key)
+                && let Ok(net_info) = table_mut(table, "net_info")
+            {
+                net_info.insert(key.into(), v);
+            }
+        }
+        if let Some(brew) = home.remove("brew") {
+            table.insert("brew".into(), brew);
+        }
+    }
+    if let Some(cells) = table.get_mut("cells").and_then(|v| v.as_array_mut()) {
+        for c in cells.iter_mut().filter_map(|c| c.as_table_mut()) {
+            c.remove("network");
+        }
+    }
+}
+
+/// A `[networks]` that holds only the primary network (no `via`) says nothing the classic form
+/// cannot, so it goes back to `[net_info]` + `[brew]` (left over when the last added network
+/// was removed). Returns whether it did.
+pub(crate) fn collapse_single_network(table: &mut Table) -> bool {
+    let primary = table.get("network").and_then(|v| v.as_str()).unwrap_or_default();
+    let single = table.get("networks").and_then(|v| v.as_table()).is_some_and(|n| {
+        n.len() == 1 && n.get(primary).and_then(|e| e.as_table()).is_some_and(|e| !e.contains_key("via"))
+    });
+    if single {
+        collapse_networks(table);
+    }
+    single
+}
+
+/// Whether the core links live in `[networks]` (Multi Network): the root `[brew]` / Brew
+/// profiles then do not apply.
+pub(crate) fn core_links_in_networks(table: &Table) -> bool {
+    table.contains_key("networks")
+}
+
 /// Apply the `networks` list of a POST /api/roaming body (see [`apply_roaming`]).
 fn apply_networks(table: &mut Table, list: &JsonValue) -> Result<(), String> {
     let list = list.as_array().ok_or_else(|| "networks must be a list".to_string())?;
-    if list.is_empty() {
+    if list.is_empty() || (!table.contains_key("networks") && list.iter().all(|n| n.get("remove").and_then(|v| v.as_bool()).unwrap_or(false))) {
         return Ok(());
+    }
+    let mn_on = table.get("multi_network").and_then(|v| v.get("enabled")).and_then(|v| v.as_bool()).unwrap_or(false);
+    if !mn_on && list.iter().any(|n| !n.get("remove").and_then(|v| v.as_bool()).unwrap_or(false)) {
+        return Err("switch Multi Network on before adding or changing networks".into());
     }
     if !table.contains_key("networks") {
         // Classic config: the one network becomes `home`, its Brew link with it. The primary
@@ -412,8 +466,10 @@ fn server_check(
 /// adds, changes or removes networks (`[networks.<name>]`; `brew` = the network's own Brew server:
 /// host, port, tls, username, password, an empty password keeps the saved one), and a cell's `"network": s` binds it (cell 0: the root `network` key). The first
 /// network added to a classic config turns it into `[networks]`: `[net_info]` and `[brew]` become
-/// the network `home`. `"multi_network_enabled": bool` sets `[multi_network] enabled` (the switch
-/// on the Networks card), leaving the rest of the section as it is.
+/// the network `home`; networks can only be added or changed with Multi Network on, and a
+/// `[networks]` left with only the primary network goes back to the classic form.
+/// `"multi_network_enabled": bool` sets `[multi_network] enabled` (the switch on the Networks
+/// card); off also removes `[networks]` (see [`collapse_networks`]), the visitor ranges stay.
 /// Every key is optional; for a cell, `location_area: null` (extra cells only) inherits the
 /// primary's and `neighbours: null` (extra cells only) drops the cell's own list.
 pub fn apply_roaming(original: &str, body: &JsonValue) -> Result<String, String> {
@@ -460,8 +516,12 @@ pub fn apply_roaming(original: &str, body: &JsonValue) -> Result<String, String>
 
     if let Some(v) = obj.get("multi_network_enabled") {
         let on = v.as_bool().ok_or_else(|| "multi_network_enabled must be true/false".to_string())?;
-        // Only the switch: networks and ranges in the section stay as they are.
+        // The switch; the visitor ranges in the section stay as they are. Off also takes the
+        // networks out: the primary one goes back to [net_info] + [brew].
         table_mut(&mut table, "multi_network")?.insert("enabled".into(), TomlValue::Boolean(on));
+        if !on {
+            collapse_networks(&mut table);
+        }
     }
 
     if let Some(list) = obj.get("networks") {
@@ -517,6 +577,7 @@ pub fn apply_roaming(original: &str, body: &JsonValue) -> Result<String, String>
         }
     }
 
+    collapse_single_network(&mut table);
     let text = toml::to_string_pretty(&table).map_err(|e| e.to_string())?;
     let mut cfg = parsing::from_toml_str(&text).map_err(|e| format!("resulting config does not parse: {e}"))?;
     cfg.validate().map_err(|e| format!("resulting config is invalid: {e}"))?;
@@ -566,6 +627,11 @@ id = 1
 [cells.cell_info]
 main_carrier = 1525
 "#;
+
+    /// BASE with Multi Network switched on (networks can only be added then).
+    fn mn_base() -> String {
+        format!("{BASE}\n[multi_network]\nenabled = true\n")
+    }
 
     fn write(text: &str) -> tempfile_path::Path {
         tempfile_path::Path::new(text)
@@ -743,7 +809,7 @@ main_carrier = 1525
             "networks": [{"name": "tp", "mcc": 901, "mnc": 1638, "via": "home"}],
             "cells": [{"id": 0, "network": "default"}, {"id": 1, "network": "tp"}],
         });
-        let mut text = apply_roaming(BASE, &body).unwrap();
+        let mut text = apply_roaming(&mn_base(), &body).unwrap();
         // Two more networks via home, each with a cell (every network needs one).
         for (id, net, mnc, carrier) in [(2, "lab", 1234, 1545), (3, "x", 77, 1549)] {
             text.push_str(&format!("\n[networks.{net}]\nmcc = 901\nmnc = {mnc}\nvia = \"home\"\n"));
@@ -783,7 +849,7 @@ main_carrier = 1525
             "networks": [{"name": "tp", "mcc": 901, "mnc": 1638, "via": "home"}],
             "cells": [{"id": 0, "network": "default"}, {"id": 1, "network": "tp"}],
         });
-        let text = apply_roaming(BASE, &body).unwrap();
+        let text = apply_roaming(&mn_base(), &body).unwrap();
         let cfg = parsing::from_toml_str(&text).unwrap();
         assert!(cfg.networks_explicit && !text.contains("\n[brew]"), "{text}");
         assert_eq!(cfg.network, "home");
@@ -801,9 +867,11 @@ main_carrier = 1525
         assert_eq!(v["networks"].as_array().unwrap().iter().find(|n| n["name"] == "home").unwrap()["mode"], "core");
 
         // Back: the cell to home, the network removed.
+        // Only home is left, so [networks] goes back to [net_info] + [brew].
         let text = apply_roaming(&text, &json!({"networks": [{"name": "tp", "remove": true}], "cells": [{"id": 1, "network": "home"}]})).unwrap();
         let cfg = parsing::from_toml_str(&text).unwrap();
-        assert!(cfg.network("tp").is_none() && cfg.network_of_cell(CellId(1)).name == "home");
+        assert!(!cfg.networks_explicit && !text.contains("[networks") && !text.contains("network ="), "{text}");
+        assert_eq!(cfg.brew.as_ref().unwrap().host, "brew.example", "the link is back in [brew]");
 
         for bad in [
             json!({"networks": [{"name": "bad name", "mcc": 1, "mnc": 1}]}),
@@ -812,7 +880,7 @@ main_carrier = 1525
             json!({"networks": [{"name": "tp", "mcc": 901, "mnc": 1638, "via": "nowhere"}]}),
             json!({"networks": [{"name": "tp", "mcc": 901, "mnc": 9999}], "cells": [{"id": 1, "network": "tp"}]}),
         ] {
-            assert!(apply_roaming(BASE, &bad).is_err(), "{bad}");
+            assert!(apply_roaming(&mn_base(), &bad).is_err(), "{bad}");
         }
     }
 
@@ -825,7 +893,7 @@ main_carrier = 1525
             "networks": [{"name": "lab", "mcc": 901, "mnc": 1234, "via": null, "brew": brew}],
             "cells": [{"id": 0, "network": "default"}, {"id": 1, "network": "lab"}],
         });
-        let text = apply_roaming(BASE, &body).unwrap();
+        let text = apply_roaming(&mn_base(), &body).unwrap();
         let cfg = parsing::from_toml_str(&text).unwrap();
         let lab = cfg.network("lab").unwrap();
         let b = lab.brew.as_ref().expect("own brew link");
@@ -848,8 +916,32 @@ main_carrier = 1525
             json!({"networks": [{"name": "lab", "mcc": 901, "mnc": 1234, "brew": {"host": "h", "username": 1, "password": ""}}]}),
             json!({"networks": [{"name": "lab", "mcc": 901, "mnc": 1234, "brew": {"host": "h", "password": "x"}}]}),
         ] {
-            assert!(apply_roaming(BASE, &bad).is_err(), "{bad}");
+            assert!(apply_roaming(&mn_base(), &bad).is_err(), "{bad}");
         }
+    }
+
+    /// Multi Network off: networks cannot be added, and switching it off takes `[networks]`
+    /// out again (the primary network's MCC / MNC and Brew link go back to the root).
+    #[test]
+    fn multi_network_off_removes_the_networks() {
+        let add = json!({
+            "networks": [{"name": "tp", "mcc": 901, "mnc": 1638, "via": "home"}],
+            "cells": [{"id": 0, "network": "default"}, {"id": 1, "network": "tp"}],
+        });
+        let err = apply_roaming(BASE, &add).unwrap_err();
+        assert!(err.contains("Multi Network on"), "{err}");
+
+        let mut add = add;
+        add["networks"].as_array_mut().unwrap().push(json!({"name": "home", "mnc": 4242}));
+        let text = apply_roaming(&mn_base(), &add).unwrap();
+        assert!(parsing::from_toml_str(&text).unwrap().networks_explicit);
+        let off = apply_roaming(&text, &json!({"multi_network_enabled": false})).unwrap();
+        let cfg = parsing::from_toml_str(&off).unwrap();
+        assert!(!cfg.multi_network.enabled && !cfg.networks_explicit, "{off}");
+        assert!(!off.contains("[networks") && !off.contains("network ="), "{off}");
+        assert_eq!((cfg.net.mcc, cfg.net.mnc), (901, 4242), "home's MNC back in [net_info]");
+        assert_eq!(cfg.brew.as_ref().unwrap().host, "brew.example");
+        assert_eq!(cfg.networks.len(), 1);
     }
 
     #[test]

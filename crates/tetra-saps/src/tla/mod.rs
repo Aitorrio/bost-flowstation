@@ -127,6 +127,8 @@ pub struct TlaTlDataReqBl {
 // user.
 #[derive(Debug, Clone)]
 pub struct TlaTlDataIndBl {
+    /// Transmission receipt of the LLC ACK for this received SDU, if acknowledged.
+    pub rx_ack: Option<tetra_core::tx_receipt::RxAck>,
     // pub address_type: Todo,
     pub main_address: TetraAddress,
     pub link_id: LinkId,

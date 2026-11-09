@@ -2828,7 +2828,7 @@ fn cell_security_json(sec: &tetra_config::bluestation::sec_security::CfgSecurity
     };
     match &sec.aie {
         Some(a) if a.enabled => serde_json::json!({
-            "class": 2, "ksg": format!("TEA{}", a.ksg), "sckn": a.sckn, "sck_vn": a.sck_vn,
+            "class": a.security_class(), "cck_id": a.class3.as_ref().map(|c| c.cck_id), "ksg": format!("TEA{}", a.ksg), "sckn": a.sckn, "sck_vn": a.sck_vn,
             "weak": a.ksg == 1, "clear_groups": a.clear_groups,
             "authentication": authentication, "mutual": sec.mutual_authentication,
             "subscribers": sec.subscribers.len(),
@@ -2849,7 +2849,7 @@ fn serve_security_get(stream: PrefixedConn, shared_config: &Option<tetra_config:
         Some(cfg) => cfg.config().security.clone(),
         None => tetra_config::bluestation::sec_security::CfgSecurity::default(),
     };
-    http_json_response(stream, 200, &security::page_json(&running, security::load_saved(config_path)));
+    http_json_response(stream, 200, &security::page_json(&running, security::load_saved(config_path), security::runtime_json(shared_config)));
 }
 
 /// POST /api/security — validate and write the settings; they apply on the next restart.
@@ -2869,6 +2869,10 @@ fn serve_security_post(stream: PrefixedConn, shared_config: &Option<tetra_config
             return;
         }
     };
+    if let Err(e) = security::validate_startup_guard(&edit, shared_config) {
+        http_response(stream, 400, e);
+        return;
+    }
     if let Err(e) = security::write_to_toml(config_path, &edit) {
         http_response(stream, 500, &format!("Could not write config: {e}"));
         return;
@@ -2877,26 +2881,29 @@ fn serve_security_post(stream: PrefixedConn, shared_config: &Option<tetra_config
         "Dashboard: security settings saved (authentication {:?}, {} subscriber key(s), encryption {}) — restart to apply",
         edit.authentication,
         edit.subscribers.len(),
-        edit.aie.as_ref().map(|a| format!("TEA{} SCK {} v{}", a.ksg, a.sckn, a.sck_vn)).unwrap_or_else(|| "off".into())
+        edit.aie.as_ref().map(|a| match &a.class3 {
+            Some(c) => format!("SC3 TEA{} DCK/CCK ID {}", a.ksg, c.id),
+            None => format!("SC{} TEA{} SCK {} v{}", if a.enabled { 2 } else { 1 }, a.ksg, a.sckn, a.sck_vn),
+        }).unwrap_or_else(|| "off".into())
     );
     let running = match shared_config {
         Some(cfg) => cfg.config().security.clone(),
         None => tetra_config::bluestation::sec_security::CfgSecurity::default(),
     };
-    http_json_response(stream, 200, &security::page_json(&running, security::load_saved(config_path)));
+    http_json_response(stream, 200, &security::page_json(&running, security::load_saved(config_path), security::runtime_json(shared_config)));
 }
 
-/// POST /api/security/generate {"what":"sck"|"k"} — a fresh random key for the form.
+/// POST /api/security/generate {"what":"sck"|"cck"|"k"} — a fresh random key for the form.
 fn serve_security_generate(stream: PrefixedConn, body: &str) {
     let what = serde_json::from_str::<serde_json::Value>(body.trim())
         .ok()
         .and_then(|v| v.get("what").and_then(|w| w.as_str()).map(|s| s.to_string()))
         .unwrap_or_default();
     let n = match what.as_str() {
-        "sck" => 10,
+        "sck" | "cck" => 10,
         "k" => 16,
         _ => {
-            http_response(stream, 400, "what must be sck or k");
+            http_response(stream, 400, "what must be sck, cck or k");
             return;
         }
     };
@@ -3998,7 +4005,15 @@ fn handle_connection(
         drain_http_headers(&mut s);
         let _ = crate::net_dashboard::profiles::ensure_seeded(&config_path);
         let active = crate::net_dashboard::profiles::read_active(&config_path);
-        http_json_response(s, 200, &serde_json::to_string(&active).unwrap_or_else(|_| "{}".into()));
+        let mut v = serde_json::to_value(&active).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = v.as_object_mut() {
+            // Multi Network: the core links live in [networks], the Brew profile select is off.
+            obj.insert(
+                "networks_managed".into(),
+                serde_json::Value::Bool(crate::net_dashboard::profiles::networks_managed_at(&config_path)),
+            );
+        }
+        http_json_response(s, 200, &v.to_string());
     } else if req_line.contains("POST /api/profiles/apply") {
         let (inner, body_str) = read_post_body(stream);
         match serde_json::from_str::<serde_json::Value>(&body_str) {
@@ -4407,6 +4422,10 @@ fn handle_connection(
         tracing::info!("Dashboard: restart requested from the Security page");
         crate::service_control::schedule_service_action(crate::service_control::ServiceAction::Restart, std::time::Duration::from_secs(2));
         http_json_response(inner, 200, "{\"ok\":true}");
+    } else if req_line.contains("GET /api/security/runtime") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        http_json_response(s, 200, &crate::net_dashboard::security::runtime_json(&shared_config).to_string());
     } else if req_line.contains("GET /api/security") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -5089,6 +5108,17 @@ fn handle_ws_command(
     };
 
     match cmd_type {
+        Some("otar_cck") => {
+            let Some(issi) = json_ssi(&v, "issi") else {
+                reject_ws_ssi(state, "otar_cck", "issi", v.get("issi"));
+                return;
+            };
+            let queued = send_cmd(ControlCommand::OtarCck { issi });
+            let mut s = state.write().unwrap();
+            s.push_log(if queued { "INFO" } else { "WARN" },
+                format!("CCK OTAR request for ISSI {}: {}; radio acceptance is shown in Security", issi,
+                    if queued { "queued for SC3 state validation" } else { "no control dispatcher" }));
+        }
         Some("otar_sck") => {
             let Some(issi) = json_ssi(&v, "issi") else {
                 reject_ws_ssi(state, "otar_sck", "issi", v.get("issi"));
@@ -7384,6 +7414,34 @@ struct ConfigE2eeSecrets {
 #[derive(serde::Deserialize)]
 struct ConfigE2eeSecurity {
     e2ee: Option<ConfigE2eeKeys>,
+    aie: Option<ConfigCckSecret>,
+}
+
+#[derive(serde::Deserialize)]
+struct ConfigCckSecret {
+    cck: Option<toml::Spanned<String>>,
+}
+
+fn config_cck_key(content: &str) -> Result<Option<toml::Spanned<String>>, toml::de::Error> {
+    let parsed: ConfigE2eeSecrets = toml::from_str(content)?;
+    Ok(parsed.security.and_then(|s| s.aie).and_then(|a| a.cck))
+}
+
+fn mask_cck_config_key(content: &str) -> String {
+    match config_cck_key(content) {
+        Ok(Some(key)) => replace_config_spans(content, vec![(key.span(), "\u{2022}".repeat(8))]),
+        Ok(None) => content.to_string(),
+        Err(_) => "# Configuration cannot be displayed safely because it is not valid TOML.\n".into(),
+    }
+}
+
+fn unmask_cck_config_key(body: &str, current: &str) -> String {
+    match (config_cck_key(body), config_cck_key(current)) {
+        (Ok(Some(posted)), Ok(Some(stored))) if value_is_masked_secret(posted.get_ref()) => {
+            replace_config_spans(body, vec![(posted.span(), stored.into_inner())])
+        },
+        _ => body.to_string(),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -7506,7 +7564,7 @@ fn unmask_config_secrets(body: &str, current: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
-    unmask_e2ee_config_keys(&out, current)
+    unmask_cck_config_key(&unmask_e2ee_config_keys(&out, current), current)
 }
 
 /// Write `content` to `path` atomically: temp file in the SAME directory, flushed, then renamed
@@ -7646,7 +7704,7 @@ fn mask_config_secrets(content: &str) -> String {
         out.push_str(&mask_toml_secret_line(line, mask_for_key));
         out.push('\n');
     }
-    mask_e2ee_config_keys(&out)
+    mask_cck_config_key(&mask_e2ee_config_keys(&out))
 }
 
 /// Mask the value of a single TOML `key = "value"` line when `key` is a known secret. Leaves
@@ -9947,6 +10005,24 @@ location_area = 1
         let _ = std::fs::remove_file(format!("{path_str}.bak"));
     }
 
+    #[test]
+    fn sc3_cck_config_masks_and_restores_all_toml_string_forms() {
+        use super::{config_cck_key, unmask_config_secrets};
+        let key = "0123456789abcdef0123";
+        for raw in [
+            format!("[security.aie]\ncck = \"{key}\"\n"),
+            format!("[security.aie]\n'cck' = '{key}'\n"),
+            format!("[security]\naie = {{cck = \"{key}\"}}\n"),
+            format!("[security.aie]\ncck = \"\"\"{key}\"\"\"\n"),
+        ] {
+            let masked = mask_config_secrets(&raw);
+            assert!(!masked.contains(key));
+            assert_eq!(config_cck_key(&masked).unwrap().unwrap().get_ref(), "••••••••");
+            let restored = unmask_config_secrets(&masked, &raw);
+            assert_eq!(config_cck_key(&restored).unwrap().unwrap().get_ref(), key);
+        }
+    }
+
     /// Raw config reads must mask plaintext secrets line-by-line, leaving structure/comments intact.
     #[test]
     fn config_get_masks_secrets() {
@@ -10349,6 +10425,17 @@ enabled = true
         match sent.as_slice() {
             [ControlCommand::SendSds { dest_ssi, .. }] => assert_eq!(*dest_ssi, MAX_TETRA_SSI),
             other => panic!("expected one SendSds for a valid SSI, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn r4_ws_cck_routes_to_mm_and_rejects_invalid_identity() {
+        let (cmce,mm)=run_ws_command_routed(r#"{"type":"otar_cck","issi":200}"#);
+        assert!(cmce.is_empty());
+        assert!(matches!(mm.as_slice(),[ControlCommand::OtarCck{issi:200}]));
+        for issi in [0u64,16777216,4294967297] {
+            let (c,m)=run_ws_command_routed(&format!(r#"{{"type":"otar_cck","issi":{issi}}}"#));
+            assert!(c.is_empty()&&m.is_empty());
         }
     }
 

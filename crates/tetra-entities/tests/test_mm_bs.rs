@@ -55,6 +55,8 @@ fn submit_location_update(test: &mut ComponentTest, issi: u32, handle: u32, lu_t
     demand.to_bitbuf(&mut sdu).expect("serialize U-LOCATION-UPDATE-DEMAND");
     sdu.seek(0);
     let prim = LmmMleUnitdataInd {
+        rx_ack: None,
+        encrypted: false,
         sdu,
         handle,
         received_address: TetraAddress {
@@ -82,6 +84,8 @@ fn submit_itsi_detach(test: &mut ComponentTest, issi: u32, handle: u32) {
     detach.to_bitbuf(&mut sdu).expect("serialize U-ITSI-DETACH");
     sdu.seek(0);
     let prim = LmmMleUnitdataInd {
+        rx_ack: None,
+        encrypted: false,
         sdu,
         handle,
         received_address: TetraAddress {
@@ -1086,6 +1090,8 @@ fn test_u_mm_status_energy_saving() {
     let dltime_vec1 = TdmaTime::default().add_timeslots(2); // Downlink time: 0/1/1/3
     // let ultime_vec1 = dltime_vec1.add_timeslots(-2); // Uplink time: 0/1/1/1
     let test_prim1 = LmmMleUnitdataInd {
+        rx_ack: None,
+        encrypted: false,
         sdu: BitBuffer::from_bitstr(test_vec1),
         handle: 0,
         received_address: TetraAddress {
@@ -1340,6 +1346,8 @@ fn submit_mm_uplink(test: &mut ComponentTest, issi: u32, write: impl FnOnce(&mut
             sdu,
             handle: 0,
             received_address: TetraAddress::issi(issi),
+            rx_ack: None,
+            encrypted: false,
         }),
     });
     test.run_stack(Some(2));

@@ -505,6 +505,8 @@ impl MleBs {
             src: TetraEntity::Mle,
             dest: TetraEntity::Mm,
             msg: SapMsgInner::LmmMleUnitdataInd(LmmMleUnitdataInd {
+                rx_ack: None,
+                encrypted: false,
                 sdu,
                 handle: 0,
                 received_address: TetraAddress {
@@ -685,6 +687,8 @@ impl MleBs {
         match pdu_type {
             MleProtocolDiscriminator::Mm => {
                 let m = LmmMleUnitdataInd {
+                    rx_ack: prim.rx_ack.clone(),
+                    encrypted: prim.air_interface_encryption != 0,
                     sdu,
                     handle: 0,
                     received_address: prim.main_address,
@@ -798,7 +802,7 @@ impl MleBs {
                 stealing_permission: false,
                 subscriber_class: 0, // TODO fixme
                 fcs_flag: false,
-                air_interface_encryption: None,
+                air_interface_encryption: prim.encryption_override.map(|encrypted| encrypted as _),
                 stealing_repeats_flag: None,
                 data_class_info: None,
                 req_handle: 0, // TODO FIXME; should we pass the same handle here?
@@ -1135,6 +1139,7 @@ location_area = 7
             src: TetraEntity::Llc,
             dest: TetraEntity::Mle,
             msg: SapMsgInner::TlaTlDataIndBl(TlaTlDataIndBl {
+                rx_ack: None,
                 main_address: addr(),
                 link_id: 0,
                 endpoint_id: 0,
@@ -1710,6 +1715,7 @@ password = "x"
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: None,
                 is_null_pdu: false,
                 tx_reporter: None,
             }),

@@ -31,6 +31,11 @@ impl CipheringParameters {
         ((self.ksg_number as u64 & 0xF) << 6) | ((self.class3 as u64) << 5) | (self.sckn_field as u64 & 0x1F)
     }
 
+    /// SC3 downlink parameters; capability/reserved bits are zero.
+    pub fn class3(tea: u8) -> Self {
+        Self { ksg_number: tea - 1, class3: true, sckn_field: 0 }
+    }
+
     /// Class 2 parameters for TEA`tea` (1..=4) and SCK number `sckn` (1..=32).
     pub fn class2(tea: u8, sckn: u8) -> Self {
         CipheringParameters {

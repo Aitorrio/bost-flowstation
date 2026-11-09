@@ -647,6 +647,7 @@ fn uplink(issi: u32, discriminator: MleProtocolDiscriminator, write: impl FnOnce
             chan_change_handle: None,
             chan_info: None,
             req_handle: 0,
+            rx_ack: None,
         }),
     }
 }
