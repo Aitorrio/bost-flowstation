@@ -248,10 +248,23 @@ fn extract_prefix_to_dir(
             continue;
         }
         let rel = &name[prefix_slash.len()..];
-        if rel.is_empty() || rel.contains("..") {
+        // Only plain relative paths are extracted. Reject absolute paths (a
+        // leading '/' makes `dest.join` discard `dest` entirely), parent
+        // traversal, and empty or current-dir components. Without this a
+        // crafted bundle could write outside `dest` as root (zip-slip).
+        if rel.is_empty()
+            || rel.starts_with('/')
+            || rel
+                .split('/')
+                .any(|c| c.is_empty() || c == "." || c == "..")
+        {
             continue;
         }
         let out = dest.join(rel);
+        // Defence in depth: the resolved target must stay under `dest`.
+        if !out.starts_with(dest) {
+            continue;
+        }
         if let Some(parent) = out.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
         }
@@ -536,6 +549,52 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
     use std::fs;
+
+    #[test]
+    fn extract_prefix_rejects_absolute_and_traversal_entries() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("ptbs-zipslip-{stamp}"));
+        let dest = base.join("dest");
+        let escape = base.join("escaped-abs");
+        fs::create_dir_all(&base).unwrap();
+
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        add_file(&mut zip, "profiles/good.toml", b"ok").unwrap();
+        // Absolute path: `dest.join(rel)` would otherwise discard `dest`.
+        add_file(
+            &mut zip,
+            &format!("profiles/{}", escape.to_string_lossy()),
+            b"pwned",
+        )
+        .unwrap();
+        // Parent traversal.
+        add_file(&mut zip, "profiles/../escaped-rel", b"pwned").unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+
+        // The crafted entries must be present in the archive, or the test
+        // would pass vacuously.
+        {
+            let mut a = ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+            let names: Vec<String> = (0..a.len())
+                .map(|i| a.by_index(i).unwrap().name().to_string())
+                .collect();
+            assert!(names.iter().any(|n| n.contains("escaped-abs")));
+        }
+
+        let mut archive = ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
+        extract_prefix_to_dir(&mut archive, "profiles", &dest).unwrap();
+
+        assert!(dest.join("good.toml").exists(), "safe entry should extract");
+        assert!(!escape.exists(), "absolute-path entry must not escape dest");
+        assert!(
+            !base.join("escaped-rel").exists(),
+            "parent traversal must not escape dest"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
 
     fn tmp_cfg() -> (PathBuf, String) {
         let stamp = SystemTime::now()
