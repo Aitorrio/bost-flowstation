@@ -335,7 +335,18 @@ impl CircuitMgr {
 
     /// Closes any circuits that have expired.
     /// Full-duplex circuits are exempt; only simplex circuits are force-closed here.
-    fn close_expired_circuits(&mut self, mut tasks: Option<Vec<CircuitMgrCmd>>) -> Option<Vec<CircuitMgrCmd>> {
+    ///
+    /// This is a safety net for circuits nobody tears down anymore. A circuit whose call is
+    /// still live (`is_live(call_id)`) is left alone: a live group call is already bounded by
+    /// hangtime, the configured call timeout (`call_timeout_secs`, 0 = unlimited), UL inactivity
+    /// and the network-media-inactivity timer. Force-closing it here cut long Brew QSOs off
+    /// mid-over six minutes after the circuit opened, without telling Brew — the rest of that
+    /// over was then dropped as "DL voice on inactive circuit".
+    fn close_expired_circuits(
+        &mut self,
+        mut tasks: Option<Vec<CircuitMgrCmd>>,
+        is_live: &dyn Fn(CallId) -> bool,
+    ) -> Option<Vec<CircuitMgrCmd>> {
         const CIRCUIT_EXPIRY_TIMESLOTS: i32 = 6 * 60 * 18 * 4;
 
         let mut to_close = self
@@ -343,6 +354,7 @@ impl CircuitMgr {
             .iter()
             .filter(|circuit| !circuit.simplex_duplex)
             .filter(|circuit| circuit.ts_created.age(self.dltime) > CIRCUIT_EXPIRY_TIMESLOTS)
+            .filter(|circuit| !is_live(circuit.call_id))
             .map(|circuit| (circuit.direction, circuit.carrier_num, circuit.ts, circuit.call_id))
             .collect::<Vec<_>>();
         to_close.extend(
@@ -350,6 +362,7 @@ impl CircuitMgr {
                 .iter()
                 .filter(|circuit| !circuit.simplex_duplex)
                 .filter(|circuit| circuit.ts_created.age(self.dltime) > CIRCUIT_EXPIRY_TIMESLOTS)
+                .filter(|circuit| !is_live(circuit.call_id))
                 .map(|circuit| (circuit.direction, circuit.carrier_num, circuit.ts, circuit.call_id)),
         );
         for (dir, carrier_num, ts, call_id) in to_close {
@@ -370,11 +383,17 @@ impl CircuitMgr {
     }
 
     pub fn tick_start(&mut self, dltime: TdmaTime) -> Option<Vec<CircuitMgrCmd>> {
+        self.tick_start_with_live(dltime, &|_| false)
+    }
+
+    /// Like [`Self::tick_start`], but circuits of calls for which `is_live` returns true are
+    /// exempt from the safety expiry (see [`Self::close_expired_circuits`]).
+    pub fn tick_start_with_live(&mut self, dltime: TdmaTime, is_live: &dyn Fn(CallId) -> bool) -> Option<Vec<CircuitMgrCmd>> {
         self.dltime = dltime;
         let mut tasks = None;
 
         if dltime.t == 1 {
-            tasks = self.close_expired_circuits(tasks);
+            tasks = self.close_expired_circuits(tasks, is_live);
 
             for circuit in self.dl.iter() {
                 let age = circuit.ts_created.age(dltime);
@@ -396,6 +415,59 @@ impl CircuitMgr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn simplex_group_circuit(ts: u8, call_id: CallId) -> CmceCircuit {
+        CmceCircuit {
+            ts_created: TdmaTime { h: 0, m: 1, f: 1, t: 1 },
+            direction: Direction::Both,
+            ts,
+            carrier_num: 1531,
+            call_id,
+            usage: call_id as u8,
+            circuit_mode: CircuitModeType::TchS,
+            comm_type: CommunicationType::P2Mp,
+            simplex_duplex: false,
+            speech_service: Some(0),
+            etee_encrypted: false,
+        }
+    }
+
+    fn closed_call_ids(tasks: Option<Vec<CircuitMgrCmd>>) -> Vec<CallId> {
+        tasks
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|cmd| match cmd {
+                CircuitMgrCmd::SendClose(call_id, _) => Some(call_id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn live_group_call_circuit_survives_safety_expiry() {
+        let mut mgr = CircuitMgr::new();
+        mgr.dl.push(simplex_group_circuit(2, 35)); // long Brew QSO, call still live
+        mgr.dl.push(simplex_group_circuit(3, 36)); // orphaned circuit, no live call
+        let later = (TdmaTime { h: 0, m: 1, f: 1, t: 1 }).add_timeslots(7 * 60 * 18 * 4);
+        assert_eq!(later.t, 1, "expiry sweep only runs on t==1");
+
+        let closed = closed_call_ids(mgr.tick_start_with_live(later, &|id| id == 35));
+        assert_eq!(closed, vec![36], "only the orphaned circuit is force-closed");
+        assert!(mgr.is_active_dir_slot(1531, 2, Direction::Dl), "live call keeps its circuit");
+        assert!(!mgr.is_active_dir_slot(1531, 3, Direction::Dl));
+    }
+
+    #[test]
+    fn safety_expiry_still_closes_circuit_once_call_is_gone() {
+        let mut mgr = CircuitMgr::new();
+        mgr.dl.push(simplex_group_circuit(2, 35));
+        let later = (TdmaTime { h: 0, m: 1, f: 1, t: 1 }).add_timeslots(7 * 60 * 18 * 4);
+        assert!(closed_call_ids(mgr.tick_start_with_live(later, &|_| true)).is_empty());
+        // The call has ended but its circuit leaked: the next sweep closes it.
+        let next = later.add_timeslots(4);
+        assert_eq!(next.t, 1);
+        assert_eq!(closed_call_ids(mgr.tick_start_with_live(next, &|_| false)), vec![35]);
+    }
 
     #[test]
     fn duplex_circuit_not_closed_after_six_minutes() {
