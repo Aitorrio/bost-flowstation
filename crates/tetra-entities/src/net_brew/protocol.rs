@@ -894,6 +894,23 @@ pub const MAX_GROUP_ACCESS_GROUPS: usize = 4096;
 /// Parse a [`BREW_SERVICE_GROUP_ACCESS`] payload into GSSI -> rule. A group entry that does not
 /// parse or holds an identity out of range (1 to 16777215) is left out (logged), so that group
 /// stays open; an unknown `mode` is an allow list.
+/// Managed talkgroups in a `SERVICE_GROUP_ACCESS` message: with `"managed":true` the GSSIs in
+/// `"listed"` are the only groups radios may attach and talk on; anything else (field missing,
+/// `false`, broken) = not managed. Out-of-range entries are skipped.
+pub fn parse_managed_groups(json_data: &str) -> Option<std::collections::BTreeSet<u32>> {
+    let json: serde_json::Value = serde_json::from_str(json_data).ok()?;
+    if json.get("managed").and_then(|m| m.as_bool()) != Some(true) {
+        return None;
+    }
+    let list = json.get("listed").and_then(|l| l.as_array()).map(Vec::as_slice).unwrap_or(&[]);
+    Some(
+        list.iter()
+            .take(MAX_GROUP_ACCESS_GROUPS)
+            .filter_map(|v| v.as_u64().filter(|n| (1..=0xFF_FFFF).contains(n)).map(|n| n as u32))
+            .collect(),
+    )
+}
+
 pub fn parse_group_access(json_data: &str) -> Result<std::collections::BTreeMap<u32, BrewGroupAccess>, String> {
     let json: serde_json::Value = serde_json::from_str(json_data).map_err(|e| e.to_string())?;
     let list = json.get("groups").and_then(|g| g.as_array()).ok_or("missing: groups")?;

@@ -625,6 +625,10 @@ pub struct StackState {
     /// server does not offer `group-access` or sent no rules: every group is open. Cleared on
     /// reconnect (the server sends the table again after the announcement).
     pub brew_group_access: BTreeMap<u32, BrewGroupAccess>,
+    /// Managed talkgroups (`"managed":true` in `SERVICE_GROUP_ACCESS`): the only groups radios of
+    /// this network may attach and talk on. `None`: not managed, every group as the rules say.
+    /// Cleared on reconnect like the rules.
+    pub brew_managed_groups: Option<std::collections::BTreeSet<u32>>,
     /// After a real Brew disconnect→reconnect, CMCE may request a selective SwMI-initiated
     /// location update for an ISSI whose Brew-routed setup fails (TIP/ETSI interrogation, not
     /// a mass kick). `None` or a past Instant means the soft-recovery window is closed.
@@ -841,14 +845,22 @@ mod tests {
 impl StackState {
     /// May `issi` attach to `gssi` (Brew server's `group-access` rules; no rule = yes)?
     pub fn group_may_join(&self, gssi: u32, issi: u32) -> bool {
+        let visitor = self.multi_network.visitors.contains_key(&issi);
         let issi = self.group_access_issi(issi);
-        self.brew_group_access.get(&gssi).is_none_or(|a| a.may_join(issi))
+        (visitor || !self.group_unlisted(gssi)) && self.brew_group_access.get(&gssi).is_none_or(|a| a.may_join(issi))
     }
 
     /// May `issi` talk on `gssi` (Brew server's `group-access` rules; no rule = yes)?
     pub fn group_may_talk(&self, gssi: u32, issi: u32) -> bool {
+        let visitor = self.multi_network.visitors.contains_key(&issi);
         let issi = self.group_access_issi(issi);
-        self.brew_group_access.get(&gssi).is_none_or(|a| a.may_talk(issi))
+        (visitor || !self.group_unlisted(gssi)) && self.brew_group_access.get(&gssi).is_none_or(|a| a.may_talk(issi))
+    }
+
+    /// Managed talkgroups are on and `gssi` is not one of the listed groups. Visitors' groups
+    /// ((V)GSSIs of their home network) are not checked against the list (callers skip them).
+    pub fn group_unlisted(&self, gssi: u32) -> bool {
+        self.brew_managed_groups.as_ref().is_some_and(|l| !l.contains(&gssi))
     }
 
     /// The ISSI the Brew server's rules name for a radio: a registered visitor whose home is the
@@ -871,6 +883,7 @@ impl Default for StackState {
             brew_server_extensions: Vec::new(),
             brew_cell_directory: None,
             brew_group_access: BTreeMap::new(),
+            brew_managed_groups: None,
             brew_soft_recovery_until: None,
             multi_network: Default::default(),
             subscribers: SubscriberRegistry::new(),
