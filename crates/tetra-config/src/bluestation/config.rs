@@ -194,6 +194,12 @@ pub fn carrier_band_plan(cell: &CfgCellInfo) -> Option<u16> {
     )
 }
 
+/// Security class 3 keeps each radio's DCK (derived at authentication, EN 300 392-7 clause 4.5.5.1)
+/// only in the cell that authenticated it, and every cell derives its own ECK from carrier, colour
+/// code and location area (clause 4.2.7). This build hands neither DCKs nor calls over between
+/// cells, so SC3 and several cells (or roaming between stations) are either/or.
+pub const SC3_SINGLE_CELL: &str = "security class 3 (SC3) runs on a single cell only: remove [[cells]] or choose security class 1 or 2";
+
 impl StackConfig {
     /// Return BS phase-modulated carrier numbers and their DL/UL frequencies.
     pub fn bs_phase_mod_carriers(&self) -> Result<Vec<(u16, u32, u32)>, String> {
@@ -453,7 +459,16 @@ impl StackConfig {
     /// Validate that all required configuration fields are properly set.
     pub fn validate(&self) -> Result<(), String> {
         self.validate_primary().map_err(String::from)?;
-        self.validate_extra_cells()
+        self.validate_extra_cells()?;
+        if self.security_class3() && !self.extra_cells.is_empty() {
+            return Err(SC3_SINGLE_CELL.into());
+        }
+        Ok(())
+    }
+
+    /// Air interface encryption of security class 3 (per-radio DCK, common CCK) is configured.
+    pub fn security_class3(&self) -> bool {
+        self.security.aie.as_ref().is_some_and(|aie| aie.security_class() == 3)
     }
 
     /// Carrier and SDR passband checks shared by every cell.

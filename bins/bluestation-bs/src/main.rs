@@ -564,6 +564,12 @@ struct Args {
     /// Config file (required)
     #[arg(help = "TOML config with network/cell parameters")]
     config: String,
+    /// Validate the primary config and exit without opening radio/network devices.
+    #[arg(long)]
+    check_config: bool,
+    /// Require SC3 and refuse all fallback configs (recommended for an SC3 station).
+    #[arg(long)]
+    require_sc3: bool,
 }
 
 fn main() {
@@ -581,6 +587,23 @@ fn main() {
 
     // Parse command-line arguments
     let args = Args::parse();
+    // Preflight is read-only: in particular do not run the port migration below.
+    if args.check_config || args.require_sc3 {
+        match try_load_stack_config(&args.config) {
+            Ok(cfg) => {
+                let class = cfg.security.aie.as_ref().map_or(1, |a| a.security_class());
+                if args.require_sc3 && class != 3 {
+                    eprintln!("ERROR: --require-sc3 requires security.aie.class = 3; refusing startup");
+                    std::process::exit(1);
+                }
+                if args.check_config {
+                    eprintln!("Config valid: security class {}. No devices opened.", class);
+                    return;
+                }
+            },
+            Err(e) => { eprintln!("ERROR: primary config invalid: {}", e); std::process::exit(1); }
+        }
+    }
 
     // OTA / upgrades: rewrite legacy dashboard ports (8080→80, ensure https_port=443)
     // before parse so new installs and old boxes share the same defaults.
@@ -591,7 +614,12 @@ fn main() {
     }
 
     // Load config — parse+validate primary; on failure try <config>.fallback the same way.
-    let (mut stack_cfg, fallback_info) = match load_config_with_fallback(&args.config) {
+    let loaded = if args.require_sc3 {
+        let c = try_load_stack_config(&args.config).unwrap_or_else(|e| { eprintln!("ERROR: {}", e); std::process::exit(1) });
+        if c.security.aie.as_ref().map_or(1, |a| a.security_class()) != 3 { std::process::exit(1); }
+        ConfigLoadResult::Primary(c)
+    } else { load_config_with_fallback(&args.config) };
+    let (mut stack_cfg, fallback_info) = match loaded {
         ConfigLoadResult::Primary(c) => (c, None),
         ConfigLoadResult::Fallback {
             config,
@@ -612,6 +640,8 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    cfg.state_write().security_class3_required = args.require_sc3;
 
     // If the dashboard OR Telegram alerts are enabled, set up the log capture channel BEFORE
     // logging initialises (Telegram forwards WARN/ERROR lines as its critical-status catch-all).

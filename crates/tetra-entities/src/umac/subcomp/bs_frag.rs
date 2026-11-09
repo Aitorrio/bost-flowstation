@@ -12,6 +12,8 @@ use crate::umac::subcomp::fillbits;
 /// MAC PDU restarts at that point, so a slot carries at most one encrypted PDU — `used` records it.
 pub struct SlotCipher<'a> {
     pub cipher: &'a CellCipher,
+    pub carrier: u16,
+    pub time: tetra_core::TdmaTime,
     pub kss: Kss,
     pub kss_offset: usize,
     pub used: bool,
@@ -26,6 +28,17 @@ pub struct BsFragger {
     tx_reporter: Option<TxReporter>,
     /// The PDU is to be sent encrypted (its MAC-RESOURCE carried a non-zero encryption mode).
     encrypted: bool,
+    discarded: bool,
+    /// Bind fragments to the same DCK; its Debug implementation redacts the key.
+    dck: Option<tetra_config::bluestation::CipherKey>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkStatus { Complete, Deferred, Discarded }
+
+impl ChunkStatus {
+    pub fn is_complete(self) -> bool { self == Self::Complete }
+    pub fn needs_retry(self) -> bool { self == Self::Deferred }
 }
 
 /// We won't start fragmentation if less than MIN_SLOT_CAP_FOR_FRAG_START bits are free in the slot
@@ -47,6 +60,8 @@ impl BsFragger {
             sdu,
             tx_reporter,
             encrypted,
+            discarded: false,
+            dck: None,
         }
     }
 
@@ -234,19 +249,38 @@ impl BsFragger {
     /// Subsequent chunks are MAC-FRAG or MAC-END.
     /// Returns bool is_fully_transmitted
     pub fn get_next_chunk(&mut self, mac_block: &mut BitBuffer) -> bool {
-        self.get_next_chunk_ciphered(mac_block, None)
+        self.get_next_chunk_ciphered(mac_block, None).is_complete()
     }
 
-    /// [`Self::get_next_chunk`] for a timeslot that may carry encrypted PDUs. An encrypted PDU is
-    /// held back when the slot has no cipher or already carries an encrypted PDU, so nothing meant
-    /// to be encrypted ever goes out in clear and no key stream is used twice.
-    pub fn get_next_chunk_ciphered(&mut self, mac_block: &mut BitBuffer, cipher: Option<&mut SlotCipher>) -> bool {
-        assert!(!self.is_fully_transmitted, "all fragments have already been produced");
-        if self.encrypted && cipher.as_ref().is_none_or(|c| c.used) {
-            if cipher.is_none() {
-                tracing::error!("UMAC: encrypted PDU for {:?} but no cipher on this slot, holding it back", self.resource.addr);
+    fn discard(&mut self, reason: &str) -> ChunkStatus {
+        tracing::warn!("UMAC: discarding encrypted downlink {:?}: {}", self.resource.addr, reason);
+        self.discarded = true;
+        if let Some(reporter) = &self.tx_reporter
+            && reporter.get_state() == tetra_core::TxState::Pending
+        { reporter.mark_discarded(); }
+        ChunkStatus::Discarded
+    }
+
+    /// Missing/replaced cipher keys end this PDU, never retry it under a future
+    /// session's key. A busy slot remains retryable. No plaintext fallback.
+    pub fn get_next_chunk_ciphered(&mut self, mac_block: &mut BitBuffer, mut cipher: Option<&mut SlotCipher>) -> ChunkStatus {
+        assert!(!self.is_fully_transmitted && !self.discarded, "PDU already finished");
+        if self.encrypted {
+            let Some(c) = cipher.as_deref_mut() else { return self.discard("cipher unavailable"); };
+            if c.cipher.is_class3() {
+                let Some(addr) = self.resource.addr else { return self.discard("address unavailable"); };
+                if addr.ssi_type != SsiType::Gssi {
+                    let Some(dck) = c.cipher.dck_for_address(addr) else { return self.discard("DCK unavailable (session ended)"); };
+                    if self.dck.as_ref().is_some_and(|previous| previous.0 != dck.0) {
+                        return self.discard("DCK changed during queued transmission");
+                    }
+                    c.kss = c.cipher.kss_for_dck(c.carrier, c.time, false, &dck);
+                    self.dck = Some(dck);
+                } else {
+                    c.kss = c.cipher.kss(c.carrier, c.time, false);
+                }
             }
-            return false;
+            if c.used { return ChunkStatus::Deferred; }
         }
         assert!(
             mac_block.get_len_written() % 8 == 0 || mac_block.get_len_remaining() == 0,
@@ -268,7 +302,7 @@ impl BsFragger {
             tx_reporter.mark_transmitted();
         }
 
-        self.is_fully_transmitted
+        if self.is_fully_transmitted { ChunkStatus::Complete } else { ChunkStatus::Deferred }
     }
 }
 
@@ -353,7 +387,8 @@ mod tests {
 
     fn test_cipher() -> CellCipher {
         let aie = tetra_config::bluestation::CfgAie {
-            enabled: true,
+            class3: None,
+        enabled: true,
             ksg: 1,
             sckn: 1,
             sck: tetra_config::bluestation::CipherKey([0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]),
@@ -375,12 +410,13 @@ mod tests {
         pdu.encryption_mode = 1; // any non-zero value marks the PDU for encryption
         let mut slot = SlotCipher {
             cipher: &cipher,
+            carrier: 3681, time: tetra_core::TdmaTime { t: 1, f: 3, m: 7, h: 42 },
             kss: cipher.kss(3681, t, false),
             kss_offset: 0,
             used: false,
         };
         let mut block = BitBuffer::new(SCH_F_CAP);
-        assert!(BsFragger::new(pdu, BitBuffer::from_bitstr(sdu_bits), None).get_next_chunk_ciphered(&mut block, Some(&mut slot)));
+        assert!(BsFragger::new(pdu, BitBuffer::from_bitstr(sdu_bits), None).get_next_chunk_ciphered(&mut block, Some(&mut slot)).is_complete());
         assert!(slot.used);
 
         block.seek(0);
@@ -406,18 +442,53 @@ mod tests {
         pdu.encryption_mode = 1;
         let mut block = BitBuffer::new(SCH_F_CAP);
         let mut fragger = BsFragger::new(pdu, BitBuffer::from_bitstr("1010"), None);
-        assert!(!fragger.get_next_chunk(&mut block), "no cipher: held back");
-        assert_eq!(block.get_pos(), 0, "nothing written");
 
         let mut slot = SlotCipher {
             cipher: &cipher,
+            carrier: 3681, time: tetra_core::TdmaTime { t: 1, f: 3, m: 7, h: 42 },
             kss: cipher.kss(3681, tetra_core::TdmaTime { t: 1, f: 1, m: 1, h: 0 }, false),
             kss_offset: 0,
             used: true,
         };
-        assert!(!fragger.get_next_chunk_ciphered(&mut block, Some(&mut slot)), "slot already used");
+        assert!(fragger.get_next_chunk_ciphered(&mut block, Some(&mut slot)).needs_retry(), "slot already used");
         slot.used = false;
-        assert!(fragger.get_next_chunk_ciphered(&mut block, Some(&mut slot)));
+        assert!(fragger.get_next_chunk_ciphered(&mut block, Some(&mut slot)).is_complete());
+    }
+
+    #[test]
+    fn sc3_fragmentation_uses_the_recipient_dck_for_every_fragment() {
+        use tetra_config::bluestation::{SharedConfig, CipherKey, CfgAie, CfgClass3};
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../../example_config/config.toml")).unwrap();
+        let shared = SharedConfig::from_parts(cfg,None);
+        let aie = CfgAie { enabled: true, ksg: 2, sck: CipherKey([0;10]), sckn: 1, sck_vn: 0, clear_groups: vec![],
+            class3: Some(CfgClass3 { cck: CipherKey([0x11;10]), cck_id: 42 }) };
+        let cipher = CellCipher::new(&aie,&[3681],2,1).with_config(shared.clone());
+        shared.state_write().sc3_dcks.insert(1234,CipherKey([0x22;10]));
+        let mut resource = get_default_resource(); resource.encryption_mode = 1;
+        let bits = "10110011".repeat(60);
+        let mut fragger = BsFragger::new(resource,BitBuffer::from_bitstr(&bits),None);
+        let mut reconstructed = String::new();
+        for frame in 1..20 {
+            let t = tetra_core::TdmaTime { t: 1, f: frame, m: 1, h: 1 };
+            let mut slot = SlotCipher { cipher: &cipher, carrier: 3681, time: t, kss: cipher.kss(3681,t,false), kss_offset: 0, used: false };
+            let mut block = BitBuffer::new(SCH_HD_CAP);
+            let before = fragger.sdu.get_len_remaining();
+            let first = !fragger.mac_hdr_is_written;
+            let done = fragger.get_next_chunk_ciphered(&mut block,Some(&mut slot)).is_complete();
+            let n = before-fragger.sdu.get_len_remaining();
+            assert!(slot.used); block.seek(0);
+            let offset = if first {
+                let header = MacResource::from_bitbuf(&mut block).unwrap();
+                assert_eq!(header.addr.unwrap().ssi,cipher.esi(1234));
+                assert_eq!(header.encryption_mode,0b10); block.get_pos()
+            } else if done { MacEndDl::from_bitbuf(&mut block).unwrap(); block.get_pos() }
+              else { MacFragDl::from_bitbuf(&mut block).unwrap(); block.get_pos() };
+            let dck_kss = cipher.kss_for(3681,t,false,TetraAddress::issi(1234)).unwrap();
+            dck_kss.apply(&mut block,offset,n,0); block.seek(offset);
+            for _ in 0..n { reconstructed.push(if block.read_bit().unwrap()==1 {'1'} else {'0'}); }
+            if done { break; }
+        }
+        assert_eq!(reconstructed,bits);
     }
 
     #[test]

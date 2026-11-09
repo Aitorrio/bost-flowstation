@@ -1887,6 +1887,8 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
   display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:150;
 }
 
+#page-security .card-body{padding:14px 16px;}
+
 /* ── Responsive: mobile top nav ── */
 @media(max-width:700px){
   #sidebar{
@@ -5557,6 +5559,22 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <div class="card" id="secp-runtime-card" style="display:none">
+        <div class="card-head"><div class="card-title" data-i18n="secp_runtime_title">SC3 · radio key status</div></div>
+        <div class="card-body">
+          <div class="help-text" data-i18n="secp_runtime_help"></div>
+          <div id="secp-revision" class="help-text"></div>
+          <div class="help-text" data-i18n="secp_cck_action_help"></div>
+          <button class="btn btn-sm" id="secp-cck-all" onclick="secpSendCckAll()" data-i18n="secp_cck_send_all">Send CCK to ready radios</button>
+          <div id="secp-cck-msg" class="help-text"></div>
+          <div id="secp-runtime-error" class="help-text" style="color:var(--warn)"></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>ISSI</th><th data-i18n="secp_phase">Authentication / registration</th><th>DCK</th><th>CCK</th><th data-i18n="secp_cck_otar">CCK OTAR</th></tr></thead>
+            <tbody id="secp-runtime"></tbody>
+          </table></div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-head"><div class="card-title" data-i18n="secp_auth_title">Authentication (TAA1)</div></div>
         <div class="card-body">
@@ -5576,7 +5594,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="card">
         <div class="card-head">
           <div class="card-title" data-i18n="secp_keys_title">Subscriber keys</div>
-          <div class="card-actions"><button class="btn btn-sm" onclick="secpSendSckAll()" title="" data-i18n-title="secp_otar_hint"><span data-i18n="secp_otar_send_all">Send SCK to all online radios</span></button></div>
+          <div class="card-actions"><button class="btn btn-sm" id="secp-send-all" onclick="secpSendSckAll()" title="" data-i18n-title="secp_otar_hint"><span data-i18n="secp_otar_send_all">Send SCK to all online radios</span></button></div>
         </div>
         <div class="card-body">
           <div class="help-text" style="margin-bottom:12px" data-i18n="secp_keys_help"></div>
@@ -5598,11 +5616,17 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
 
       <div class="card">
-        <div class="card-head"><div class="card-title" data-i18n="secp_aie_title">Air-interface encryption (class 2)</div></div>
+        <div class="card-head"><div class="card-title" data-i18n="secp_aie_title_v109">Air-interface encryption</div></div>
         <div class="card-body">
-          <div class="help-text" style="margin-bottom:8px" data-i18n="secp_aie_help"></div>
-          <label class="sw-row"><span class="sw-text" data-i18n="secp_aie_enable">Encrypt the cell (class 2)</span><span class="sw"><input type="checkbox" id="secp-aie" onchange="secpAieToggle()"><i></i></span></label>
-          <div class="help-text" style="margin-top:6px" data-i18n="secp_aie_staging"></div>
+          <div class="form-row">
+            <label class="help-text" for="secp-class" style="display:block;margin-bottom:4px" data-i18n="secp_class_label">Security class</label>
+            <select id="secp-class" class="form-input" style="max-width:520px" onchange="secpClassChanged()">
+              <option value="1" data-i18n="secp_class1">SC1 — clear / SCK staging</option>
+              <option value="2" data-i18n="secp_class2">SC2 — static SCK</option>
+              <option value="3" data-i18n="secp_class3">SC3 — DCK / CCK (experimental)</option>
+            </select>
+          </div>
+          <div class="help-text" id="secp-class-help" style="margin-top:8px"></div>
           <div id="secp-aie-fields" style="margin-top:12px">
             <div class="form-row">
               <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_ksg">Algorithm (KSG)</label>
@@ -5610,11 +5634,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <div id="secp-ksg-note" class="help-text" style="margin-top:6px"></div>
               <div id="secp-tea1-warn" style="display:none;margin-top:8px;padding:10px 12px;border:1px solid rgba(255,77,109,0.4);background:rgba(255,77,109,0.08);border-radius:6px;font-size:13px" data-i18n="secp_tea1_warn"></div>
             </div>
+            <div id="secp-sc2-fields">
             <div class="form-row">
               <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sck">Static cipher key (SCK)</label>
               <div style="display:flex;gap:8px;flex-wrap:wrap">
                 <input type="text" id="secp-sck" class="form-input" placeholder="20 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px;max-width:520px;font-family:var(--mono)" oninput="secpSckDirty=true;secpDirty()" data-i18n-placeholder="secp_sck_placeholder">
-                <button class="btn" onclick="secpGenerate('sck','secp-sck');secpSckDirty=true;secpDirty()"><span data-i18n="secp_generate">Generate</span></button>
+                <button class="btn" onclick="secpGenerate('sck','secp-sck')"><span data-i18n="secp_generate">Generate</span></button>
               </div>
             </div>
             <div style="display:flex;gap:16px;flex-wrap:wrap">
@@ -5624,6 +5649,21 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <div class="form-row">
               <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_groups">Clear talkgroups (GSSI, comma separated) for radios without encryption</label>
               <input type="text" id="secp-groups" class="form-input" placeholder="e.g. 900, 901" style="max-width:520px;font-family:var(--mono)" oninput="secpDirty()" data-i18n-placeholder="ui_e_g_900_901">
+            </div>
+            </div>
+            <div id="secp-sc3-fields" style="display:none">
+              <div class="form-row">
+                <label class="help-text" for="secp-cck" style="display:block;margin-bottom:4px" data-i18n="secp_cck">Common cipher key (CCK, 80 bits)</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input type="text" id="secp-cck" class="form-input" placeholder="20 hex digits" autocomplete="off" spellcheck="false" style="flex:1;min-width:220px;max-width:520px;font-family:var(--mono)" oninput="secpCckDirty=true;secpDirty()">
+                  <button class="btn" onclick="secpGenerate('cck','secp-cck')" data-i18n="secp_generate">Generate</button>
+                </div>
+              </div>
+              <div class="form-row">
+                <label class="help-text" for="secp-cckid" style="display:block;margin-bottom:4px" data-i18n="secp_cckid">CCK ID (0–65535)</label>
+                <input type="number" id="secp-cckid" class="form-input" min="0" max="65535" value="1" style="width:160px" oninput="secpDirty()">
+              </div>
+              <div class="help-text" data-i18n="secp_dck_help"></div>
             </div>
           </div>
         </div>
@@ -5638,7 +5678,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <tbody id="secp-algos"></tbody>
             </table>
           </div>
-          <div class="help-text" style="margin-top:12px" data-i18n="secp_classes"></div>
+          <div class="help-text" style="margin-top:12px" data-i18n="secp_classes_v109"></div>
         </div>
       </div>
     </div>
@@ -6120,7 +6160,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       <div class="card">
         <div class="card-head"><div class="card-title" data-i18n="roam_nets_title">Networks (Multi Network)</div><label class="mn-switch" data-i18n-title="roam_mn_switch_help" title="Multi Network on / off"><input type="checkbox" id="rm-mn-enabled" role="switch" onchange="roamMnToggle(this)"><span class="mn-slider"></span><span id="rm-mn-state" data-i18n="roam_mn_off">Off</span></label></div>
         <div class="card-body">
-          <div class="help-text" style="margin-bottom:8px" data-i18n="roam_nets_help">A cell broadcasts exactly one network (MCC / MNC, TS 100 392-2 table 18.17); pick it per cell in the Network column above. A radio that selects a network on the terminal uses the cells of that network. Reached: own server = the network's own [brew] link (credentials on this station, edit in the config); via = through another network's Brew server, which must offer the mni extension and reach that network (Infrastructure, no credentials here); local = switched inside this station. The first network added turns [net_info] and [brew] into the network "home".</div>
+          <div class="help-text" style="margin-bottom:8px" data-i18n="roam_nets_help">A cell broadcasts exactly one network (MCC / MNC, TS 100 392-2 table 18.17); pick it per cell in the Network column above. A radio that selects a network on the terminal uses the cells of that network. Reached: own server = the network's own [brew] link (credentials on this station, edit in the config); via = through another network's Brew server, which must offer the mni extension and reach that network (Infrastructure, no credentials here); local = switched inside this station. The first network added turns [net_info] and [brew] into the network "home"; switching Multi Network off turns it back.</div>
           <div class="table-wrap">
             <table class="table-stack">
               <thead><tr>
@@ -6149,7 +6189,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <input type="number" class="form-input" style="width:120px" min="0" id="rm-net-user" data-i18n-placeholder="roam_net_user" placeholder="Login">
               <input type="password" class="form-input" style="width:120px" id="rm-net-pass" autocomplete="new-password" data-i18n-placeholder="roam_net_pass" placeholder="Password">
             </span>
-            <button class="btn" onclick="roamNetAdd()"><span class="btn-icon" data-icon="add"></span><span data-i18n="roam_net_add">Add network</span></button>
+            <button class="btn" id="rm-net-add" onclick="roamNetAdd()"><span class="btn-icon" data-icon="add"></span><span data-i18n="roam_net_add">Add network</span></button>
           </div>
         </div>
       </div>
@@ -7381,6 +7421,54 @@ function paintIcons(root){
 // ── i18n ─────────────────────────────────────────────────────────────────
 const LANGS={
   en:{
+    secp_class_locked:"This service requires SC3. To select SC1/SC2, remove --require-sc3 from its start command and restart first.",
+    secp_aie_title_v109:"Air-interface encryption",
+    secp_class_label:"Security class",
+    secp_class1:"SC1 — clear / SCK staging",
+    secp_class2:"SC2 — static SCK",
+    secp_class3:"SC3 — DCK / CCK (experimental)",
+    secp_sc1_help:"Clear air interface. An optional SCK can be staged for distribution before switching to SC2.",
+    secp_sc2_help:"One static SCK encrypts this cell. Changes apply after saving and restarting the station.",
+    secp_sc3_help:"Each radio derives its DCK through authentication with K. Group downlinks use the CCK. Authentication is required; save and restart the station, then register the radios again.",
+    secp_cck:"Common cipher key (CCK, 80 bits)",
+    secp_cckid:"CCK ID (0–65535)",
+    secp_dck_help:"DCKs are derived automatically and are never entered or displayed here. The CCK is delivered sealed during registration. Changing the CCK requires a new CCK ID and a station restart. TEA2, without GCK or E2EE; Motorola interoperability still needs on-air testing.",
+    secp_classes_v109:"SC1: clear air interface. SC2: shared static SCK. SC3: per-radio DCK and common CCK; experimental single-cell operation, no live CCK rotation or GCK.",
+    secp_runtime_title:"SC3 · radio key status",
+    secp_phase:"Authentication / registration",
+    secp_runtime_help:"Live station state, refreshed every 3 seconds. An active DCK confirms activation in the stack; verify encrypted voice in both directions on the radios.",
+    secp_runtime_empty:"No SC3 radios in the running configuration. Save SC3 settings and restart to activate.",
+    secp_runtime_stale:"Status refresh failed; the displayed state may be stale.",
+    secp_dck_active:"Active in station",
+    secp_dck_ready:"Derived, awaiting registration",
+    secp_dck_wait:"Not active",
+    secp_phase_not_authenticated:"Awaiting authentication",
+    secp_phase_challenge:"Challenge sent",
+    secp_phase_awaiting_r2:"Awaiting radio result (R2)",
+    secp_phase_awaiting_result_ack:"Awaiting result ACK",
+    secp_phase_awaiting_registration_ack:"Awaiting registration ACK",
+    secp_phase_active:"Authentication completed",
+    secp_phase_failed:"Authentication rejected",
+    secp_phase_timeout:"Authentication / ACK timeout",
+    secp_cck_otar:"CCK OTAR",
+    secp_cck_send:"Send CCK",
+    secp_cck_send_all:"Send CCK to ready radios",
+    secp_cck_action_help:"Resends the current CCK under the active DCK; this does not rotate keys. DCK is derived at authentication. After an authentication timeout, register the radio again first. GCK is not supported in this build.",
+    secp_cck_queued:"CCK delivery requested. Wait for the radio result; a queued request is not an acceptance.",
+    secp_cck_none:"No radio is ready for CCK delivery. Check registration and save/restart pending changes first.",
+    secp_cck_registration_sent:"Included in registration; no radio result yet",
+    secp_cck_registration_unconfirmed:"Included in registration; acceptance unconfirmed",
+    secp_dck_retained:"Previous DCK retained; radio sync unconfirmed",
+    secp_revision:"Running patch",
+    secp_cck_not_sent:"Not delivered",
+    secp_cck_sent:"Sealed CCK sent",
+    secp_cck_accepted:"Accepted by radio",
+    secp_cck_rejected:"Rejected by radio",
+    secp_cck_unconfirmed:"No result received",
+    secp_need_k:"Add at least one subscriber with the K already provisioned in its radio.",
+    secp_invalid_fields:"Check SCK number, version and group IDs.",
+    secp_save_restart_first:"Save and restart before sending SCK; SCK delivery is unavailable in SC3.",
+
     "ui_language":"Language",
     "sys_power_reporting": "{n} sensor(s) reporting",
     "sys_power_total": "{value} W total",
@@ -7785,7 +7873,7 @@ const LANGS={
     registered_terminals:'Registered Radios',
     roaming:'Infrastructure',roam_title:'Cells, networks, neighbours and roaming',roam_reload:'Reload',roam_help:'Everything that decides when and how radios move between cells: the cells of this station and their location areas, the neighbour cells each cell broadcasts, the reselection values and the presence check. Saving checks the whole config first and restarts the station.',
     roam_cells_title:'Location areas',roam_cells_help:'Same location area on all cells: radios change cell without registering, so group calls and individual call setups run on every cell of the area. Own location area per cell: radios register on every change and station and server always know the exact cell (TS 100 392-2 clause 18.3.4.7.1a). Empty = the primary\'s location area. New cells are added in the Cells card above.',
-    roam_th_cell:'Cell',roam_th_network:'Network',roam_nets_title:'Networks (Multi Network)',roam_mn_on:'On',roam_net_server:'Brew server',roam_net_chk_ok:'routable',roam_net_chk_down:'link down',roam_net_chk_unknown:'Routing with this MCC/MNC not possible: the Brew server does not reach it',roam_net_chk_own:'The Brew server\'s own network is {mni}',roam_srvnets_title:'Networks of the Brew server',roam_srvnets_help:'The Brew server is network {mni} and reaches these networks (extension mni). "Add network" takes its MCC/MNC so every station uses the same values.',roam_srvnets_none:'No list from the Brew server yet: it needs Multi Network on and a brew-server that offers mni.',roam_srvnets_empty:'The Brew server reaches no other network.',roam_srvnets_up:'up',roam_srvnets_down:'down',roam_srvnets_have:'configured as {net}',roam_mn_off:'Off',roam_mn_switch_help:'Multi Network on / off ([multi_network] enabled): radios of other networks may register here by migration (TS 100 392-2 16.4.1.1 b), and every cell announces migration. Saves and restarts the station.',roam_nets_help:'A cell broadcasts exactly one network (MCC / MNC, TS 100 392-2 table 18.17); pick it per cell in the Network column above. A radio that selects a network on the terminal uses the cells of that network. Reached: own server = the network\'s own [brew] link (credentials on this station); via = through another network\'s Brew server, which must offer the mni extension and reach that network (Infrastructure, no credentials here); local = switched inside this station. The first network added turns [net_info] and [brew] into the network "home".',roam_net_name:'Name',roam_net_reached:'Reached',roam_net_add:'Add network',roam_net_core:'own server',roam_net_host:'Brew server (host)',roam_net_port:'Port',roam_net_user:'Login',roam_net_pass:'Password',roam_net_need_brew:'Own server: host, port (1-65535), login (a number) and password are required.',roam_net_via:'via {net}',roam_net_local:'local (no server)',roam_net_pending:'(not saved)',roam_net_confirm_core:'Remove network {net}? Its own Brew login in the config is removed too.',roam_net_need:'Network: name (letters, digits, _ or -), MCC and MNC are required.',roam_th_global:'Global cell id',roam_resel_title:'Cell reselection (advanced, all cells)',roam_resel_toggle:'Show / hide',roam_fast_th:'Fast threshold (dB)',roam_slow_th:'Slow threshold above fast (dB)',roam_fast_hy:'Fast hysteresis (dB)',roam_slow_hy:'Slow hysteresis (dB)',roam_presence:'Presence check after silence (s)',
+    roam_th_cell:'Cell',roam_th_network:'Network',roam_nets_title:'Networks (Multi Network)',roam_mn_on:'On',roam_net_server:'Brew server',roam_net_chk_ok:'routable',roam_net_chk_down:'link down',roam_net_chk_unknown:'Routing with this MCC/MNC not possible: the Brew server does not reach it',roam_net_chk_own:'The Brew server\'s own network is {mni}',roam_srvnets_title:'Networks of the Brew server',roam_srvnets_help:'The Brew server is network {mni} and reaches these networks (extension mni). "Add network" takes its MCC/MNC so every station uses the same values.',roam_srvnets_none:'No list from the Brew server yet: it needs Multi Network on and a brew-server that offers mni.',roam_srvnets_empty:'The Brew server reaches no other network.',roam_srvnets_up:'up',roam_srvnets_down:'down',roam_srvnets_have:'configured as {net}',roam_mn_off:'Off',roam_mn_need_on:'Switch Multi Network on to add networks.',roam_mn_off_confirm:'Switch Multi Network off? The networks are removed from the config: the primary network goes back to [net_info] and [brew], the other networks and the cell bindings are deleted (a backup is kept).',roam_mn_switch_help:'Multi Network on / off ([multi_network] enabled): radios of other networks may register here by migration (TS 100 392-2 16.4.1.1 b), and every cell announces migration. Saves and restarts the station.',roam_nets_help:'A cell broadcasts exactly one network (MCC / MNC, TS 100 392-2 table 18.17); pick it per cell in the Network column above. A radio that selects a network on the terminal uses the cells of that network. Reached: own server = the network\'s own [brew] link (credentials on this station); via = through another network\'s Brew server, which must offer the mni extension and reach that network (Infrastructure, no credentials here); local = switched inside this station. The first network added turns [net_info] and [brew] into the network "home"; switching Multi Network off turns it back.',roam_net_name:'Name',roam_net_reached:'Reached',roam_net_add:'Add network',roam_net_core:'own server',roam_net_host:'Brew server (host)',roam_net_port:'Port',roam_net_user:'Login',roam_net_pass:'Password',roam_net_need_brew:'Own server: host, port (1-65535), login (a number) and password are required.',roam_net_via:'via {net}',roam_net_local:'local (no server)',roam_net_pending:'(not saved)',roam_net_confirm_core:'Remove network {net}? Its own Brew login in the config is removed too.',roam_net_need:'Network: name (letters, digits, _ or -), MCC and MNC are required.',roam_th_global:'Global cell id',roam_resel_title:'Cell reselection (advanced, all cells)',roam_resel_toggle:'Show / hide',roam_fast_th:'Fast threshold (dB)',roam_slow_th:'Slow threshold above fast (dB)',roam_fast_hy:'Fast hysteresis (dB)',roam_slow_hy:'Slow hysteresis (dB)',roam_presence:'Presence check after silence (s)',
     roam_nb_title:'Neighbour cells',roam_nb_add:'Add neighbour',roam_nb_help:'What the selected cell broadcasts in D-NWRK-BROADCAST (at most 7, clause 18.5.17). The station\'s other cells are added automatically. An extra cell without its own list broadcasts only the station\'s cells.',roam_own_list:'Own neighbour list for this cell',
     roam_th_types:'Reselection',roam_th_services:'Services',roam_n_id:'Cell identifier (0-31)',roam_n_carrier:'Main carrier (0-4095)',roam_n_ext:'Carrier extension (optional)',roam_n_types:'Reselection types',roam_n_sync:'Synchronised with this cell',roam_n_load:'Cell load',roam_n_la:'Location area (optional)',roam_n_rxlev:'Min. RX access level (optional)',roam_n_txpwr:'Max. MS TX power (optional)',
     roam_n_services_help:'BS service details of the neighbour (table 18.26). Missing flags are broadcast as "not supported", so a new entry starts with this cell\'s own services.',roam_apply:'Apply',roam_edit:'Edit',roam_edit_title:'Neighbour {n}',roam_new_title:'New neighbour',roam_same_as_cell:'Same as this cell',
@@ -7885,7 +7973,7 @@ const LANGS={
     secp_tea1_warn:'TEA1 is broken: it keeps only 32 of its 80 key bits and the key can be recovered from a few seconds of traffic. Use it for research or to talk to TEA1-only radios, never for protection.',
     secp_keep:'unchanged',secp_saved_ok:'Saved. Restart the station to apply.',secp_invalid_keys:'Keys on file that could not be parsed (ISSI): ',
     secp_algo_title:'Algorithms in this build',secp_th_algo:'Algorithm',secp_th_status:'Status',secp_th_note:'Notes',secp_available:'Available',secp_unavailable:'Not available',secp_weak:'Weak — research only',
-    secp_classes:'Security classes: class 1 = clear air interface (optional authentication); class 2 = static cipher key shared by all radios (this page); class 3 = per-radio derived keys with over-the-air rekeying (not implemented).',
+    secp_classes:'Security classes: class 1 = clear air interface (optional authentication); class 2 = static cipher key shared by all radios (this page); class 3 = per-radio DCK and cell CCK (experimental, configured via TOML).',
     secp_unsaved:'Unsaved changes',
     th_id:'ID',th_type:'Type',th_caller:'Caller',
     th_dest:'Destination',th_speaker:'Speaker',th_duration:'Duration',
@@ -7938,7 +8026,7 @@ const LANGS={
     cfg_update_cell:'Update Cell',cfg_update_brew:'Update Brew',cfg_save_as_cell:'Save as',cfg_save_as_brew:'Save as',
     cfg_del_cell:'Delete',cfg_del_brew:'Delete',
     cfg_del_cell_confirm:'Delete Cell profile “{name}”?',cfg_del_brew_confirm:'Delete Brew profile “{name}”?',
-    cfg_brew_offline:'Offline (no Brew)',cfg_brew_offline_nodel:'Offline cannot be deleted.',
+    cfg_brew_offline:'Offline (no Brew)',cfg_brew_networks:'Multi Network active',cfg_brew_networks_help:'The core links are set per network on the Infrastructure page (Networks card). Apply only applies the TMO Cell profile.',cfg_brew_offline_nodel:'Offline cannot be deleted.',
     cfg_brew_lst:'LST Dispatch',cfg_brew_lst_nodel:'LST Dispatch cannot be deleted.',
     lst_dispatch:'LST Dispatch',lst_need_title:'Console unavailable',
     lst_need_profile:'Apply the “LST Dispatch” Brew profile in Config and restart to enable this console.',
@@ -8268,6 +8356,54 @@ const LANGS={
     tg_cat_backhaul:'Backhaul Brew up/down',tg_cat_logs:'Log critic (avertismente/erori)',
   },
   de:{
+    secp_class_locked:"Dieser Dienst verlangt SC3. Für SC1/SC2 zuerst --require-sc3 aus der Startzeile entfernen und neu starten.",
+    secp_aie_title_v109:"Luftschnittstellen-Verschlüsselung",
+    secp_class_label:"Sicherheitsklasse",
+    secp_class1:"SC1 — unverschlüsselt / SCK vorbereiten",
+    secp_class2:"SC2 — statischer SCK",
+    secp_class3:"SC3 — DCK / CCK (experimentell)",
+    secp_sc1_help:"Unverschlüsselte Luftschnittstelle. Ein optionaler SCK kann vor dem Wechsel auf SC2 zur Verteilung vorbereitet werden.",
+    secp_sc2_help:"Ein gemeinsamer statischer SCK verschlüsselt diese Zelle. Änderungen gelten nach Speichern und Stationsneustart.",
+    secp_sc3_help:"Jedes Funkgerät leitet seinen DCK durch Authentifizierung mit K ab. Gruppen-Downlinks verwenden den CCK. Authentifizierung ist Pflicht; speichern, Station neu starten und Funkgeräte erneut anmelden.",
+    secp_cck:"Gemeinsamer Zellschlüssel (CCK, 80 Bit)",
+    secp_cckid:"CCK-ID (0–65535)",
+    secp_dck_help:"DCKs werden automatisch abgeleitet und hier weder eingegeben noch angezeigt. Der CCK wird bei der Anmeldung versiegelt übertragen. Ein CCK-Wechsel benötigt eine neue CCK-ID und einen Stationsneustart. TEA2 ohne GCK/E2EE; die Motorola-Interoperabilität muss noch über Funk geprüft werden.",
+    secp_classes_v109:"SC1: unverschlüsselt. SC2: gemeinsamer statischer SCK. SC3: individueller DCK und gemeinsamer CCK; experimenteller Einzellenbetrieb ohne laufenden CCK-Wechsel oder GCK.",
+    secp_runtime_title:"SC3 · Schlüsselstatus der Funkgeräte",
+    secp_phase:"Authentifizierung / Anmeldung",
+    secp_runtime_help:"Laufender Stationszustand, Aktualisierung alle 3 Sekunden. Ein aktiver DCK bestätigt die Aktivierung im Stack; verschlüsselte Sprache in beide Richtungen am Funkgerät prüfen.",
+    secp_runtime_empty:"Keine SC3-Teilnehmer in der laufenden Konfiguration. SC3 speichern und die Station neu starten.",
+    secp_runtime_stale:"Statusabfrage fehlgeschlagen; die angezeigten Werte können veraltet sein.",
+    secp_dck_active:"In der Station aktiv",
+    secp_dck_ready:"Abgeleitet, Anmeldung ausstehend",
+    secp_dck_wait:"Nicht aktiv",
+    secp_phase_not_authenticated:"Wartet auf Authentifizierung",
+    secp_phase_challenge:"Challenge gesendet",
+    secp_phase_awaiting_r2:"Wartet auf Funkgeräte-Ergebnis (R2)",
+    secp_phase_awaiting_result_ack:"Wartet auf Ergebnis-ACK",
+    secp_phase_awaiting_registration_ack:"Wartet auf Anmelde-ACK",
+    secp_phase_active:"Authentifizierung abgeschlossen",
+    secp_phase_failed:"Authentifizierung abgelehnt",
+    secp_phase_timeout:"Zeitüberschreitung bei Authentifizierung / ACK",
+    secp_cck_otar:"CCK OTAR",
+    secp_cck_send:"CCK senden",
+    secp_cck_send_all:"CCK an bereite Funkgeräte senden",
+    secp_cck_action_help:"Sendet den aktuellen CCK mit dem aktiven DCK erneut; kein Schlüsselwechsel. DCK entsteht bei der Authentifizierung. Nach deren Zeitüberschreitung das Funkgerät zuerst neu anmelden. GCK wird in diesem Build nicht unterstützt.",
+    secp_cck_queued:"CCK-Übertragung angefordert. Das Funkgeräte-Ergebnis abwarten; die Anforderung ist noch keine Annahme.",
+    secp_cck_none:"Kein Funkgerät für CCK bereit. Anmeldung prüfen und ausstehende Änderungen zuerst speichern/neu starten.",
+    secp_cck_registration_sent:"Bei Anmeldung mitgesendet; noch kein Funkgeräte-Ergebnis",
+    secp_cck_registration_unconfirmed:"Bei Anmeldung mitgesendet; Annahme unbestätigt",
+    secp_dck_retained:"Bisheriger DCK behalten; Funkgerät-Abgleich unbestätigt",
+    secp_revision:"Laufender Patch",
+    secp_cck_not_sent:"Noch nicht übertragen",
+    secp_cck_sent:"CCK versiegelt gesendet",
+    secp_cck_accepted:"Vom Funkgerät akzeptiert",
+    secp_cck_rejected:"Vom Funkgerät abgelehnt",
+    secp_cck_unconfirmed:"Kein Ergebnis empfangen",
+    secp_need_k:"Mindestens einen Teilnehmer mit dem im Funkgerät provisionierten K hinterlegen.",
+    secp_invalid_fields:"SCK-Nummer, Version und Gruppen-IDs prüfen.",
+    secp_save_restart_first:"Vor SCK-Versand speichern und neu starten; unter SC3 gibt es keinen SCK-Versand.",
+
     "ui_language":"Sprache",
     bts_ip:'BTS-IP',offline:'OFFLINE',online:'ONLINE',
     brew_online:'ONLINE',brew_offline:'OFFLINE',
@@ -8377,7 +8513,7 @@ const LANGS={
     "ui_language":"Idioma",
     roaming:'Infraestructura',roam_title:'Celdas, redes, vecinas y roaming',roam_reload:'Recargar',roam_help:'Todo lo que decide cuándo y cómo pasan las radios de una celda a otra: las celdas de esta estación y sus áreas de localización, las celdas vecinas que anuncia cada celda, los valores de reselección y la comprobación de presencia. Al guardar se comprueba toda la configuración y la estación se reinicia.',
     roam_cells_title:'Áreas de localización',roam_cells_help:'Misma área de localización en todas las celdas: las radios cambian de celda sin registrarse, así que las llamadas de grupo y los establecimientos de llamada individual se emiten en todas las celdas del área. Área propia por celda: las radios se registran en cada cambio y la estación y el servidor siempre conocen la celda exacta (TS 100 392-2 cláusula 18.3.4.7.1a). Vacío = el área de la primaria. Las celdas nuevas se añaden en la tarjeta Celdas de arriba.',
-    roam_th_cell:'Celda',roam_th_network:'Red',roam_nets_title:'Redes (Multi Network)',roam_mn_on:'Activo',roam_net_server:'Servidor Brew',roam_net_chk_ok:'enrutable',roam_net_chk_down:'enlace caído',roam_net_chk_unknown:'No es posible enrutar con este MCC/MNC: el servidor Brew no llega a esa red',roam_net_chk_own:'La red propia del servidor Brew es {mni}',roam_srvnets_title:'Redes del servidor Brew',roam_srvnets_help:'El servidor Brew es la red {mni} y llega a estas redes (extensión mni). «Añadir red» toma su MCC/MNC para que todas las estaciones usen los mismos valores.',roam_srvnets_none:'Aún no hay lista del servidor Brew: hace falta Multi Network activo y un brew-server que ofrezca mni.',roam_srvnets_empty:'El servidor Brew no llega a ninguna otra red.',roam_srvnets_up:'activa',roam_srvnets_down:'caída',roam_srvnets_have:'configurada como {net}',roam_mn_off:'Apagado',roam_mn_switch_help:'Multi Network activo / apagado ([multi_network] enabled): las radios de otras redes pueden registrarse aquí por migración (TS 100 392-2 16.4.1.1 b), y todas las celdas anuncian migración. Guarda y reinicia la estación.',roam_nets_help:'Una celda emite exactamente una red (MCC / MNC, TS 100 392-2 tabla 18.17); elígela por celda en la columna Red de arriba. Una radio que selecciona una red en el terminal usa las celdas de esa red. Acceso: servidor propio = el enlace [brew] propio de la red (credenciales en esta estación); vía = a través del servidor Brew de otra red, que debe ofrecer la extensión mni y llegar a esa red (Infraestructura, sin credenciales aquí); local = conmutada dentro de esta estación. La primera red añadida convierte [net_info] y [brew] en la red "home".',roam_net_name:'Nombre',roam_net_reached:'Acceso',roam_net_add:'Añadir red',roam_net_core:'servidor propio',roam_net_host:'Servidor Brew (host)',roam_net_port:'Puerto',roam_net_user:'Usuario',roam_net_pass:'Contraseña',roam_net_need_brew:'Servidor propio: hacen falta host, puerto (1-65535), usuario (un número) y contraseña.',roam_net_via:'vía {net}',roam_net_local:'local (sin servidor)',roam_net_pending:'(sin guardar)',roam_net_confirm_core:'¿Quitar la red {net}? También se borra su propio usuario Brew de la configuración.',roam_net_need:'Red: hacen falta nombre (letras, dígitos, _ o -), MCC y MNC.',roam_th_global:'Id. global de celda',roam_resel_title:'Reselección de celda (avanzado, todas las celdas)',roam_resel_toggle:'Mostrar / ocultar',roam_fast_th:'Umbral rápido (dB)',roam_slow_th:'Umbral lento sobre el rápido (dB)',roam_fast_hy:'Histéresis rápida (dB)',roam_slow_hy:'Histéresis lenta (dB)',roam_presence:'Comprobación de presencia tras silencio (s)',
+    roam_th_cell:'Celda',roam_th_network:'Red',roam_nets_title:'Redes (Multi Network)',roam_mn_on:'Activo',roam_net_server:'Servidor Brew',roam_net_chk_ok:'enrutable',roam_net_chk_down:'enlace caído',roam_net_chk_unknown:'No es posible enrutar con este MCC/MNC: el servidor Brew no llega a esa red',roam_net_chk_own:'La red propia del servidor Brew es {mni}',roam_srvnets_title:'Redes del servidor Brew',roam_srvnets_help:'El servidor Brew es la red {mni} y llega a estas redes (extensión mni). «Añadir red» toma su MCC/MNC para que todas las estaciones usen los mismos valores.',roam_srvnets_none:'Aún no hay lista del servidor Brew: hace falta Multi Network activo y un brew-server que ofrezca mni.',roam_srvnets_empty:'El servidor Brew no llega a ninguna otra red.',roam_srvnets_up:'activa',roam_srvnets_down:'caída',roam_srvnets_have:'configurada como {net}',roam_mn_off:'Apagado',roam_mn_need_on:'Activa Multi Network para añadir redes.',roam_mn_off_confirm:'¿Apagar Multi Network? Las redes se quitan de la configuración: la red principal vuelve a [net_info] y [brew], las demás redes y las asignaciones de celdas se borran (se guarda una copia).',roam_mn_switch_help:'Multi Network activo / apagado ([multi_network] enabled): las radios de otras redes pueden registrarse aquí por migración (TS 100 392-2 16.4.1.1 b), y todas las celdas anuncian migración. Guarda y reinicia la estación.',roam_nets_help:'Una celda emite exactamente una red (MCC / MNC, TS 100 392-2 tabla 18.17); elígela por celda en la columna Red de arriba. Una radio que selecciona una red en el terminal usa las celdas de esa red. Acceso: servidor propio = el enlace [brew] propio de la red (credenciales en esta estación); vía = a través del servidor Brew de otra red, que debe ofrecer la extensión mni y llegar a esa red (Infraestructura, sin credenciales aquí); local = conmutada dentro de esta estación. La primera red añadida convierte [net_info] y [brew] en la red "home"; apagar Multi Network lo deshace.',roam_net_name:'Nombre',roam_net_reached:'Acceso',roam_net_add:'Añadir red',roam_net_core:'servidor propio',roam_net_host:'Servidor Brew (host)',roam_net_port:'Puerto',roam_net_user:'Usuario',roam_net_pass:'Contraseña',roam_net_need_brew:'Servidor propio: hacen falta host, puerto (1-65535), usuario (un número) y contraseña.',roam_net_via:'vía {net}',roam_net_local:'local (sin servidor)',roam_net_pending:'(sin guardar)',roam_net_confirm_core:'¿Quitar la red {net}? También se borra su propio usuario Brew de la configuración.',roam_net_need:'Red: hacen falta nombre (letras, dígitos, _ o -), MCC y MNC.',roam_th_global:'Id. global de celda',roam_resel_title:'Reselección de celda (avanzado, todas las celdas)',roam_resel_toggle:'Mostrar / ocultar',roam_fast_th:'Umbral rápido (dB)',roam_slow_th:'Umbral lento sobre el rápido (dB)',roam_fast_hy:'Histéresis rápida (dB)',roam_slow_hy:'Histéresis lenta (dB)',roam_presence:'Comprobación de presencia tras silencio (s)',
     roam_nb_title:'Celdas vecinas',roam_nb_add:'Añadir vecina',roam_nb_help:'Lo que la celda seleccionada anuncia en D-NWRK-BROADCAST (máx. 7, cláusula 18.5.17). Las demás celdas de la estación se añaden solas. Una celda adicional sin lista propia anuncia solo las celdas de la estación.',roam_own_list:'Lista de vecinas propia para esta celda',
     roam_th_types:'Reselección',roam_th_services:'Servicios',roam_n_id:'Identificador de celda (0-31)',roam_n_carrier:'Portadora principal (0-4095)',roam_n_ext:'Extensión de portadora (opcional)',roam_n_types:'Tipos de reselección',roam_n_sync:'Sincronizada con esta celda',roam_n_load:'Carga de la celda',roam_n_la:'Área de localización (opcional)',roam_n_rxlev:'Nivel mín. de acceso RX (opcional)',roam_n_txpwr:'Potencia TX máx. de la radio (opcional)',
     roam_n_services_help:'Detalles de servicio de la vecina (tabla 18.26). Los que faltan se anuncian como «no admitido», por eso una entrada nueva empieza con los servicios de esta celda.',roam_apply:'Aplicar',roam_edit:'Editar',roam_edit_title:'Vecina {n}',roam_new_title:'Vecina nueva',roam_same_as_cell:'Igual que esta celda',
@@ -8444,7 +8580,7 @@ const LANGS={
     cfg_update_cell:'Actualizar Cell',cfg_del_cell:'Eliminar',
     cfg_save_as_cell:'Guardar como',cfg_update_brew:'Actualizar Brew',cfg_del_brew:'Eliminar',cfg_save_as_brew:'Guardar como',
     cfg_del_cell_confirm:'¿Eliminar el perfil Cell “{name}”?',cfg_del_brew_confirm:'¿Eliminar el perfil Brew “{name}”?',
-    cfg_brew_offline:'Offline (sin Brew)',cfg_brew_offline_nodel:'Offline no se puede eliminar.',
+    cfg_brew_offline:'Offline (sin Brew)',cfg_brew_networks:'Multi Network activo',cfg_brew_networks_help:'Los enlaces al núcleo se configuran por red en la página Infraestructura (tarjeta Redes). Aplicar solo aplica el perfil de Celda TMO.',cfg_brew_offline_nodel:'Offline no se puede eliminar.',
     cfg_brew_lst:'Despacho LST',cfg_brew_lst_nodel:'Despacho LST no se puede eliminar.',
     lst_dispatch:'Despacho LST',lst_need_title:'Consola no disponible',
     lst_need_profile:'Aplica el perfil Brew “Despacho LST” en Configuración y reinicia para activar esta consola.',
@@ -9309,7 +9445,7 @@ const LANGS={
     "secp_available": "Disponível",
     "secp_unavailable": "Indisponível",
     "secp_weak": "Fraco — apenas para investigação",
-    "secp_classes": "Classes de segurança: classe 1 = interface rádio em claro (autenticação opcional); classe 2 = chave de cifra estática partilhada por todos os rádios (esta página); classe 3 = chaves derivadas por rádio com renovação via rádio (não implementada).",
+    "secp_classes": "Classes de segurança: classe 1 = interface rádio em claro (autenticação opcional); classe 2 = chave de cifra estática partilhada por todos os rádios (esta página); classe 3 = DCK por rádio e CCK da célula (experimental, configuração TOML).",
     "secp_unsaved": "Alterações por guardar",
     "th_id": "ID",
     "th_type": "Tipo",
@@ -10569,7 +10705,7 @@ const LANGS={
     "secp_available": "Disponible",
     "secp_unavailable": "Indisponible",
     "secp_weak": "Faible — recherche uniquement",
-    "secp_classes": "Classes de sécurité : classe 1 = interface radio en clair (authentification facultative) ; classe 2 = clé de chiffrement statique partagée par toutes les radios (cette page) ; classe 3 = clés dérivées par radio avec renouvellement par radio (non implémentée).",
+    "secp_classes": "Classes de sécurité : classe 1 = interface radio en clair (authentification facultative) ; classe 2 = clé de chiffrement statique partagée par toutes les radios (cette page) ; classe 3 = DCK par radio et CCK de cellule (expérimental, configuration TOML).",
     "secp_unsaved": "Modifications non enregistrées",
     "th_id": "ID",
     "th_type": "Type",
@@ -13937,12 +14073,12 @@ function setCellSecurity(cs){
   const row=document.getElementById('secRow'),led=document.getElementById('secLed'),txt=document.getElementById('secText'),ab=document.getElementById('secAuthBadge');
   if(!row)return;
   let hint='';
-  if(cs&&cs.class===2){
+  if(cs&&(cs.class===2||cs.class===3)){
     led.classList.add('on');
-    txt.textContent=`${cs.ksg} · SCK ${cs.sckn} v${cs.sck_vn}`;
+    txt.textContent=cs.class===3?`SC3 · ${cs.ksg} · DCK / CCK ${cs.cck_id}`:`${cs.ksg} · SCK ${cs.sckn} v${cs.sck_vn}`;
     txt.style.color=cs.weak?'var(--warn)':'var(--accent)';
     led.style.background=cs.weak?'var(--warn)':'var(--accent)';led.style.boxShadow=cs.weak?'0 0 6px rgba(255,178,36,0.6)':'0 0 6px rgba(0,212,168,0.6)';
-    hint=t('sec_cell_hint_enc',{sckn:cs.sckn,vn:cs.sck_vn,ksg:cs.ksg})+(cs.weak?'. '+t('sec_weak_hint'):'');
+    hint=cs.class===3?'SC3 experimental · DCK / CCK · no GCK':t('sec_cell_hint_enc',{sckn:cs.sckn,vn:cs.sck_vn,ksg:cs.ksg})+(cs.weak?'. '+t('sec_weak_hint'):'');
   } else {
     led.classList.remove('on');led.style.background='';led.style.boxShadow='';
     txt.textContent=t('sec_cell_clear');txt.style.color='';
@@ -13964,7 +14100,9 @@ function setCellSecurity(cs){
 function secCell(m){
   const cs=state.cellSec,out=[];
   if(m.authenticated)out.push(`<span class="badge badge-blue" style="font-size:9px" title="${t('sec_auth_hint')}">${ICON_LOCK} ${t('sec_auth')}</span>`);
-  if(m.encrypting&&cs&&cs.class===2){
+  if(m.encrypting&&cs&&cs.class===3){
+    out.push(`<span class="badge badge-green" style="font-size:9px">${ICON_LOCK} ${cs.ksg} DCK / CCK${cs.cck_id}</span>`);
+  } else if(m.encrypting&&cs&&cs.class===2){
     out.push(`<span class="badge ${cs.weak?'badge-yellow':'badge-green'}" style="font-size:9px" title="${cs.weak?t('sec_weak_hint'):t('sec_enc_hint')}">${ICON_LOCK} ${cs.ksg} SCK${cs.sckn} v${cs.sck_vn}</span>`);
   } else {
     out.push(`<span class="badge badge-dim" style="font-size:9px" title="${t('sec_clear_hint')}">${t('sec_clear')}</span>`);
@@ -14112,7 +14250,7 @@ function handleMsg(msg){
         }
       });
       if(msg.log&&msg.log.length){document.getElementById('log-container').innerHTML='';msg.log.forEach(e=>appendLog(e));}
-      setBrewStatus(!!msg.brew_online,msg.brew_version||0);
+      setBrewStatus(!!msg.brew_online,Math.max(1,msg.brew_version||0));
       state.secByIssi={};(msg.ms||[]).forEach(m=>{state.secByIssi[m.issi]={authenticated:!!m.authenticated,encrypting:!!m.encrypting};});
       setCellSecurity(msg.cell_security||null);
       if(msg.fallback_config_active){showFallbackBanner(msg.fallback_config_reason||'');}
@@ -14127,7 +14265,7 @@ function handleMsg(msg){
       syncDgnaAttachmentModePicker();
       renderAll();renderEmergencyBanner();refreshCallsigns();break;
     case 'brew_status':
-      setBrewStatus(!!msg.connected,msg.brew_version||0);break;
+      setBrewStatus(!!msg.connected,Math.max(1,msg.brew_version||0));break;
     case 'ms_registered':
       // Defaults include selected_group:null so a re-register event doesn't strip the
       // property off an existing entry (Object.assign with a defaults object that omits the
@@ -16135,12 +16273,30 @@ function fillBrewProfileSelect(sel,brews,pick){
   else if(keep&&[...sel.options].some(o=>o.value===keep))sel.value=keep;
   else sel.value='';
 }
+// Multi Network with networks: the core links live in [networks] (Infrastructure page), so the
+// Brew profile select is greyed out and Apply only applies the Cell profile.
+let profNetworksManaged=false;
+function markBrewSelectManaged(sel,managed){
+  if(!sel)return;
+  sel.disabled=!!managed;
+  sel.title=managed?t('cfg_brew_networks_help'):'';
+  if(!managed)return;
+  sel.innerHTML='';
+  const o=document.createElement('option');o.value='__networks__';o.textContent=t('cfg_brew_networks');sel.appendChild(o);
+  sel.value='__networks__';
+}
+function brewProfilePick(id){
+  const sel=document.getElementById(id);
+  return sel&&!sel.disabled?(sel.value||null):null;
+}
 function refreshProfileSelectTranslations(){
   ['vc-brew-profile','home-brew-profile'].forEach(id=>{
     const sel=document.getElementById(id);
     if(!sel)return;
+    if(sel.disabled)sel.title=t('cfg_brew_networks_help');
     Array.from(sel.options).forEach(option=>{
-      if(option.value==='')option.textContent=t('cfg_brew_offline');
+      if(option.value==='__networks__')option.textContent=t('cfg_brew_networks');
+      else if(option.value==='')option.textContent=t('cfg_brew_offline');
       else if(option.value==='__lst_dispatch__')option.textContent=t('cfg_brew_lst');
     });
   });
@@ -16163,7 +16319,7 @@ async function refreshProfileSelects(active){
       const [cells,brews,act]=await Promise.all([
         fetchJson('/api/profiles/cell'),
         fetchJson('/api/profiles/brew'),
-        active?Promise.resolve(active):fetchJson('/api/profiles/active'),
+        fetchJson('/api/profiles/active'),
       ]);
       let cellPick=null;
       if(active&&active.cell)cellPick=active.cell;
@@ -16171,8 +16327,9 @@ async function refreshProfileSelects(active){
       let brewPick=undefined;
       if(active&&Object.prototype.hasOwnProperty.call(active,'brew'))brewPick=active.brew||'';
       else if(act&&Object.prototype.hasOwnProperty.call(act,'brew'))brewPick=act.brew||'';
+      if(act&&typeof act.networks_managed==='boolean')profNetworksManaged=act.networks_managed;
       cellSels.forEach(sel=>fillCellProfileSelect(sel,cells,cellPick));
-      brewSels.forEach(sel=>fillBrewProfileSelect(sel,brews,brewPick));
+      brewSels.forEach(sel=>{fillBrewProfileSelect(sel,brews,brewPick);markBrewSelectManaged(sel,profNetworksManaged);});
       vcMsg('home-profiles-msg','',true);
     }catch(e){
       // Background load only — avoid painting TypeError on Home mid-restart.
@@ -16188,7 +16345,7 @@ function goHomeMoreSettings(){
 }
 async function applyHomeProfiles(){
   const cell=document.getElementById('home-cell-profile')?.value;
-  const brew=document.getElementById('home-brew-profile')?.value||null;
+  const brew=brewProfilePick('home-brew-profile');
   if(!cell){vcMsg('home-profiles-msg',t('cfg_need_select'),false);return;}
   const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
   if(!ok)return;
@@ -16201,7 +16358,7 @@ async function applyHomeProfiles(){
     const vcCell=document.getElementById('vc-cell-profile');
     const vcBrew=document.getElementById('vc-brew-profile');
     if(vcCell)vcCell.value=cell;
-    if(vcBrew)vcBrew.value=brew||'';
+    if(vcBrew&&!vcBrew.disabled)vcBrew.value=brew||'';
     try{
       const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
       if(!rr.ok)wsSend({type:'restart'});
@@ -16421,7 +16578,7 @@ async function deleteSelectedBrewProfile(){
 }
 async function applySelectedProfiles(){
   const cell=document.getElementById('vc-cell-profile')?.value;
-  const brew=document.getElementById('vc-brew-profile')?.value||null;
+  const brew=brewProfilePick('vc-brew-profile');
   if(!cell){vcMsg('vc-profiles-msg',t('cfg_need_select'),false);return;}
   const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
   if(!ok)return;
@@ -16640,7 +16797,66 @@ function tgEsc(s){return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'
 // The token to send: a freshly-typed value (never the masked placeholder), else '' = keep saved.
 function tgTokenField(){const v=(document.getElementById('tg-token').value||'').trim();return (tgTokenDirty&&v&&!v.includes('…'))?v:'';}
 // ── Security page ─────────────────────────────────────────────────────────────
-let secpData=null,secpSubs=[],secpSckDirty=false,secpChanged=false,secpOtar={};
+let secpData=null,secpSubs=[],secpSckDirty=false,secpCckDirty=false,secpChanged=false,secpOtar={},secpRuntime=null,secpRuntimeBusy=false;
+function secpClass(){return Number(document.getElementById('secp-class').value);}
+function secpCanOtar(){return !!(secpData&&!secpChanged&&!secpData.restart_required&&secpData.running?.aie&&secpData.running.class!==3&&secpClass()!==3);}
+function secpClassFields(){
+  const sc3=secpClass()===3;
+  const locked=!!secpRuntime?.require_sc3;
+  Array.from(document.getElementById('secp-class').options).forEach(o=>o.disabled=locked&&o.value!=='3');
+  document.getElementById('secp-sc2-fields').style.display=sc3?'none':'';
+  document.getElementById('secp-sc3-fields').style.display=sc3?'':'none';
+  document.getElementById('secp-class-help').textContent=t(sc3?'secp_sc3_help':secpClass()===2?'secp_sc2_help':'secp_sc1_help')+(locked?' '+t('secp_class_locked'):'');
+  document.getElementById('secp-auth').disabled=sc3;
+  document.getElementById('secp-mutual').disabled=sc3;
+  document.getElementById('secp-send-all').disabled=!secpCanOtar();
+  document.getElementById('secp-send-all').style.display=sc3?'none':'';
+  document.getElementById('secp-runtime-card').style.display=(sc3||secpData?.running?.class===3)?'':'none';
+}
+function secpClassChanged(){
+  if(secpClass()===3){
+    document.getElementById('secp-auth').value='required';
+    document.getElementById('secp-mutual').checked=true;
+    document.getElementById('secp-ksg').value='tea2';
+    secpKsgChanged();
+  }
+  secpDirty();secpClassFields();secpRenderSubs();secpRenderRuntime();
+}
+const secpCckRequested=new Map();
+function secpCanCck(r){
+  return !!(secpData&&!secpChanged&&!secpData.restart_required&&secpData.running?.class===3&&secpClass()===3&&
+    secpRuntime?.class===3&&r.registered&&r.dck_active&&r.phase==='active'&&r.cck!=='sent'&&
+    Date.now()-(secpCckRequested.get(r.issi)||0)>5000);
+}
+function secpSendCck(issi){
+  const r=secpRuntime?.radios?.find(r=>r.issi===issi);
+  if(!r||!secpCanCck(r)){secpMsg(t('secp_cck_none'),false,'secp-cck-msg');return;}
+  if(!wsSend({type:'otar_cck',issi})){secpMsg(t('conn_error'),false,'secp-cck-msg');return;}
+  secpCckRequested.set(issi,Date.now());secpMsg(t('secp_cck_queued'),true,'secp-cck-msg');secpRenderRuntime();
+}
+function secpSendCckAll(){
+  const targets=(secpRuntime?.radios||[]).filter(secpCanCck);
+  if(!targets.length){secpMsg(t('secp_cck_none'),false,'secp-cck-msg');return;}
+  targets.forEach((r,i)=>setTimeout(()=>secpSendCck(r.issi),i*1500));
+}
+function secpRenderRuntime(){
+  const rows=secpRuntime?.radios||[];
+  document.getElementById('secp-revision').textContent=t('secp_revision')+': '+(secpRuntime?.revision||'—');
+  document.getElementById('secp-cck-all').disabled=!rows.some(secpCanCck);
+  document.getElementById('secp-runtime').innerHTML=rows.length?rows.map(r=>
+    `<tr><td>${r.issi}</td><td>${secpEsc(t('secp_phase_'+r.phase))}</td><td><span class="badge ${r.dck_active&&!r.dck_retained?'badge-green':'badge-dim'}">${secpEsc(t(r.dck_retained?'secp_dck_retained':r.dck_active?'secp_dck_active':r.dck_available?'secp_dck_ready':'secp_dck_wait'))}</span></td><td>${secpEsc(t('secp_cck_'+r.cck))}${r.cck==='accepted'?' · '+secpRuntime.cck_id:''}</td><td><button class="btn btn-sm" ${secpCanCck(r)?'':'disabled'} onclick="secpSendCck(${r.issi})">${secpEsc(t('secp_cck_send'))}</button></td></tr>`
+  ).join(''):`<tr><td colspan="5" class="help-text">${t('secp_runtime_empty')}</td></tr>`;
+}
+async function secpRefreshRuntime(){
+  if(secpRuntimeBusy||!document.getElementById('page-security')?.classList.contains('active')||document.hidden)return;
+  secpRuntimeBusy=true;
+  try{
+    const r=await fetch('/api/security/runtime',{cache:'no-store'});if(!r.ok)throw new Error();
+    secpRuntime=await r.json();secpClassFields();secpRenderRuntime();document.getElementById('secp-runtime-error').textContent='';
+  }catch{document.getElementById('secp-runtime-error').textContent=t('secp_runtime_stale');}
+  finally{secpRuntimeBusy=false;}
+}
+setInterval(secpRefreshRuntime,3000);
 function secpEsc(s){return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function secpMsg(txt,ok,id){
   const el=document.getElementById(id||'secp-msg');
@@ -16652,6 +16868,8 @@ function secpMsg(txt,ok,id){
 }
 function secpDirty(){
   secpChanged=true;
+  secpRenderRuntime();
+  document.getElementById('secp-send-all').disabled=true;
   const el=document.getElementById('secp-msg');
   el.dataset.translationKey='secp_unsaved';
   el.textContent=t('secp_unsaved');
@@ -16661,26 +16879,27 @@ function secpPosture(p){
   if(!p)return '—';
   const a={off:t('secp_auth_off').split(' — ')[0],optional:t('secp_auth_optional').split(' — ')[0],required:t('secp_auth_required').split(' — ')[0]}[p.authentication]||p.authentication;
   const on=!!(p.aie&&p.aie.enabled);
-  const enc=on?`${p.aie.ksg.toUpperCase()} · SCK ${p.aie.sckn} v${p.aie.sck_vn}${p.aie.weak?' ⚠':''}`:(p.aie?`${t('sec_cell_clear')} · ${p.aie.ksg.toUpperCase()} SCK ${p.aie.sckn} v${p.aie.sck_vn} ${t('secp_staged')}`:t('sec_cell_clear'));
+  const enc=p.class===3?`SC3 · ${p.aie.ksg.toUpperCase()} · DCK / CCK ${p.aie.cck_id}`:on?`${p.aie.ksg.toUpperCase()} · SCK ${p.aie.sckn} v${p.aie.sck_vn}${p.aie.weak?' ⚠':''}`:(p.aie?`${t('sec_cell_clear')} · ${p.aie.ksg.toUpperCase()} SCK ${p.aie.sckn} v${p.aie.sck_vn} ${t('secp_staged')}`:t('sec_cell_clear'));
   return `<span style="color:${on?(p.aie.weak?'var(--warn)':'var(--accent)'):'var(--text2)'}">${ICON_LOCK} ${secpEsc(enc)}</span><br><span style="color:var(--text2)">AUTH ${secpEsc(a).toUpperCase()}${p.mutual_authentication&&p.authentication!=='off'?' · mutual':''} · ${(p.subscribers||[]).length} key(s)</span>`;
 }
 function secpRenderSubs(){
   const tb=document.getElementById('secp-subs');
   if(!secpSubs.length){tb.innerHTML=`<tr><td colspan="3" class="help-text">${t('secp_no_keys')}</td></tr>`;return;}
-  const canOtar=!!(secpData&&(secpData.saved||secpData.running)&&(secpData.saved||secpData.running).aie);
+  const canOtar=secpCanOtar();
   tb.innerHTML=secpSubs.map((s,i)=>{
     const st=secpOtar[s.issi],ok=st==='accepted',pend=st==='sent';
     const stHtml=st?`<div style="font-size:11px;margin-top:3px;color:${ok?'var(--accent)':(pend?'var(--text2)':'var(--danger)')}">${ICON_LOCK} ${t('secp_otar_label')}: ${secpEsc(st)}</div>`:'';
     const online=!!state.ms[s.issi];
-    return `<tr><td>${idCell?idCell(s.issi):s.issi}${online?'':' <span class="badge badge-dim" style="font-size:9px">'+t('secp_offline')+'</span>'}</td><td style="font-family:var(--mono)">${s.k==='keep'?secpEsc(s.k_masked)+' <span class="badge badge-dim" style="font-size:9px">'+t('secp_keep')+'</span>':secpEsc(s.k.slice(0,4))+'…'+secpEsc(s.k.slice(-4))+' <span class="badge badge-green" style="font-size:9px">NEW</span>'}${stHtml}</td><td style="white-space:nowrap"><button class="btn btn-sm" ${(canOtar&&s.k==='keep'&&online)?'':'disabled'} title="${t('secp_otar_hint')}" onclick="secpSendSck(${s.issi})">${ICON_LOCK} ${t('secp_otar_send')}</button> <button class="btn btn-sm btn-danger" onclick="secpRemoveSub(${i})">${t('secp_remove')}</button></td></tr>`;
+    return `<tr><td>${idCell?idCell(s.issi):s.issi}${online?'':' <span class="badge badge-dim" style="font-size:9px">'+t('secp_offline')+'</span>'}</td><td style="font-family:var(--mono)">${s.k==='keep'?secpEsc(s.k_masked)+' <span class="badge badge-dim" style="font-size:9px">'+t('secp_keep')+'</span>':secpEsc(s.k.slice(0,4))+'…'+secpEsc(s.k.slice(-4))+' <span class="badge badge-green" style="font-size:9px">NEW</span>'}${stHtml}</td><td style="white-space:nowrap"><button class="btn btn-sm" style="${secpClass()===3?'display:none':''}" ${(canOtar&&s.k==='keep'&&online)?'':'disabled'} title="${t('secp_otar_hint')}" onclick="secpSendSck(${s.issi})">${ICON_LOCK} ${t('secp_otar_send')}</button> <button class="btn btn-sm btn-danger" onclick="secpRemoveSub(${i})">${t('secp_remove')}</button></td></tr>`;
   }).join('');
 }
 function secpSendSck(issi){
-  if(secpChanged){secpMsg(t('secp_save_first'),false,'secp-subs-msg');return;}
+  if(!secpCanOtar()){secpMsg(t('secp_save_restart_first'),false,'secp-subs-msg');return;}
   if(!wsSend({type:'otar_sck',issi})){secpMsg(t('conn_error'),false,'secp-subs-msg');return;}
   secpOtar[issi]='sent';secpRenderSubs();
 }
 function secpSendSckAll(){
+  if(!secpCanOtar())return;
   const targets=secpSubs.filter(s=>s.k==='keep'&&state.ms[s.issi]);
   if(!targets.length){secpMsg(t('secp_otar_none'),false,'secp-subs-msg');return;}
   if(!confirm(t('secp_otar_confirm_all',{n:targets.length})))return;
@@ -16698,10 +16917,17 @@ function secpAddSub(){
 function secpRemoveSub(i){secpSubs.splice(i,1);secpRenderSubs();secpDirty();}
 async function secpGenerate(what,inputId){
   try{const r=await fetch('/api/security/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({what})});
-    if(!r.ok){secpMsg(await r.text(),false);return;}const d=await r.json();document.getElementById(inputId).value=d.hex||'';}
+    if(!r.ok){secpMsg(await r.text(),false);return;}const d=await r.json();document.getElementById(inputId).value=d.hex||'';
+    if(what==='sck'){secpSckDirty=true;secpDirty();}
+    if(what==='cck'){
+      secpCckDirty=true;
+      const old=(secpData.saved||secpData.running).aie;
+      if(old?.class===3)document.getElementById('secp-cckid').value=(old.cck_id+1)%65536;
+      secpDirty();
+    }
+  }
   catch{secpMsg(t('conn_error'),false);}
 }
-function secpAieToggle(){secpDirty();}
 function secpKsgChanged(){
   const sel=document.getElementById('secp-ksg'),id=sel.value,k=(secpData&&secpData.ksgs||[]).find(x=>x.id===id);
   document.getElementById('secp-ksg-note').textContent=k?k.note:'';
@@ -16713,7 +16939,7 @@ function secpRenderAlgos(){
   tb.innerHTML=(secpData.ksgs||[]).map(k=>`<tr><td style="font-family:var(--mono)">${k.name}</td><td>${k.available?(k.weak?`<span class="badge badge-yellow">${t('secp_weak')}</span>`:`<span class="badge badge-green">${t('secp_available')}</span>`):`<span class="badge badge-dim">${t('secp_unavailable')}</span>`}</td><td class="help-text">${secpEsc(k.note)}</td></tr>`).join('');
 }
 function secpFill(d){
-  secpData=d;
+  secpData=d;secpChanged=false;secpRuntime=d.runtime||null;
   document.getElementById('secp-running').innerHTML=secpPosture(d.running);
   document.getElementById('secp-saved').innerHTML=d.saved?secpPosture(d.saved):'—';
   document.getElementById('secp-restart').style.display=d.restart_required?'':'none';
@@ -16723,43 +16949,58 @@ function secpFill(d){
   document.getElementById('secp-auth').value=s.authentication||'off';
   document.getElementById('secp-mutual').checked=!!s.mutual_authentication;
   secpSubs=(s.subscribers||[]).map(x=>({issi:x.issi,k:'keep',k_masked:x.k_masked}));
-  secpRenderSubs();
   const inv=document.getElementById('secp-invalid');
   if((s.invalid_subscriber_keys||[]).length){inv.style.display='';inv.textContent=t('secp_invalid_keys')+s.invalid_subscriber_keys.join(', ');}else{inv.style.display='none';}
   const sel=document.getElementById('secp-ksg');
   sel.innerHTML=(d.ksgs||[]).map(k=>`<option value="${k.id}"${k.available?'':' disabled'}>${k.name}${k.weak?t("ui_research_only"):''}${k.available?'':t("ui_not_available")}</option>`).join('');
   const aie=s.aie;
-  document.getElementById('secp-aie').checked=!!(aie&&aie.enabled);
-  sel.value=aie?aie.ksg:'tea3';
-  document.getElementById('secp-sck').value=aie?aie.sck_masked:'';secpSckDirty=false;
-  document.getElementById('secp-sckn').value=aie?aie.sckn:1;
-  document.getElementById('secp-sckvn').value=aie?aie.sck_vn:1;
+  document.getElementById('secp-class').value=String(s.class||1);
+  sel.value=aie?aie.ksg:'tea2';
+  document.getElementById('secp-sck').value=aie&&s.class!==3?aie.sck_masked:'';secpSckDirty=false;
+  document.getElementById('secp-cck').value=s.class===3?aie.cck_masked:'';secpCckDirty=false;
+  document.getElementById('secp-cckid').value=s.class===3?aie.cck_id:1;
+  document.getElementById('secp-sckn').value=aie?.sckn??1;
+  document.getElementById('secp-sckvn').value=aie?.sck_vn??1;
   document.getElementById('secp-groups').value=aie?(aie.clear_groups||[]).join(', '):'';
   const k=(d.ksgs||[]).find(x=>x.id===sel.value);
   document.getElementById('secp-ksg-note').textContent=k?k.note:'';
   document.getElementById('secp-tea1-warn').style.display=(k&&k.weak)?'':'none';
   secpRenderAlgos();
   if(s.aie_error){secpMsg(s.aie_error,false);}else if(!secpChanged){const msg=document.getElementById('secp-msg');msg.textContent='';delete msg.dataset.translationKey;}
-  secpChanged=false;
+  secpClassFields();secpRenderSubs();secpRenderRuntime();
+
 }
 async function loadSecurity(){
   try{const r=await fetch('/api/security');if(!r.ok){secpMsg(t('conn_error'),false);return;}secpFill(await r.json());}
   catch{secpMsg(t('conn_error'),false);}
 }
 async function saveSecurity(){
-  const enabled=document.getElementById('secp-aie').checked;
-  const sck=(document.getElementById('secp-sck').value||'').trim().toLowerCase();
-  const haveKey=secpSckDirty?sck.length>0:!!((secpData.saved||secpData.running).aie);
-  if(secpSckDirty&&sck&&!/^[0-9a-f]{20}$/.test(sck)){secpMsg('SCK: '+t('secp_sck_placeholder'),false);return;}
-  if(enabled&&!haveKey){secpMsg('SCK: '+t('secp_sck_placeholder'),false);return;}
-  const body={
-    authentication:document.getElementById('secp-auth').value,
-    mutual_authentication:document.getElementById('secp-mutual').checked,
-    subscribers:secpSubs.map(s=>({issi:s.issi,k:s.k})),
-    aie:haveKey?{enabled,ksg:document.getElementById('secp-ksg').value,sck:secpSckDirty?sck:'keep',
-      sckn:parseInt(document.getElementById('secp-sckn').value,10)||1,sck_vn:parseInt(document.getElementById('secp-sckvn').value,10)||0,
-      clear_groups:(document.getElementById('secp-groups').value||'').split(/[\s,;]+/).filter(Boolean).map(x=>parseInt(x,10)).filter(n=>Number.isInteger(n)&&n>0)}:{enabled:false}
-  };
+  if(!secpData)return;
+  const cls=secpClass(),saved=secpData.saved||secpData.running;
+  const number=(id,min,max)=>{const v=document.getElementById(id).value.trim();const n=Number(v);return v&&Number.isInteger(n)&&n>=min&&n<=max?n:null;};
+  let aie;
+  if(cls===3){
+    const cck=document.getElementById('secp-cck').value.trim().toLowerCase();
+    const id=number('secp-cckid',0,65535);
+    if(id===null){secpMsg(t('secp_cckid'),false);return;}
+    if((secpCckDirty||saved.class!==3)&&!/^[0-9a-f]{20}$/.test(cck)){secpMsg('CCK: '+t('secp_sck_placeholder'),false);return;}
+    if(!secpSubs.length){secpMsg(t('secp_need_k'),false);return;}
+    aie={class:3,ksg:document.getElementById('secp-ksg').value,cck:secpCckDirty||saved.class!==3?cck:'keep',cck_id:id};
+  }else{
+    const sck=document.getElementById('secp-sck').value.trim().toLowerCase();
+    const haveKey=secpSckDirty?sck.length>0:!!(saved.aie&&saved.class!==3);
+    if((secpSckDirty&&sck&&!/^[0-9a-f]{20}$/.test(sck))||(cls===2&&!haveKey)){secpMsg('SCK: '+t('secp_sck_placeholder'),false);return;}
+    aie={class:cls,enabled:cls===2};
+    if(haveKey){
+      const sckn=number('secp-sckn',1,32),vn=number('secp-sckvn',0,65535);
+      const groups=document.getElementById('secp-groups').value.split(/[\s,;]+/).filter(Boolean).map(Number);
+      if(sckn===null||vn===null||groups.some(n=>!Number.isInteger(n)||n<1||n>16777215)){secpMsg(t('secp_invalid_fields'),false);return;}
+      Object.assign(aie,{ksg:document.getElementById('secp-ksg').value,sck:secpSckDirty?sck:'keep',sckn,sck_vn:vn,clear_groups:groups});
+    }
+  }
+  const body={authentication:cls===3?'required':document.getElementById('secp-auth').value,
+    mutual_authentication:cls===3||document.getElementById('secp-mutual').checked,
+    subscribers:secpSubs.map(s=>({issi:s.issi,k:s.k})),aie};
   try{
     const r=await fetch('/api/security',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     if(!r.ok){secpMsg(await r.text(),false);return;}
@@ -16767,7 +17008,8 @@ async function saveSecurity(){
   }catch{secpMsg(t('conn_error'),false);}
 }
 async function restartForSecurity(){
-  try{await fetch('/api/security/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});secpMsg(t('secp_restarting'),true);}
+  if(secpChanged){secpMsg(t('secp_save_first'),false);return;}
+  try{const r=await fetch('/api/security/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!r.ok){secpMsg(await r.text(),false);return;}secpMsg(t('secp_restarting'),true);}
   catch{secpMsg(t('conn_error'),false);}
 }
 
@@ -18206,6 +18448,7 @@ async function confirmOtaUpdate(){
 // fetch configuration, reset edits, change dispatch state, or mark telemetry fresh.
 function renderSecurityLabels(){
   if(!secpData)return;
+  secpClassFields();secpRenderRuntime();
   const put=(id,text)=>{const el=document.getElementById(id);if(el)el.innerHTML=text;};
   put('secp-running',secpPosture(secpData.running));
   put('secp-saved',secpData.saved?secpPosture(secpData.saved):'—');
@@ -18873,14 +19116,19 @@ function roamDbmHint(){
 // cells announce migration by themselves (TS 100 392-2 18.5.2.1), so the migration box follows.
 function roamMnShow(on){
   const sw=document.getElementById('rm-mn-enabled');if(sw)sw.checked=on;
+  // Networks are added only with Multi Network on (off takes [networks] out of the config).
+  ['rm-net-name','rm-net-mcc','rm-net-mnc','rm-net-via','rm-net-add'].forEach(id=>{const el=document.getElementById(id);if(el){el.disabled=!on;el.title=on?'':t('roam_mn_need_on');}});
   const st=document.getElementById('rm-mn-state');if(st){st.dataset.i18n=on?'roam_mn_on':'roam_mn_off';st.textContent=t(st.dataset.i18n);}
   const mig=document.getElementById('rm-migration');
   if(mig&&roamData){mig.checked=!!roamData.migration||on;mig.disabled=on;mig.title=on?t('cfg_migration_auto'):'';}
 }
 async function roamMnToggle(el){
   const on=!!el.checked;
+  const dropNets=!on&&!!(roamData&&roamData.networks_explicit);
+  if(dropNets&&!confirm(t('roam_mn_off_confirm'))){el.checked=true;return;}
   roamMnShow(on);
   if(!await roamSave({multi_network_enabled:on}))roamMnShow(!!(roamData&&roamData.multi_network_enabled));
+  else if(dropNets){const m=(document.getElementById('roam-msg')||{}).textContent||'';await loadRoaming();setText('roam-msg',m);}
 }
 async function roamSave(extra){
   if(!roamData)return false;

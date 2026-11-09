@@ -78,6 +78,8 @@ fn submit(test: &mut ComponentTest, address: TetraAddress, write: impl FnOnce(&m
             sdu,
             handle: 0,
             received_address: address,
+            rx_ack: None,
+            encrypted: false,
         }),
     });
     test.run_stack(Some(2));

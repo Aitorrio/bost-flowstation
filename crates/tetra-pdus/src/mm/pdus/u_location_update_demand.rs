@@ -1,4 +1,5 @@
 use core::fmt;
+use super::otar_cck::AuthenticationUplink;
 
 use tetra_core::expect_pdu_type;
 use tetra_core::typed_pdu_fields::*;
@@ -43,7 +44,7 @@ pub struct ULocationUpdateDemand {
     /// Type3, 3 bits, Group report response
     pub group_report_response: Option<Type3FieldGeneric>,
     /// Type3, 3 bits, See ETSI EN 300 392-7 [8],
-    pub authentication_uplink: Option<Type3FieldGeneric>,
+    pub authentication_uplink: Option<AuthenticationUplink>,
     /// Type3, 3 bits, See note 2,
     pub extended_capabilities: Option<Type3FieldGeneric>,
     /// Type3, 3 bits, Proprietary
@@ -117,7 +118,7 @@ impl ULocationUpdateDemand {
         let group_report_response = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::GroupReportResponse)?;
 
         // Type3
-        let authentication_uplink = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::AuthenticationUplink)?;
+        let authentication_uplink = typed::parse_type3_struct(obit, buffer, MmType34ElemIdUl::AuthenticationUplink, AuthenticationUplink::from_bitbuf)?;
 
         // Type3
         let extended_capabilities = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::ExtendedCapabilities)?;
@@ -215,7 +216,7 @@ impl ULocationUpdateDemand {
         typed::write_type3_generic(obit, buffer, &self.group_report_response, MmType34ElemIdUl::GroupReportResponse)?;
 
         // Type3
-        typed::write_type3_generic(obit, buffer, &self.authentication_uplink, MmType34ElemIdUl::AuthenticationUplink)?;
+        typed::write_type3_struct(obit, buffer, &self.authentication_uplink, MmType34ElemIdUl::AuthenticationUplink, AuthenticationUplink::to_bitbuf)?;
 
         // Type3
 

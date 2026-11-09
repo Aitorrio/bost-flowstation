@@ -2414,6 +2414,8 @@ mod ss_dgna_tests {
             src: TetraEntity::Mle,
             dest: TetraEntity::Mm,
             msg: SapMsgInner::LmmMleUnitdataInd(LmmMleUnitdataInd {
+                rx_ack: None,
+                encrypted: false,
                 sdu,
                 handle: 0,
                 received_address: TetraAddress::new(issi, SsiType::Issi),

@@ -8,6 +8,7 @@ use crate::net_telemetry::channel::TelemetrySink;
 use crate::{MessageQueue, TetraEntityTrait, net_brew};
 use tetra_config::bluestation::{Mni, SharedConfig};
 use tetra_core::tetra_entities::TetraEntity;
+use tetra_core::tx_receipt::TxReporter;
 use tetra_core::{BitBuffer, Layer2Service, Sap, TdmaTime, TetraAddress, unimplemented_log};
 use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
 use tetra_saps::control::call_control::CallControl;
@@ -24,6 +25,7 @@ use tetra_pdus::mm::enums::reject_cause::RejectCause;
 use tetra_pdus::mm::enums::status_downlink::StatusDownlink;
 use tetra_pdus::mm::enums::status_uplink::StatusUplink;
 use tetra_pdus::mm::fields::energy_saving_information::EnergySavingInformation;
+use tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters;
 use tetra_pdus::mm::fields::group_identity_attachment::GroupIdentityAttachment;
 use tetra_pdus::mm::fields::group_identity_downlink::GroupIdentityDownlink;
 use tetra_pdus::mm::fields::group_identity_location_accept::GroupIdentityLocationAccept;
@@ -52,7 +54,8 @@ use tetra_pdus::mm::pdus::authentication::{
 };
 use tetra_pdus::mm::pdus::otar_sck::{self, DOtarSckProvide, DOtarSckReject, OtarSessionKey, SckKeyAndIdentifier, UOtarSckDemand, UOtarSckResult};
 use tetra_security::auth::{MsChallenge, answer_ms_challenge, derive_dck, random_nonce};
-use tetra_security::keys::AuthKey;
+use tetra_security::keys::{AuthKey, CipherKey as SecCipherKey};
+use tetra_pdus::mm::pdus::otar_cck::{AuthenticationDownlink, CckInformation, CckLocations, DOtarCckProvide, UOtarCckDemand, UOtarCckResult};
 use tetra_security::taa1::{ta41, ta51};
 
 /// Group identity detachment downlink "Temporary 1 detachment" (TS 100 392-2 table 16.52).
@@ -61,10 +64,18 @@ const GROUP_DETACHMENT_TEMPORARY_1: u8 = 1;
 /// A challenge in flight (EN 300 392-7 clause 4.1.2).
 struct PendingAuth {
     challenge: MsChallenge,
+    dck2: Option<[u8; 10]>,
     /// L2 handle the challenge went out on.
     handle: u32,
     /// The U-LOCATION UPDATE DEMAND that is waiting for the result, if the challenge was part
     /// of a registration.
+    held: Option<SapMsg>,
+    started: Instant,
+}
+
+struct PendingAuthResult {
+    uplink_ack: bool,
+    dck: SecCipherKey,
     held: Option<SapMsg>,
     started: Instant,
 }
@@ -75,12 +86,34 @@ struct PendingOtar {
     started: Instant,
 }
 
+/// Ciphering change waiting for the LLC acknowledgement of D-LOCATION-UPDATE-ACCEPT.
+struct PendingCiphering {
+    /// The exact authenticated key sealed into this registration, not a later exchange.
+    dck: Option<SecCipherKey>,
+    ciphering: Option<CipheringParameters>,
+    reporter: TxReporter,
+    /// True while a SwMI-requested group report must finish before ciphering changes.
+    awaiting_group_report: bool,
+    started: Instant,
+}
+
 /// T354: how long the infrastructure waits for the radio's authentication response.
 const T354: Duration = Duration::from_secs(30);
 /// How long a successful authentication stays valid for the held registration to go through.
 const AUTH_PASS_GRACE: Duration = Duration::from_secs(5);
 /// How long to wait for U-OTAR SCK RESULT after an individually addressed provide.
 const T_OTAR_RESULT: Duration = Duration::from_secs(30);
+/// Maximum time to retain a location-update ciphering transition without an LLC ACK.
+const CIPHERING_ACK_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// ETSI EN 300 392-2 §16.10.27a:
+/// Group report response value 0 means complete; value 1 is reserved.
+fn group_report_response_is_complete(len: usize, data: u128) -> bool {
+    // This is a one-bit IE. Never treat a malformed multi-bit zero value as a
+    // valid completion: that could activate pending air-interface ciphering.
+    len == 1 && data == 0
+}
+
 
 pub struct MmBs {
     config: SharedConfig,
@@ -97,10 +130,17 @@ pub struct MmBs {
     auth_pending: HashMap<u32, PendingAuth>,
     /// Radios that just passed, so the replayed registration is not challenged again.
     auth_passed: HashMap<u32, Instant>,
-    /// Derived cipher key per authenticated radio (for a future class 3).
-    dck: HashMap<u32, [u8; 10]>,
+    /// Newly authenticated DCKs; published to MAC only at the acknowledgement boundary.
+    dck: HashMap<u32, SecCipherKey>,
+    auth_result_pending: HashMap<u32, PendingAuthResult>,
+    auth_ack_pending: HashMap<u32, (PendingAuthResult, TxReporter)>,
+    cck_pending: HashMap<u32, Instant>,
     /// SCK deliveries awaiting the radio's U-OTAR SCK RESULT.
     otar_pending: HashMap<u32, PendingOtar>,
+    /// Ciphering changes awaiting the LLC ACK of D-LOCATION-UPDATE-ACCEPT.
+    pending_ciphering: HashMap<u32, PendingCiphering>,
+    /// Transport mode of the current registration, independent of the old active DCK.
+    registration_encryption: HashMap<u32, bool>,
 
     // â”€â”€ Restart recovery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     /// On-disk cache of known terminals. `Some` only after `init_recovery` runs (i.e. when the
@@ -124,6 +164,8 @@ pub struct MmBs {
     /// while the MS is expected to multipacket (detach-all + amendments). Cleared on
     /// group-report-complete or after [`GROUP_REPORT_REQUEST_COOLDOWN`].
     group_report_requested_at: HashMap<u32, std::time::Instant>,
+    /// Group reports that must finish before a negotiated ciphering transition is committed.
+    group_report_in_flight: HashMap<u32, Instant>,
     /// Groups discarded by the ACK-size cap, kept until the MS finishes multipacket attach or
     /// we fall back to a SwMI D-ATTACH of the remainder (MXP600 often re-sends the full list
     /// in a PDU that exceeds the uplink and fails to parse).
@@ -187,13 +229,19 @@ impl MmBs {
             auth_pending: HashMap::new(),
             auth_passed: HashMap::new(),
             dck: HashMap::new(),
+            auth_result_pending: HashMap::new(),
+            auth_ack_pending: HashMap::new(),
+            cck_pending: HashMap::new(),
             otar_pending: HashMap::new(),
+            pending_ciphering: HashMap::new(),
+            registration_encryption: HashMap::new(),
             recovery: None,
             recovery_pending: VecDeque::new(),
             recovery_attempts: HashMap::new(),
             recovery_last_frame: None,
             reactive_recovery_cooldown: HashMap::new(),
             group_report_requested_at: HashMap::new(),
+            group_report_in_flight: HashMap::new(),
             attach_overflow_remainder: HashMap::new(),
             visitors: Visitors::new(cell_id),
         }
@@ -265,6 +313,110 @@ impl MmBs {
         self.recovery = Some(cache);
     }
 
+    /// Apply the negotiated ciphering state after the location-update accept was acknowledged.
+    fn apply_ciphering_state(&mut self, issi: u32, ciphering: Option<CipheringParameters>, dck: Option<&SecCipherKey>) {
+        if ciphering.is_some_and(|c| c.class3) {
+            let Some(dck) = dck else {
+                tracing::error!("MM: refusing SC3 activation for ISSI {} without authenticated DCK", issi);
+                return;
+            };
+            self.config.state_write().sc3_dcks.insert(issi, tetra_config::bluestation::CipherKey(dck.0));
+            self.sc3_phase(issi, "active");
+        } else {
+            self.config.state_write().sc3_dcks.remove(&issi);
+        }
+        let _ = self.client_mgr.set_client_ciphering(issi, ciphering);
+        self.config
+            .state_write()
+            .subscribers
+            .set_encrypted(issi, ciphering.is_some());
+
+        match ciphering {
+            Some(params) => tracing::info!(
+                "MM: ISSI {} ciphering activated after the required LLC ACK ({})",
+                issi,
+                params
+            ),
+            None => tracing::info!(
+                "MM: ISSI {} clear mode activated after the required LLC ACK",
+                issi
+            ),
+        }
+    }
+
+    /// Track a new location-update accept, superseding any previous unacknowledged accept.
+    fn replace_pending_ciphering(
+        &mut self,
+        issi: u32,
+        ciphering: Option<CipheringParameters>,
+        reporter: TxReporter,
+    ) {
+        if let Some(previous) = self.pending_ciphering.remove(&issi) {
+            if previous.reporter.is_acknowledged() && !previous.awaiting_group_report && previous.started.elapsed() < CIPHERING_ACK_TIMEOUT {
+                // The previous transition is complete; preserve its ACK before replacing it.
+                self.apply_ciphering_state(issi, previous.ciphering, previous.dck.as_ref());
+            } else {
+                tracing::debug!(
+                    "MM: ISSI {} superseding pending ciphering transition (awaiting group report: {}, TX state: {:?})",
+                    issi,
+                    previous.awaiting_group_report,
+                    previous.reporter.get_state()
+                );
+            }
+        }
+
+        self.pending_ciphering.insert(
+            issi,
+            PendingCiphering {
+                dck: self.dck.get(&issi).cloned(),
+                ciphering,
+                reporter,
+                // SC3 switches DCK at the acknowledged authentication result, not
+                // at a later group-report exchange (EN 300 392-7, 4.5.5.1).
+                // Otherwise encrypted group reports need the very DCK they block.
+                awaiting_group_report: !ciphering.is_some_and(|c| c.class3)
+                    && self.group_report_in_flight.contains_key(&issi),
+                started: Instant::now(),
+            },
+        );
+    }
+
+    /// Commit acknowledged ciphering changes and discard stale ones without changing state.
+    fn process_pending_ciphering(&mut self) {
+        let mut acknowledged = Vec::new();
+        let mut expired = Vec::new();
+
+        for (&issi, pending) in &self.pending_ciphering {
+            if pending.reporter.is_acknowledged() && !pending.awaiting_group_report && pending.started.elapsed() < CIPHERING_ACK_TIMEOUT {
+                acknowledged.push(issi);
+            } else if pending.started.elapsed() >= CIPHERING_ACK_TIMEOUT {
+                expired.push(issi);
+            }
+        }
+
+        for issi in acknowledged {
+            self.registration_encryption.remove(&issi);
+            if let Some(pending) = self.pending_ciphering.remove(&issi) {
+                self.apply_ciphering_state(issi, pending.ciphering, pending.dck.as_ref());
+            }
+        }
+
+        for issi in expired {
+            self.registration_encryption.remove(&issi);
+            self.sc3_phase(issi, "timeout");
+            self.group_report_in_flight.remove(&issi);
+            if let Some(pending) = self.pending_ciphering.remove(&issi) {
+                tracing::warn!(
+                    "MM: ISSI {} pending ciphering transition did not receive its required LLC ACK / group-report completion within {:?} (TX state: {:?}); keeping previous ciphering state",
+                    issi,
+                    CIPHERING_ACK_TIMEOUT,
+                    pending.reporter.get_state()
+                );
+            }
+        }
+        self.group_report_in_flight.retain(|_, started| started.elapsed() < CIPHERING_ACK_TIMEOUT);
+    }
+
     /// Mark the recovery cache dirty (a flush is debounced from tick_start). No-op when recovery
     /// is disabled.
     fn recovery_mark_dirty(&mut self) {
@@ -330,7 +482,7 @@ impl MmBs {
                 continue;
             }
             // handle = 0: addressed by ISSI on the MCCH (see send_d_location_update_command).
-            Self::send_d_location_update_command(queue, issi, 0);
+            self.send_d_location_update_command(queue, issi, 0);
             self.recovery_attempts.insert(issi, attempts + 1);
             self.recovery_pending.push_back(issi); // round-robin until it answers or we give up
         }
@@ -374,6 +526,20 @@ impl MmBs {
     /// gave up on it). Rate-limited per ISSI; gated by the access whitelist and the optional
     /// `[recovery] issi_allowlist`; on by default (`[recovery] reactive_enabled`).
     fn maybe_reactive_recovery(&mut self, queue: &mut MessageQueue, issi: u32) {
+        // Do not launch a second recovery/location-update procedure while this ISSI's
+        // registration challenge is already in flight. The radio's RSSI proves presence,
+        // but the held registration must be allowed to finish first.
+        if self.auth_pending.get(&issi).is_some_and(|pending| {
+            pending.held.is_some() && pending.started.elapsed() < T354
+        }) || self.auth_result_pending.get(&issi).is_some_and(|p| p.started.elapsed() < T354)
+           || self.auth_ack_pending.get(&issi).is_some_and(|(p, _)| p.started.elapsed() < T354) {
+            tracing::debug!(
+                "MM: suppressing reactive recovery for ISSI {} while registration authentication is pending",
+                issi
+            );
+            return;
+        }
+
         // Known identity and current reachability are distinct. A radio returning after a
         // presence timeout may still know its affiliations, but must re-register before the
         // subscriber registry and Brew advertise it as reachable again.
@@ -431,32 +597,8 @@ impl MmBs {
                 self.registration_probe_receipts.insert(issi, receipt);
             }
         } else {
-            Self::send_d_location_update_command(queue, issi, 0);
+            self.send_d_location_update_command(queue, issi, 0);
         }
-    }
-
-    /// Finish a "detach all currently attached group identities and attach group identities
-    /// defined in the group identity uplink element" (TS 100 392-2 table 16.49): only the
-    /// groups the MS had before and does not hold after the attach are deaffiliated. A group
-    /// it re-attaches stays affiliated throughout, so a running call to it is not released
-    /// (a group report re-attaches every group this way, clauses 16.4.3 and 16.8.3).
-    fn deaffiliate_groups_left_after_detach_all(&mut self, queue: &mut MessageQueue, issi: u32, prior_groups: Vec<u32>) {
-        let attached: HashSet<u32> = self
-            .client_mgr
-            .get_client_by_issi(issi)
-            .map(|client| client.groups.iter().copied().collect())
-            .unwrap_or_default();
-        let left: Vec<u32> = prior_groups.into_iter().filter(|gssi| !attached.contains(gssi)).collect();
-        if left.is_empty() {
-            return;
-        }
-        {
-            let mut state = self.config.state_write();
-            for &gssi in &left {
-                state.subscribers.deaffiliate(issi, gssi);
-            }
-        }
-        self.emit_subscriber_update(queue, issi, left, BrewSubscriberAction::Deaffiliate);
     }
 
     fn emit_subscriber_update(&self, queue: &mut MessageQueue, issi: u32, groups: Vec<u32>, action: BrewSubscriberAction) {
@@ -564,6 +706,27 @@ impl MmBs {
         self.config.state_read().active_call_ts.keys().copied().collect()
     }
 
+    /// Discard per-ISSI state from an ended registration. An LLC ACK, group
+    /// report, or OTAR result belonging to the old session must never be able
+    /// to finish or change the next registration for the same ISSI.
+    fn clear_registration_transients(&mut self, issi: u32) {
+        self.auth_pending.remove(&issi);
+        self.auth_passed.remove(&issi);
+        self.dck.remove(&issi);
+        self.auth_result_pending.remove(&issi);
+        self.auth_ack_pending.remove(&issi);
+        self.cck_pending.remove(&issi);
+        self.config.state_write().sc3_dcks.remove(&issi);
+        self.config.state_write().sc3_status.remove(&issi);
+        self.otar_pending.remove(&issi);
+        self.pending_ciphering.remove(&issi);
+        self.registration_encryption.remove(&issi);
+        self.group_report_in_flight.remove(&issi);
+        self.group_report_requested_at.remove(&issi);
+        self.attach_overflow_remainder.remove(&issi);
+        self.registration_probe_receipts.remove(&issi);
+    }
+
     fn rx_u_itsi_detach(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_itsi_detach");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
@@ -600,6 +763,13 @@ impl MmBs {
             return;
         }
 
+
+        // A valid U-ITSI-DETACH terminates the current registration
+        // and authentication context for this ISSI.
+        if self.auth_pending.contains_key(&ssi) || self.auth_result_pending.contains_key(&ssi) || self.auth_ack_pending.contains_key(&ssi) {
+            tracing::info!("MM: cancelling pending authentication for ISSI {} after U-ITSI-DETACH", ssi);
+        }
+        self.clear_registration_transients(ssi);
         let detached_client = self.client_mgr.remove_client(ssi);
         if let Some(client) = detached_client {
             self.config.state_write().subscribers.deregister(ssi);
@@ -622,7 +792,22 @@ impl MmBs {
         self.recovery_mark_dirty();
     }
 
-    fn rx_u_location_update_demand(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
+    fn rx_u_location_update_demand(&mut self, queue: &mut MessageQueue, message: SapMsg) {
+        self.rx_u_location_update_demand_inner(queue, message, true);
+    }
+
+    /// Replays a registration whose original attempt was already counted before authentication.
+    /// Do not charge the per-ISSI rate limiter a second time for the same held SAP message.
+    fn rx_u_location_update_demand_replay(&mut self, queue: &mut MessageQueue, message: SapMsg) {
+        self.rx_u_location_update_demand_inner(queue, message, false);
+    }
+
+    fn rx_u_location_update_demand_inner(
+        &mut self,
+        queue: &mut MessageQueue,
+        mut message: SapMsg,
+        count_rate_limit: bool,
+    ) {
         tracing::trace!("rx_location_update_demand");
         // Kept unparsed so it can be replayed once the radio has authenticated.
         let unparsed = message.clone();
@@ -765,6 +950,7 @@ impl MmBs {
             // mutates nothing.
             if self.teardown_authorized(issi, handle, "migrating location update") {
                 tracing::info!("MM: ISSI {} migrating to another network â€” releasing from Brew", issi);
+                self.clear_registration_transients(issi);
                 let detached = self.client_mgr.remove_client(issi);
                 if let Some(client) = detached {
                     self.config.state_write().subscribers.deregister(issi);
@@ -792,15 +978,45 @@ impl MmBs {
         // Per-source-ISSI registration rate limit. A flood cannot churn the registry (or the
         // dashboard, or Brew) faster than this even while it stays under the size cap. Dropped
         // silently: answering would itself be an amplifier.
-        if !self.client_mgr.allow_registration(issi) {
+        // While an authentication challenge already holds this ISSI's registration, newer
+        // location updates only replace the held message. They are not new registration attempts
+        // and must not exhaust the per-minute budget while the radio answers the challenge.
+        let registration_auth_pending = self.auth_pending.get(&issi).is_some_and(|pending| {
+            pending.held.is_some() && pending.started.elapsed() < T354
+        }) || self.auth_result_pending.get(&issi).is_some_and(|p| p.started.elapsed() < T354)
+           || self.auth_ack_pending.get(&issi).is_some_and(|(p, _)| p.started.elapsed() < T354);
+        if count_rate_limit
+            && !registration_auth_pending
+            && !self.client_mgr.allow_registration(issi)
+        {
             tracing::warn!("MM: ISSI {} exceeded the registration rate limit â€” dropping this location update", issi);
             return;
         }
 
+        // A fresh registration may return in clear while an old encrypted session is
+        // still known (lost detach / rapid DMO -> TMO). Pin only this MM exchange to
+        // the received mode; keep the active traffic key until the new accept is ACKed.
+        self.process_pending_ciphering();
+        if count_rate_limit && !registration_auth_pending {
+            self.pending_ciphering.remove(&issi);
+            self.registration_encryption.insert(issi, prim.encrypted);
+            tracing::info!("MM: ISSI {} registration transport {}, previous ciphering {}", issi,
+                if prim.encrypted { "encrypted" } else { "clear" },
+                self.config.state_read().subscribers.encrypted(issi).unwrap_or(false));
+        }
+
         // Authentication (EN 300 392-7 clause 4): challenge the radio first when configured; the
         // registration is held and replayed here once it has proved its K.
-        if self.authentication_gate(queue, issi, handle, pdu.location_update_type, pdu.address_extension, unparsed) {
+        if self.authentication_gate(queue, issi, handle, pdu.location_update_type, pdu.address_extension, pdu.authentication_uplink.as_ref().and_then(|a| a.rand2), unparsed) {
             return;
+        }
+
+        // A successfully authenticated new SC3 ITSI attach supersedes a recovery
+        // command issued to the previous session. Do not wait for its group report.
+        if self.is_class3() && pdu.location_update_type == LocationUpdateType::ItsiAttach {
+            self.group_report_in_flight.remove(&issi);
+            self.group_report_requested_at.remove(&issi);
+            self.attach_overflow_remainder.remove(&issi);
         }
 
         // Air interface encryption (EN 300 392-7 clause 6.5): class 2 radios register with the
@@ -1012,18 +1228,10 @@ impl MmBs {
             // ETSI Table 16.49 (clause 16.10.17): mode=1 means "detach all currently
             // attached group identities and attach group identities defined in the
             // group identity uplink element."
-            let mut detached_prior = Vec::new();
+            // Only the groups missing from the new list are detached; unchanged affiliations stay
+            // in place so CMCE and Brew never see them flap.
             if gild.group_identity_attach_detach_mode == 1 {
-                let prior_groups: Vec<u32> = self
-                    .client_mgr
-                    .get_client_by_issi(issi)
-                    .map(|client| client.groups.iter().copied().collect())
-                    .unwrap_or_default();
-                if let Err(e) = self.client_mgr.client_detach_all_groups(issi) {
-                    tracing::warn!("Failed detaching all groups for MS {}: {:?}", issi, e);
-                } else {
-                    detached_prior = prior_groups;
-                }
+                self.reconcile_group_replacement(queue, issi, gild.group_identity_uplink.as_deref().unwrap_or(&[]));
             }
 
             // Try to attach to requested groups, then build GroupIdentityLocationAccept element
@@ -1032,7 +1240,6 @@ impl MmBs {
             } else {
                 None
             };
-            self.deaffiliate_groups_left_after_detach_all(queue, issi, detached_prior);
             // Refused by the group-access rules: listed with their reason (clauses 16.8.2, 16.10.23).
             let any_refused = !refused_gid.is_empty();
             if let Some(list) = accepted_groups.as_mut() {
@@ -1115,11 +1322,16 @@ impl MmBs {
 
         let _ = self.client_mgr.set_client_class_of_ms(issi, pdu.class_of_ms);
         match ciphering {
-            Some(params) => tracing::info!("MS {} registered encrypted ({})", issi, params),
-            None => tracing::debug!("MS {} registered in clear", issi),
+            Some(params) => tracing::info!(
+                "MS {} negotiated encrypted ({}) — awaiting D-LOCATION-UPDATE-ACCEPT LLC ACK",
+                issi,
+                params
+            ),
+            None => tracing::debug!(
+                "MS {} negotiated clear — awaiting D-LOCATION-UPDATE-ACCEPT LLC ACK",
+                issi
+            ),
         }
-        let _ = self.client_mgr.set_client_ciphering(issi, ciphering);
-        self.config.state_write().subscribers.set_encrypted(issi, ciphering.is_some());
 
         // Reset periodic registration timer on every successful registration.
         self.client_mgr.reset_registration_timer(issi);
@@ -1143,6 +1355,15 @@ impl MmBs {
         // and its (V)ASSI.
         let visitor_mni = self.visitors.get(issi).map(|v| v.mni);
 
+        let authentication_downlink = if ciphering.is_some_and(|c| c.class3) {
+            let Some(cck) = self.cck_information(issi) else {
+                tracing::error!("MM: no authenticated DCK/CCK for SC3 registration ISSI {}", issi);
+                return;
+            };
+            self.cck_pending.insert(issi, Instant::now());
+            self.sc3_cck(issi, "registration_sent");
+            Some(AuthenticationDownlink { r1: true, tei_request: false, cck: Some(cck) })
+        } else { None };
         // Build D-LOCATION UPDATE ACCEPT pdu
         let pdu_response = DLocationUpdateAccept {
             location_update_accept_type: accept_type,
@@ -1155,7 +1376,7 @@ impl MmBs {
             security_downlink: None,
             group_identity_location_accept: gila,
             default_group_attachment_lifetime: None,
-            authentication_downlink: None,
+            authentication_downlink,
             group_identity_security_related_information: None,
             cell_type_control: None,
             proprietary: None,
@@ -1167,6 +1388,11 @@ impl MmBs {
         pdu_response.to_bitbuf(&mut sdu).unwrap(); // we want to know when this happens
         sdu.seek(0);
         tracing::debug!("-> {} sdu {}", pdu_response, sdu.dump_bin());
+
+        // Keep the current ciphering state until LLC confirms delivery of this accept.
+        let tx_reporter = TxReporter::new();
+        self.replace_pending_ciphering(issi, ciphering, tx_reporter.clone());
+        if ciphering.is_some_and(|c| c.class3) { self.sc3_phase(issi, "awaiting_registration_ack"); }
 
         // Build and submit response prim
         let msg = SapMsg {
@@ -1181,8 +1407,9 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: self.registration_encryption.get(&issi).copied(),
                 is_null_pdu: false,
-                tx_reporter: None,
+                tx_reporter: Some(tx_reporter),
             }),
         };
         queue.push_back(msg);
@@ -1233,7 +1460,7 @@ impl MmBs {
         let has_groups = _has_groups;
         if is_new && pdu.location_update_type != LocationUpdateType::ItsiAttach && !has_groups {
             tracing::info!("Sending D-LOCATION UPDATE COMMAND to returning MS {} to request group report", issi);
-            Self::send_d_location_update_command(queue, issi, handle);
+            self.send_d_location_update_command(queue, issi, handle);
         }
     }
 
@@ -1466,6 +1693,16 @@ impl MmBs {
 
     /// AIE mixed cell: drop attach requests for groups of the other encryption mode, so a clear
     /// radio never joins an encrypted group or the reverse. Detach requests always pass.
+    /// Use the negotiated ciphering mode for group eligibility while a registration transition
+    /// is pending. The live subscriber/client ciphering state is deliberately not committed here;
+    /// that still waits for the required LLC ACK (and, when requested, group-report completion).
+    fn effective_group_attach_encrypted(&self, issi: u32) -> bool {
+        self.pending_ciphering
+            .get(&issi)
+            .map(|pending| pending.ciphering.is_some())
+            .unwrap_or_else(|| self.config.state_read().subscribers.encrypted(issi).unwrap_or(false))
+    }
+
     fn aie_filter_group_attach(&self, issi: u32, encrypted: bool, giu: Vec<GroupIdentityUplink>) -> Vec<GroupIdentityUplink> {
         let cfg = self.config.config();
         let aie = crate::aie::effective(&cfg);
@@ -1672,8 +1909,32 @@ impl MmBs {
             return;
         }
 
+        // A group report cannot establish registration or bypass authentication.
+        // Ask an unknown/expired subscriber to finish registration first.
+        if !self.client_mgr.client_is_known(issi) || !self.config.state_read().subscribers.is_registered(issi) {
+            tracing::info!("MM: group update from unregistered ISSI {}; requesting registration", issi);
+            self.send_d_attach_detach_ack_reject(queue, issi, prim.handle);
+            self.maybe_reactive_recovery(queue, issi);
+            return;
+        }
+
+        // A completion marker may arrive without group_identity_uplink. Capture it
+        // before the no-groups ACK path returns, and gate ciphering on that ACK.
+        let group_report_complete = pdu
+            .group_report_response
+            .as_ref()
+            .is_some_and(|grr| group_report_response_is_complete(grr.len, grr.data));
+        let group_report_tx_reporter = if group_report_complete {
+            self.prepare_group_report_completion(issi)
+        } else {
+            None
+        };
+
         // Check if we can satisfy this request, print unsupported stuff
         if !Self::feature_check_u_attach_detach_group_identity(&pdu) {
+            if pdu.group_identity_attach_detach_mode {
+                self.reconcile_group_replacement(queue, issi, &[]);
+            }
             // group_identity_uplink missing â€” terminal is sending a group report response
             // without requesting any group changes. Send ACK with current groups so
             // terminal knows it's affiliated and can use PTT.
@@ -1686,44 +1947,14 @@ impl MmBs {
                 .get_client_by_issi(issi)
                 .map(|c| c.groups.iter().copied().collect())
                 .unwrap_or_default();
-            self.send_d_attach_detach_ack(queue, issi, prim.handle, &current_groups);
+            self.send_d_attach_detach_ack(
+                queue,
+                issi,
+                prim.handle,
+                &current_groups,
+                group_report_tx_reporter,
+            );
             return;
-        }
-
-        // If group_identity_attach_detach_mode == 1, we first detach all groups
-        let mut detached_prior = Vec::new();
-        if pdu.group_identity_attach_detach_mode == true {
-            if !self.client_mgr.client_is_known(issi) {
-                // Client unknown (e.g. never registered via location update).
-                // Re-register so group attachment can proceed.
-                match self.client_mgr.try_register_client(issi, true) {
-                    Ok(_) => {
-                        self.config.state_write().subscribers.register(issi);
-                        self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Register);
-                    }
-                    Err(e) => {
-                        // ETSI EN 300 392-2 Â§16.3.4: if MS cannot be registered,
-                        // send D-ATTACH-DETACH-GROUP-IDENTITY-ACKNOWLEDGEMENT with reject.
-                        tracing::warn!("Failed re-registering MS {} on group attach: {:?} â€” sending reject", issi, e);
-                        self.send_d_attach_detach_ack_reject(queue, issi, prim.handle);
-                        return;
-                    }
-                }
-            } else {
-                // Client is known â€” detach all existing groups first
-                let prior_groups: Vec<u32> = self
-                    .client_mgr
-                    .get_client_by_issi(issi)
-                    .map(|client| client.groups.iter().copied().collect())
-                    .unwrap_or_default();
-                match self.client_mgr.client_detach_all_groups(issi) {
-                    Ok(_) => detached_prior = prior_groups,
-                    Err(e) => {
-                        tracing::warn!("Failed detaching all groups for MS {}: {:?}", issi, e);
-                        return;
-                    }
-                }
-            }
         }
 
         // ETSI EN 300 392-2 §16.9.2.2: the ACK PDU travels in a single TM-SDU
@@ -1754,7 +1985,10 @@ impl MmBs {
             return;
         };
         let (giu, forms) = self.localize_group_uplink(issi, giu);
-        let encrypted = self.config.state_read().subscribers.encrypted(issi).unwrap_or(false);
+        // The terminal is reporting groups under the ciphering mode negotiated in its
+        // location update. Use that pending mode for AIE eligibility, without committing
+        // the mode to live subscriber state before the final report ACK.
+        let encrypted = self.effective_group_attach_encrypted(issi);
         let giu = self.aie_filter_group_attach(issi, encrypted, giu);
         let (giu, mut refused_gid) = self.group_access_split(issi, giu);
         let requested_n = giu.len();
@@ -1792,8 +2026,8 @@ impl MmBs {
 
         let mut report_not_complete = false;
         if let Some(ref grr) = pdu.group_report_response {
-            // Type3 Group report response: LSB 0 = not complete, 1 = complete (ETSI Table 16.83).
-            let complete = (grr.data & 1) != 0;
+            // ETSI EN 300 392-2 §16.10.27a: value 0 = complete; value 1 is reserved.
+            let complete = group_report_response_is_complete(grr.len, grr.data);
             report_not_complete = !complete;
             tracing::info!(
                 "ISSI {} group report response: {} (data={:#x}, len={})",
@@ -1808,9 +2042,13 @@ impl MmBs {
             }
         }
 
+        // Detach-all mode (table 16.49): only the groups missing from the new list are detached.
+        if pdu.group_identity_attach_detach_mode {
+            self.reconcile_group_replacement(queue, issi, &giu_clamped);
+        }
+
         // Try to attach to requested groups, and retrieve list of accepted GroupIdentityDownlink elements
         let mut accepted_gid = self.try_attach_detach_groups(queue, issi, &giu_clamped);
-        self.deaffiliate_groups_left_after_detach_all(queue, issi, detached_prior);
         // Groups refused by the group-access rules: listed with their reason (clause 16.8.2) and
         // "at least one attachment/detachment rejected" (table 16.44).
         let any_refused = !refused_gid.is_empty();
@@ -1848,8 +2086,9 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: self.registration_encryption.get(&issi).copied(),
                 is_null_pdu: false,
-                tx_reporter: None,
+                tx_reporter: group_report_tx_reporter,
             }),
         };
         queue.push_back(msg);
@@ -1922,6 +2161,7 @@ impl MmBs {
             requested_n
         );
         self.group_report_requested_at.insert(issi, now);
+        self.mark_group_report_pending(issi);
         self.send_d_group_report_request(queue, issi);
     }
 
@@ -2001,6 +2241,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: self.registration_encryption.get(&issi).copied(),
                 is_null_pdu: false,
                 tx_reporter: None,
             }),
@@ -2051,6 +2292,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: self.registration_encryption.get(&issi).copied(),
                 is_null_pdu: false,
                 tx_reporter: None,
             }),
@@ -2088,6 +2330,22 @@ impl MmBs {
             MmPduTypeUl::UDisableStatus => unimplemented_log!("UDisableStatus"),
             MmPduTypeUl::MmPduFunctionNotSupported => unimplemented_log!("MmPduFunctionNotSupported"),
         };
+    }
+
+    /// Preserve groups repeated in a replacement report. Emitting detach+attach for
+    /// the same GSSI can make CMCE release a live call between the two events.
+    fn reconcile_group_replacement(&mut self, queue: &mut MessageQueue, issi: u32, requested: &[GroupIdentityUplink]) {
+        let retained: HashSet<u32> = requested.iter().filter(|g| {
+            g.group_identity_detachment_uplink.is_none() && g.address_extension.is_none() && g.vgssi.is_none()
+        }).filter_map(|g| g.gssi).collect();
+        let removed: Vec<u32> = self.client_mgr.get_client_by_issi(issi).map(|c| {
+            c.groups.iter().copied().filter(|g| !retained.contains(g)).collect()
+        }).unwrap_or_default();
+        let changes: Vec<_> = removed.into_iter().map(|gssi| GroupIdentityUplink {
+            class_of_usage: None, group_identity_detachment_uplink: Some(0),
+            gssi: Some(gssi), address_extension: None, vgssi: None,
+        }).collect();
+        self.try_attach_detach_groups(queue, issi, &changes);
     }
 
     fn try_attach_detach_groups(
@@ -2140,7 +2398,9 @@ impl MmBs {
             } else {
                 match self.client_mgr.client_group_attach(issi, gssi, true) {
                     Ok(changed) => {
-                        if changed {
+                        // A presence timeout removes the shared registry while MM
+                        // keeps its group history. Restore both views on return.
+                        if changed || !self.config.state_read().subscribers.attached_groups_of(issi).contains(&gssi) {
                             self.config.state_write().subscribers.affiliate(issi, gssi);
                             aff_groups.push(gssi);
                         }
@@ -2230,6 +2490,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: None,
                 is_null_pdu: false,
                 tx_reporter: None,
             }),
@@ -2237,7 +2498,14 @@ impl MmBs {
         queue.push_back(msg);
     }
 
-    fn send_d_attach_detach_ack(&self, queue: &mut MessageQueue, issi: u32, handle: u32, groups: &[u32]) {
+    fn send_d_attach_detach_ack(
+        &self,
+        queue: &mut MessageQueue,
+        issi: u32,
+        handle: u32,
+        groups: &[u32],
+        tx_reporter: Option<TxReporter>,
+    ) {
         use tetra_pdus::mm::fields::group_identity_attachment::GroupIdentityAttachment;
         use tetra_pdus::mm::fields::group_identity_downlink::GroupIdentityDownlink;
         let mut gid: Vec<GroupIdentityDownlink> = groups
@@ -2281,8 +2549,9 @@ impl MmBs {
                     stealing_permission: false,
                     stealing_repeats_flag: false,
                     encryption_flag: false,
+                    encryption_override: self.registration_encryption.get(&issi).copied(),
                     is_null_pdu: false,
-                    tx_reporter: None,
+                    tx_reporter,
                 }),
             });
         }
@@ -2544,6 +2813,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: None,
                 is_null_pdu: false,
                 tx_reporter: None,
             }),
@@ -2592,8 +2862,50 @@ impl MmBs {
         }
     }
 
-    fn send_d_location_update_command(queue: &mut MessageQueue, issi: u32, handle: u32) {
-        Self::send_d_location_update_command_options(queue, issi, handle, true, None, None);
+    fn mark_group_report_pending(&mut self, issi: u32) {
+        self.group_report_in_flight.insert(issi, Instant::now());
+        if let Some(pending) = self.pending_ciphering.get_mut(&issi)
+            && !pending.ciphering.is_some_and(|c| c.class3)
+        {
+            pending.awaiting_group_report = true;
+            pending.started = Instant::now();
+        }
+    }
+
+    /// Attach the final group-report LLC receipt to the pending ciphering transition.
+    fn prepare_group_report_completion(&mut self, issi: u32) -> Option<TxReporter> {
+        self.group_report_in_flight.remove(&issi);
+        let pending = self.pending_ciphering.get_mut(&issi)?;
+        if !pending.awaiting_group_report {
+            return None;
+        }
+        let reporter = TxReporter::new();
+        pending.reporter = reporter.clone();
+        pending.awaiting_group_report = false;
+        pending.started = Instant::now();
+        tracing::info!(
+            "MM: ISSI {} group report complete; ciphering waits for final U-ATTACH LLC ACK",
+            issi
+        );
+        Some(reporter)
+    }
+
+    fn send_d_location_update_command(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32) {
+        self.mark_group_report_pending(issi);
+        // In an SC2 cell the D-LOCATION-UPDATE-COMMAND must carry Cipher control=1
+        // and the cell's KSG/SCKN. Sending None here used to signal Cipher control=0
+        // on reactive recovery / DMO->TMO re-attach, potentially downgrading an MS
+        // that had just transmitted encrypted MAC-ACCESS. EN 300 392-7 6.6.2.1.2.
+        // The COMMAND itself remains clear: the MS may not have a live L2 AIE context.
+        let ciphering = {
+            let cfg = self.config.config();
+            crate::aie::effective(&cfg).map(crate::aie::preferred_parameters)
+        };
+        tracing::info!(
+            "MM: D-LOCATION-UPDATE-COMMAND to ISSI {}: group_report=true ciphering={:?}",
+            issi, ciphering
+        );
+        Self::send_d_location_update_command_options(queue, issi, handle, true, ciphering, None);
     }
 
     fn send_d_location_update_command_options(
@@ -2630,6 +2942,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: None,
                 is_null_pdu: false,
                 tx_reporter,
             }),
@@ -2758,6 +3071,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: None,
                 is_null_pdu: false,
                 tx_reporter: None,
             }),
@@ -2835,6 +3149,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: None,
                 is_null_pdu: false,
                 tx_reporter: None,
             }),
@@ -2866,6 +3181,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: None,
                 is_null_pdu: false,
                 tx_reporter: None,
             }),
@@ -2935,9 +3251,6 @@ impl MmBs {
         if pdu.group_report_response.is_some() {
             tracing::debug!("DemandLocationUpdating: group_report_response present (expected from radio, ignored)");
         }
-        if pdu.authentication_uplink.is_some() {
-            unimplemented_log!("Unsupported authentication_uplink present");
-        }
         if pdu.extended_capabilities.is_some() {
             unimplemented_log!("Unsupported extended_capabilities present");
         }
@@ -2998,7 +3311,7 @@ impl MmBs {
             Self::send_d_location_update_command_options(queue, issi, 0, false, ciphering, Some(receipt.clone()));
             Some(receipt)
         } else {
-            Self::send_d_location_update_command(queue, issi, 0);
+            self.send_d_location_update_command(queue, issi, 0);
             None
         }
     }
@@ -3051,7 +3364,7 @@ impl MmBs {
         let mut expired = self.client_mgr.collect_registration_checks(interval_secs, presence_secs, now);
         expired.sort_unstable();
         for issi in expired {
-            if self.recovery_attempts.contains_key(&issi) || self.auth_pending.contains_key(&issi) || self.otar_pending.contains_key(&issi)
+            if self.recovery_attempts.contains_key(&issi) || self.auth_pending.contains_key(&issi) || self.auth_result_pending.contains_key(&issi) || self.auth_ack_pending.contains_key(&issi) || self.otar_pending.contains_key(&issi)
             {
                 continue;
             }
@@ -3146,6 +3459,8 @@ impl TetraEntityTrait for MmBs {
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.expire_authentication();
         self.expire_otar();
+        self.process_authentication_acks(queue);
+        self.process_pending_ciphering();
         // Drain control commands addressed to the MM entity. We collect into a Vec first so the
         // immutable borrow on `self.control` is released before the handlers run â€” DGNA needs
         // `&mut self` (client registry, subscriber state, telemetry).
@@ -3166,6 +3481,9 @@ impl TetraEntityTrait for MmBs {
                         attach,
                     } => {
                         self.do_dgna(queue, issi, gssi, mnemonic, attachment_mode, attach);
+                    }
+                    ControlCommand::OtarCck { issi } => {
+                        self.otar_cck_provide(queue, issi);
                     }
                     ControlCommand::OtarSck { issi } => {
                         self.otar_sck_provide(queue, issi, "dashboard");
@@ -3252,8 +3570,7 @@ impl TetraEntityTrait for MmBs {
                         self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
                         self.client_mgr.remove_client_quiet(issi);
                         self.config.state_write().subscribers.deregister(issi);
-                        self.group_report_requested_at.remove(&issi);
-                        self.attach_overflow_remainder.remove(&issi);
+                        self.clear_registration_transients(issi);
                         self.recovery_mark_dirty();
                     }
                     SapMsgInner::MmSubscriberUpdate(update) => {
@@ -3276,7 +3593,8 @@ impl TetraEntityTrait for MmBs {
                             // always 0 anyway. The COMMAND reaches the camped radio by its ISSI.
                             // (NB: this means whatever makes FH-BUG-028 vendor-specific is NOT the
                             // handle â€” that root cause is still open.)
-                            Self::send_d_location_update_command(queue, issi, 0);
+                            self.clear_registration_transients(issi);
+                            self.send_d_location_update_command(queue, issi, 0);
                             let groups: Vec<u32> = self
                                 .client_mgr
                                 .get_client_by_issi(issi)
@@ -3288,8 +3606,6 @@ impl TetraEntityTrait for MmBs {
                             self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
                             self.client_mgr.remove_client(issi);
                             self.config.state_write().subscribers.deregister(issi);
-                            self.group_report_requested_at.remove(&issi);
-                            self.attach_overflow_remainder.remove(&issi);
                             self.recovery_mark_dirty();
                         }
                     }
@@ -3343,7 +3659,7 @@ impl MmBs {
             "mm_bs: selective D-LOCATION-UPDATE-COMMAND for ISSI {} (Brew soft-recovery / on-demand)",
             issi
         );
-        Self::send_d_location_update_command(queue, issi, 0);
+        self.send_d_location_update_command(queue, issi, 0);
     }
 }
 
@@ -3419,6 +3735,7 @@ impl MmBs {
         handle: u32,
         location_update_type: LocationUpdateType,
         address_extension: Option<u64>,
+        embedded_rand2: Option<[u8; 10]>,
         held: SapMsg,
     ) -> bool {
         let (mode, k) = {
@@ -3445,6 +3762,12 @@ impl MmBs {
             tracing::debug!("MM: ISSI {} has no authentication key — registering unauthenticated (authentication = optional)", issi);
             return false;
         };
+        if let Some((p, _)) = self.auth_ack_pending.get_mut(&issi) {
+            if p.started.elapsed() < T354 { p.held = Some(held); return true; }
+        }
+        if let Some(p) = self.auth_result_pending.get_mut(&issi) {
+            if p.started.elapsed() < T354 { p.held = Some(held); return true; }
+        }
         // A challenge is already out: keep the newest registration to replay, don't re-challenge.
         if let Some(p) = self.auth_pending.get_mut(&issi)
             && p.started.elapsed() < T354
@@ -3452,11 +3775,20 @@ impl MmBs {
             p.held = Some(held);
             return true;
         }
+        self.auth_pending.remove(&issi);
+        self.auth_result_pending.remove(&issi);
+        self.auth_ack_pending.remove(&issi);
+        if let Some(rand2) = embedded_rand2 {
+            self.rx_u_authentication_demand(queue, issi, handle, UAuthenticationDemand { rand2, proprietary: None });
+            if let Some(pending) = self.auth_pending.get_mut(&issi) { pending.held = Some(held); }
+            return true;
+        }
         let challenge = MsChallenge::new(&AuthKey(k));
         let pdu = DAuthenticationDemand { rand1: challenge.rand1, rs: challenge.rs, proprietary: None };
         tracing::info!("MM: challenging ISSI {} (D-AUTHENTICATION DEMAND)", issi);
         self.send_auth_pdu(queue, issi, handle, "DAuthenticationDemand", |b| pdu.to_bitbuf(b));
-        self.auth_pending.insert(issi, PendingAuth { challenge, handle, held: Some(held), started: Instant::now() });
+        self.auth_pending.insert(issi, PendingAuth { challenge, dck2: None, handle, held: Some(held), started: Instant::now() });
+        self.sc3_phase(issi, "challenge");
         true
     }
 
@@ -3482,7 +3814,7 @@ impl MmBs {
                 Err(e) => tracing::warn!("MM: bad U-AUTHENTICATION DEMAND from ISSI {}: {:?}", issi, e),
             },
             AuthenticationSubType::Result => match UAuthenticationResult::from_bitbuf(&mut prim.sdu) {
-                Ok(pdu) => self.rx_u_authentication_result(queue, issi, handle, pdu),
+                Ok(pdu) => self.rx_u_authentication_result(queue, issi, handle, prim.rx_ack.clone(), pdu),
                 Err(e) => tracing::warn!("MM: bad U-AUTHENTICATION RESULT from ISSI {}: {:?}", issi, e),
             },
             AuthenticationSubType::Reject => match UAuthenticationReject::from_bitbuf(&mut prim.sdu) {
@@ -3505,6 +3837,11 @@ impl MmBs {
             tracing::warn!("MM: U-AUTHENTICATION RESPONSE from ISSI {} but no challenge is outstanding — ignored", issi);
             return;
         };
+        if pending.started.elapsed() >= T354 || pending.dck2.is_some() {
+            self.sc3_phase(issi, if pending.started.elapsed() >= T354 { "timeout" } else { "failed" });
+            if let Some(held) = pending.held { self.reject_held_registration(queue, issi, handle, held); }
+            return;
+        }
         let dck1 = pending.challenge.verify(&pdu.res1);
         let r1 = dck1.is_some();
         // Mutual: the radio challenged us with RAND2 under the same RS.
@@ -3516,16 +3853,26 @@ impl MmBs {
             _ => (None, None),
         };
         let result = DAuthenticationResult { r1, res2, proprietary: None };
-        self.send_auth_pdu(queue, issi, handle, "DAuthenticationResult", |b| result.to_bitbuf(b));
+        let result_receipt = (self.is_class3() && r1 && res2.is_none() && pending.held.is_none()).then(TxReporter::new);
+        // Combined registration carries final R1 in D-LOCATION UPDATE ACCEPT.
+        if !self.is_class3() || !r1 || res2.is_some() || pending.held.is_none() {
+            self.send_auth_pdu_reported(queue, issi, handle, "DAuthenticationResult", result_receipt.clone(), |b| result.to_bitbuf(b));
+        }
         if r1 {
             tracing::info!("MM: ISSI {} authenticated{}", issi, if res2.is_some() { " (mutual)" } else { "" });
-            self.dck.insert(issi, derive_dck(dck1.as_ref(), dck2.as_ref()).0);
-            self.auth_passed.insert(issi, Instant::now());
-            self.notify_authenticated(issi);
-            if let Some(held) = pending.held {
-                self.rx_u_location_update_demand(queue, held);
+            let dck = derive_dck(dck1.as_ref(), dck2.as_ref());
+            if res2.is_some() && self.is_class3() {
+                // Wait for the MS's R2 verdict before publishing a mutually derived key.
+                self.auth_result_pending.insert(issi, PendingAuthResult { uplink_ack: false, dck, held: pending.held, started: Instant::now() });
+                self.sc3_phase(issi, "awaiting_r2");
+            } else if let Some(receipt) = result_receipt {
+                self.auth_ack_pending.insert(issi, (PendingAuthResult { uplink_ack: false, dck, held: pending.held, started: Instant::now() }, receipt));
+                self.sc3_phase(issi, "awaiting_result_ack");
+            } else {
+                self.complete_authentication(queue, issi, dck, pending.held);
             }
         } else {
+            self.sc3_phase(issi, "failed");
             tracing::warn!("MM: ISSI {} FAILED authentication (wrong RES1) — registration rejected", issi);
             if let Some(held) = pending.held {
                 self.reject_held_registration(queue, issi, handle, held);
@@ -3536,7 +3883,17 @@ impl MmBs {
     /// The radio challenges us (clause 4.1.3): answer with RES2 and, if configured, challenge
     /// back so the exchange becomes mutual.
     fn rx_u_authentication_demand(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UAuthenticationDemand) {
-        let mutual = self.config.config().security.mutual_authentication;
+        // Do not overlap a standalone rekey with an unfinished registration.
+        self.process_pending_ciphering();
+        if self.is_class3() && self.pending_ciphering.contains_key(&issi) {
+            tracing::debug!("MM: ISSI {} authentication deferred until registration ACK", issi);
+            return;
+        }
+        let mutual = self.config.config().security.mutual_authentication || self.is_class3();
+        if self.auth_pending.contains_key(&issi) || self.auth_result_pending.contains_key(&issi) || self.auth_ack_pending.contains_key(&issi) {
+            tracing::debug!("MM: authentication already in progress for ISSI {}; keeping current exchange", issi);
+            return;
+        }
         let Some(k) = self.subscriber_key(issi) else {
             tracing::info!("MM: ISSI {} asked us to authenticate but has no key configured — D-AUTHENTICATION REJECT", issi);
             let reject = DAuthenticationReject { reject_reason: AuthenticationRejectReason::AuthenticationNotSupported };
@@ -3548,10 +3905,11 @@ impl MmBs {
         let rand1 = if mutual {
             let challenge = MsChallenge::with_nonces(&k, rs, random_nonce());
             let rand1 = challenge.rand1;
-            self.auth_pending.insert(issi, PendingAuth { challenge, handle, held: None, started: Instant::now() });
+            self.auth_pending.insert(issi, PendingAuth { challenge, dck2: Some(answer.dck2), handle, held: None, started: Instant::now() });
+            self.sc3_phase(issi, "challenge");
             Some(rand1)
         } else {
-            self.dck.insert(issi, derive_dck(None, Some(&answer.dck2)).0);
+            if !self.is_class3() { self.dck.insert(issi, derive_dck(None, Some(&answer.dck2))); }
             None
         };
         tracing::info!("MM: answering ISSI {}'s challenge (D-AUTHENTICATION RESPONSE{})", issi, if mutual { ", mutual" } else { "" });
@@ -3560,9 +3918,32 @@ impl MmBs {
     }
 
     /// The radio's verdict on our RES2 and, in a mutual exchange it started, its RES1.
-    fn rx_u_authentication_result(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UAuthenticationResult) {
+    fn rx_u_authentication_result(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, rx_ack: Option<tetra_core::tx_receipt::RxAck>, pdu: UAuthenticationResult) {
+        if let Some(mut pending) = self.auth_result_pending.remove(&issi) {
+            if pdu.r2 && pdu.res1.is_none() && pending.started.elapsed() < T354 {
+                let Some(ack) = rx_ack else {
+                    self.sc3_phase(issi, "failed");
+                    tracing::warn!("MM: SC3 final R2 from ISSI {} lacks acknowledged transport", issi);
+                    return;
+                };
+                ack.require_standalone();
+                pending.uplink_ack = true;
+                self.auth_ack_pending.insert(issi, (pending, ack.transmitted));
+                self.sc3_phase(issi, "awaiting_result_ack");
+                self.process_authentication_acks(queue);
+            } else {
+                self.sc3_phase(issi, "failed");
+                if let Some(held) = pending.held { self.reject_held_registration(queue, issi, handle, held); }
+            }
+            return;
+        }
         if !pdu.r2 {
-            tracing::warn!("MM: ISSI {} reports our authentication FAILED (R2 = false) — its K does not match ours", issi);
+            self.sc3_phase(issi, "failed");
+            tracing::warn!("MM: ISSI {} reports our authentication FAILED (R2 = false)", issi);
+            if let Some(pending) = self.auth_pending.remove(&issi) {
+                if let Some(held) = pending.held { self.reject_held_registration(queue, issi, handle, held); }
+            }
+            return;
         }
         let Some(res1) = pdu.res1 else {
             return;
@@ -3571,17 +3952,30 @@ impl MmBs {
             tracing::warn!("MM: U-AUTHENTICATION RESULT with RES1 from ISSI {} but no challenge is outstanding", issi);
             return;
         };
+        if pending.started.elapsed() >= T354 || pending.dck2.is_none() {
+            self.sc3_phase(issi, if pending.started.elapsed() >= T354 { "timeout" } else { "failed" });
+            if let Some(held) = pending.held { self.reject_held_registration(queue, issi, handle, held); }
+            return;
+        }
         let dck1 = pending.challenge.verify(&res1);
         let r1 = dck1.is_some();
         let result = DAuthenticationResult { r1, res2: None, proprietary: None };
-        self.send_auth_pdu(queue, issi, handle, "DAuthenticationResult", |b| result.to_bitbuf(b));
-        if r1 {
-            tracing::info!("MM: ISSI {} authenticated (mutual, radio-initiated)", issi);
-            self.dck.insert(issi, derive_dck(dck1.as_ref(), None).0);
-            self.auth_passed.insert(issi, Instant::now());
-            self.notify_authenticated(issi);
+        if r1 && self.is_class3() && pending.held.is_some() {
+            // Embedded RAND2: the accept carries R1 and gates DCK activation on its ACK.
+            self.complete_authentication(queue, issi, derive_dck(dck1.as_ref(), pending.dck2.as_ref()), pending.held);
         } else {
-            tracing::warn!("MM: ISSI {} FAILED our challenge in a radio-initiated exchange", issi);
+            let receipt = TxReporter::new();
+            self.send_auth_pdu_reported(queue, issi, handle, "DAuthenticationResult", Some(receipt.clone()), |b| result.to_bitbuf(b));
+            if r1 {
+                let dck = derive_dck(dck1.as_ref(), pending.dck2.as_ref());
+                if self.is_class3() {
+                    self.auth_ack_pending.insert(issi, (PendingAuthResult { uplink_ack: false, dck, held: pending.held, started: Instant::now() }, receipt));
+                    self.sc3_phase(issi, "awaiting_result_ack");
+                } else { self.complete_authentication(queue, issi, dck, pending.held); }
+            } else {
+                self.sc3_phase(issi, "failed");
+                if let Some(held) = pending.held { self.reject_held_registration(queue, issi, handle, held); }
+            }
         }
     }
 
@@ -3589,28 +3983,119 @@ impl MmBs {
     fn rx_u_authentication_reject(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UAuthenticationReject) {
         let mode = self.config.config().security.authentication;
         tracing::warn!("MM: ISSI {} rejected authentication ({:?})", issi, pdu.reject_reason);
-        let Some(pending) = self.auth_pending.remove(&issi) else {
-            return;
-        };
-        if let Some(held) = pending.held {
+        self.sc3_phase(issi, "failed");
+        let held = self.auth_pending.remove(&issi).and_then(|p| p.held)
+            .or_else(|| self.auth_result_pending.remove(&issi).and_then(|p| p.held))
+            .or_else(|| self.auth_ack_pending.remove(&issi).and_then(|(p, _)| p.held));
+        self.auth_result_pending.remove(&issi);
+        self.auth_ack_pending.remove(&issi);
+        if let Some(held) = held {
             if mode == AuthenticationMode::Required {
                 self.reject_held_registration(queue, issi, handle, held);
             } else {
                 tracing::info!("MM: ISSI {} registers unauthenticated (authentication = optional)", issi);
                 self.auth_passed.insert(issi, Instant::now());
-                self.rx_u_location_update_demand(queue, held);
+                self.rx_u_location_update_demand_replay(queue, held);
             }
         }
     }
 
     /// Give up on exchanges that have outrun T354 and forget stale passes.
     fn expire_authentication(&mut self) {
+        let stale: Vec<_> = self.auth_result_pending.iter().filter(|(_, p)| p.started.elapsed() >= T354).map(|(&i, _)| i).collect();
+        for issi in stale { self.auth_result_pending.remove(&issi); self.sc3_phase(issi, "timeout"); }
+        let stale: Vec<_> = self.cck_pending.iter().filter(|(_, t)| t.elapsed() >= T_OTAR_RESULT).map(|(&i, _)| i).collect();
+        for issi in stale {
+            self.cck_pending.remove(&issi);
+            let registration = self.config.state_read().sc3_status.get(&issi)
+                .is_some_and(|s| s.cck == "registration_sent");
+            self.sc3_cck(issi, if registration { "registration_unconfirmed" } else { "unconfirmed" });
+        }
         let expired: Vec<u32> = self.auth_pending.iter().filter(|(_, p)| p.started.elapsed() > T354).map(|(i, _)| *i).collect();
         for issi in expired {
             tracing::warn!("MM: authentication of ISSI {} timed out (T354) — no response to the challenge", issi);
             self.auth_pending.remove(&issi);
+            self.sc3_phase(issi, "timeout");
         }
         self.auth_passed.retain(|_, t| t.elapsed() < AUTH_PASS_GRACE);
+        self.registration_encryption.retain(|issi, _| {
+            self.auth_pending.contains_key(issi) || self.auth_result_pending.contains_key(issi)
+                || self.auth_ack_pending.contains_key(issi) || self.pending_ciphering.contains_key(issi)
+        });
+    }
+
+    fn process_authentication_acks(&mut self, queue: &mut MessageQueue) {
+        let ready: Vec<_> = self.auth_ack_pending.iter().filter_map(|(&issi, (p, receipt))| {
+            (receipt.is_in_final_state() || p.started.elapsed() >= T354).then_some(issi)
+        }).collect();
+        for issi in ready {
+            let (p, receipt) = self.auth_ack_pending.remove(&issi).unwrap();
+            if (receipt.is_acknowledged() || (p.uplink_ack && receipt.get_state() == tetra_core::tx_receipt::TxState::Transmitted))
+                && p.started.elapsed() < T354 {
+                self.complete_confirmed_authentication(queue, issi, p.dck, p.held);
+            } else {
+                self.sc3_phase(issi, "timeout");
+                tracing::warn!("MM: SC3 authentication result not acknowledged for ISSI {}; retaining old DCK", issi);
+            }
+        }
+    }
+
+    fn sc3_phase(&self, issi: u32, phase: &'static str) {
+        if self.is_class3() && self.subscriber_key(issi).is_some() {
+            self.config.state_write().sc3_status.entry(issi).or_default().phase = phase;
+            tracing::debug!("MM: SC3 ISSI {} state {}", issi, phase);
+        }
+    }
+
+    fn sc3_cck(&self, issi: u32, status: &'static str) {
+        if self.is_class3() && self.subscriber_key(issi).is_some() {
+            self.config.state_write().sc3_status.entry(issi).or_default().cck = status;
+        }
+    }
+
+    fn is_class3(&self) -> bool {
+        self.config.config().security.aie.as_ref().is_some_and(|a| a.class3.is_some())
+    }
+
+    /// Final RESULT's ACK is the DCK switch point, even inside an encrypted
+    /// location update. Clear/encrypted MODE still changes only at LU-ACCEPT ACK.
+    fn complete_confirmed_authentication(&mut self, queue: &mut MessageQueue, issi: u32, dck: SecCipherKey, held: Option<SapMsg>) {
+        if self.is_class3() && self.config.state_read().subscribers.encrypted(issi) == Some(true)
+            && self.registration_encryption.get(&issi).copied().unwrap_or(true) {
+            self.config.state_write().sc3_dcks.insert(issi, tetra_config::bluestation::CipherKey(dck.0));
+            tracing::info!("MM: SC3 ISSI {} DCK changed after authentication RESULT ACK", issi);
+        }
+        self.complete_authentication(queue, issi, dck, held);
+    }
+
+    fn complete_authentication(&mut self, queue: &mut MessageQueue, issi: u32, dck: SecCipherKey, held: Option<SapMsg>) {
+        self.dck.insert(issi, dck);
+        self.notify_authenticated(issi);
+        if let Some(held) = held {
+            // One internal replay only; standalone authentication must not give
+            // a subsequent, independent location update a five-second bypass.
+            self.auth_passed.insert(issi, Instant::now());
+            self.rx_u_location_update_demand_replay(queue, held);
+        } else if self.is_class3() {
+            // Standalone authentication is completed only after final RESULT's LLC ACK.
+            let dck = self.dck.get(&issi).unwrap();
+            self.config.state_write().sc3_dcks.insert(issi, tetra_config::bluestation::CipherKey(dck.0));
+            self.sc3_phase(issi, "active");
+        }
+    }
+
+    fn cck_information(&self, issi: u32) -> Option<CckInformation> {
+        self.cck_information_for_key(self.dck.get(&issi)?)
+    }
+
+    fn cck_information_for_key(&self, dck: &SecCipherKey) -> Option<CckInformation> {
+        let cfg = self.config.config();
+        let sc3 = cfg.security.aie.as_ref()?.class3.as_ref()?;
+        Some(CckInformation {
+            cck_id: sc3.cck_id, future: false,
+            sealed: tetra_security::taa1::ta31(&sc3.cck.0, sc3.cck_id, &dck.0),
+            locations: CckLocations::List(vec![cfg.cell.location_area]), next_sealed: None,
+        })
     }
 
     fn subscriber_key(&self, issi: u32) -> Option<AuthKey> {
@@ -3631,7 +4116,7 @@ impl MmBs {
     /// can be keyed before encryption is switched on.
     fn otar_sck_provide(&mut self, queue: &mut MessageQueue, issi: u32, why: &str) {
         let cfg = self.config.config();
-        let Some(aie) = cfg.security.aie.as_ref() else {
+        let Some(aie) = cfg.security.aie.as_ref().filter(|a| a.class3.is_none()) else {
             tracing::warn!("MM: OTAR to ISSI {} ({}) refused — no SCK configured under [security.aie]", issi, why);
             self.notify_otar(issi, 0, 0, "no SCK configured");
             return;
@@ -3668,6 +4153,38 @@ impl MmBs {
         self.notify_otar(issi, aie.sckn, aie.sck_vn, "sent");
     }
 
+    /// Explicit CCK delivery must use a stable, authenticated, active DCK.
+    /// In particular, do not seal with a candidate during a registration/rekey.
+    fn cck_delivery_key(&self, issi: u32) -> Option<SecCipherKey> {
+        if !self.is_class3() || self.auth_pending.contains_key(&issi)
+            || self.auth_result_pending.contains_key(&issi) || self.auth_ack_pending.contains_key(&issi)
+            || self.pending_ciphering.contains_key(&issi) { return None; }
+        let state = self.config.state_read();
+        if !state.subscribers.is_registered(issi) || state.subscribers.encrypted(issi) != Some(true)
+            || state.sc3_status.get(&issi).is_none_or(|s| s.phase != "active") { return None; }
+        state.sc3_dcks.get(&issi).map(|k| SecCipherKey(k.0))
+    }
+
+    fn otar_cck_provide(&mut self, queue: &mut MessageQueue, issi: u32) {
+        let Some(dck) = self.cck_delivery_key(issi) else {
+            tracing::warn!("MM: CCK OTAR refused for ISSI {}: complete SC3 registration/authentication first", issi);
+            return;
+        };
+        // One explicit transfer at a time. A combined registration delivery may
+        // be followed by an explicit request for the radio's provision result.
+        if self.cck_pending.get(&issi).is_some_and(|t| t.elapsed() < T_OTAR_RESULT)
+            && self.config.state_read().sc3_status.get(&issi).is_some_and(|s| s.cck == "sent") {
+            tracing::debug!("MM: CCK OTAR already pending for ISSI {}", issi);
+            return;
+        }
+        let pdu = DOtarCckProvide { cck: self.cck_information_for_key(&dck) };
+        if pdu.cck.is_none() { return; }
+        self.cck_pending.insert(issi, Instant::now());
+        self.sc3_cck(issi, "sent");
+        self.send_auth_pdu(queue, issi, 0, "DOtarCckProvide", |b| pdu.to_bitbuf(b));
+        tracing::info!("MM: explicit CCK OTAR to ISSI {}; awaiting U-OTAR CCK RESULT", issi);
+    }
+
     fn rx_u_otar(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
             tracing::error!("BUG: unexpected message or state -- routing error");
@@ -3680,6 +4197,45 @@ impl MmBs {
             return;
         };
         match sub_type {
+            OtarSubType::CckDemandProvide => match UOtarCckDemand::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) => {
+                    // OTAR outside the combined registration uses the active key, never
+                    // a newly derived key still awaiting its registration ACK.
+                    let active = if prim.encrypted { self.cck_delivery_key(issi) } else { None };
+                    let cck = if pdu.location_area == self.config.config().cell.location_area {
+                        active.as_ref().and_then(|k| self.cck_information_for_key(k))
+                    } else { None };
+                    if cck.is_some() { self.cck_pending.insert(issi, Instant::now()); self.sc3_cck(issi, "sent"); }
+                    let pdu = DOtarCckProvide { cck };
+                    self.send_auth_pdu(queue, issi, handle, "DOtarCckProvide", |b| pdu.to_bitbuf(b));
+                },
+                Err(e) => tracing::warn!("MM: invalid CCK demand from {}: {:?}", issi, e),
+            },
+            OtarSubType::CckResultReject => match UOtarCckResult::from_bitbuf(&mut prim.sdu) {
+                Ok(pdu) if prim.encrypted && self.cck_delivery_key(issi).is_some()
+                    && self.cck_pending.remove(&issi).is_some() => {
+                    if pdu.result == ProvisionResult::Accepted && pdu.future_result.is_none() {
+                        self.sc3_cck(issi, "accepted");
+                        tracing::info!("MM: ISSI {} accepted CCK", issi);
+                    } else {
+                        tracing::warn!("MM: ISSI {} rejected CCK: {:?}; removing SC3 state", issi, pdu.result);
+                        self.clear_registration_transients(issi);
+                        self.apply_ciphering_state(issi, None, None);
+                        self.sc3_phase(issi, "failed");
+                        self.sc3_cck(issi, "rejected");
+                        if let Some(client) = self.client_mgr.remove_client(issi) {
+                            if !client.groups.is_empty() {
+                                self.emit_subscriber_update(queue, issi, client.groups.iter().copied().collect(), BrewSubscriberAction::Deaffiliate);
+                            }
+                            self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
+                        }
+                        self.config.state_write().subscribers.deregister(issi);
+                        self.recovery_mark_dirty();
+                    }
+                },
+                Ok(_) => tracing::debug!("MM: unsolicited CCK result from {} ignored", issi),
+                Err(e) => tracing::warn!("MM: invalid CCK result from {}: {:?}", issi, e),
+            },
             OtarSubType::SckDemandProvide => match UOtarSckDemand::from_bitbuf(&mut prim.sdu) {
                 Ok(pdu) => self.rx_u_otar_sck_demand(queue, issi, handle, pdu),
                 Err(e) => tracing::warn!("MM: bad U-OTAR SCK DEMAND from ISSI {}: {:?}", issi, e),
@@ -3688,7 +4244,7 @@ impl MmBs {
                 Ok(pdu) => self.rx_u_otar_sck_result(issi, pdu),
                 Err(e) => tracing::warn!("MM: bad U-OTAR SCK RESULT from ISSI {}: {:?}", issi, e),
             },
-            other => tracing::info!("MM: U-OTAR {} from ISSI {} not supported (only SCK OTAR is implemented)", other, issi),
+            other => tracing::info!("MM: U-OTAR {} from ISSI {} not supported (supported: SCK and current-LA CCK delivery)", other, issi),
         }
     }
 
@@ -3696,7 +4252,7 @@ impl MmBs {
     /// them, otherwise reject each requested number.
     fn rx_u_otar_sck_demand(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UOtarSckDemand) {
         let cfg = self.config.config();
-        let ours = cfg.security.aie.as_ref().map(|a| (a.sckn.saturating_sub(1) & 0x1f, a.ksg.saturating_sub(1)));
+        let ours = cfg.security.aie.as_ref().filter(|a| a.class3.is_none()).map(|a| (a.sckn.saturating_sub(1) & 0x1f, a.ksg.saturating_sub(1)));
         tracing::info!(
             "MM: ISSI {} requests SCK(s) {:?} for KSG {}",
             issi,
@@ -3727,23 +4283,45 @@ impl MmBs {
 
     /// The radio reports whether it could unseal and store the key.
     fn rx_u_otar_sck_result(&mut self, issi: u32, pdu: UOtarSckResult) {
-        let pending = self.otar_pending.remove(&issi);
-        for r in &pdu.results {
-            let sckn = r.sckn + 1;
-            let vn = pending.as_ref().map(|p| p.sck_vn).unwrap_or(0);
-            match r.result {
-                ProvisionResult::Accepted => {
-                    tracing::info!("MM: ISSI {} accepted SCK {} (version {})", issi, sckn, vn);
-                    self.notify_otar(issi, sckn, vn, "accepted");
-                }
-                other => {
-                    let detail = match r.current_sck_vn {
-                        Some(cur) => format!("{} (radio holds version {})", other.describe(), cur),
-                        None => other.describe().to_string(),
-                    };
-                    tracing::warn!("MM: ISSI {} did not take SCK {}: {}", issi, sckn, detail);
-                    self.notify_otar(issi, sckn, vn, &format!("failed: {detail}"));
-                }
+        let Some(pending) = self.otar_pending.get(&issi) else {
+            tracing::warn!("MM: ignoring unsolicited U-OTAR SCK RESULT from ISSI {} (no delivery pending)", issi);
+            return;
+        };
+        // We send exactly one SCK per DOtarSckProvide. A result naming another
+        // SCK must not consume this transaction or be displayed as success.
+        let [result] = pdu.results.as_slice() else {
+            tracing::warn!(
+                "MM: ignoring U-OTAR SCK RESULT from ISSI {} (expected one result for SCK {}, got {})",
+                issi,
+                pending.sckn,
+                pdu.results.len()
+            );
+            return;
+        };
+        let sckn = result.sckn + 1; // SCKN on air is zero-based.
+        if sckn != pending.sckn {
+            tracing::warn!(
+                "MM: ignoring U-OTAR SCK RESULT from ISSI {} for SCK {} (pending SCK {})",
+                issi,
+                sckn,
+                pending.sckn
+            );
+            return;
+        }
+        let vn = pending.sck_vn;
+        self.otar_pending.remove(&issi);
+        match result.result {
+            ProvisionResult::Accepted => {
+                tracing::info!("MM: ISSI {} accepted SCK {} (version {})", issi, sckn, vn);
+                self.notify_otar(issi, sckn, vn, "accepted");
+            }
+            other => {
+                let detail = match result.current_sck_vn {
+                    Some(cur) => format!("{} (radio holds version {})", other.describe(), cur),
+                    None => other.describe().to_string(),
+                };
+                tracing::warn!("MM: ISSI {} did not take SCK {}: {}", issi, sckn, detail);
+                self.notify_otar(issi, sckn, vn, &format!("failed: {detail}"));
             }
         }
     }
@@ -3780,6 +4358,13 @@ impl MmBs {
     where
         F: FnOnce(&mut BitBuffer) -> Result<(), tetra_core::pdu_parse_error::PduParseErr>,
     {
+        self.send_auth_pdu_reported(queue, issi, handle, what, None, write);
+    }
+
+    fn send_auth_pdu_reported<F>(&self, queue: &mut MessageQueue, issi: u32, handle: u32, what: &str, reporter: Option<TxReporter>, write: F)
+    where
+        F: FnOnce(&mut BitBuffer) -> Result<(), tetra_core::pdu_parse_error::PduParseErr>,
+    {
         let mut sdu = BitBuffer::new_autoexpand(256);
         if let Err(e) = write(&mut sdu) {
             tracing::error!("MM: failed to encode {} for ISSI {}: {:?}", what, issi, e);
@@ -3799,8 +4384,10 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                encryption_override: if what == "DOtarCckProvide" { Some(true) }
+                    else { self.registration_encryption.get(&issi).copied() },
                 is_null_pdu: false,
-                tx_reporter: None,
+                tx_reporter: reporter,
             }),
         });
     }
@@ -3833,6 +4420,107 @@ mod presence_tests {
         mm.client_mgr.try_register_client(issi, true).unwrap();
         mm.config.state_write().subscribers.register(issi);
         mm.client_mgr.client_group_attach(issi, 268, true).unwrap();
+    }
+
+    #[test]
+    fn ciphering_transition_without_group_report_waits_for_location_update_accept_llc_ack() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        let cipher = CipheringParameters::class2(2, 3);
+        let reporter = TxReporter::new();
+
+        mm.replace_pending_ciphering(100, Some(cipher), reporter.clone());
+
+        reporter.mark_transmitted();
+        mm.process_pending_ciphering();
+        assert!(
+            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
+            "ciphering must not change merely because the accept was transmitted"
+        );
+        assert!(!mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+
+        reporter.mark_acknowledged();
+        mm.process_pending_ciphering();
+        assert!(mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_some());
+        assert!(mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+    }
+
+    #[test]
+    fn ciphering_transition_waits_for_group_report_completion_and_final_attach_llc_ack() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        let cipher = CipheringParameters::class2(2, 3);
+        let accept_reporter = TxReporter::new();
+
+        // D-LOCATION-UPDATE-ACCEPT is queued first; the subsequent
+        // D-LOCATION-UPDATE-COMMAND marks the group report as in flight.
+        mm.replace_pending_ciphering(100, Some(cipher), accept_reporter.clone());
+        mm.mark_group_report_pending(100);
+
+        // Even an ACK of D-LOCATION-UPDATE-ACCEPT must not switch ciphering
+        // while the radio's group report is incomplete (completion marker absent).
+        accept_reporter.mark_transmitted();
+        accept_reporter.mark_acknowledged();
+        mm.process_pending_ciphering();
+        assert!(mm.group_report_in_flight.contains_key(&100));
+        assert!(mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
+        assert!(
+            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
+            "ciphering must remain unchanged while the group report is incomplete"
+        );
+        assert!(!mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+
+        // The final group_report_response=0 causes MM to attach a fresh receipt
+        // to its final D-ATTACH acknowledgement. Merely receiving that uplink
+        // completion marker is not enough to switch ciphering.
+        let final_attach_reporter = mm
+            .prepare_group_report_completion(100)
+            .expect("final group report must create an ACK receipt");
+        assert!(!mm.group_report_in_flight.contains_key(&100));
+        assert!(!mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
+
+        mm.process_pending_ciphering();
+        assert!(
+            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
+            "the completion marker alone must not activate ciphering"
+        );
+
+        final_attach_reporter.mark_transmitted();
+        mm.process_pending_ciphering();
+        assert!(
+            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
+            "the final acknowledgement must itself be LLC-ACKed"
+        );
+
+        final_attach_reporter.mark_acknowledged();
+        mm.process_pending_ciphering();
+        assert!(mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_some());
+        assert!(mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+        assert!(!mm.pending_ciphering.contains_key(&100));
+    }
+
+    #[test]
+    fn expired_group_report_does_not_activate_pending_ciphering() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        let cipher = CipheringParameters::class2(2, 3);
+        let reporter = TxReporter::new();
+
+        mm.replace_pending_ciphering(100, Some(cipher), reporter);
+        mm.mark_group_report_pending(100);
+        let expired_at = Instant::now() - CIPHERING_ACK_TIMEOUT - Duration::from_secs(1);
+        mm.pending_ciphering.get_mut(&100).unwrap().started = expired_at;
+        mm.group_report_in_flight.insert(100, expired_at);
+
+        mm.process_pending_ciphering();
+
+        assert!(!mm.pending_ciphering.contains_key(&100));
+        assert!(!mm.group_report_in_flight.contains_key(&100));
+        assert!(
+            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
+            "an expired report must keep the previous ciphering state"
+        );
+        assert!(!mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
     }
 
     fn actions(queue: &mut MessageQueue) -> Vec<BrewSubscriberAction> {
@@ -3913,6 +4601,155 @@ mod presence_tests {
         assert!(!mm.client_mgr.is_pending_command(100));
         assert!(events.try_recv().is_none());
         assert!(actions(&mut queue).is_empty());
+    }
+
+    #[test]
+    fn explicit_registration_cleanup_discards_old_pending_ciphering() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        let reporter = TxReporter::new();
+        mm.replace_pending_ciphering(100, Some(CipheringParameters::class2(2, 3)), reporter.clone());
+        mm.mark_group_report_pending(100);
+        mm.group_report_requested_at.insert(100, Instant::now());
+        mm.otar_pending.insert(100, PendingOtar { sckn: 24, sck_vn: 2, started: Instant::now() });
+        assert!(mm.pending_ciphering.contains_key(&100));
+        assert!(mm.group_report_in_flight.contains_key(&100));
+
+        // The outbound PDU was transmitted before the registration ended.
+        // Simulate its delayed LLC ACK arriving only after cleanup.
+        reporter.mark_transmitted();
+        mm.clear_registration_transients(100);
+        assert!(!mm.pending_ciphering.contains_key(&100));
+        assert!(!mm.group_report_in_flight.contains_key(&100));
+        assert!(!mm.group_report_requested_at.contains_key(&100));
+        assert!(!mm.otar_pending.contains_key(&100));
+        reporter.mark_acknowledged();
+        mm.process_pending_ciphering();
+        assert!(mm.client_mgr.get_client_by_issi(100).and_then(|c| c.ciphering).is_none());
+    }
+
+    #[test]
+    fn group_report_response_zero_means_complete_and_one_is_reserved() {
+        assert!(super::group_report_response_is_complete(1, 0_u128));
+        assert!(!super::group_report_response_is_complete(1, 1_u128));
+        // The complete marker is exactly one bit. Reject truncated or extra bits.
+        assert!(!super::group_report_response_is_complete(0, 0_u128));
+        assert!(!super::group_report_response_is_complete(2, 0_u128));
+        assert!(!super::group_report_response_is_complete(2, 2_u128));
+    }
+
+    #[test]
+    fn otar_result_requires_pending_sck_and_matching_number() {
+        use tetra_pdus::mm::pdus::otar_sck::SckNumberAndResult;
+        let (mut mm, _) = station();
+        let make_result = |sckn: u8| UOtarSckResult {
+            results: vec![SckNumberAndResult {
+                sckn,
+                result: ProvisionResult::Accepted,
+                current_sck_vn: None,
+            }],
+            address_extension: None,
+            proprietary: None,
+        };
+        // An unsolicited success cannot be reported as successful provision.
+        mm.rx_u_otar_sck_result(100, make_result(23));
+        assert!(!mm.otar_pending.contains_key(&100));
+
+        mm.otar_pending.insert(100, PendingOtar {
+            sckn: 24,
+            sck_vn: 2,
+            started: Instant::now(),
+        });
+        // SCK 23 must not consume a pending provision of SCK 24.
+        mm.rx_u_otar_sck_result(100, make_result(22));
+        assert!(mm.otar_pending.contains_key(&100));
+        mm.rx_u_otar_sck_result(100, make_result(23));
+        assert!(!mm.otar_pending.contains_key(&100));
+    }
+
+    #[test]
+    fn group_attach_filter_uses_pending_negotiated_ciphering_mode() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+
+        assert!(!mm.effective_group_attach_encrypted(100));
+
+        let cipher = CipheringParameters::class2(2, 3);
+        mm.pending_ciphering.insert(
+            100,
+            PendingCiphering {
+                dck: None,
+                ciphering: Some(cipher),
+                reporter: TxReporter::new(),
+                awaiting_group_report: true,
+                started: Instant::now(),
+            },
+        );
+        assert!(mm.effective_group_attach_encrypted(100),
+            "a pending encrypted registration must admit groups of the negotiated encrypted mode");
+
+        mm.pending_ciphering.get_mut(&100).unwrap().ciphering = None;
+        assert!(!mm.effective_group_attach_encrypted(100),
+            "a pending clear-mode transition must use clear group eligibility");
+
+        mm.config.state_write().subscribers.set_encrypted(100, true);
+        mm.pending_ciphering.remove(&100);
+        assert!(mm.effective_group_attach_encrypted(100),
+            "without a pending transition, group eligibility must use committed subscriber state");
+    }
+
+    /// Regression: an unregistered/returning SC2 radio may send an encrypted
+    /// random access. A clear-mode D-LOCATION-UPDATE-COMMAND used to switch the
+    /// Motorola back to clear on re-attach, while the subsequent registration
+    /// and CMCE downlink were negotiated as encrypted.
+    #[test]
+    fn class2_registration_command_advertises_ksg_and_sckn() {
+        let (mut mm, _) = station();
+        let mut cfg = (*mm.config.config()).clone();
+        cfg.security.aie = Some(tetra_config::bluestation::CfgAie {
+            class3: None,
+	    enabled: true,
+            ksg: 2,
+            sckn: 24,
+            sck_vn: 2,
+            sck: tetra_config::bluestation::CipherKey([0; 10]),
+            clear_groups: Vec::new(),
+        });
+        mm.config = SharedConfig::from_parts(cfg, None);
+
+        let mut queue = MessageQueue::new();
+        mm.send_d_location_update_command(&mut queue, 200, 0);
+        let SapMsgInner::LmmMleUnitdataReq(mut request) = queue.pop_front().unwrap().msg else {
+            panic!("expected D-LOCATION-UPDATE-COMMAND")
+        };
+        assert_eq!(
+            request.sdu.read_field(4, "pdu_type").unwrap(),
+            tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl::DLocationUpdateCommand.into_raw()
+        );
+        assert_eq!(request.sdu.read_field(1, "group_report").unwrap(), 1);
+        assert_eq!(request.sdu.read_field(1, "cipher_control").unwrap(), 1);
+        assert_eq!(request.sdu.read_field(10, "ciphering_parameters").unwrap(),
+            CipheringParameters::class2(2, 24).to_bits());
+        assert!(!request.encryption_flag, "initial location command must still be clear");
+    }
+
+    #[test]
+    fn class1_registration_command_remains_clear() {
+        let (mut mm, _) = station();
+        let mut cfg = (*mm.config.config()).clone();
+        cfg.security.aie = None;
+        mm.config = SharedConfig::from_parts(cfg, None);
+        let mut queue = MessageQueue::new();
+        mm.send_d_location_update_command(&mut queue, 200, 0);
+        let SapMsgInner::LmmMleUnitdataReq(mut request) = queue.pop_front().unwrap().msg else {
+            panic!("expected D-LOCATION-UPDATE-COMMAND")
+        };
+        assert_eq!(request.sdu.read_field(4, "pdu_type").unwrap(),
+            tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl::DLocationUpdateCommand.into_raw());
+        assert_eq!(request.sdu.read_field(1, "group_report").unwrap(), 1);
+        assert_eq!(request.sdu.read_field(1, "cipher_control").unwrap(), 0);
+        assert_eq!(request.sdu.read_field(1, "obit").unwrap(), 0);
+        assert!(!request.encryption_flag);
     }
 
     #[test]
@@ -4125,3 +4962,7 @@ mod presence_tests {
         assert!(matches!(events.try_recv(), Some(TelemetryEvent::MsTimeoutDrop { issi: 100 })));
     }
 }
+
+#[cfg(test)]
+#[path = "sc3_tests.rs"]
+mod sc3_tests;

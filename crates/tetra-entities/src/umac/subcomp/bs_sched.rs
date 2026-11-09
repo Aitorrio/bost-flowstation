@@ -160,6 +160,8 @@ pub struct BsChannelScheduler {
     /// Per timeslot: the traffic channel carries an encrypted call (set when its channel
     /// allocation is sent, cleared when the circuit closes).
     tch_encrypted: [bool; 4],
+    tch_dl_address: [Option<TetraAddress>; 4],
+    tch_ul_issi: [Option<u32>; 4],
 
     /// The MSs currently on a packet data channel. A PDCH is an assigned control channel with no
     /// circuit behind it, so nothing else tells the scheduler the slot is in use: while an MS is
@@ -359,6 +361,8 @@ impl BsChannelScheduler {
             cipher: None,
             tch_encrypted: [false; 4],
             pdch_ms: Vec::new(),
+            tch_dl_address: [None; 4],
+            tch_ul_issi: [None; 4],
             // Start each timeslot's marker cursor at 4 (first valid value).
             next_usage_marker: [4, 4, 4, 4],
         }
@@ -376,16 +380,47 @@ impl BsChannelScheduler {
     pub fn set_tch_encrypted(&mut self, ts: u8, encrypted: bool) {
         if let Some(slot) = self.tch_encrypted.get_mut(ts as usize - 1) {
             *slot = encrypted && self.cipher.is_some();
+            if !encrypted {
+                self.tch_dl_address[ts as usize - 1] = None;
+                self.tch_ul_issi[ts as usize - 1] = None;
+            }
         }
+    }
+
+    pub fn set_tch_address(&mut self, ts: u8, addr: TetraAddress) {
+        if !(1..=4).contains(&ts) { return; }
+        let i = ts as usize - 1;
+        // Individual D-CONNECT to the talker must not replace an existing group DL.
+        if !self.tch_dl_address[i].is_some_and(|a| a.ssi_type == tetra_core::SsiType::Gssi)
+            || addr.ssi_type == tetra_core::SsiType::Gssi {
+            self.tch_dl_address[i] = Some(addr);
+        }
+        if matches!(addr.ssi_type, tetra_core::SsiType::Issi | tetra_core::SsiType::Ssi) {
+            self.tch_ul_issi[i] = Some(addr.ssi);
+        }
+    }
+
+    pub fn set_tch_speaker(&mut self, ts: u8, issi: Option<u32>) {
+        if (1..=4).contains(&ts) { self.tch_ul_issi[ts as usize - 1] = issi; }
+    }
+
+    pub fn tch_is_encrypted(&self, ts: u8) -> bool {
+        (1..=4).contains(&ts) && self.tch_encrypted[ts as usize - 1]
     }
 
     /// The speech key stream of `ts` at `t` in codec order, when that traffic channel is encrypted.
     pub fn tch_kss(&self, ts: u8, t: TdmaTime, uplink: bool) -> Option<[u8; 274]> {
+        if !(1..=4).contains(&ts) { return None; }
         let cipher = self.cipher.as_ref()?;
         if !self.tch_encrypted.get(ts as usize - 1).copied().unwrap_or(false) {
             return None;
         }
-        Some(crate::aie::cipher::tch_s_kss_codec_order(&cipher.kss(self.carrier_num, t, uplink)))
+        let kss = if cipher.is_class3() {
+            let addr = if uplink { TetraAddress::issi(self.tch_ul_issi[ts as usize - 1]?) }
+                else { self.tch_dl_address[ts as usize - 1]? };
+            cipher.kss_for(self.carrier_num, t, uplink, addr)?
+        } else { cipher.kss(self.carrier_num, t, uplink) };
+        Some(crate::aie::cipher::tch_s_kss_codec_order(&kss))
     }
 
     pub fn set_downlink_mode(&mut self, downlink_mode: CarrierDownlinkMode) {
@@ -1477,7 +1512,7 @@ impl BsChannelScheduler {
         // Key stream of this slot, for at most one encrypted PDU (TS 100 392-7 clause 6.4.2.2).
         let cipher = self.cipher.clone();
         let mut slot_cipher = cipher.as_deref().map(|c| crate::umac::subcomp::bs_frag::SlotCipher {
-            cipher: c,
+            cipher: c, carrier: self.carrier_num, time: ts,
             kss: c.kss(self.carrier_num, ts, false),
             kss_offset: 0,
             used: false,
@@ -1498,7 +1533,7 @@ impl BsChannelScheduler {
                             let mut buf = buf_opt.unwrap_or_else(|| BitBuffer::new(SCH_F_CAP));
                             // Create fragger, either to send the whole PDU or to start fragmentation
                             let mut fragger = BsFragger::new(pdu, sdu, tx_reporter);
-                            if !fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()) {
+                            if fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()).needs_retry() {
                                 // Fragmentation was started and we have more chunks to send
                                 // Enqueue fragger with remaining data for retrieval next frame
                                 self.dl_enqueue_tma_frag_next_frame(fragger);
@@ -1509,7 +1544,7 @@ impl BsChannelScheduler {
                         DlSchedElem::FragBuf(mut fragger) => {
                             // Allocate bitbuf if not already done
                             let mut buf = buf_opt.unwrap_or_else(|| BitBuffer::new(SCH_F_CAP));
-                            if !fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()) {
+                            if fragger.get_next_chunk_ciphered(&mut buf, slot_cipher.as_mut()).needs_retry() {
                                 // Fragmentation was continued and we still have more chunks to send
                                 // Re-enqueue fragger with remaining data for retrieval next frame
                                 self.dl_enqueue_tma_frag_next_frame(fragger);
@@ -1600,7 +1635,15 @@ impl BsChannelScheduler {
                         // Built and encrypted now, with the key stream of this very slot.
                         let cipher = self.cipher.clone();
                         let built = cipher.as_deref().and_then(|c| {
-                            let kss = c.kss(self.carrier_num, ts, false);
+                            // SC3: individual addresses use the recipient's DCK, groups the CCK.
+                            // No DCK (session ended): dropped below, never sent in clear.
+                            let kss = match pdu.addr {
+                                Some(addr) if c.is_class3() && addr.ssi_type != SsiType::Gssi => c
+                                    .dck_for_address(addr)
+                                    .map(|dck| c.kss_for_dck(self.carrier_num, ts, false, &dck))?,
+                                None if c.is_class3() => return None,
+                                _ => c.kss(self.carrier_num, ts, false),
+                            };
                             build_stch(pdu, &mut sdu, chan_alloc, Some((c, &kss)))
                         });
                         match built {
@@ -1647,6 +1690,10 @@ impl BsChannelScheduler {
             }
         }
 
+        if self.tch_is_encrypted(ts.t) && self.tch_kss(ts.t, ts, false).is_none() {
+            // No valid recipient key: suppress queued speech, never emit plaintext.
+            tch_buf = BitBuffer::new(TCH_S_CAP);
+        }
         (tch_buf, stch_opt, stch2_opt)
     }
 
@@ -2225,6 +2272,10 @@ impl BsChannelScheduler {
 }
 
 #[cfg(test)]
+#[path = "sc3_reentry_tests.rs"]
+mod sc3_reentry_tests;
+
+#[cfg(test)]
 mod tests {
 
     use tetra_core::{
@@ -2251,7 +2302,8 @@ mod tests {
     #[test]
     fn traffic_slot_encryption_follows_its_allocation() {
         let aie = tetra_config::bluestation::CfgAie {
-            enabled: true,
+            class3: None,
+        enabled: true,
             ksg: 1,
             sckn: 1,
             sck: tetra_config::bluestation::CipherKey([7; 10]),
@@ -2272,6 +2324,7 @@ mod tests {
 
     fn test_aie() -> tetra_config::bluestation::CfgAie {
         tetra_config::bluestation::CfgAie {
+            class3: None,
             enabled: true,
             ksg: 1,
             sckn: 1,
@@ -2367,7 +2420,8 @@ mod tests {
     #[test]
     fn sysinfo_alternates_hyperframe_and_sck_vn_on_a_class2_cell() {
         let aie = tetra_config::bluestation::CfgAie {
-            enabled: true,
+            class3: None,
+        enabled: true,
             ksg: 1,
             sckn: 1,
             sck: tetra_config::bluestation::CipherKey([0; 10]),
@@ -2379,6 +2433,34 @@ mod tests {
         assert_eq!(sysinfo_key_field(None, t(4)), (Some(77), None), "clear cell: always the hyperframe");
         assert_eq!(sysinfo_key_field(Some(&cipher), t(3)), (Some(77), None));
         assert_eq!(sysinfo_key_field(Some(&cipher), t(4)), (None, Some(0x1234)));
+    }
+
+    #[test]
+    fn sc3_group_speech_keeps_cck_downlink_and_switches_uplink_dck_on_floor_change() {
+        use tetra_config::bluestation::{SharedConfig, CipherKey, CfgAie, CfgClass3};
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../../example_config/config.toml")).unwrap();
+        let shared = SharedConfig::from_parts(cfg,None);
+        shared.state_write().sc3_dcks.insert(100,CipherKey([0x11;10]));
+        shared.state_write().sc3_dcks.insert(101,CipherKey([0x22;10]));
+        let aie = CfgAie { enabled: true, ksg: 2, sck: CipherKey([0;10]), sckn: 1, sck_vn: 0, clear_groups: vec![],
+            class3: Some(CfgClass3 { cck: CipherKey([0x33;10]), cck_id: 42 }) };
+        let mut sched = get_testing_slotter();
+        let cipher = std::sync::Arc::new(crate::aie::cipher::CellCipher::new(&aie,&[sched.carrier_num()],1,1).with_config(shared));
+        let t = TdmaTime { t: 2, f: 3, m: 4, h: 5 };
+        sched.set_cipher(Some(cipher.clone())); sched.set_tch_encrypted(2,true);
+        sched.set_tch_address(2,TetraAddress::new(900,tetra_core::SsiType::Gssi));
+        sched.set_tch_address(2,TetraAddress::issi(100));
+        let dl = sched.tch_kss(2,t,false).unwrap();
+        assert_eq!(dl,crate::aie::cipher::tch_s_kss_codec_order(&cipher.kss(sched.carrier_num(),t,false)));
+        let first = sched.tch_kss(2,t,true).unwrap();
+        sched.set_tch_speaker(2,Some(101));
+        assert_ne!(first,sched.tch_kss(2,t,true).unwrap());
+        assert_eq!(dl,sched.tch_kss(2,t,false).unwrap());
+        sched.set_tch_speaker(2,None); assert!(sched.tch_kss(2,t,true).is_none());
+        assert_eq!(sysinfo_key_field(Some(&cipher),t),(None,Some(42)));
+        sched.set_tch_encrypted(2,false);
+        assert!(sched.tch_kss(2,t,false).is_none());
+        assert!(sched.tch_dl_address[1].is_none());
     }
 
     pub fn get_testing_slotter() -> BsChannelScheduler {

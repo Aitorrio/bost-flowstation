@@ -55,6 +55,8 @@ pub struct ExpectedInAck {
 
 /// Struct that maintains state for an ACK we still need to send back.
 pub struct ScheduledOutAck {
+    pub rx_ack: tetra_core::tx_receipt::RxAck,
+    pub encrypted: bool,
     pub addr: TetraAddress,
     pub t_start: TdmaTime,
     /// Received sequence number
@@ -109,24 +111,39 @@ impl Llc {
             .unwrap_or_else(|| self.main_carrier())
     }
 
+    /// Resolve the mode when accepting the SDU, not when a later retry is sent.
+    fn default_encrypted(&self, addr: TetraAddress) -> bool {
+        match addr.ssi_type {
+            SsiType::Issi | SsiType::Ssi => self.config.state_read().subscribers.encrypted(addr.ssi).unwrap_or(false),
+            SsiType::Gssi if addr.ssi != 0xFF_FFFF => {
+                crate::aie::effective(&self.config.config()).is_some_and(|aie| !aie.is_clear_group(addr.ssi))
+            }
+            _ => false,
+        }
+    }
+
     /// Schedule an ACK to be sent at a later time
-    pub fn schedule_outgoing_ack(&mut self, dltime: TdmaTime, addr: TetraAddress, carrier_num: u16, ts: u8, ns: u8) {
+    pub fn schedule_outgoing_ack(&mut self, dltime: TdmaTime, addr: TetraAddress, carrier_num: u16, ts: u8, ns: u8, encrypted: bool) -> tetra_core::tx_receipt::RxAck {
+        let rx_ack = tetra_core::tx_receipt::RxAck::default();
         self.scheduled_out_acks.push_back(ScheduledOutAck {
+            rx_ack: rx_ack.clone(),
+            encrypted,
             t_start: dltime,
             nr: ns,
             addr,
             carrier_num,
             ts,
         });
+        rx_ack
     }
 
     /// Returns details for outstanding to-be-sent ACK, if any. Returned u8 is the sequence number.
     /// ETSI 22.3.2.3 case d: when a waiting ACK and outgoing TL-DATA exist for the same link, the
     /// LLC shall emit a combined BL-ADATA PDU. We match by SSI plus carrier because the ACK must
     /// stay on the same traffic/signalling carrier as the original uplink.
-    fn get_out_ack_seq_if_any(&mut self, addr: TetraAddress, carrier_num: u16) -> Option<u8> {
+    fn get_out_ack_seq_if_any(&mut self, addr: TetraAddress, carrier_num: u16, encrypted: bool) -> Option<u8> {
         for i in 0..self.scheduled_out_acks.len() {
-            if self.scheduled_out_acks[i].addr.ssi == addr.ssi && self.scheduled_out_acks[i].carrier_num == carrier_num {
+            if !self.scheduled_out_acks[i].rx_ack.is_standalone() && self.scheduled_out_acks[i].addr.ssi == addr.ssi && self.scheduled_out_acks[i].carrier_num == carrier_num && self.scheduled_out_acks[i].encrypted == encrypted {
                 let n = self.scheduled_out_acks[i].nr;
                 self.scheduled_out_acks.remove(i);
                 return Some(n);
@@ -164,8 +181,10 @@ impl Llc {
             return;
         };
 
-        // Check it was indeed already transmitted by the Umac
-        if expected_ack.t_umac_done.is_none() {
+        // Only a fully transmitted attempt may be acknowledged. t_umac_done
+        // also records discards and is only sampled at tick_end; it can both
+        // authorize an unsent PDU and miss a real ACK arriving before that poll.
+        if expected_ack.tx_reporter.get_state() != TxState::Transmitted {
             // This may be an old retransmission of an ack for the before-last basic link message
             // Let's push the ack back into the head of the queue (not tail)..
             tracing::warn!(
@@ -224,6 +243,9 @@ impl Llc {
             return;
         };
 
+        prim.air_interface_encryption = Some(prim.air_interface_encryption
+            .unwrap_or_else(|| self.default_encrypted(prim.main_address) as _));
+
         let mut pdu_buf = BitBuffer::new_autoexpand(32);
         let pdu = BlUdata { has_fcs: false };
         pdu.to_bitbuf(&mut pdu_buf);
@@ -279,12 +301,15 @@ impl Llc {
             return;
         };
 
+        prim.air_interface_encryption = Some(prim.air_interface_encryption
+            .unwrap_or_else(|| self.default_encrypted(prim.main_address) as _));
+
         let preferred_carrier = self.preferred_carrier(prim.stealing_slot, prim.chan_alloc.as_ref());
 
         // Traffic-channel responses may carry the TL-SDU on the BL-ACK itself.
         // This is required for U-Alert and other BL response payloads.
         if prim.stealing_permission {
-            if let Some(out_ack_n) = self.get_out_ack_seq_if_any(prim.main_address, preferred_carrier) {
+            if let Some(out_ack_n) = self.get_out_ack_seq_if_any(prim.main_address, preferred_carrier, prim.air_interface_encryption.unwrap_or(0) != 0) {
                 let mut pdu_buf = BitBuffer::new_autoexpand(32);
                 let pdu = BlAck {
                     has_fcs: prim.fcs_flag,
@@ -359,7 +384,7 @@ impl Llc {
         }
 
         // If an ack still needs to be sent, get the relevant expected sequence number
-        let out_ack_n = self.get_out_ack_seq_if_any(prim.main_address, preferred_carrier);
+        let out_ack_n = self.get_out_ack_seq_if_any(prim.main_address, preferred_carrier, prim.air_interface_encryption.unwrap_or(0) != 0);
 
         // Get per-link send sequence number N(S) = V(S), then toggle V(S)
         let ns = self.get_next_send_seq(&prim.main_address);
@@ -602,9 +627,10 @@ impl Llc {
 
         // If ns is present, we need to send an ACK
         let msg_dltime = self.dltime.add_timeslots(-2); // Msg on uplink was sent two timeslots ago. 
+        let mut rx_ack = None;
         if let Some(ns) = ns {
             // Send ACK
-            self.schedule_outgoing_ack(msg_dltime, prim.main_address, prim.carrier_num, msg_dltime.t, ns);
+            rx_ack = Some(self.schedule_outgoing_ack(msg_dltime, prim.main_address, prim.carrier_num, msg_dltime.t, ns, prim.air_interface_encryption != 0));
         }
 
         // if nr is present, we have received an ACK on a previous message
@@ -619,6 +645,7 @@ impl Llc {
             tracing::debug!("BL-ACK PDU carrying a payload: {}", pdu.dump_bin());
             pdu.set_raw_start(pdu.get_raw_pos());
             let m = TlaTlDataIndBl {
+                rx_ack,
                 main_address: prim.main_address,
                 link_id: 0,
                 endpoint_id: prim.endpoint_id,
@@ -672,6 +699,7 @@ impl Llc {
         } else {
             // Acknowledged data transfer service
             let m = TlaTlDataIndBl {
+                rx_ack,
                 // address_type: 0, // TODO FIXME
                 main_address: prim.main_address,
                 link_id: prim.link_id,
@@ -890,12 +918,12 @@ impl Llc {
                     endpoint_id: 0, // todo fixme
                     stealing_permission: steal,
                     subscriber_class: 0,            // TODO FIXME
-                    air_interface_encryption: None, // TODO FIXME
+                    air_interface_encryption: Some(ack.encrypted as _),
                     stealing_repeats_flag: None,    // TODO FIXME
                     data_category: None,            // TODO FIXME
                     chan_alloc,
                     stealing_slot: None,
-                    tx_reporter: None, // By definition, no higher layer entity is interested
+                    tx_reporter: Some(ack.rx_ack.transmitted), // MM may wait for this ACK before changing DCK
                 }),
             };
             queue.push_back(sapmsg);
@@ -995,5 +1023,170 @@ impl TetraEntityTrait for Llc {
         had_activity |= self.submit_udata_msgs_to_umac(queue);
 
         had_activity
+    }
+}
+
+#[cfg(test)]
+mod reattach_tests {
+    use super::*;
+    use tetra_saps::{tma::TmaUnitdataInd, tla::TlaTlDataReqBl};
+
+    fn station() -> Llc {
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        let shared = SharedConfig::from_parts(cfg, None);
+        shared.state_write().subscribers.register(100);
+        Llc::new(shared)
+    }
+
+    fn uplink(encrypted: bool) -> SapMsg {
+        let mut pdu = BitBuffer::new_autoexpand(16);
+        BlData { has_fcs: false, ns: 1 }.to_bitbuf(&mut pdu);
+        pdu.write_bits(0b0010000, 7); // MM discriminator + MM PDU prefix
+        pdu.seek(0);
+        SapMsg { sap: Sap::TmaSap, src: TetraEntity::Umac, dest: TetraEntity::Llc,
+            msg: SapMsgInner::TmaUnitdataInd(TmaUnitdataInd {
+                carrier_num: 1521, pdu: Some(pdu), main_address: TetraAddress::issi(100),
+                scrambling_code: 0, link_id: 0, endpoint_id: 0, new_endpoint_id: None,
+                css_endpoint_id: None, air_interface_encryption: encrypted as _,
+                chan_change_response_req: false, chan_change_handle: None, chan_info: None,
+            }) }
+    }
+
+    fn downlink(mode: Option<bool>) -> SapMsg {
+        SapMsg { sap: Sap::TlaSap, src: TetraEntity::Mle, dest: TetraEntity::Llc,
+            msg: SapMsgInner::TlaTlDataReqBl(TlaTlDataReqBl {
+                main_address: TetraAddress::issi(100), link_id: 0, endpoint_id: 0,
+                tl_sdu: BitBuffer::from_bitstr("00100000"), stealing_permission: false,
+                subscriber_class: 0, fcs_flag: false, air_interface_encryption: mode.map(|v| v as _),
+                stealing_repeats_flag: None, data_class_info: None, req_handle: 0,
+                graceful_degradation: None, chan_alloc: None, stealing_slot: None, tx_reporter: None,
+            }) }
+    }
+
+    #[test]
+    fn r4_upper_layer_can_wait_for_separate_ack_transmission() {
+        let mut llc=station(); let mut q=MessageQueue::new();
+        llc.rx_tma_unitdata_ind(&mut q,uplink(true));
+        let SapMsgInner::TlaTlDataIndBl(ind)=q.pop_front().unwrap().msg else {panic!("indication")};
+        let ack=ind.rx_ack.unwrap(); ack.require_standalone();
+        assert!(!ack.transmitted.is_transmitted());
+        assert_eq!(llc.get_out_ack_seq_if_any(TetraAddress::issi(100),1521,true),None);
+        llc.submit_ack_replies_to_umac(&mut q);
+        let SapMsgInner::TmaUnitdataReq(req)=q.pop_front().unwrap().msg else {panic!("ACK")};
+        assert_eq!(req.air_interface_encryption,Some(1));
+        req.tx_reporter.unwrap().mark_transmitted();
+        assert_eq!(ack.transmitted.get_state(),tetra_core::tx_receipt::TxState::Transmitted);
+    }
+
+    #[test]
+    fn r3_ack_after_discard_or_before_transmission_cannot_confirm_an_unsent_pdu() {
+        for discard in [false, true] {
+            let mut llc = station();
+            let mut q = MessageQueue::new();
+            llc.rx_tla_tldata_req_bl(&mut q, downlink(Some(false)));
+            llc.submit_free_messages_to_umac(&mut q);
+            let ack = llc.outbound_messages.front_mut().unwrap();
+            let receipt = ack.tx_reporter.clone();
+            let (carrier, nr) = (ack.carrier_num, ack.ns);
+            if discard { receipt.mark_discarded(); }
+            llc.submit_retransmissions_to_umac(&mut q);
+            llc.process_incoming_ack(TetraAddress::issi(100), carrier, nr);
+            assert_eq!(receipt.get_state(), if discard { TxState::Discarded } else { TxState::Pending });
+            assert_eq!(llc.outbound_messages.len(), 1);
+        }
+    }
+
+    #[test]
+    fn r3_genuine_ack_before_the_next_timer_poll_is_accepted() {
+        let mut llc = station();
+        let mut q = MessageQueue::new();
+        llc.rx_tla_tldata_req_bl(&mut q, downlink(Some(false)));
+        llc.submit_free_messages_to_umac(&mut q);
+        let ack = llc.outbound_messages.front().unwrap();
+        let receipt = ack.tx_reporter.clone();
+        let (carrier, nr) = (ack.carrier_num, ack.ns);
+        assert!(ack.t_umac_done.is_none());
+        receipt.mark_transmitted();
+        llc.process_incoming_ack(TetraAddress::issi(100), carrier, nr ^ 1);
+        assert_eq!(receipt.get_state(), TxState::Transmitted);
+        llc.process_incoming_ack(TetraAddress::issi(100), carrier, nr);
+        assert!(receipt.is_acknowledged());
+        assert!(llc.outbound_messages.is_empty());
+    }
+
+    #[test]
+    fn r2_ack_uses_received_mode_despite_opposite_registration_state() {
+        for encrypted in [false, true] {
+            let mut llc = station();
+            llc.config.state_write().subscribers.set_encrypted(100, !encrypted);
+            let mut q = MessageQueue::new();
+            llc.rx_tma_unitdata_ind_bl(&mut q, uplink(encrypted));
+            let mut mle = crate::mle::mle_bs::MleBs::new(llc.config.clone());
+            let mut up = MessageQueue::new();
+            mle.rx_prim(&mut up, q.pop_front().unwrap());
+            let SapMsgInner::LmmMleUnitdataInd(ind) = up.pop_front().unwrap().msg else { panic!("MM indication") };
+            assert_eq!(ind.encrypted, encrypted);
+            llc.submit_ack_replies_to_umac(&mut q);
+            let SapMsgInner::TmaUnitdataReq(mut req) = q.pop_front().unwrap().msg else { panic!("ACK") };
+            assert_eq!(req.air_interface_encryption, Some(encrypted as _));
+            assert_eq!(BlAck::from_bitbuf(&mut req.pdu).unwrap().nr, 1);
+        }
+    }
+
+    #[test]
+    fn r2_piggyback_requires_matching_encryption_modes() {
+        for received in [false, true] {
+            for sent in [false, true] {
+                let mut llc = station();
+                let mut q = MessageQueue::new();
+                llc.rx_tma_unitdata_ind_bl(&mut q, uplink(received));
+                q.pop_front();
+                llc.rx_tla_tldata_req_bl(&mut q, downlink(Some(sent)));
+                llc.submit_free_messages_to_umac(&mut q);
+                llc.submit_ack_replies_to_umac(&mut q);
+                let SapMsgInner::TmaUnitdataReq(req) = q.pop_front().unwrap().msg else { panic!("data") };
+                assert_eq!(req.air_interface_encryption, Some(sent as _));
+                let expected = if received == sent { LlcPduType::BlAdata } else { LlcPduType::BlData };
+                assert_eq!(LlcPduType::try_from(req.pdu.peek_bits(4).unwrap()).unwrap(), expected);
+                if received != sent {
+                    let SapMsgInner::TmaUnitdataReq(req) = q.pop_front().unwrap().msg else { panic!("separate ACK") };
+                    assert_eq!(req.air_interface_encryption, Some(received as _));
+                }
+                assert!(q.pop_front().is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn r2_queued_data_keeps_mode_across_registration_change_and_retry() {
+        let mut llc = station();
+        let mut q = MessageQueue::new();
+        llc.rx_tla_tldata_req_bl(&mut q, downlink(None));
+        llc.config.state_write().subscribers.set_encrypted(100, true);
+        llc.submit_free_messages_to_umac(&mut q);
+        let ack = llc.outbound_messages.front_mut().unwrap();
+        Llc::submit_for_acknowledged_transmission(&mut q, ack, TdmaTime::default());
+        for _ in 0..2 {
+            let SapMsgInner::TmaUnitdataReq(req) = q.pop_front().unwrap().msg else { panic!("data") };
+            assert_eq!(req.air_interface_encryption, Some(0));
+        }
+    }
+
+    #[test]
+    fn r2_mle_passes_explicit_mm_mode_to_llc() {
+        let llc = station();
+        let mut mle = crate::mle::mle_bs::MleBs::new(llc.config);
+        for encrypted in [false, true] {
+            let mut q = MessageQueue::new();
+            mle.rx_prim(&mut q, SapMsg { sap: Sap::LmmSap, src: TetraEntity::Mm, dest: TetraEntity::Mle,
+                msg: SapMsgInner::LmmMleUnitdataReq(tetra_saps::lmm::LmmMleUnitdataReq {
+                    sdu: BitBuffer::from_bitstr("000000"), handle: 0, address: TetraAddress::issi(100),
+                    layer2service: Layer2Service::Acknowledged, stealing_permission: false,
+                    stealing_repeats_flag: false, encryption_flag: false, encryption_override: Some(encrypted),
+                    is_null_pdu: false, tx_reporter: None,
+                }) });
+            let SapMsgInner::TlaTlDataReqBl(req) = q.pop_front().unwrap().msg else { panic!("LLC request") };
+            assert_eq!(req.air_interface_encryption, Some(encrypted as _));
+        }
     }
 }

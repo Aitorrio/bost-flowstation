@@ -157,11 +157,17 @@ impl CipherKey {
     }
 }
 
-/// Security class 2: one static cipher key shared by the infrastructure and every radio
-/// (EN 300 392-7 clause 6.2). Radios without AIE still register in clear; the station never
-/// bridges clear and encrypted radios (see Docs/aie-class2-plan.md §4a).
+/// Security class 3: common cipher key and identifier; DCKs are derived per subscriber.
+#[derive(Debug, Clone)]
+pub struct CfgClass3 {
+    pub cck: CipherKey,
+    pub cck_id: u16,
+}
+
 #[derive(Debug, Clone)]
 pub struct CfgAie {
+    /// Present for security class 3. SCK fields are unused in this mode.
+    pub class3: Option<CfgClass3>,
     /// `class = 2` in the config. With `class = 1` the key is still kept so it can be sent to
     /// radios over the air (OTAR) while the cell runs in clear; see `CfgSecurity::aie_staged`.
     pub enabled: bool,
@@ -179,6 +185,10 @@ pub struct CfgAie {
 }
 
 impl CfgAie {
+    pub fn security_class(&self) -> u8 {
+        if !self.enabled { 1 } else if self.class3.is_some() { 3 } else { 2 }
+    }
+
     /// True when the group belongs to the clear (class 1) radios.
     pub fn is_clear_group(&self, gssi: u32) -> bool {
         self.clear_groups.contains(&gssi)
@@ -365,7 +375,7 @@ impl std::fmt::Debug for SubscriberKeyDto {
 
 #[derive(Clone, Default, Deserialize)]
 pub struct CfgAieDto {
-    /// 1 = clear (no AIE), 2 = static cipher key. Class 3 is not supported.
+    /// 1 = clear, 2 = SCK, 3 = per-subscriber DCK and cell CCK.
     #[serde(default)]
     pub class: Option<u8>,
     #[serde(default)]
@@ -374,6 +384,10 @@ pub struct CfgAieDto {
     pub sckn: Option<u8>,
     #[serde(default)]
     pub sck: Option<String>,
+    #[serde(default)]
+    pub cck: Option<String>,
+    #[serde(default)]
+    pub cck_id: Option<u16>,
     #[serde(default)]
     pub sck_vn: Option<u16>,
     #[serde(default)]
@@ -393,13 +407,30 @@ impl std::fmt::Debug for CfgAieDto {
 }
 
 fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
+    if dto.class == Some(3) {
+        if dto.sck.is_some() || dto.sckn.is_some() || dto.sck_vn.is_some() {
+            return Err("security.aie class 3: remove SCK settings; configure cck and cck_id".into());
+        }
+        let ksg = dto.ksg.unwrap_or(2);
+        if !(1..=3).contains(&ksg) { return Err("class 3 requires an implemented KSG (1, 2 or 3)".into()); }
+        if !dto.clear_groups.is_empty() { return Err("class 3 currently requires an encrypted-only cell (no clear_groups)".into()); }
+        let cck = CipherKey::from_hex(dto.cck.as_deref().ok_or("security.aie.cck is required for class 3")?)
+            .ok_or("security.aie.cck must be 20 hex digits (80 bits)")?;
+        let cck_id = dto.cck_id.ok_or("security.aie.cck_id is required for class 3")?;
+        return Ok(Some(CfgAie {
+            class3: Some(CfgClass3 { cck, cck_id }), enabled: true, ksg,
+            sckn: 1, sck: CipherKey([0; 10]), sck_vn: 0, clear_groups: Vec::new(),
+        }));
+    }
+    if dto.cck.is_some() || dto.cck_id.is_some() {
+        return Err("CCK settings require security.aie.class = 3".into());
+    }
     let enabled = match dto.class.unwrap_or(1) {
         // Class 1 without a key: plain clear cell. With a key: the key is staged for OTAR.
         1 if dto.sck.is_none() => return Ok(None),
         1 => false,
         2 => true,
-        3 => return Err("security.aie: class 3 (authentication, DCK) is not supported; use class 2".into()),
-        _ => return Err("security.aie.class must be 1 or 2".into()),
+        _ => return Err("security.aie.class must be 1, 2 or 3".into()),
     };
     let ksg = dto.ksg.unwrap_or(1);
     if !(1..=4).contains(&ksg) {
@@ -417,6 +448,7 @@ fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
         return Err("security.aie.clear_groups: each GSSI must be 1-16777215".into());
     }
     Ok(Some(CfgAie {
+        class3: None,
         enabled,
         ksg,
         sckn,
@@ -479,8 +511,21 @@ pub fn apply_security_patch(dto: CfgSecurityDto) -> Result<CfgSecurity, String> 
     if authentication == AuthenticationMode::Required && subscribers.is_empty() {
         return Err("security.authentication = \"required\" needs at least one [[security.subscribers]] key, or no radio can register".into());
     }
+    let aie = apply_aie_patch(dto.aie.unwrap_or_default())?;
+    if aie.as_ref().is_some_and(|a| a.class3.is_some()) {
+        if authentication != AuthenticationMode::Required {
+            return Err("class 3 requires security.authentication = \"required\"".into());
+        }
+        if !invalid_subscriber_keys.is_empty() {
+            return Err("class 3: invalid subscriber key or ISSI".into());
+        }
+        let mut seen = std::collections::HashSet::new();
+        if subscribers.iter().any(|s| !seen.insert(s.issi)) {
+            return Err("class 3: duplicate subscriber ISSI".into());
+        }
+    }
     Ok(CfgSecurity {
-        aie: apply_aie_patch(dto.aie.unwrap_or_default())?,
+        aie,
         e2ee: apply_e2ee_patch(dto.e2ee.unwrap_or_default())?,
         authentication,
         mutual_authentication: dto.mutual_authentication.unwrap_or(defaults.mutual_authentication),
@@ -588,7 +633,7 @@ mod tests {
         assert!(aie(2, None).is_err(), "class 2 needs a key");
         assert!(aie(2, Some("0123")).is_err(), "short key");
         assert!(aie(2, Some("0123456789ABCDEF012G")).is_err(), "non-hex key");
-        assert!(aie(3, Some("0123456789ABCDEF0123")).is_err(), "class 3 unsupported");
+        assert!(aie(3, Some("0123456789ABCDEF0123")).is_err(), "class 3 rejects SCK configuration");
     }
 
     #[test]
@@ -609,5 +654,35 @@ mod tests {
         // required without keys is refused at load time
         let bad: CfgSecurityDto = toml::from_str("authentication = \"required\"\n").unwrap();
         assert!(apply_security_patch(bad).is_err());
+    }
+}
+
+#[cfg(test)]
+mod sc3_tests {
+    use super::*;
+    const SC3: &str = r#"
+authentication = "required"
+[[subscribers]]
+issi = 100
+k = "11111111111111111111111111111111"
+[aie]
+class = 3
+ksg = 2
+cck = "22222222222222222222"
+cck_id = 42
+"#;
+    #[test]
+    fn sc3_config_requires_valid_authentication_and_separate_cck() {
+        let parse = |s: &str| apply_security_patch(toml::from_str::<CfgSecurityDto>(s).unwrap());
+        let cfg = parse(SC3).unwrap();
+        let a = cfg.aie.unwrap(); assert_eq!(a.security_class(),3);
+        assert_eq!(a.class3.as_ref().unwrap().cck_id,42);
+        assert!(!format!("{a:?}").contains("222222"));
+        for bad in [SC3.replace("required","off"), SC3.replace("required","optional"),
+            SC3.replace("cck_id = 42", ""), SC3.replace("22222222222222222222", "22"),
+            format!("{SC3}\nsckn = 1"), format!("{SC3}\nclear_groups = [900]") ] {
+            assert!(parse(&bad).is_err());
+        }
+        assert!(parse(&format!("{SC3}\n[[subscribers]]\nissi = 100\nk = \"33333333333333333333333333333333\"" )).is_err());
     }
 }

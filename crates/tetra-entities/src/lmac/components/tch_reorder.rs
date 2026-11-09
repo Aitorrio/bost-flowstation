@@ -1,4 +1,4 @@
-/// TETRA ACELP bit reordering: converts between codec order (STE format) and channel order (type-1 bits).
+/// TETRA ACELP bit reordering: converts between codec order (STE format) and sensitivity-class order (before CRC/tail insertion into type-2).
 ///
 /// TCH/S carries two 137-bit subframes (274 bits total), interleaved by sensitivity class (EN 300 395-2, Table 4):
 ///   - Class 0: 51 bits/subframe (unprotected)
@@ -24,7 +24,7 @@ const CLASS2_POS: [u8; 30] = [
     18, 19, 20, 21, 31, 32, 53, 80, 107, 134, 1, 2, 3, 4, 9, 10, 11, 12, 27, 28, 29, 30, 52, 79, 106, 133, 51, 78, 105, 132,
 ];
 
-/// Convert 274 ACELP bits from codec order (STE format) to channel order (type-1 bits). One-bit-per-byte.
+/// Convert 274 ACELP bits from codec order (STE format) to sensitivity-class order (before CRC/tail insertion into type-2). One-bit-per-byte.
 // `0 * NUM_ACELP_BITS` is written out deliberately to mirror the `1 * NUM_ACELP_BITS`
 // subframe-1 indexing on the next line, making the subframe-0/subframe-1 interleave obvious.
 #[allow(clippy::erasing_op, clippy::identity_op)]
@@ -60,7 +60,7 @@ pub fn codec_to_channel(codec_bits: &[u8; 274]) -> [u8; 274] {
     channel
 }
 
-/// Convert 274 ACELP bits from channel order (type-1/type-2 bits) to codec order (STE format). Reverse of `codec_to_channel`.
+/// Convert 274 ACELP bits from sensitivity-class order to codec order (STE format). Reverse of `codec_to_channel`.
 #[allow(clippy::erasing_op, clippy::identity_op)]
 pub fn channel_to_codec(channel_bits: &[u8; 274]) -> [u8; 274] {
     let mut codec = [0u8; 274];

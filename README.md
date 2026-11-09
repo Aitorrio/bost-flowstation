@@ -38,7 +38,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | **Roaming between stations** *(new in v0.5.6)* | Separate stations on one Brew server keep a radio's group and individual calls when it changes station |
 | **Multi-cell roaming** and **Infrastructure** page *(new in v0.5.6, first called Roaming / Cells)* | Calls follow the radio between the cells of a station, cells can share a location area, multi-cell stations roam with other stations; one dashboard page for cells, neighbours and reselection |
 | **Group access from the Brew server** *(new in v0.5.6)* | Allow / block list and RX only per group, set on the brew-server and enforced on air: refused attachment, no floor for listeners, emergency always passes |
-| **Multi Network** *(new in v0.5.6)* | One network per cell, migration (ETSI 16.4.1.1 b) and radios of other networks through the Brew server; the cell a radio uses decides the network it talks in (e.g. own Brew network or TetraPack / Brandmeister); switch on the **Infrastructure** page |
+| **Multi Network** *(new in v0.5.6)* | One network per cell, migration (ETSI 16.4.1.1 b) and radios of other networks through the Brew server; the cell a radio uses decides the network it talks in (e.g. own Brew network or TetraPack / Brandmeister); switch on the **Infrastructure** page (off removes the extra networks again; with several networks the Brew profile select shows "Multi Network active") |
 | **Ambience Listening (SS-AL)** *(new in v0.5.4)* | Dispatcher-invoked receive-only call: a supporting radio connects and keys its mic on its own (indicated on the radio, not covert) |
 | **Request for Location (LIP)** *(new in v0.5.4)* | Dispatcher asks a radio for its position (once or polled); the LIP report reaches the console that requested it |
 
@@ -194,6 +194,13 @@ every one checked against independent test vectors:
   (**TEA1**, flagged weak — it keeps only 32 of its 80 key bits; **TEA2**; **TEA3**) and the
   clear talkgroups for radios without encryption (this fork's mixed-cell policy). Radios seen
   encrypting show a lock badge with the key they use.
+- **Encryption (class 3, experimental):** each radio gets its own derived cipher key (DCK) from
+  authentication with its K (mutual authentication too); group downlinks use a common cipher key
+  (CCK) the station delivers sealed (TA31/TA32) with the location update accept and on request,
+  and the Security page can send it again. No GCK, no CCK rotation. Class 3 runs on a single
+  cell: a config with `[[cells]]` is refused, and a class 3 station offers no roaming between
+  stations to the Brew server (a radio from another station registers and authenticates again).
+  See [`Docs/sc3-implementation.md`](Docs/sc3-implementation.md).
 - **Over-the-air rekeying (OTAR):** **Send SCK** next to a radio's key delivers the SCK sealed
   under that radio's K (clause 4.5.2); the radio's answer appears under the key. Leave
   **Encrypt the cell** off while you distribute the key — the SCK is then only used for OTAR and
