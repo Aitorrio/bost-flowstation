@@ -664,6 +664,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         state.brew_cell_directory = None;
                         // Likewise the group rules (a server without `group-access`: all open).
                         state.brew_group_access.clear();
+                        state.brew_managed_groups = None;
                         // And the network list (`mni`).
                         state.multi_network.server = None;
                     }
@@ -1319,8 +1320,14 @@ impl<T: NetworkTransport> BrewWorker<T> {
             BREW_SERVICE_GROUP_ACCESS if self.transport.server_brew_extensions().iter().any(|e| e == BREW_EXT_GROUP_ACCESS) => {
                 match parse_group_access(&svc.json_data) {
                     Ok(groups) => {
-                        tracing::info!("BrewWorker: group access rules from the server: {} groups limited", groups.len());
-                        self.config.state_write().brew_group_access = groups;
+                        let managed = parse_managed_groups(&svc.json_data);
+                        match &managed {
+                            Some(l) => tracing::info!("BrewWorker: group access rules from the server: {} groups limited, managed talkgroups: {} listed", groups.len(), l.len()),
+                            None => tracing::info!("BrewWorker: group access rules from the server: {} groups limited", groups.len()),
+                        }
+                        let mut state = self.config.state_write();
+                        state.brew_group_access = groups;
+                        state.brew_managed_groups = managed;
                     }
                     Err(e) => tracing::warn!("BrewWorker: malformed group access message: {}", e),
                 }
@@ -2388,6 +2395,27 @@ password = "x"
             assert!(!state.group_may_talk(2322, 2320972) && state.group_may_talk(2322, 5), "listen only for the listed one");
             assert!(state.group_may_join(2323, 4013) && state.group_may_talk(9999, 4013), "no rule = open");
         }
+        assert!(w.config.state_read().brew_managed_groups.is_none(), "no managed field: not managed");
+        // Managed talkgroups: only the listed groups, also for a rule-free group; bad entries skipped.
+        w.handle_incoming_binary(&group_access(r#"{"groups":[],"managed":true,"listed":[9,2321,0,16777216]}"#));
+        {
+            let state = w.config.state_read();
+            assert_eq!(state.brew_managed_groups.as_ref().map(|l| l.iter().copied().collect::<Vec<_>>()), Some(vec![9, 2321]));
+            assert!(state.group_may_join(9, 4013) && state.group_may_talk(2321, 4013));
+            assert!(!state.group_may_join(2323, 4013) && !state.group_may_talk(2323, 4013), "unlisted: refused");
+        }
+        w.handle_incoming_binary(&group_access(r#"{"groups":[],"managed":false,"listed":[9]}"#));
+        assert!(w.config.state_read().brew_managed_groups.is_none() && w.config.state_read().group_may_join(2323, 4013));
+        // Both together: the group must be listed and the radio admitted; RX only still holds.
+        let both = ACCESS.trim_end().strip_suffix('}').unwrap().to_string() + r#","managed":true,"listed":[2321,2322]}"#;
+        w.handle_incoming_binary(&group_access(&both));
+        {
+            let state = w.config.state_read();
+            assert!(state.group_may_join(2321, 2320972) && !state.group_may_join(2321, 4013), "listed, allow list applies");
+            assert!(!state.group_may_talk(2322, 2320972) && state.group_may_talk(2322, 5), "listed, RX only applies");
+            assert!(!state.group_may_join(2323, 2320972), "unlisted: nobody");
+        }
+        w.handle_incoming_binary(&group_access(ACCESS));
         w.handle_incoming_binary(&group_access("not json"));
         assert_eq!(w.config.state_read().brew_group_access.len(), 2, "a broken message keeps the last table");
         w.handle_incoming_binary(&group_access(r#"{"groups":[]}"#));

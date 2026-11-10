@@ -355,6 +355,8 @@ With a brew-server that offers the `group-access` extension the station gets, li
 - An RX-only radio joins running calls to listen; its D-CONNECT says "not allowed to request for transmission" (clause 14.8.43) and a PTT is answered "transmission not granted" (clause 14.5.2.2.1 b)). It cannot start a call on the group (D-RELEASE, cause "Requested service not available"; ETSI does not name a cause for this case).
 - Emergency calls always pass. A group without rules, or a server without the extension, stays open as before.
 
+- Managed talkgroups: when the server has them on, only the groups it lists may be attached and used; any other group is refused the same way ("Temporary 1 detachment"), a call on it gets D-RELEASE. Emergency calls pass, and a visitor's home groups ((V)GSSIs) are not checked.
+
 The lists are edited on the server (dashboard Directory page); the rules apply to all cells of the station.
 
 ### Known limits

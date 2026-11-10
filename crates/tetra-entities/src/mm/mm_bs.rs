@@ -1735,6 +1735,7 @@ impl MmBs {
         // A visitor from the server's own network is named by its home ISSI in the server's
         // rules; during its registration it is not yet in the shared visitor table.
         let server = state.multi_network.server.as_ref().map(|(this, _)| *this);
+        let visitor = self.visitors.get(issi).is_some();
         let rule_issi = match self.visitors.get(issi) {
             Some(v) if Some(v.mni) == server => v.issi,
             _ => issi,
@@ -1744,10 +1745,15 @@ impl MmBs {
             .into_iter()
             .filter(|g| {
                 let Some(gssi) = g.gssi else { return true };
-                if g.group_identity_detachment_uplink.is_some() || state.group_may_join(gssi, rule_issi) {
+                let unlisted = !visitor && state.group_unlisted(gssi);
+                if g.group_identity_detachment_uplink.is_some() || (!unlisted && state.brew_group_access.get(&gssi).is_none_or(|a| a.may_join(rule_issi))) {
                     return true;
                 }
-                tracing::info!("MM: ISSI {} may not attach GSSI {} (group-access), refused", issi, gssi);
+                if unlisted {
+                    tracing::info!("MM: ISSI {} may not attach GSSI {} (managed talkgroups, not listed), refused", issi, gssi);
+                } else {
+                    tracing::info!("MM: ISSI {} may not attach GSSI {} (group-access), refused", issi, gssi);
+                }
                 refused.push(GroupIdentityDownlink {
                     group_identity_attachment: None,
                     group_identity_detachment_uplink: Some(GROUP_DETACHMENT_TEMPORARY_1),

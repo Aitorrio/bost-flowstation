@@ -3088,3 +3088,63 @@ fn sim_ten_stations_thirty_radios_group_access() {
     sim.register(0, issi(20), LocationUpdateType::PeriodicLocationUpdating, &[2001]);
     sim.run_until("radio 20 is affiliated to 2001", |s| s.relay.groups[&issi(20)].contains(&2001));
 }
+
+/// Managed talkgroups (`"managed":true`, `"listed"` in `SERVICE_GROUP_ACCESS`): ten stations,
+/// thirty radios on five groups, 2001-2003 listed. Radios on 2004 and 2005 get their attachment
+/// refused on the air (clause 16.8.2, reason temporary 1 detachment, table 16.52) and are not
+/// affiliated on the network, the others attach as before; a call set-up on an unlisted group is
+/// refused. When the server switches managed off, every group is open again.
+#[test]
+fn sim_ten_stations_thirty_radios_managed_talkgroups() {
+    use tetra_pdus::mm::pdus::d_location_update_accept::DLocationUpdateAccept;
+    use tetra_pdus::cmce::pdus::d_release::DRelease;
+    let issi = |r: u32| FIRST_ISSI + r;
+    let mut extensions = EXTENSIONS.to_vec();
+    extensions.push(BREW_EXT_GROUP_ACCESS);
+    let las: Vec<u16> = (1..=STATIONS as u16).collect();
+    let mut sim = Sim::new(&las, &extensions);
+    let send = |sim: &mut Sim, json: &str, managed: bool| {
+        let mut msg = vec![BREW_CLASS_SERVICE, BREW_SERVICE_GROUP_ACCESS];
+        msg.extend_from_slice(json.as_bytes());
+        msg.push(0);
+        for wire in sim.wires.iter() {
+            wire.lock().unwrap().to_station.push_back(msg.clone());
+        }
+        sim.run_until("every station has the managed state", |s| {
+            s.stations.iter().all(|st| st.test.config.state_read().brew_managed_groups.is_some() == managed)
+        });
+    };
+    send(&mut sim, r#"{"groups":[],"managed":true,"listed":[2001,2002,2003]}"#, true);
+
+    for r in 0..RADIOS {
+        sim.register(r as usize % STATIONS, issi(r), LocationUpdateType::RoamingLocationUpdating, &[GROUPS[r as usize % 5]]);
+    }
+    sim.steps(10);
+    for r in 0..RADIOS {
+        let (st, gssi) = (r as usize % STATIONS, GROUPS[r as usize % 5]);
+        let refused = gssi > 2003;
+        let accept = {
+            let prefix = mm_pdu(MmPduTypeDl::DLocationUpdateAccept);
+            let bits = air_to(&sim.stations[st].air, issi(r)).into_iter().rev().find(|b| b.starts_with(&prefix)).expect("accepted");
+            DLocationUpdateAccept::from_bitbuf(&mut BitBuffer::from_bitstr(&bits[3..])).expect("parses")
+        };
+        let gila = accept.group_identity_location_accept.expect("group identity location accept");
+        assert_eq!(gila.group_identity_accept_reject, u8::from(refused), "radio {r}");
+        let reason = gila.group_identity_downlink.unwrap_or_default().iter().find(|g| g.gssi == Some(gssi)).and_then(|g| g.group_identity_detachment_uplink);
+        assert_eq!(reason, refused.then_some(1), "radio {r}: temporary 1 detachment");
+        assert_eq!(sim.relay.groups[&issi(r)].contains(&gssi), !refused, "radio {r} affiliated on the network");
+    }
+
+    // A call set-up on unlisted 2004 is refused (an emergency call would pass the check, as for
+    // group-access, but no radio is attached to 2004 to hear it).
+    sim.clear_air();
+    sim.submit(3, u_setup(issi(3), 2004));
+    sim.steps(20);
+    assert!(last_cmce_to(&sim.stations[3].air, issi(3), CmcePduTypeDl::DRelease, |b| DRelease::from_bitbuf(b).ok()).is_some());
+    assert!(!sim.relay.calls.values().any(|c| c.gssi == 2004 && c.owner == 3));
+
+    // Managed switched off: radio 3 attaches 2004 now.
+    send(&mut sim, r#"{"groups":[]}"#, false);
+    sim.register(3, issi(3), LocationUpdateType::PeriodicLocationUpdating, &[2004]);
+    sim.run_until("radio 3 is affiliated to 2004", |s| s.relay.groups[&issi(3)].contains(&2004));
+}
