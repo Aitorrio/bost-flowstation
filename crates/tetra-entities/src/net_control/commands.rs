@@ -100,6 +100,9 @@ pub enum ControlCommand {
         is_group: bool,
         payload: Vec<u8>,
     },
+    /// Resend the current SC3 CCK, sealed with the registered radio's active DCK.
+    /// Does not rotate keys or bypass authentication. Local operator action.
+    OtarCck { issi: u32 },
 }
 
 impl ControlCommand {
@@ -118,7 +121,7 @@ impl ControlCommand {
             | Self::ClearEmergency { .. }
             | Self::AmbienceListen { .. }
             | Self::TestCmdB { .. } => TetraEntity::Cmce,
-            Self::OtarSck { .. } | Self::Dgna { .. } | Self::CommandA { .. } => TetraEntity::Mm,
+            Self::OtarSck { .. } | Self::OtarCck { .. } | Self::Dgna { .. } | Self::CommandA { .. } => TetraEntity::Mm,
         }
     }
 }

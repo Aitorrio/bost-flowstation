@@ -12,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 
+use crate::net_dashboard::roaming;
 use crate::net_lst_dispatch::LST_DISPATCH_PROFILE;
 
 const MASKED_PASSWORD: &str = "••••••••";
@@ -426,6 +427,7 @@ pub fn visual_config_from_toml(config_path: &str) -> Result<JsonValue, String> {
         rec.insert("enabled".into(), JsonValue::Bool(false));
         out.insert("recovery".into(), JsonValue::Object(rec));
     }
+    out.insert("networks_managed".into(), JsonValue::Bool(networks_managed(&table)));
     if let Some(brew) = table.get("brew") {
         let mut brew_json = toml_to_json(brew);
         if let Some(obj) = brew_json.as_object_mut() {
@@ -562,7 +564,9 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
         deep_merge_toml(&mut table, "recovery", json_to_toml(v)?);
     }
 
-    if let Some(brew) = obj.get("brew") {
+    // Core links under [networks] (Multi Network) are edited on the Infrastructure page.
+    roaming::collapse_single_network(&mut table);
+    if let Some(brew) = obj.get("brew").filter(|_| !roaming::core_links_in_networks(&table)) {
         let brew_obj = brew
             .as_object()
             .ok_or_else(|| "brew must be an object".to_string())?;
@@ -651,6 +655,22 @@ fn ensure_dual_carrier_rf_keys(table: &mut toml::Table) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether the core links live in `[networks]` (Multi Network with more than the primary
+/// network): Brew profiles and the Brew form then do not apply.
+fn networks_managed(table: &toml::Table) -> bool {
+    let mut t = table.clone();
+    roaming::collapse_single_network(&mut t);
+    roaming::core_links_in_networks(&t)
+}
+
+/// [`networks_managed`] for the config file (false when it cannot be read).
+pub fn networks_managed_at(config_path: &str) -> bool {
+    fs::read_to_string(config_path)
+        .ok()
+        .and_then(|txt| toml::from_str::<toml::Table>(&txt).ok())
+        .is_some_and(|t| networks_managed(&t))
+}
+
 /// Apply named Cell × Brew profiles into the live config.toml.
 ///
 /// `brew_name`:
@@ -662,11 +682,11 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
     let current = fs::read_to_string(config_path).map_err(|e| e.to_string())?;
     let mut table: toml::Table = toml::from_str(&current).map_err(|e| format!("parse config: {e}"))?;
 
-    // With [networks] the core links live under the networks, not in a root [brew]; a Brew
-    // profile here would be refused by the config loader, so say so before writing anything.
-    if table.contains_key("networks") && brew_name.is_some() {
-        return Err("this station uses [networks]: edit the network's brew link in the configuration instead of applying a Brew profile".into());
-    }
+    // A [networks] left with only the primary network goes back to [net_info] + [brew]. With
+    // more (Multi Network) the core links live under the networks: the Brew profile is left
+    // out and only the Cell profile is applied.
+    roaming::collapse_single_network(&mut table);
+    let networks_managed = roaming::core_links_in_networks(&table);
 
     let cell_obj = cell
         .as_object()
@@ -742,6 +762,7 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
     }
 
     match brew_name {
+        _ if networks_managed => {}
         Some(name) if name == LST_DISPATCH_PROFILE => {
             table.remove("brew");
             let mut lst = toml::Table::new();
@@ -787,6 +808,7 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
         &ActiveProfiles {
             cell: sanitize_name(cell_name)?,
             brew: match brew_name {
+                _ if networks_managed => read_active(config_path).brew,
                 Some(name) if name == LST_DISPATCH_PROFILE => Some(LST_DISPATCH_PROFILE.to_string()),
                 Some(name) => Some(sanitize_name(name)?),
                 None => None,
@@ -1087,6 +1109,72 @@ password = "secret"
         assert!(txt.contains("main_carrier"));
         let active = read_active(cfg.to_str().unwrap());
         assert!(active.brew.is_none());
+    }
+
+    /// `minimal_toml` with its Brew link moved into `[networks.home]`, plus `extra` networks.
+    fn networks_toml(extra: &str) -> String {
+        let base = minimal_toml().replace("[brew]\n", "[networks.home.brew]\n");
+        format!("network = \"home\"\n{base}{extra}")
+    }
+
+    /// A `[networks]` holding only the primary network (left after Multi Network) does not block
+    /// a Brew profile: it goes back to `[brew]` and the profile is applied.
+    #[test]
+    fn apply_brew_profile_with_only_the_primary_network() {
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        fs::write(&cfg, minimal_toml()).unwrap();
+        ensure_seeded(cfg.to_str().unwrap()).unwrap();
+        let brew = list_brew_profiles(cfg.to_str().unwrap()).unwrap()[0].name.clone();
+        fs::write(&cfg, networks_toml("")).unwrap();
+        tetra_config::bluestation::parsing::from_toml_str(&networks_toml("")).unwrap();
+        apply_profiles(cfg.to_str().unwrap(), "Default", Some(&brew)).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(!txt.contains("[networks") && !txt.contains("network ="), "{txt}");
+        let parsed = tetra_config::bluestation::parsing::from_toml_str(&txt).unwrap();
+        assert_eq!(parsed.brew.as_ref().unwrap().host, "core.example");
+        assert_eq!(read_active(cfg.to_str().unwrap()).brew, Some(brew));
+        assert!(!networks_managed_at(cfg.to_str().unwrap()));
+    }
+
+    /// With several networks (Multi Network) the core links stay in `[networks]`: the Brew
+    /// profile is left out, the Cell profile is still applied, and the Brew form is ignored.
+    #[test]
+    fn apply_cell_profile_with_networks_keeps_the_core_links() {
+        let extra = "\n[networks.tp]\nmcc = 901\nmnc = 1638\nvia = \"home\"\n\n[[cells]]\nid = 1\nnetwork = \"tp\"\n\n[cells.cell_info]\nmain_carrier = 1525\n\n[cells.soapysdr]\ntx_freq = 438125000.0\nrx_freq = 433125000.0\ndevice = \"driver=other\"\n";
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        fs::write(&cfg, minimal_toml()).unwrap();
+        ensure_seeded(cfg.to_str().unwrap()).unwrap();
+        let brew = list_brew_profiles(cfg.to_str().unwrap()).unwrap()[0].name.clone();
+        let mut cell = get_cell_profile(cfg.to_str().unwrap(), "Default").unwrap();
+        cell["cell_info"]["location_area"] = serde_json::json!(7);
+        cell["phy_io"]["soapysdr"]["device"] = serde_json::json!("driver=sx");
+        put_cell_profile(cfg.to_str().unwrap(), "Default", &cell).unwrap();
+        let before = read_active(cfg.to_str().unwrap()).brew;
+        let extra_cfg = networks_toml(extra).replacen("rx_freq = 433025000.0\n", "rx_freq = 433025000.0\ndevice = \"driver=sx\"\n", 1);
+        fs::write(&cfg, &extra_cfg).unwrap();
+        tetra_config::bluestation::parsing::from_toml_str(&extra_cfg).unwrap();
+        assert!(networks_managed_at(cfg.to_str().unwrap()));
+
+        apply_profiles(cfg.to_str().unwrap(), "Default", Some(&brew)).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        let parsed = tetra_config::bluestation::parsing::from_toml_str(&txt).unwrap();
+        assert!(parsed.networks_explicit && !txt.contains("\n[brew]"), "{txt}");
+        assert_eq!(parsed.network("home").unwrap().brew.as_ref().unwrap().host, "core.example");
+        assert_eq!(parsed.cell.location_area, 7, "the Cell profile is applied");
+        assert_eq!(read_active(cfg.to_str().unwrap()).brew, before, "Brew selection unchanged");
+
+        // Saving the form (hangtime etc.) works too and does not write a root [brew].
+        let mut visual = visual_config_from_toml(cfg.to_str().unwrap()).unwrap();
+        assert_eq!(visual["networks_managed"], serde_json::json!(true));
+        visual["brew"] = serde_json::json!({"enabled": true, "host": "other.example", "port": 1, "tls": false, "username": 1, "password": "x"});
+        visual["cell_info"]["location_area"] = serde_json::json!(9);
+        write_visual_config(cfg.to_str().unwrap(), &visual).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        let parsed = tetra_config::bluestation::parsing::from_toml_str(&txt).unwrap();
+        assert!(parsed.networks_explicit && !txt.contains("other.example"), "{txt}");
+        assert_eq!(parsed.cell.location_area, 9);
     }
 
     #[test]

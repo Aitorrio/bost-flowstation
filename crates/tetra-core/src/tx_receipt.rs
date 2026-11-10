@@ -247,3 +247,19 @@ mod tests {
         reporter.mark_acknowledged(); // must be Transmitted first
     }
 }
+
+/// Receipt for the outgoing LLC ACK of an incoming acknowledged SDU.
+/// Authentication requests a separate ACK so key activation cannot depend on
+/// a piggybacked response that itself already needs the new key.
+#[derive(Debug, Clone)]
+pub struct RxAck {
+    pub transmitted: TxReporter,
+    standalone: Arc<AtomicBool>,
+}
+impl Default for RxAck {
+    fn default() -> Self { Self { transmitted: TxReporter::new_unacked(), standalone: Arc::new(AtomicBool::new(false)) } }
+}
+impl RxAck {
+    pub fn require_standalone(&self) { self.standalone.store(true, Ordering::Relaxed); }
+    pub fn is_standalone(&self) -> bool { self.standalone.load(Ordering::Relaxed) }
+}

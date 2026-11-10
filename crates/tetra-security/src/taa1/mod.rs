@@ -8,8 +8,8 @@
 //! * `TB4`: DCK from DCK1 and DCK2; `TB5`: ECK from a cipher key and the cell identity
 //! * `TA61`: encrypted short identity (ESI) and its inverse
 //!
-//! Still to come: `TA31`/`TA32` (CCK sealing), `TA51`/`TA52` (SCK),
-//! `TA71` (modified GCK), `TA81`/`TA82`, `TA91`/`TA92`, and
+//! `TA31`/`TA32` implement CCK sealing and `TA51`/`TA52` SCK sealing.
+//! Still to come: `TA71` (modified GCK), `TA81`/`TA82`, `TA91`/`TA92`, and
 //! the remaining `TB` combining functions.
 //!
 //! Byte strings are written as in the specification, most significant byte
@@ -19,6 +19,8 @@ pub mod hurdle;
 
 pub mod otar;
 pub use otar::{SSCK_LEN, ta51, ta52};
+pub mod cck;
+pub use cck::{ta31, ta32};
 
 use hurdle::Hurdle;
 

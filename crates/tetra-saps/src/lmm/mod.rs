@@ -142,12 +142,17 @@ pub struct LmmMleUnitdataReq {
     pub stealing_permission: bool,
     pub stealing_repeats_flag: bool,
     pub encryption_flag: bool,
+    /// None follows the registered mode; Some pins this MM transaction.
+    pub encryption_override: Option<bool>,
     pub is_null_pdu: bool, // Prio should be lowest and may not steal
     pub tx_reporter: Option<TxReporter>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LmmMleUnitdataInd {
+    /// Transmission receipt of the LLC ACK for this received SDU, if acknowledged.
+    pub rx_ack: Option<tetra_core::tx_receipt::RxAck>,
+    pub encrypted: bool,
     pub sdu: BitBuffer,
     pub handle: MleHandle,
     pub received_address: TetraAddress,

@@ -128,6 +128,8 @@ impl MleMs {
                     .router
                     .create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
                 let m = LmmMleUnitdataInd {
+                    rx_ack: prim.rx_ack.clone(),
+                    encrypted: prim.air_interface_encryption != 0,
                     sdu,
                     handle,
                     received_address: prim.main_address,
@@ -227,6 +229,8 @@ impl MleMs {
                     .router
                     .create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
                 let m = LmmMleUnitdataInd {
+                    rx_ack: None,
+                    encrypted: prim.air_interface_encryption != 0,
                     sdu,
                     handle,
                     received_address: prim.main_address,

@@ -1,9 +1,9 @@
-//! Air interface encryption, security class 2 (EN 300 392-7 clause 6). Design and phases:
+//! Air interface encryption, security classes 2 and 3 (EN 300 392-7 clause 6). SC2 design:
 //! `Docs/aie-class2-plan.md`.
 //!
 //! Built: the policy and signalling around AIE (phase 1), and TEA1, TB5, TA61 and MAC-layer
-//! encryption of signalling and voice (phase 2). A cell runs class 2 only when
-//! `[security.aie] class = 2` is configured; open points are listed in the plan.
+//! encryption of signalling and voice. SC3 uses per-subscriber DCKs and one CCK.
+//! See Docs/sc3-implementation.md for scope and validation limits.
 
 pub mod cipher;
 pub mod ta61;
@@ -63,6 +63,10 @@ pub fn posture(cfg: &StackConfig) -> String {
             "class 1 (clear) — TEA{} SCKN {} configured but class = 1: the key is only used for over-the-air delivery (OTAR)",
             a.ksg, a.sckn
         ),
+        (Some(a), Some(_)) if a.class3.is_some() => format!(
+            "class 3 (EXPERIMENTAL) — TEA{}, CCK-id {}, authenticated DCK per radio; encrypted-only",
+            a.ksg, a.class3.as_ref().unwrap().cck_id
+        ),
         (Some(a), Some(_)) => format!(
             "class 2 (EXPERIMENTAL, not yet proven on air) — TEA{} SCKN {}, clear radios allowed on {} clear group(s){}",
             a.ksg,
@@ -105,14 +109,27 @@ pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices)
     };
     // Mixed cell: class 1 stays advertised so radios without AIE still register in clear.
     // SCK number field: 0 = SCK 1 … 31 = SCK 32 (EN 300 392-7 Table A.96).
-    ext.sck_n = Some(aie.sckn - 1);
+    if aie.class3.is_some() {
+        ext.auth_required = true;
+        ext.class1_supported = false;
+        ext.class2_supported = false;
+        ext.class3_supported = true;
+        ext.sck_n = None;
+        ext.dck_retrieval_during_cell_select = Some(false);
+        ext.dck_retrieval_during_cell_reselect = Some(false);
+        ext.linked_gck_crypto_periods = Some(false);
+        ext.short_gck_vn = Some(0);
+    } else {
+        ext.sck_n = Some(aie.sckn - 1);
+    }
     (true, ext)
 }
 
 /// The ciphering parameters this cell prefers, sent back in a D-LOCATION UPDATE REJECT that
 /// refuses a radio's proposal (EN 300 392-7 clause 6.6.2.1.2).
 pub fn preferred_parameters(aie: &CfgAie) -> CipheringParameters {
-    CipheringParameters::class2(aie.ksg, aie.sckn)
+    if aie.class3.is_some() { CipheringParameters::class3(aie.ksg) }
+    else { CipheringParameters::class2(aie.ksg, aie.sckn) }
 }
 
 /// Outcome of the ciphering part of a U-LOCATION UPDATE DEMAND.
@@ -133,6 +150,9 @@ pub enum CipherDecision {
 /// `aie` is the cell's effective setting ([`effective`]).
 pub fn registration_decision(aie: Option<&CfgAie>, cipher_control: bool, params: Option<u64>) -> CipherDecision {
     if !cipher_control {
+        if aie.is_some_and(|a| a.class3.is_some()) {
+            return CipherDecision::Reject(RejectCause::RequestedCipherKeyTypeNotAvailable);
+        }
         return CipherDecision::Clear;
     }
     let Some(aie) = aie else {
@@ -141,16 +161,18 @@ pub fn registration_decision(aie: Option<&CfgAie>, cipher_control: bool, params:
     let Some(params) = params.map(CipheringParameters::from_bits) else {
         return CipherDecision::Reject(RejectCause::MandatoryElementError);
     };
-    if params.class3 {
+    if params.class3 != aie.class3.is_some() {
         return CipherDecision::Reject(RejectCause::RequestedCipherKeyTypeNotAvailable);
     }
     if params.tea() != Some(aie.ksg) {
         return CipherDecision::Reject(RejectCause::IdentifiedCipherKsgNotSupported);
     }
-    if params.sckn() != Some(aie.sckn) {
+    if !params.class3 && params.sckn() != Some(aie.sckn) {
         return CipherDecision::Reject(RejectCause::IdentifiedCipherKeyNotAvailable);
     }
-    CipherDecision::Encrypted(params)
+    // SC3 capability bits are an MS advertisement, not downlink parameters.
+    // EN 300 392-7 A.8.12 requires these five bits to be zero on the downlink.
+    CipherDecision::Encrypted(if params.class3 { CipheringParameters::class3(aie.ksg) } else { params })
 }
 
 /// Mixed-cell rule: clear and encrypted radios never talk to each other (individual calls, SDS,
@@ -179,7 +201,8 @@ mod tests {
 
     fn aie() -> CfgAie {
         CfgAie {
-            enabled: true,
+            class3: None,
+        enabled: true,
             ksg: 1,
             sckn: 3,
             sck: CipherKey([0; 10]),

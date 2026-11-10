@@ -1,4 +1,5 @@
 use core::fmt;
+use super::otar_cck::AuthenticationDownlink;
 
 use tetra_core::expect_pdu_type;
 use tetra_core::typed_pdu_fields::*;
@@ -39,7 +40,7 @@ pub struct DLocationUpdateAccept {
     /// Type3, See note,
     pub default_group_attachment_lifetime: Option<Type3FieldGeneric>,
     /// Type3, See ETSI EN 300 392-7 [8],
-    pub authentication_downlink: Option<Type3FieldGeneric>,
+    pub authentication_downlink: Option<AuthenticationDownlink>,
     /// Type4, See ETSI EN 300 392-7 [8],
     pub group_identity_security_related_information: Option<Type4FieldGeneric>,
     /// Type3, Cell type control
@@ -101,7 +102,7 @@ impl DLocationUpdateAccept {
         let default_group_attachment_lifetime = typed::parse_type3_generic(obit, buffer, MmType34ElemIdDl::DefaultGroupAttachLifetime)?;
 
         // Type3
-        let authentication_downlink = typed::parse_type3_generic(obit, buffer, MmType34ElemIdDl::AuthenticationDownlink)?;
+        let authentication_downlink = typed::parse_type3_struct(obit, buffer, MmType34ElemIdDl::AuthenticationDownlink, AuthenticationDownlink::from_bitbuf)?;
 
         // Type4
         let group_identity_security_related_information =
@@ -202,11 +203,9 @@ impl DLocationUpdateAccept {
         )?;
 
         // Type3
-        typed::write_type3_generic(
-            obit,
-            buffer,
-            &self.authentication_downlink,
-            MmType34ElemIdDl::AuthenticationDownlink,
+        typed::write_type3_struct(
+            obit, buffer, &self.authentication_downlink,
+            MmType34ElemIdDl::AuthenticationDownlink, AuthenticationDownlink::to_bitbuf,
         )?;
 
         // Type4

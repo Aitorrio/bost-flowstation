@@ -597,6 +597,16 @@ impl BrewGroupAccess {
     }
 }
 
+/// Non-secret progress for the dashboard; actual key material remains separate.
+#[derive(Debug, Clone)]
+pub struct Sc3Status {
+    pub phase: &'static str,
+    pub cck: &'static str,
+}
+impl Default for Sc3Status {
+    fn default() -> Self { Self { phase: "not_authenticated", cck: "not_sent" } }
+}
+
 /// Mutable, stack-editable state (mutex-protected).
 #[derive(Debug, Clone)]
 pub struct StackState {
@@ -615,6 +625,10 @@ pub struct StackState {
     /// server does not offer `group-access` or sent no rules: every group is open. Cleared on
     /// reconnect (the server sends the table again after the announcement).
     pub brew_group_access: BTreeMap<u32, BrewGroupAccess>,
+    /// Managed talkgroups (`"managed":true` in `SERVICE_GROUP_ACCESS`): the only groups radios of
+    /// this network may attach and talk on. `None`: not managed, every group as the rules say.
+    /// Cleared on reconnect like the rules.
+    pub brew_managed_groups: Option<std::collections::BTreeSet<u32>>,
     /// After a real Brew disconnect→reconnect, CMCE may request a selective SwMI-initiated
     /// location update for an ISSI whose Brew-routed setup fails (TIP/ETSI interrogation, not
     /// a mass kick). `None` or a past Instant means the soft-recovery window is closed.
@@ -623,6 +637,11 @@ pub struct StackState {
     pub multi_network: super::MultiNetworkState,
     /// Centralized subscriber registry for local-first routing decisions.
     pub subscribers: SubscriberRegistry,
+    /// Volatile SC3 DCKs. Never persisted; Debug redacts every key.
+    pub sc3_dcks: HashMap<u32, super::sec_security::CipherKey>,
+    pub sc3_status: HashMap<u32, Sc3Status>,
+    /// Startup CLI guard, not persisted by dashboard edits.
+    pub security_class3_required: bool,
     /// Queue of live SDS messages injected at runtime via the dashboard.
     /// Transmitted round-robin alongside the static Home Mode Display text.
     pub live_sds_queue: VecDeque<LiveSdsMessage>,
@@ -826,14 +845,22 @@ mod tests {
 impl StackState {
     /// May `issi` attach to `gssi` (Brew server's `group-access` rules; no rule = yes)?
     pub fn group_may_join(&self, gssi: u32, issi: u32) -> bool {
+        let visitor = self.multi_network.visitors.contains_key(&issi);
         let issi = self.group_access_issi(issi);
-        self.brew_group_access.get(&gssi).is_none_or(|a| a.may_join(issi))
+        (visitor || !self.group_unlisted(gssi)) && self.brew_group_access.get(&gssi).is_none_or(|a| a.may_join(issi))
     }
 
     /// May `issi` talk on `gssi` (Brew server's `group-access` rules; no rule = yes)?
     pub fn group_may_talk(&self, gssi: u32, issi: u32) -> bool {
+        let visitor = self.multi_network.visitors.contains_key(&issi);
         let issi = self.group_access_issi(issi);
-        self.brew_group_access.get(&gssi).is_none_or(|a| a.may_talk(issi))
+        (visitor || !self.group_unlisted(gssi)) && self.brew_group_access.get(&gssi).is_none_or(|a| a.may_talk(issi))
+    }
+
+    /// Managed talkgroups are on and `gssi` is not one of the listed groups. Visitors' groups
+    /// ((V)GSSIs of their home network) are not checked against the list (callers skip them).
+    pub fn group_unlisted(&self, gssi: u32) -> bool {
+        self.brew_managed_groups.as_ref().is_some_and(|l| !l.contains(&gssi))
     }
 
     /// The ISSI the Brew server's rules name for a radio: a registered visitor whose home is the
@@ -856,9 +883,13 @@ impl Default for StackState {
             brew_server_extensions: Vec::new(),
             brew_cell_directory: None,
             brew_group_access: BTreeMap::new(),
+            brew_managed_groups: None,
             brew_soft_recovery_until: None,
             multi_network: Default::default(),
             subscribers: SubscriberRegistry::new(),
+            sc3_dcks: HashMap::new(),
+            sc3_status: HashMap::new(),
+            security_class3_required: false,
             live_sds_queue: VecDeque::new(),
             next_live_sds_id: 1,
             issi_whitelist_override: None,

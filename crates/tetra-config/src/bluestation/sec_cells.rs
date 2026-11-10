@@ -229,6 +229,25 @@ colour_code = 2
         assert!(band.validate().unwrap_err().contains("freq_band"));
     }
 
+    /// SC3 and several cells are either/or: the DCK lives only in the cell that authenticated the
+    /// radio. SC3 on one cell and SC2 on several stay valid.
+    #[test]
+    fn validate_refuses_security_class_3_with_extra_cells() {
+        const SC3: &str = "[security]\nauthentication = \"required\"\n[[security.subscribers]]\nissi = 100\nk = \"11111111111111111111111111111111\"\n[security.aie]\nclass = 3\nksg = 2\ncck = \"22222222222222222222\"\ncck_id = 42\n";
+        const CELL: &str = "[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\n";
+        let single = parse(SC3).unwrap();
+        assert!(single.security_class3());
+        single.validate().unwrap();
+
+        let multi = parse(&format!("{SC3}{CELL}")).unwrap();
+        assert_eq!(multi.validate().unwrap_err(), crate::bluestation::SC3_SINGLE_CELL);
+
+        const SC2: &str = "[security.aie]\nclass = 2\nksg = 2\nsck = \"22222222222222222222\"\n";
+        let sc2_multi = parse(&format!("{SC2}{CELL}")).unwrap();
+        assert!(!sc2_multi.security_class3());
+        sc2_multi.validate().unwrap();
+    }
+
     #[test]
     fn for_extra_cell_isolates_radio_settings() {
         let cfg = parse(
