@@ -299,12 +299,18 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         cfg.dashboard = Some(apply_dashboard_patch(dashboard)?);
     }
 
+    // Both sections are checked even when switched off (`enabled = false`), so a saved but
+    // unused setting cannot hide an error until it is switched on.
     if let Some(telemetry) = root.telemetry {
-        cfg.telemetry = Some(apply_telemetry_patch(telemetry)?);
+        let enabled = telemetry.enabled;
+        let t = apply_telemetry_patch(telemetry)?;
+        cfg.telemetry = enabled.then_some(t);
     }
 
     if let Some(command) = root.command {
-        cfg.control = Some(apply_control_patch(command)?);
+        let enabled = command.enabled;
+        let c = apply_control_patch(command)?;
+        cfg.control = enabled.then_some(c);
     }
 
     if let Some(telegram) = root.telegram_alerts {
@@ -882,6 +888,24 @@ main_carrier_number = 1586
 
         let cfg = from_toml_str(&minimal_toml("dgna_attachment_mode = 99")).expect("parse");
         assert_eq!(cfg.cell.dgna_attachment_mode, 5, "mode is clamped to the valid Table 16.51 range");
+    }
+
+    #[test]
+    fn telemetry_and_command_sections_can_be_switched_off() {
+        let on = minimal_toml("")
+            + "\n[telemetry]\nhost = \"t.example\"\nport = 443\nuse_tls = true\n\n[command]\nhost = \"c.example\"\nport = 443\n";
+        let cfg = from_toml_str(&on).expect("parse");
+        assert_eq!(cfg.telemetry.expect("telemetry on without the key").host, "t.example");
+        assert_eq!(cfg.control.expect("command on without the key").host, "c.example");
+
+        let off = minimal_toml("")
+            + "\n[telemetry]\nenabled = false\nhost = \"t.example\"\nport = 443\n\n[command]\nenabled = false\nhost = \"c.example\"\nport = 443\n";
+        let cfg = from_toml_str(&off).expect("parse");
+        assert!(cfg.telemetry.is_none() && cfg.control.is_none(), "enabled = false keeps the values but does not connect");
+
+        // A switched-off section is still checked.
+        let bad = minimal_toml("") + "\n[telemetry]\nenabled = false\nhost = \"t\"\nport = 443\nusername = \"u\"\n";
+        assert!(from_toml_str(&bad).is_err());
     }
 
     #[test]
