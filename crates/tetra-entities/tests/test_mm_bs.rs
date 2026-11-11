@@ -1596,3 +1596,106 @@ fn test_group_access_refuses_attachment_in_the_location_update_accept() {
     let attached = test.config.state_read().subscribers.attached_groups_of(ISSI);
     assert!(attached.contains(&9) && !attached.contains(&10));
 }
+
+/// All D-ATTACH/DETACH GROUP IDENTITY PDUs in a batch of captured MLE messages.
+fn all_attach_detach(msgs: &[SapMsg]) -> Vec<DAttachDetachGroupIdentity> {
+    msgs.iter()
+        .filter_map(|m| match m.msg {
+            SapMsgInner::LmmMleUnitdataReq(ref req) => {
+                let mut sdu = BitBuffer::from_bitstr(&req.sdu.to_bitstr());
+                DAttachDetachGroupIdentity::from_bitbuf(&mut sdu).ok()
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn submit_attach(test: &mut ComponentTest, issi: u32, detach_all: bool, report_complete: bool, groups: &[u32]) {
+    let pdu = tetra_pdus::mm::pdus::u_attach_detach_group_identity::UAttachDetachGroupIdentity {
+        group_identity_report: false,
+        group_identity_attach_detach_mode: detach_all,
+        group_report_response: report_complete.then_some(tetra_core::typed_pdu_fields::Type3FieldGeneric {
+            field_id: 4,
+            len: 1,
+            data: 0,
+        }),
+        group_identity_uplink: Some(groups.iter().map(|&g| attach_entry(g)).collect()),
+        proprietary: None,
+    };
+    submit_mm_uplink(test, issi, |b| pdu.to_bitbuf(b).expect("serialize U-ATTACH/DETACH GROUP IDENTITY"));
+}
+
+/// A scan list larger than one ACK (12 groups): MM asks for a group report (§16.8.3). Some radios
+/// answer with the whole list again in one PDU marked "complete". Asking again only repeats that
+/// (field log: two radios, ~2 requests/s without end), so MM must fall back to a SwMI D-ATTACH of
+/// the remainder (§16.8.1) instead of requesting another report.
+#[test]
+fn test_complete_but_overstuffed_group_report_falls_back_instead_of_looping() {
+    debug::setup_logging_verbose();
+    const ISSI: u32 = 2620001;
+    let scan_list: Vec<u32> = (1..=17).map(|i| 26300 + i).collect();
+    let mut test = mm_with_cmce_sink();
+    submit_location_update_with_groups(&mut test, ISSI, LocationUpdateType::RoamingLocationUpdating, false, &[26302]);
+    test.dump_sinks();
+
+    // Scan switched on: 16 groups in one amendment, more than the ACK can carry.
+    submit_attach(&mut test, ISSI, false, false, &scan_list[1..]);
+    let sent = all_attach_detach(&test.dump_sinks());
+    assert_eq!(
+        sent.iter().filter(|p| p.group_identity_report).count(),
+        1,
+        "first overflow must request a group report (§16.8.3), got {sent:?}"
+    );
+
+    // The radio answers with all 17 groups in one PDU, marked complete.
+    submit_attach(&mut test, ISSI, true, true, &scan_list);
+    let sent = all_attach_detach(&test.dump_sinks());
+    assert!(
+        !sent.iter().any(|p| p.group_identity_report),
+        "must not request another group report after a complete answer, got {sent:?}"
+    );
+    let pushed: Vec<u32> = sent
+        .iter()
+        .filter(|p| !p.group_identity_report)
+        .flat_map(|p| p.group_identity_downlink.iter().flatten().filter_map(|g| g.gssi))
+        .collect();
+    assert_eq!(
+        pushed,
+        scan_list[12..].to_vec(),
+        "remainder must be pushed by SwMI D-ATTACH (§16.8.1)"
+    );
+    let attached = test.config.state_read().subscribers.attached_groups_of(ISSI);
+    for g in &scan_list {
+        assert!(attached.contains(g), "group {g} must be attached, got {attached:?}");
+    }
+}
+
+/// The standard multipacket answer to a SwMI group report request (§16.8.3): the radio sends its
+/// list in PDUs of at most 12 groups and marks only the last one "complete". Nothing overflows,
+/// so MM must neither push a SwMI D-ATTACH nor request another report.
+#[test]
+fn test_multipacket_group_report_needs_no_fallback() {
+    debug::setup_logging_verbose();
+    const ISSI: u32 = 2620002;
+    let scan_list: Vec<u32> = (1..=17).map(|i| 26300 + i).collect();
+    let mut test = mm_with_cmce_sink();
+    submit_location_update_with_groups(&mut test, ISSI, LocationUpdateType::RoamingLocationUpdating, false, &[26302]);
+    test.dump_sinks();
+
+    submit_attach(&mut test, ISSI, false, false, &scan_list[1..]);
+    let sent = all_attach_detach(&test.dump_sinks());
+    assert_eq!(sent.iter().filter(|p| p.group_identity_report).count(), 1, "got {sent:?}");
+
+    // Multipacket answer: 12 groups (replace mode, not yet complete), then the last 5 (complete).
+    submit_attach(&mut test, ISSI, true, false, &scan_list[..12]);
+    submit_attach(&mut test, ISSI, false, true, &scan_list[12..]);
+    let sent = all_attach_detach(&test.dump_sinks());
+    assert!(
+        sent.is_empty(),
+        "no SwMI D-ATTACH and no further report request expected, got {sent:?}"
+    );
+    let attached = test.config.state_read().subscribers.attached_groups_of(ISSI);
+    for g in &scan_list {
+        assert!(attached.contains(g), "group {g} must be attached, got {attached:?}");
+    }
+}
