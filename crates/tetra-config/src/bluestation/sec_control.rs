@@ -34,8 +34,17 @@ pub struct CfgControlDto {
     /// Optional password for HTTP Basic auth
     pub password: Option<String>,
 
+    /// Switch for the whole section (default on): `enabled = false` keeps the values in the
+    /// config but does not connect, so the dashboard can turn it off without losing them.
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 /// Convert a [`CfgControlDto`] (from TOML) into a [`CfgControl`].

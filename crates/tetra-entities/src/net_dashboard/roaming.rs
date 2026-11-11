@@ -356,6 +356,8 @@ pub fn roaming_json(config_path: &str, shared: Option<&SharedConfig>) -> Result<
         "presence_check_secs": cfg.cell.presence_check_secs,
         "presence_response_secs": cfg.cell.presence_response_secs,
         "service_details": service_details,
+        "telemetry": link_section_json(&table, "telemetry"),
+        "command": link_section_json(&table, "command"),
         "brew": {
             "configured": cfg.brew.is_some(),
             "login": brew_login,
@@ -363,6 +365,118 @@ pub fn roaming_json(config_path: &str, shared: Option<&SharedConfig>) -> Result<
             "extensions": HANDOVER_EXTENSIONS.iter().map(|e| json!({"name": e, "offered": offered.iter().any(|o| o == e)})).collect::<Vec<_>>(),
         },
     }))
+}
+
+/// The `[telemetry]` / `[command]` link as the Infrastructure page shows it, read from the raw
+/// TOML so a switched-off section (`enabled = false`) still shows its values. `null` when the
+/// section is missing. The password never leaves the station: only whether one is saved.
+fn link_section_json(table: &Table, key: &str) -> JsonValue {
+    let Some(t) = table.get(key).and_then(|v| v.as_table()) else { return JsonValue::Null };
+    let s = |k: &str| t.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    let f = |k: &str| t.get(k).and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)));
+    let mut out = json!({
+        "enabled": t.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true),
+        "host": s("host"),
+        "port": t.get("port").and_then(|v| v.as_integer()),
+        "use_tls": t.get("use_tls").and_then(|v| v.as_bool()).unwrap_or(false),
+        "ca_cert": s("ca_cert"),
+        "username": s("username"),
+        "password_set": t.get("password").and_then(|v| v.as_str()).is_some_and(|p| !p.is_empty()),
+    });
+    if key == "telemetry" {
+        out["site_name"] = json!(s("site_name"));
+        out["latitude"] = json!(f("latitude"));
+        out["longitude"] = json!(f("longitude"));
+    }
+    out
+}
+
+/// A `[telemetry]` / `[command]` link from the page: `{"enabled": bool, "host": s, "port": N,
+/// "use_tls": bool, "username": s, "password": s}` plus, for telemetry, `"site_name": s,
+/// "latitude": x, "longitude": x` (both or neither). Keys the page does not edit (`ca_cert`) stay
+/// as they are; an empty password keeps the saved one, an empty username removes the login. Off
+/// with nothing filled in removes the section; off with values keeps them with `enabled = false`.
+fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) -> Result<(), String> {
+    let obj = v.as_object().ok_or_else(|| format!("{key} must be an object"))?;
+    let enabled = match obj.get("enabled") {
+        None | Some(JsonValue::Null) => true,
+        Some(v) => v.as_bool().ok_or_else(|| format!("{key}.enabled must be true or false"))?,
+    };
+    let text = |k: &str| obj.get(k).and_then(|v| v.as_str()).map(str::trim).unwrap_or_default().to_string();
+    let host = text("host");
+    if host.contains(char::is_whitespace) {
+        return Err(format!("{key}.host: a host name or address without spaces"));
+    }
+    if host.is_empty() {
+        if enabled {
+            return Err(format!("{key}.host: a host name or address is required"));
+        }
+        table.remove(key);
+        return Ok(());
+    }
+    let port = match obj.get("port") {
+        None | Some(JsonValue::Null) => 443,
+        Some(v) => int_in(v, &format!("{key}.port"), 1, 65535)?,
+    };
+    let use_tls = match obj.get("use_tls") {
+        None | Some(JsonValue::Null) => true,
+        Some(v) => v.as_bool().ok_or_else(|| format!("{key}.use_tls must be true or false"))?,
+    };
+    let username = text("username");
+    // The password is taken as typed (no trim): spaces may be part of it.
+    let password = obj.get("password").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+
+    let section = table_mut(table, key)?;
+    if enabled {
+        section.remove("enabled");
+    } else {
+        section.insert("enabled".into(), TomlValue::Boolean(false));
+    }
+    section.insert("host".into(), TomlValue::String(host));
+    section.insert("port".into(), TomlValue::Integer(port));
+    section.insert("use_tls".into(), TomlValue::Boolean(use_tls));
+    if username.is_empty() {
+        section.remove("username");
+        section.remove("password");
+    } else {
+        if password.is_empty() && !section.get("password").and_then(|p| p.as_str()).is_some_and(|p| !p.is_empty()) {
+            return Err(format!("{key}.password is required with a username"));
+        }
+        section.insert("username".into(), TomlValue::String(username));
+        if !password.is_empty() {
+            section.insert("password".into(), TomlValue::String(password));
+        }
+    }
+    if key == "telemetry" {
+        let name = text("site_name");
+        if name.is_empty() {
+            section.remove("site_name");
+        } else {
+            section.insert("site_name".into(), TomlValue::String(name));
+        }
+        let coord = |k: &str, max: f64| -> Result<Option<f64>, String> {
+            match obj.get(k) {
+                None | Some(JsonValue::Null) => Ok(None),
+                Some(v) => v
+                    .as_f64()
+                    .filter(|x| x.is_finite() && (-max..=max).contains(x))
+                    .map(Some)
+                    .ok_or_else(|| format!("{key}.{k} must be a decimal number between -{max} and {max}")),
+            }
+        };
+        match (coord("latitude", 90.0)?, coord("longitude", 180.0)?) {
+            (Some(lat), Some(lon)) => {
+                section.insert("latitude".into(), TomlValue::Float(lat));
+                section.insert("longitude".into(), TomlValue::Float(lon));
+            }
+            (None, None) => {
+                section.remove("latitude");
+                section.remove("longitude");
+            }
+            _ => return Err(format!("{key}: give both latitude and longitude, or neither")),
+        }
+    }
+    Ok(())
 }
 
 fn int_in(v: &JsonValue, what: &str, min: i64, max: i64) -> Result<i64, String> {
@@ -470,6 +584,8 @@ fn server_check(
 /// `[networks]` left with only the primary network goes back to the classic form.
 /// `"multi_network_enabled": bool` sets `[multi_network] enabled` (the switch on the Networks
 /// card); off also removes `[networks]` (see [`collapse_networks`]), the visitor ranges stay.
+/// `"telemetry": {..}` and `"command": {..}` set the `[telemetry]` / `[command]` links (see
+/// [`apply_link_section`]).
 /// Every key is optional; for a cell, `location_area: null` (extra cells only) inherits the
 /// primary's and `neighbours: null` (extra cells only) drops the cell's own list.
 pub fn apply_roaming(original: &str, body: &JsonValue) -> Result<String, String> {
@@ -526,6 +642,12 @@ pub fn apply_roaming(original: &str, body: &JsonValue) -> Result<String, String>
 
     if let Some(list) = obj.get("networks") {
         apply_networks(&mut table, list)?;
+    }
+
+    for key in ["telemetry", "command"] {
+        if let Some(v) = obj.get(key) {
+            apply_link_section(&mut table, key, v)?;
+        }
     }
 
     for c in obj.get("cells").and_then(|v| v.as_array()).map(Vec::as_slice).unwrap_or_default() {
@@ -942,6 +1064,91 @@ main_carrier = 1525
         assert_eq!((cfg.net.mcc, cfg.net.mnc), (901, 4242), "home's MNC back in [net_info]");
         assert_eq!(cfg.brew.as_ref().unwrap().host, "brew.example");
         assert_eq!(cfg.networks.len(), 1);
+    }
+
+    #[test]
+    fn telemetry_and_command_are_saved_switched_and_read_back_without_password() {
+        // Nothing configured: both null.
+        let f = write(BASE);
+        let v = roaming_json(f.str(), None).unwrap();
+        assert!(v["telemetry"].is_null() && v["command"].is_null());
+
+        let body = json!({
+            "telemetry": {"enabled": true, "host": " telemetry.example ", "port": 443, "use_tls": true, "username": "1000001",
+                "password": "tele-secret", "site_name": "Vienna", "latitude": 48.2082, "longitude": 16.3738},
+            "command": {"enabled": true, "host": "control.example", "port": 8443, "use_tls": false, "username": "1000002", "password": "ctl-secret"},
+        });
+        let text = apply_roaming(BASE, &body).unwrap();
+        let cfg = parsing::from_toml_str(&text).unwrap();
+        let t = cfg.telemetry.as_ref().expect("telemetry on");
+        assert_eq!((t.host.as_str(), t.port, t.use_tls), ("telemetry.example", 443, true));
+        assert_eq!(t.credentials, Some(("1000001".into(), "tele-secret".into())));
+        assert_eq!(t.site_name.as_deref(), Some("Vienna"));
+        assert_eq!(t.site_location, Some((48.2082, 16.3738)));
+        let c = cfg.control.as_ref().expect("command on");
+        assert_eq!((c.host.as_str(), c.port, c.use_tls), ("control.example", 8443, false));
+        assert_eq!(c.credentials, Some(("1000002".into(), "ctl-secret".into())));
+
+        // The page's GET shows the values but never a password.
+        let f = write(&text);
+        let v = roaming_json(f.str(), None).unwrap();
+        assert_eq!(v["telemetry"]["host"], "telemetry.example");
+        assert_eq!(v["telemetry"]["latitude"], 48.2082);
+        assert_eq!(v["telemetry"]["password_set"], true);
+        assert_eq!(v["command"]["port"], 8443);
+        assert!(!v.to_string().contains("secret"), "a password left the station: {v}");
+
+        // Switched off with an empty password: values and the saved password stay, nothing connects.
+        let off = json!({
+            "telemetry": {"enabled": false, "host": "telemetry.example", "port": 443, "use_tls": true, "username": "1000001", "password": "",
+                "site_name": "Vienna", "latitude": 48.2082, "longitude": 16.3738},
+            "command": {"enabled": false, "host": "control.example", "port": 8443, "use_tls": false, "username": "1000002", "password": ""},
+        });
+        let text = apply_roaming(&text, &off).unwrap();
+        let cfg = parsing::from_toml_str(&text).unwrap();
+        assert!(cfg.telemetry.is_none() && cfg.control.is_none());
+        assert!(text.contains("tele-secret") && text.contains("ctl-secret"));
+        let f = write(&text);
+        let v = roaming_json(f.str(), None).unwrap();
+        assert_eq!(v["telemetry"]["enabled"], false);
+        assert_eq!(v["command"]["host"], "control.example");
+
+        // Back on: the saved password is used again.
+        let on = json!({"command": {"enabled": true, "host": "control.example", "port": 8443, "use_tls": false, "username": "1000002", "password": ""}});
+        let text = apply_roaming(&text, &on).unwrap();
+        let cfg = parsing::from_toml_str(&text).unwrap();
+        assert_eq!(cfg.control.unwrap().credentials, Some(("1000002".into(), "ctl-secret".into())));
+
+        // No login and no position; off with nothing filled in removes the section.
+        let plain = json!({
+            "telemetry": {"enabled": true, "host": "telemetry.example", "port": 443, "use_tls": true, "username": "", "password": "",
+                "site_name": "", "latitude": null, "longitude": null},
+            "command": {"enabled": false, "host": "", "port": 443},
+        });
+        let text = apply_roaming(&text, &plain).unwrap();
+        let cfg = parsing::from_toml_str(&text).unwrap();
+        let t = cfg.telemetry.unwrap();
+        assert!(t.credentials.is_none() && t.site_location.is_none() && t.site_name.is_none());
+        assert!(cfg.control.is_none() && !text.contains("[command]") && !text.contains("ctl-secret"));
+    }
+
+    #[test]
+    fn bad_telemetry_and_command_input_is_refused() {
+        let bad = [
+            json!({"telemetry": {"enabled": true, "host": ""}}),
+            json!({"telemetry": {"enabled": true, "host": "a b", "port": 443}}),
+            json!({"telemetry": {"enabled": true, "host": "t", "port": 0}}),
+            json!({"telemetry": {"enabled": true, "host": "t", "port": 70000}}),
+            json!({"telemetry": {"enabled": true, "host": "t", "port": 443, "username": "u", "password": ""}}),
+            json!({"telemetry": {"enabled": true, "host": "t", "port": 443, "latitude": 91.0, "longitude": 16.0}}),
+            json!({"telemetry": {"enabled": true, "host": "t", "port": 443, "latitude": 48.2, "longitude": 181.0}}),
+            json!({"telemetry": {"enabled": true, "host": "t", "port": 443, "latitude": 48.2}}),
+            json!({"command": {"enabled": "yes", "host": "c", "port": 443}}),
+            json!({"command": {"enabled": true, "host": "c", "port": 443, "username": "1000002"}}),
+        ];
+        for body in bad {
+            assert!(apply_roaming(BASE, &body).is_err(), "accepted {body}");
+        }
     }
 
     #[test]

@@ -2872,6 +2872,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .group-list .field > .cfg-help{
   margin-left:6px;align-self:center;
 }
+/* Infrastructure page: a short label (Username, Password) must not shrink under its «?» */
+#page-roaming .field-label-row,#page-roaming .field-label-row > span{min-width:min-content;}
 
 /* ── Phase 5 mobile: Config fields, profile rows, sheets (PC unchanged) ── */
 @media (max-width:700px){
@@ -6290,6 +6292,54 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
         </div>
       </div>
+
+      <details class="cfg-adv-details" id="roam-telemetry-details">
+        <summary>
+          <span data-i18n="roam_tel_title">Telemetry</span>
+          <span id="rm-tel-state" style="font-size:11px;font-weight:500;color:var(--text3);text-transform:none;letter-spacing:0"></span>
+        </summary>
+        <div class="cfg-adv-body">
+          <div class="help-text" style="margin-bottom:8px" data-i18n="roam_telemetry_help"></div>
+          <label class="sw-row">
+            <span class="sw-text" data-i18n="roam_link_on">Connect</span>
+            <span class="sw"><input type="checkbox" id="rm-tel-on" onchange="roamLinkState('tel')"><i></i></span>
+          </label>
+          <div class="group-list">
+            <label class="field"><span data-i18n="roam_link_host">Server (host)</span><input type="text" id="rm-tel-host" class="form-input" autocomplete="off" spellcheck="false"></label>
+            <label class="field"><span data-i18n="roam_net_port">Port</span><input type="number" id="rm-tel-port" class="form-input" min="1" max="65535" placeholder="443"></label>
+            <label class="field" style="cursor:pointer"><input type="checkbox" id="rm-tel-tls"> <span><span data-i18n="roam_link_tls">TLS (wss://)</span></span></label>
+            <label class="field"><span data-i18n="roam_link_user">Username</span><input type="text" id="rm-tel-user" class="form-input" autocomplete="off" spellcheck="false"></label>
+            <label class="field"><span data-i18n="roam_net_pass">Password</span><input type="password" id="rm-tel-pass" class="form-input" autocomplete="new-password"></label>
+            <label class="field"><span data-i18n="roam_tel_site">Site name (optional)</span><input type="text" id="rm-tel-site" class="form-input" autocomplete="off"></label>
+            <label class="field"><span data-i18n="roam_tel_lat">Latitude (decimal degrees)</span><input type="number" id="rm-tel-lat" class="form-input" min="-90" max="90" step="0.0001" placeholder="48.2083"></label>
+            <label class="field"><span data-i18n="roam_tel_lon">Longitude (decimal degrees)</span><input type="number" id="rm-tel-lon" class="form-input" min="-180" max="180" step="0.0001" placeholder="16.3725"></label>
+          </div>
+          <div class="help-text" id="rm-tel-note" style="margin-top:8px"></div>
+          <div style="margin-top:10px"><button class="btn btn-primary" onclick="roamSave()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button></div>
+        </div>
+      </details>
+      <details class="cfg-adv-details" id="roam-command-details">
+        <summary>
+          <span data-i18n="roam_cmd_title">Remote command / control</span>
+          <span id="rm-cmd-state" style="font-size:11px;font-weight:500;color:var(--text3);text-transform:none;letter-spacing:0"></span>
+        </summary>
+        <div class="cfg-adv-body">
+          <div class="help-text" style="margin-bottom:8px" data-i18n="roam_command_help"></div>
+          <label class="sw-row">
+            <span class="sw-text" data-i18n="roam_link_on">Connect</span>
+            <span class="sw"><input type="checkbox" id="rm-cmd-on" onchange="roamLinkState('cmd')"><i></i></span>
+          </label>
+          <div class="group-list">
+            <label class="field"><span data-i18n="roam_link_host">Server (host)</span><input type="text" id="rm-cmd-host" class="form-input" autocomplete="off" spellcheck="false"></label>
+            <label class="field"><span data-i18n="roam_net_port">Port</span><input type="number" id="rm-cmd-port" class="form-input" min="1" max="65535" placeholder="443"></label>
+            <label class="field" style="cursor:pointer"><input type="checkbox" id="rm-cmd-tls"> <span><span data-i18n="roam_link_tls">TLS (wss://)</span></span></label>
+            <label class="field"><span data-i18n="roam_link_user">Username</span><input type="text" id="rm-cmd-user" class="form-input" autocomplete="off" spellcheck="false"></label>
+            <label class="field"><span data-i18n="roam_net_pass">Password</span><input type="password" id="rm-cmd-pass" class="form-input" autocomplete="new-password"></label>
+          </div>
+          <div class="help-text" id="rm-cmd-note" style="margin-top:8px"></div>
+          <div style="margin-top:10px"><button class="btn btn-primary" onclick="roamSave()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button></div>
+        </div>
+      </details>
     </div>
 
     <div class="page" id="page-telegram">
@@ -7887,6 +7937,8 @@ const LANGS={
     roam_help_fast_hy:'FAST_RESELECT_HYSTERESIS (clause 18.5.4): how much better a neighbour must be when the serving cell is relinquishable. Default 6 dB. Small values with high thresholds make radios change back and forth.',
     roam_help_slow_hy:'SLOW_RESELECT_HYSTERESIS (clause 18.5.4): how much better a neighbour must be when the serving cell is improvable. Default 10 dB.',
     roam_help_presence:'Seconds of silence before the station sends a radio a D-LOCATION UPDATE COMMAND (clause 16.4.4) to check it is still there; unanswered, it shows as unavailable. With several cells in one location area the command is sent on all of them. 0 = off. Default 30.',
+    roam_tel_title:'Telemetry',roam_cmd_title:'Remote command / control',roam_telemetry_help:'[telemetry]: the station pushes its live state (radios, calls, cells, position) to a telemetry server over a WebSocket, e.g. a Brew server that shows it on its map. Switched off, the values stay in the config but the station does not connect. Saving restarts the station.',roam_command_help:'[command]: outbound control connection to a control server (WebSocket), which can then manage this station remotely. Switched off, the values stay in the config but the station does not connect. Saving restarts the station.',roam_link_on:'Connect',roam_link_host:'Server (host)',roam_link_tls:'TLS (wss://)',roam_link_user:'Username',roam_link_pass_saved:'saved (leave empty to keep)',roam_link_ca:'CA certificate from the config: {path} (needs TLS)',roam_link_need_host:'{what}: a server (host) is required when it is switched on.',roam_tel_site:'Site name (optional)',roam_tel_lat:'Latitude (decimal degrees)',roam_tel_lon:'Longitude (decimal degrees)',roam_tel_need_pos:'Telemetry: give both latitude and longitude as decimal numbers, or leave both empty.',
+    roam_help_link_host:'Host name or IP address of the server, without wss:// or a path. Port 443 with TLS is the usual setup behind a web server.',roam_help_link_user:'Login for HTTP Basic authentication. Leave empty for none; then the password is removed too. Basic authentication is only base64, so use TLS for anything over the internet.',roam_help_link_tls:'Connect with wss:// (encrypted). Default on. A CA certificate (ca_cert) in the config needs TLS.',roam_help_link_pass:'Never shown again once saved. Leave empty to keep the saved password.',roam_help_tel_pos:'Position of the station in decimal degrees (WGS 84), 4 decimals are about 11 m. Latitude −90 to 90 (north positive), longitude −180 to 180 (east positive). Empty or 0/0: no position is sent.',roam_help_tel_site:'Name shown with the position on the server map. Optional.',
     roam_help_n_id:'Cell identifier CA (5 bits, table 18.64): unique in this cell\'s list. Sibling cells take the first free ones.',
     roam_help_n_carrier:'Main carrier number of the neighbour (12 bits). With another band plan also set the carrier extension.',
     roam_help_n_ext:'Main carrier number extension (table 18.64): frequency band, offset, duplex spacing and reverse operation of the neighbour, needed only when they differ from this cell.',
@@ -8527,6 +8579,8 @@ const LANGS={
     roam_help_fast_hy:'FAST_RESELECT_HYSTERESIS (cláusula 18.5.4): cuánto mejor debe ser una vecina cuando la celda servidora es abandonable. Por defecto 6 dB. Valores pequeños con umbrales altos hacen que las radios vayan y vuelvan.',
     roam_help_slow_hy:'SLOW_RESELECT_HYSTERESIS (cláusula 18.5.4): cuánto mejor debe ser una vecina cuando la celda servidora es mejorable. Por defecto 10 dB.',
     roam_help_presence:'Segundos de silencio antes de que la estación envíe a una radio un D-LOCATION UPDATE COMMAND (cláusula 16.4.4) para comprobar que sigue ahí; sin respuesta aparece como no disponible. Con varias celdas en un área de localización el comando se envía en todas. 0 = apagado. Por defecto 30.',
+    roam_tel_title:'Telemetría',roam_cmd_title:'Comando / control remoto',roam_telemetry_help:'[telemetry]: la estación envía su estado en vivo (radios, llamadas, celdas, posición) a un servidor de telemetría por WebSocket, p. ej. un servidor Brew que la muestra en su mapa. Apagado, los valores quedan en la configuración pero la estación no se conecta. Guardar reinicia la estación.',roam_command_help:'[command]: conexión saliente de control a un servidor de control (WebSocket), que puede gestionar esta estación a distancia. Apagado, los valores quedan en la configuración pero la estación no se conecta. Guardar reinicia la estación.',roam_link_on:'Conectar',roam_link_host:'Servidor (host)',roam_link_tls:'TLS (wss://)',roam_link_user:'Usuario',roam_link_pass_saved:'guardada (dejar vacío para conservarla)',roam_link_ca:'Certificado CA de la configuración: {path} (necesita TLS)',roam_link_need_host:'{what}: hace falta un servidor (host) cuando está activado.',roam_tel_site:'Nombre del sitio (opcional)',roam_tel_lat:'Latitud (grados decimales)',roam_tel_lon:'Longitud (grados decimales)',roam_tel_need_pos:'Telemetría: indica latitud y longitud como números decimales, o deja ambas vacías.',
+    roam_help_link_host:'Nombre o dirección IP del servidor, sin wss:// ni ruta. El puerto 443 con TLS es lo habitual detrás de un servidor web.',roam_help_link_user:'Usuario para autenticación HTTP Basic. Vacío = sin autenticación; entonces también se borra la contraseña. Basic solo es base64: usa TLS para todo lo que pase por internet.',roam_help_link_tls:'Conectar con wss:// (cifrado). Activado por defecto. Un certificado CA (ca_cert) en la configuración necesita TLS.',roam_help_link_pass:'Una vez guardada no se vuelve a mostrar. Déjala vacía para conservar la guardada.',roam_help_tel_pos:'Posición de la estación en grados decimales (WGS 84); 4 decimales son unos 11 m. Latitud −90 a 90 (norte positivo), longitud −180 a 180 (este positivo). Vacío o 0/0: no se envía posición.',roam_help_tel_site:'Nombre que se muestra con la posición en el mapa del servidor. Opcional.',
     roam_help_n_id:'Identificador de celda CA (5 bits, tabla 18.64): único en la lista de esta celda. Las celdas hermanas toman los primeros libres.',
     roam_help_n_carrier:'Número de portadora principal de la vecina (12 bits). Con otro plan de banda pon también la extensión de portadora.',
     roam_help_n_ext:'Extensión del número de portadora (tabla 18.64): banda, desplazamiento, separación dúplex y modo inverso de la vecina, solo si difieren de esta celda.',
@@ -15988,6 +16042,8 @@ const CFG_HELP_BY_ID={
   'vc-brew-lip':'cfg_help_brew_lip','vc-brew-lip-issi':'cfg_help_brew_lip_issi',
   'rm-fast-th':'roam_help_fast_th','rm-slow-th':'roam_help_slow_th','rm-fast-hy':'roam_help_fast_hy','rm-slow-hy':'roam_help_slow_hy',
   'rm-rxlev':'cfg_help_rxlev_min','rm-migration':'cfg_help_migration','rm-presence':'roam_help_presence',
+  'rm-tel-host':'roam_help_link_host','rm-cmd-host':'roam_help_link_host','rm-tel-user':'roam_help_link_user','rm-cmd-user':'roam_help_link_user',
+  'rm-tel-tls':'roam_help_link_tls','rm-cmd-tls':'roam_help_link_tls','rm-tel-pass':'roam_help_link_pass','rm-cmd-pass':'roam_help_link_pass','rm-tel-lat':'roam_help_tel_pos','rm-tel-lon':'roam_help_tel_pos','rm-tel-site':'roam_help_tel_site',
   'rm-n-id':'roam_help_n_id','rm-n-carrier':'roam_help_n_carrier','rm-n-ext':'roam_help_n_ext','rm-n-types':'roam_help_n_types','rm-n-sync':'roam_help_n_sync',
   'rm-n-load':'roam_help_n_load','rm-n-la':'roam_help_n_la','rm-n-rxlev':'roam_help_n_rxlev','rm-n-txpwr':'roam_help_n_txpwr',
 };
@@ -18733,7 +18789,7 @@ async function loadRoaming(){
   roamMnShow(!!d.multi_network_enabled);
   vcSet('rm-presence',String(d.presence_check_secs));
   roamNetEdits=[];
-  roamRenderBrew();roamRenderCells();roamRenderNetworks();
+  roamRenderBrew();roamRenderCells();roamRenderNetworks();roamRenderLinks();
   const sel=document.getElementById('rm-ncell');
   if(sel){
     const keep=sel.value;
@@ -19130,6 +19186,55 @@ async function roamMnToggle(el){
   if(!await roamSave({multi_network_enabled:on}))roamMnShow(!!(roamData&&roamData.multi_network_enabled));
   else if(dropNets){const m=(document.getElementById('roam-msg')||{}).textContent||'';await loadRoaming();setText('roam-msg',m);}
 }
+// [telemetry] / [command]: the outbound links (switch = enabled, values stay when off).
+// Vienna as the default position, 4 decimals (about 11 m, enough for a map pin).
+const ROAM_DEFAULT_POS={lat:48.2083,lon:16.3725};
+function roamRenderLinks(){
+  [['tel','telemetry'],['cmd','command']].forEach(([p,k])=>{
+    const l=roamData[k];
+    vcSet('rm-'+p+'-on',!!(l&&l.enabled));
+    vcSet('rm-'+p+'-host',l?l.host:'');
+    vcSet('rm-'+p+'-port',l&&l.port!=null?l.port:443);
+    vcSet('rm-'+p+'-tls',l?!!l.use_tls:true);
+    vcSet('rm-'+p+'-user',l?l.username:'');
+    vcSet('rm-'+p+'-pass','');
+    const pw=document.getElementById('rm-'+p+'-pass');
+    if(pw)pw.placeholder=l&&l.password_set?t('roam_link_pass_saved'):'';
+    setText('rm-'+p+'-note',l&&l.ca_cert?t('roam_link_ca',{path:l.ca_cert}):'');
+    roamLinkState(p);
+  });
+  const l=roamData.telemetry;
+  vcSet('rm-tel-site',l?l.site_name:'');
+  // Not configured yet: start from Vienna. Configured without a position: leave it empty.
+  vcSet('rm-tel-lat',l?l.latitude:ROAM_DEFAULT_POS.lat);
+  vcSet('rm-tel-lon',l?l.longitude:ROAM_DEFAULT_POS.lon);
+}
+function roamLinkState(p){
+  const on=!!(document.getElementById('rm-'+p+'-on')||{}).checked;
+  setText('rm-'+p+'-state',t(on?'roam_mn_on':'roam_mn_off'));
+}
+function roamLinkBody(p,withPos){
+  const val=id=>((document.getElementById(id)||{}).value||'');
+  const port=parseInt(val('rm-'+p+'-port'),10);
+  const b={
+    enabled:!!(document.getElementById('rm-'+p+'-on')||{}).checked,
+    host:val('rm-'+p+'-host').trim(),
+    port:isFinite(port)?port:null,
+    use_tls:!!(document.getElementById('rm-'+p+'-tls')||{}).checked,
+    username:val('rm-'+p+'-user').trim(),
+    password:val('rm-'+p+'-pass'),
+  };
+  if(withPos){
+    const f=id=>{const v=val(id).trim();if(v==='')return null;const n=parseFloat(v);return isFinite(n)?n:NaN;};
+    b.site_name=val('rm-tel-site').trim();b.latitude=f('rm-tel-lat');b.longitude=f('rm-tel-lon');
+  }
+  return b;
+}
+function roamLinkCheck(b,title){
+  if(b.enabled&&!b.host)return t('roam_link_need_host',{what:title});
+  if(b.latitude!==undefined&&(Number.isNaN(b.latitude)||Number.isNaN(b.longitude)||(b.latitude==null)!==(b.longitude==null)))return t('roam_tel_need_pos');
+  return '';
+}
 async function roamSave(extra){
   if(!roamData)return false;
   const num=id=>{const el=document.getElementById(id);if(!el||el.value==='')return null;const n=parseInt(el.value,10);return isFinite(n)?n:null;};
@@ -19146,6 +19251,8 @@ async function roamSave(extra){
     }),
   };
   if(roamNetEdits.length)body.networks=roamNetEdits;
+  body.telemetry=roamLinkBody('tel',true);body.command=roamLinkBody('cmd',false);
+  {const e=roamLinkCheck(body.telemetry,t('roam_tel_title'))||roamLinkCheck(body.command,t('roam_cmd_title'));if(e){setText('roam-msg',e);alert(e);return false;}}
   if(extra&&typeof extra==='object'&&!(extra instanceof Event))Object.assign(body,extra);
   if(body.cells[0].location_area==null){setText('roam-msg',t('roam_need_la'));return false;}
   if(!confirm(t('roam_confirm_save')))return false;

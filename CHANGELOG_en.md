@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## Not yet released — Telemetry and remote control in the dashboard
+
+- **Telemetry and remote control from the dashboard.** The bottom of the Infrastructure page has two new collapsible sections, "Telemetry" (`[telemetry]`: server, port, TLS, username, password, site name, latitude and longitude) and "Remote command / control" (`[command]`: server, port, TLS, username, password), each with an on/off switch. Switched off, the values stay in the config with the new key `enabled = false` and the station does not connect; without the key the section is on as before. The password is never shown: left empty, the saved one is kept. A telemetry link that is not configured yet starts with the position of Vienna (48.2083, 16.3725; 4 decimals, about 11 m). Saving checks the config and restarts the station.
+
 ## v0.5.7 — SC3 (TEA2), managed talkgroups and fixes
 
 - **Station bundles reject absolute and traversal paths on extraction.** When importing a station bundle, an entry with an absolute path or `..` can no longer write outside the target directory (zip-slip). Fix contributed by David Harcus, MM7FDM (PR #46).

@@ -4,6 +4,10 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## Pendiente de publicar — Telemetría y control remoto en el dashboard
+
+- **Telemetría y control remoto desde el dashboard.** Al final de la página Infrastructure hay dos secciones desplegables nuevas, «Telemetry» (`[telemetry]`: servidor, puerto, TLS, usuario, contraseña, nombre del sitio, latitud y longitud) y «Remote command / control» (`[command]`: servidor, puerto, TLS, usuario, contraseña), cada una con un interruptor. Apagado, los valores quedan en la configuración con la nueva clave `enabled = false` y la estación no se conecta; sin la clave la sección sigue activa como antes. La contraseña nunca se muestra: vacía conserva la guardada. Una telemetría sin configurar empieza con la posición de Viena (48.2083, 16.3725; 4 decimales, unos 11 m). Guardar comprueba la configuración y reinicia la estación.
+
 ## v0.5.7 — SC3 (TEA2), grupos gestionados y correcciones
 
 - **Los paquetes de estación rechazan rutas absolutas y de salto de directorio al extraerse.** Al importar un paquete de estación, una entrada con ruta absoluta o con `..` ya no puede escribir fuera del directorio de destino (zip-slip). Corrección aportada por David Harcus, MM7FDM (PR #46).
