@@ -45,8 +45,17 @@ pub struct CfgTelemetryDto {
     /// Optional station longitude, decimal degrees (-180..180)
     pub longitude: Option<f64>,
 
+    /// Switch for the whole section (default on): `enabled = false` keeps the values in the
+    /// config but does not connect, so the dashboard can turn it off without losing them.
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 /// Convert a [`CfgTelemetryDto`] (from TOML) into a [`CfgTelemetry`].

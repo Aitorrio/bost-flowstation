@@ -760,6 +760,9 @@ voice_service = true
 # site_name = "Athens Hilltop"
 # latitude = 37.9917
 # longitude = 23.7640
+# OPTIONAL: enabled = false keeps the section but does not connect (default true; the
+# switch on the dashboard's Infrastructure page).
+# enabled = false
 
 ###############################################################################
 
@@ -778,6 +781,9 @@ voice_service = true
 # Basic Auth is base64 (not encrypted); use use_tls = true for anything off-host.
 # username = "station"
 # password = "changeme"
+# OPTIONAL: enabled = false keeps the section but does not connect (default true; the
+# switch on the dashboard's Infrastructure page).
+# enabled = false
 
 ###############################################################################
 
