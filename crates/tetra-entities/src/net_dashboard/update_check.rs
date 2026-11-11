@@ -267,10 +267,10 @@ fn notes_from_changelog(md: &str, local: Option<SemVer>, remote: Option<SemVer>)
     Some(out)
 }
 
-fn fetch_remote_version(client: &reqwest::blocking::Client, branch: &str) -> Option<String> {
+fn fetch_remote_version(client: &reqwest::blocking::Client, slug: &str, branch: &str) -> Option<String> {
     let url = format!(
-        "https://raw.githubusercontent.com/Aitorrio/bost-flowstation/{}/crates/tetra-core/src/lib.rs",
-        branch
+        "https://raw.githubusercontent.com/{}/{}/crates/tetra-core/src/lib.rs",
+        slug, branch
     );
     let text = client
         .get(&url)
@@ -282,28 +282,28 @@ fn fetch_remote_version(client: &reqwest::blocking::Client, branch: &str) -> Opt
     parse_bost_version_from_lib_rs(&text)
 }
 
-fn fetch_changelog_md(client: &reqwest::blocking::Client, branch: &str) -> Option<String> {
-    let url = format!(
-        "https://raw.githubusercontent.com/Aitorrio/bost-flowstation/{}/CHANGELOG.md",
-        branch
-    );
-    client
-        .get(&url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .ok()?
-        .text()
-        .ok()
+/// Changelogs to read for the update notes, in order: `CHANGELOG.md` (Spanish) for a Spanish
+/// station, otherwise `CHANGELOG_en.md` (English, same entries) with the Spanish file as fallback
+/// for branches that do not have it.
+fn changelog_files_for(lang: &str) -> &'static [&'static str] {
+    if lang == "es" { &["CHANGELOG.md"] } else { &["CHANGELOG_en.md", "CHANGELOG.md"] }
 }
 
-fn fetch_release_body(client: &reqwest::blocking::Client, version: &str) -> Option<String> {
+fn fetch_changelog_md(client: &reqwest::blocking::Client, slug: &str, branch: &str, lang: &str) -> Option<String> {
+    changelog_files_for(lang).iter().find_map(|file| {
+        let url = format!("https://raw.githubusercontent.com/{slug}/{branch}/{file}");
+        client.get(&url).send().and_then(|r| r.error_for_status()).ok()?.text().ok()
+    })
+}
+
+fn fetch_release_body(client: &reqwest::blocking::Client, slug: &str, version: &str) -> Option<String> {
     let tag = if version.starts_with('v') || version.starts_with('V') {
         version.to_string()
     } else {
         format!("v{version}")
     };
     let url = format!(
-        "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/tags/{tag}"
+        "https://api.github.com/repos/{slug}/releases/tags/{tag}"
     );
     let resp = client
         .get(&url)
@@ -322,12 +322,13 @@ fn fetch_release_body(client: &reqwest::blocking::Client, version: &str) -> Opti
 
 fn fetch_commit_changelog(
     client: &reqwest::blocking::Client,
+    slug: &str,
     base: &str,
     head: &str,
 ) -> (Vec<ChangelogEntry>, bool) {
     let url = format!(
-        "https://api.github.com/repos/Aitorrio/bost-flowstation/compare/{}...{}",
-        base, head
+        "https://api.github.com/repos/{}/compare/{}...{}",
+        slug, base, head
     );
     let Ok(resp) = client
         .get(&url)
@@ -369,21 +370,23 @@ fn fetch_commit_changelog(
 
 fn resolve_notes(
     client: &reqwest::blocking::Client,
+    slug: &str,
     branch: &str,
     current_version: &str,
     remote_version: Option<&str>,
     commits: &[ChangelogEntry],
+    lang: &str,
 ) -> (Option<String>, NotesSource) {
     let local = SemVer::parse(current_version);
     let remote = remote_version.and_then(SemVer::parse);
 
-    if let Some(md) = fetch_changelog_md(client, branch) {
+    if let Some(md) = fetch_changelog_md(client, slug, branch, lang) {
         if let Some(notes) = notes_from_changelog(&md, local, remote) {
             return (Some(notes), NotesSource::Changelog);
         }
     }
     if let Some(ver) = remote_version {
-        if let Some(body) = fetch_release_body(client, ver) {
+        if let Some(body) = fetch_release_body(client, slug, ver) {
             return (Some(body), NotesSource::Release);
         }
     }
@@ -404,9 +407,20 @@ fn resolve_notes(
 ///
 /// `with_notes=false` (boot/badge): tip SHA + remote version only (≤2 HTTPS calls).
 /// `with_notes=true` (OTA modal): also fetch changelog/compare when an update exists.
-pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) -> UpdateCheck {
-    let channel = tetra_core::normalize_ota_channel(channel).to_string();
-    let branch = tetra_core::ota_branch_for_channel(&channel).to_string();
+/// `lang`: the station language; anything but `es` reads the English changelog.
+pub fn check_for_update(
+    current_version: &str,
+    source: &crate::net_dashboard::ota_channel::OtaSource,
+    with_notes: bool,
+    lang: &str,
+) -> UpdateCheck {
+    let channel = source.channel.clone();
+    let branch = source.branch.clone();
+    // The check and the notes use GitHub's API and raw files; another host cannot be checked
+    // (the update itself still works with git).
+    let Some(slug) = source.github_slug.clone() else {
+        return UpdateCheck::unknown(current_version, &channel, &branch);
+    };
 
     let client = match reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(12))
@@ -419,16 +433,17 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
     };
 
     let commits_url = format!(
-        "https://api.github.com/repos/Aitorrio/bost-flowstation/commits/{}",
-        branch
+        "https://api.github.com/repos/{}/commits/{}",
+        slug, branch
     );
-    let branch_page = format!("{}/tree/{}", tetra_core::PRODUCT_REPO_URL, branch);
+    let branch_page = format!("https://github.com/{}/tree/{}", slug, branch);
 
     // Overlap tip SHA + remote BOST_VERSION fetches (halves light-check latency on Pi).
     let ver_client = client.clone();
     let ver_branch = branch.clone();
+    let ver_slug = slug.clone();
     let ver_handle =
-        std::thread::spawn(move || fetch_remote_version(&ver_client, &ver_branch));
+        std::thread::spawn(move || fetch_remote_version(&ver_client, &ver_slug, &ver_branch));
 
     if let Ok(resp) = client
         .get(&commits_url)
@@ -448,15 +463,17 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
                 let (changelog, changelog_truncated, release_notes, notes_source) =
                     if with_notes && update_available {
                         let (changelog, mut changelog_truncated) = match &local {
-                            Some(base) => fetch_commit_changelog(&client, base, sha),
+                            Some(base) => fetch_commit_changelog(&client, &slug, base, sha),
                             None => (Vec::new(), true),
                         };
                         let (release_notes, notes_source) = resolve_notes(
                             &client,
+                            &slug,
                             &branch,
                             current_version,
                             remote_version.as_deref(),
                             &changelog,
+                            lang,
                         );
                         if release_notes.is_none() && changelog.is_empty() {
                             changelog_truncated = true;
@@ -486,9 +503,9 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
     let _ = ver_handle.join();
 
     // Fallback: GitHub Releases SemVer.
-    let releases_url = "https://api.github.com/repos/Aitorrio/bost-flowstation/releases/latest";
+    let releases_url = format!("https://api.github.com/repos/{slug}/releases/latest");
     let resp = match client
-        .get(releases_url)
+        .get(&releases_url)
         .header("Accept", "application/vnd.github+json")
         .send()
         .and_then(|r| r.error_for_status())
@@ -548,6 +565,13 @@ pub fn check_for_update(current_version: &str, channel: &str, with_notes: bool) 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn notes_use_the_english_changelog_except_for_spanish() {
+        assert_eq!(super::changelog_files_for("es"), &["CHANGELOG.md"]);
+        assert_eq!(super::changelog_files_for("de"), &["CHANGELOG_en.md", "CHANGELOG.md"]);
+        assert_eq!(super::changelog_files_for("en"), &["CHANGELOG_en.md", "CHANGELOG.md"]);
+    }
+
     use super::*;
 
     #[test]

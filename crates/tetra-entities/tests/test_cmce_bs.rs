@@ -1199,6 +1199,115 @@ fn test_network_group_speaker_change_uses_remote_floor_grant() {
     );
 }
 
+/// A new network speaker on a running group call (the next over arrives during hang time) must
+/// reach the dashboard as `CallSpeakerChanged`, or it keeps showing the first speaker and Last
+/// Heard misses every later over. The same speaker keying up again is a new over too; a repeated
+/// start for the session already on air is not.
+#[test]
+fn test_network_group_speaker_change_reports_the_new_speaker() {
+    use tetra_entities::cmce::cmce_bs::CmceBs;
+    use tetra_entities::net_telemetry::{TelemetryEvent, telemetry_channel};
+
+    debug::setup_logging_verbose();
+
+    let gssi = 220;
+    let local_issi = 2200699;
+    let first_speaker = 2320997;
+    let second_speaker = 2320972;
+    let first_uuid = uuid::Uuid::parse_str("9179c03c-0489-4106-a246-5ccddf75e657").unwrap();
+    let second_uuid = uuid::Uuid::parse_str("ad740a0d-8ab9-43c1-a09c-72590f4d39de").unwrap();
+    let third_uuid = uuid::Uuid::parse_str("3f1c2b5e-6a1d-4c11-9a5e-0b2f8d7c4e91").unwrap();
+
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.brew = Some(CfgBrew {
+        host: "test.local".into(),
+        port: 3000,
+        tls: false,
+        username: None,
+        password: None,
+        reconnect_delay: Duration::from_secs(1),
+        jitter_initial_latency_frames: 0,
+        feature_sds_enabled: true,
+        whitelisted_ssis: None,
+        feature_rssi_export: false,
+        feature_lip_forward: false,
+        lip_forward_issi: None,
+        pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
+    });
+    let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew]);
+    let (sink, source) = telemetry_channel();
+    test.register_entity(CmceBs::new(test.config.clone(), Some(sink), None));
+
+    register_subscriber(&mut test, local_issi, gssi);
+
+    let network_start = |uuid: uuid::Uuid, speaker: u32| SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid: uuid,
+            source_issi: speaker,
+            dest_gssi: gssi,
+            priority: 1,
+        }),
+    };
+    let speakers = |source: &tetra_entities::net_telemetry::TelemetrySource| {
+        let mut out = Vec::new();
+        while let Some(ev) = source.try_recv() {
+            if let TelemetryEvent::CallSpeakerChanged {
+                call_id,
+                is_group,
+                dest_addr,
+                speaker_issi,
+                ..
+            } = ev
+            {
+                out.push((call_id, is_group, dest_addr, speaker_issi));
+            }
+        }
+        out
+    };
+
+    test.submit_message(network_start(first_uuid, first_speaker));
+    test.run_stack(Some(1));
+    let call_id = test
+        .dump_sinks()
+        .iter()
+        .find_map(|msg| match &msg.msg {
+            SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { brew_uuid, call_id, .. }) if *brew_uuid == first_uuid => {
+                Some(*call_id)
+            }
+            _ => None,
+        })
+        .expect("Expected first network call to become ready");
+    // The call start itself is reported as GroupCallStarted with the first speaker.
+    speakers(&source);
+
+    // Second speaker on the same call: the dashboard must learn about it.
+    test.submit_message(network_start(second_uuid, second_speaker));
+    test.run_stack(Some(1));
+    test.dump_sinks();
+    assert_eq!(
+        speakers(&source),
+        vec![(call_id, true, gssi, second_speaker)],
+        "a network speaker change must be reported to the dashboard"
+    );
+
+    // The same session started again is not a new over.
+    test.submit_message(network_start(second_uuid, second_speaker));
+    test.run_stack(Some(1));
+    test.dump_sinks();
+    assert!(speakers(&source).is_empty(), "a repeated start of the over on air must not add an entry");
+
+    // The same speaker keying up again opens a new session: a new over, reported again.
+    test.submit_message(network_start(third_uuid, second_speaker));
+    test.run_stack(Some(1));
+    test.dump_sinks();
+    assert_eq!(speakers(&source), vec![(call_id, true, gssi, second_speaker)]);
+}
+
 /// Local MS holds the group floor; NetworkCallStart (LST/Brew) must hard-preempt: cease/deny
 /// the MS, FloorReleased to UMAC/Brew, then NetworkCallReady for the network speaker.
 #[test]

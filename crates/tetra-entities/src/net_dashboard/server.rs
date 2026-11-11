@@ -582,7 +582,7 @@ fn parse_session_cookie(headers: &str) -> Option<String> {
 /// Returns `Ok(path)` on success, or `Err(message)` listing all paths tried.
 /// The returned path is guaranteed to contain a `.git` entry (file or directory —
 /// `.git` can be a file in git worktrees).
-fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, String> {
+pub(crate) fn resolve_source_dir(override_dir: Option<&str>) -> Result<std::path::PathBuf, String> {
     fn is_git_repo(p: &std::path::Path) -> bool {
         // `.git` is a directory in normal clones, but a file in git worktrees,
         // so check for existence of either form.
@@ -1368,8 +1368,22 @@ fn ota_worktree_is_clean(src_dir: &std::path::Path) -> Result<(), String> {
 }
 
 /// `checkout -B` also overwrites an existing channel branch, which may differ from HEAD.
-/// Require both histories to be contained in the fetched channel before resetting either.
+/// Require both histories to be published before resetting either: every commit must be on a
+/// remote-tracking branch (the fetched channel, or the branch the station was installed or last
+/// updated from). That keeps commits made on the station safe, and still lets an operator move
+/// the station to another branch or repository (e.g. from a fork back to `main`) from the
+/// dashboard, because the commits it leaves are on GitHub and can be fetched again.
 fn ota_local_commits_are_preserved(src_dir: &std::path::Path, remote_ref: &str, branch: &str) -> Result<(), String> {
+    // Fail closed when the fetched channel is missing.
+    let remote_ok = std::process::Command::new("git")
+        .arg("-C")
+        .arg(src_dir)
+        .args(["rev-parse", "--verify", "--quiet", &format!("{remote_ref}^{{commit}}")])
+        .output()
+        .map_err(|e| format!("cannot inspect OTA source history: {e}"))?;
+    if !remote_ok.status.success() {
+        return Err("cannot compare OTA source history; refusing to change the checkout".into());
+    }
     let target_branch = format!("refs/heads/{branch}");
     let target_exists = std::process::Command::new("git")
         .arg("-C")
@@ -1385,11 +1399,11 @@ fn ota_local_commits_are_preserved(src_dir: &std::path::Path, remote_ref: &str, 
         refs.push(&target_branch);
     }
     for local_ref in refs {
-        let range = format!("{remote_ref}..{local_ref}");
         let output = std::process::Command::new("git")
             .arg("-C")
             .arg(src_dir)
-            .args(["rev-list", "--count", &range])
+            .args(["rev-list", "--count", local_ref, remote_ref])
+            .args(["--not", "--remotes"])
             .output()
             .map_err(|e| format!("cannot compare OTA source history: {e}"))?;
         if !output.status.success() {
@@ -1401,7 +1415,7 @@ fn ota_local_commits_are_preserved(src_dir: &std::path::Path, remote_ref: &str, 
             .map_err(|_| "invalid OTA history comparison; refusing to change the checkout".to_string())?;
         if count != 0 {
             return Err(format!(
-                "{local_ref} contains {count} local commit(s) absent from {remote_ref}; preserve and integrate them before OTA. No sources were changed and RF remains online"
+                "{local_ref} contains {count} local commit(s) absent from {remote_ref} and every other remote branch; preserve and integrate them before OTA. No sources were changed and RF remains online"
             ));
         }
     }
@@ -1459,13 +1473,6 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     }
 
     log!(update, "=== {} OTA Update ===", tetra_core::PRODUCT_NAME);
-    log!(
-        update,
-        "Migration notice: {} ({}) is coming. This bridge tracks stable→git branch `main` \
-         (legacy `bost` still receives this bridge so field units can update once).",
-        tetra_core::PRODUCT_NAME_NEXT,
-        tetra_core::PRODUCT_NAME_NEXT_LONG
-    );
 
     // Step 1: resolve source directory. Bail out cleanly if we can't find a git repo.
     let src_dir = match resolve_source_dir(source_dir_override.as_deref()) {
@@ -1553,20 +1560,21 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     }
 
     // Step 3: channel → branch, point origin at the Bost repo, fetch.
-    let channel = crate::net_dashboard::ota_channel::read_ota_channel(&config_path);
-    let ota_branch = tetra_core::ota_branch_for_channel(&channel);
-    let ota_url = tetra_core::PRODUCT_REPO_GIT;
+    // Source: [dashboard] ota_channel (default: the installed repository and branch).
+    let ota_source = crate::net_dashboard::ota_channel::resolve_ota_source(&config_path);
+    let ota_branch = ota_source.branch.as_str();
+    let ota_url = ota_source.git_url.as_str();
     let remote_ref = format!("origin/{}", ota_branch);
     log!(
         update,
         "OTA channel={} → branch {}",
-        channel,
+        ota_source.channel,
         ota_branch
     );
     log!(
         update,
         "--- Ensuring OTA remote {} (branch {}) ---",
-        ota_url,
+        ota_source.repo_display,
         ota_branch
     );
     let current_origin = run_cmd_output(&update, "git", &["-C", src_str, "remote", "get-url", "origin"], &src_dir)
@@ -1587,8 +1595,8 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         log!(
             update,
             "origin was '{}' — switching to {}",
-            current_origin,
-            ota_url
+            crate::net_dashboard::ota_channel::strip_url_credentials(&current_origin),
+            ota_source.repo_display
         );
         if run_cmd_output(
             &update,
@@ -3346,7 +3354,7 @@ fn handle_connection(
             if session_ok {
                 http_redirect(buf.into_inner(), "/");
             } else {
-                serve_login_page(buf.into_inner());
+                serve_login_page(buf.into_inner(), &config_path);
             }
             return;
         }
@@ -3475,7 +3483,7 @@ fn handle_connection(
             // controls, /ws, raw telemetry) still falls through to the redirect/401 below, so the
             // admin surface stays fully behind the session wall.
             if !require_http_auth && public_overview && is_root {
-                serve_html(inner);
+                serve_html(inner, &config_path);
                 return;
             }
             if !require_http_auth && public_overview
@@ -3768,19 +3776,20 @@ fn handle_connection(
         let (inner, body_str) = read_post_body(stream);
         match serde_json::from_str::<serde_json::Value>(&body_str) {
             Ok(v) => {
-                let channel = v
-                    .get("channel")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("")
-                    .trim();
-                let channel = tetra_core::normalize_ota_channel(channel);
-                match crate::net_dashboard::ota_channel::write_ota_channel(&config_path, channel) {
+                let field = |k: &str| v.get(k).and_then(|c| c.as_str()).map(str::trim);
+                let channel = crate::net_dashboard::ota_channel::normalize_channel(field("channel").unwrap_or(""));
+                match crate::net_dashboard::ota_channel::write_ota_source(
+                    &config_path,
+                    channel,
+                    field("repo"),
+                    field("branch"),
+                ) {
                     Ok(()) => {
                         tracing::info!("Dashboard: OTA channel set to {}", channel);
                         let body = crate::net_dashboard::ota_channel::channel_json(&config_path);
                         http_json_response(inner, 200, &body);
                     }
-                    Err(e) => http_response(inner, 500, &format!("failed to save ota_channel: {e}")),
+                    Err(e) => http_response(inner, 400, &e),
                 }
             }
             Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
@@ -3940,6 +3949,32 @@ fn handle_connection(
                 Err(e) => http_response(inner, 400, &e),
             },
             Err(e) => http_response(inner, 400, &format!("invalid JSON: {e}")),
+        }
+    } else if req_line.contains("POST /api/setup/frequency") {
+        let (inner, body_str) = read_post_body(stream);
+        match serde_json::from_str::<serde_json::Value>(&body_str)
+            .map_err(|e| format!("invalid JSON: {e}"))
+            .and_then(|v| crate::net_dashboard::setup::set_station_frequency(&config_path, &v))
+        {
+            Ok(()) => {
+                tracing::info!("Dashboard setup: frequency saved");
+                http_json_response(inner, 200, r#"{"ok":true}"#);
+            }
+            Err(e) => http_response(inner, 400, &e),
+        }
+    } else if req_line.contains("POST /api/setup/language") {
+        let (inner, body_str) = read_post_body(stream);
+        let lang = serde_json::from_str::<serde_json::Value>(&body_str)
+            .ok()
+            .and_then(|v| v.get("language").and_then(|l| l.as_str()).map(str::to_string));
+        match lang.ok_or_else(|| "body must be {\"language\": \"de\"}".to_string())
+            .and_then(|l| crate::net_dashboard::setup::set_station_language(&config_path, &l))
+        {
+            Ok(l) => {
+                tracing::info!("Dashboard setup: station language {l}");
+                http_json_response(inner, 200, &serde_json::json!({"ok": true, "language": l}).to_string());
+            }
+            Err(e) => http_response(inner, 400, &e),
         }
     } else if req_line.contains("POST /api/setup/complete") {
         let (inner, body_str) = read_post_body(stream);
@@ -4872,7 +4907,7 @@ fn handle_connection(
                 break;
             }
         }
-        serve_html(buf.into_inner());
+        serve_html(buf.into_inner(), &config_path);
     }
 }
 
@@ -5596,7 +5631,11 @@ fn radio_names_json(radioid: &crate::net_dashboard::radioid::RadioIdCache) -> St
 /// Query: `?refresh=1` bypasses success cache; `?notes=1` also fetches changelog text
 /// (OTA modal). Boot/badge should omit notes to keep the Pi responsive.
 fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool, with_notes: bool) {
-    let channel = crate::net_dashboard::ota_channel::read_ota_channel(config_path);
+    let source = crate::net_dashboard::ota_channel::resolve_ota_source(config_path);
+    // Cache/coalescing key: the same source and branch give the same answer.
+    let channel = format!("{}|{}|{}", source.channel, source.git_url, source.branch);
+    // Update notes: the Spanish changelog only for a Spanish station, English otherwise.
+    let notes_lang = crate::net_dashboard::setup::station_language(config_path).unwrap_or_else(|| "en".into());
     const CACHE_OK_SECS: u64 = 90;
     // Cache key includes notes so a light boot result does not starve the modal of changelog.
     type CacheEntry = (std::time::Instant, String, bool, String); // at, channel, with_notes, json
@@ -5655,8 +5694,9 @@ fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool
         let json = if is_leader {
             let result = crate::net_dashboard::update_check::check_for_update(
                 tetra_core::STACK_VERSION,
-                &channel,
+                &source,
                 with_notes,
+                &notes_lang,
             );
             let json = result.to_json();
             if !result.check_failed {
@@ -5708,8 +5748,9 @@ fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool
             st.clone().unwrap_or_else(|| {
                 crate::net_dashboard::update_check::check_for_update(
                     tetra_core::STACK_VERSION,
-                    &channel,
+                    &source,
                     with_notes,
+                    &notes_lang,
                 )
                 .to_json()
             })
@@ -7142,9 +7183,13 @@ fn serve_system_info(mut stream: PrefixedConn, config_path: &str, probe_sdr: boo
     let sdr_name = crate::phy::components::soapy_settings::detected_sdr_name().unwrap_or_else(|| "unknown".to_string());
     let rf_status = crate::rf_status::get();
 
+    let (source_repo, source_branch) = crate::net_dashboard::ota_channel::installed_source(config_path);
+
     let body = serde_json::to_string(&serde_json::json!({
         "hostname": hostname,
         "uptime_secs": uptime_secs,
+        "source_repo": source_repo,
+        "source_branch": source_branch,
         "os": os_info,
         "config_path": config_path,
         "config_dir": config_dir,
@@ -7341,8 +7386,9 @@ fn activate_config_profile(config_path: &str, profile_name: &str) -> Result<(), 
     atomic_write(config_path, &profile_content).map_err(|e| format!("failed to copy profile: {}", e))
 }
 
-fn serve_html(mut stream: PrefixedConn) {
-    let body = dashboard_html_body().as_bytes();
+fn serve_html(mut stream: PrefixedConn, config_path: &str) {
+    let body = crate::net_dashboard::setup::with_station_language(dashboard_html_body(), config_path);
+    let body = body.as_bytes();
     let header = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
@@ -8196,8 +8242,8 @@ fn serve_dashboard_tls_status(stream: PrefixedConn) {
     http_json_response(stream, 200, &body);
 }
 
-fn serve_login_page(mut stream: PrefixedConn) {
-    let body = login_html_body();
+fn serve_login_page(mut stream: PrefixedConn, config_path: &str) {
+    let body = crate::net_dashboard::setup::with_station_language(login_html_body(), config_path);
     let header = format!(
         "HTTP/1.1 200 OK\r\n\
          Content-Type: text/html; charset=utf-8\r\n\
@@ -9535,6 +9581,7 @@ fn serve_dapnet_send(
 
 #[cfg(test)]
 mod tests {
+
     use super::{
         DashboardServer, LoginThrottle, MAX_TETRA_SSI, UpdateState, activate_config_profile, binary_built_from,
         handle_ws_command, is_masked_secret_key, mask_config_secrets, normalize_mojibake_html,
@@ -9886,6 +9933,22 @@ mod tests {
         assert!(error.contains("local commit(s)"));
         assert_eq!(repo.git(&["rev-parse", "HEAD"]), local_head, "preflight must preserve local history");
         assert_eq!(std::fs::read_to_string(repo.0.join("source.txt")).unwrap(), "local station extension\n");
+    }
+
+    #[test]
+    fn ota_preflight_lets_a_station_switch_from_a_fork_branch_back_to_main() {
+        let repo = OtaTestRepository::new();
+        let original = repo.git(&["rev-parse", "HEAD"]);
+        // Station runs the fork branch `handover`, which has commits main does not have.
+        repo.commit_change("fork feature\n");
+        repo.git(&["update-ref", "refs/remotes/origin/handover", "HEAD"]);
+        repo.git(&["update-ref", "refs/remotes/origin/main", &original]);
+        repo.git(&["checkout", "--quiet", "-B", "handover"]);
+        super::ota_local_commits_are_preserved(&repo.0, "origin/main", "main").unwrap();
+        // A commit made on the station itself is still protected.
+        repo.commit_change("station-only change\n");
+        let error = super::ota_local_commits_are_preserved(&repo.0, "origin/main", "main").unwrap_err();
+        assert!(error.contains("1 local commit(s)"), "{error}");
     }
 
     #[test]
