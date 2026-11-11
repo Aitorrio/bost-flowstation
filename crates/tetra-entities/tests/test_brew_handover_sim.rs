@@ -21,9 +21,12 @@ use tetra_config::bluestation::{CfgBrew, CfgExtraCell, CfgNeighborCellCa, StackC
 use tetra_core::ranges::SortedDisjointSsiRanges;
 use tetra_core::tetra_entities::TetraEntity;
 use tetra_core::{BitBuffer, CellId, Sap, SsiType, TdmaTime, TetraAddress};
+use tetra_entities::cmce::cmce_bs::CmceBs;
 use tetra_entities::net_brew::entity::BrewEntity;
+use tetra_entities::net_dashboard::DashboardServer;
 use tetra_entities::net_brew::protocol::*;
 use tetra_entities::net_site::{SharedDirectory, SiteSwitch, site_links};
+use tetra_entities::net_telemetry::{TelemetrySource, telemetry_channel};
 use tetra_entities::network::transports::{NetworkAddress, NetworkError, NetworkMessage, NetworkTransport};
 use tetra_pdus::cmce::enums::disconnect_cause::DisconnectCause;
 use tetra_pdus::cmce::enums::{
@@ -32,7 +35,7 @@ use tetra_pdus::cmce::enums::{
 use tetra_pdus::cmce::fields::basic_service_information::BasicServiceInformation;
 use tetra_pdus::cmce::pdus::{
     d_call_restore::DCallRestore, d_connect::DConnect, d_info::DInfo, d_setup::DSetup, u_call_restore::UCallRestore, u_connect::UConnect,
-    u_disconnect::UDisconnect, u_setup::USetup, u_tx_ceased::UTxCeased,
+    u_disconnect::UDisconnect, u_setup::USetup, u_tx_ceased::UTxCeased, u_tx_demand::UTxDemand,
 };
 use tetra_pdus::mle::enums::mle_protocol_discriminator::MleProtocolDiscriminator;
 use tetra_pdus::mle::pdus::{u_prepare::UPrepare, u_restore::URestore};
@@ -588,6 +591,9 @@ struct Station {
     air: Vec<SapMsg>,
     /// Downlink voice the station played out on a traffic channel: (carrier, timeslot)
     voice_down: Vec<(u16, u8)>,
+    /// CMCE telemetry, fed into this station's dashboard state on every tick
+    telemetry: TelemetrySource,
+    dashboard: DashboardServer,
 }
 
 fn station(index: usize, location_area: u16, extensions: &[&str], configure: &dyn Fn(usize, &mut StackConfig)) -> Station {
@@ -599,10 +605,12 @@ fn station(index: usize, location_area: u16, extensions: &[&str], configure: &dy
     config.brew = Some(relay_brew());
     configure(index, &mut config);
     let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
-    test.populate_entities(
-        vec![TetraEntity::Mle, TetraEntity::Mm, TetraEntity::Cmce],
-        vec![TetraEntity::Llc, TetraEntity::Umac],
-    );
+    test.populate_entities(vec![TetraEntity::Mle, TetraEntity::Mm], vec![TetraEntity::Llc, TetraEntity::Umac]);
+    let (sink, telemetry) = telemetry_channel();
+    test.register_entity(CmceBs::new(test.get_shared_config(), Some(sink), None));
+    // The dashboard keeps its files next to the config; nothing is written for call telemetry.
+    let dashboard_dir = std::env::temp_dir().join(format!("bost-sim-dashboard-{}-{index}", std::process::id()));
+    let dashboard = DashboardServer::new(dashboard_dir.join("config.toml").to_string_lossy().into_owned());
     let wire = Arc::new(Mutex::new(Wire::default()));
     let transport = ChannelTransport {
         wire: wire.clone(),
@@ -616,6 +624,8 @@ fn station(index: usize, location_area: u16, extensions: &[&str], configure: &dy
         carrier,
         air: Vec::new(),
         voice_down: Vec::new(),
+        telemetry,
+        dashboard,
     }
 }
 
@@ -771,6 +781,31 @@ fn u_disconnect(issi: u32, call_id: u16) -> SapMsg {
 fn u_tx_ceased(issi: u32, call_id: u16) -> SapMsg {
     let pdu = UTxCeased {
         call_identifier: call_id,
+        facility: None,
+        dm_ms_address: None,
+        proprietary: None,
+    };
+    uplink(issi, MleProtocolDiscriminator::Cmce, |b| pdu.to_bitbuf(b).unwrap())
+}
+
+/// D-TX CEASED the station sent to group `gssi` so far.
+fn tx_ceased_count(air: &[SapMsg], gssi: u32) -> usize {
+    air_to(air, gssi)
+        .iter()
+        .filter(|bits| {
+            bits.strip_prefix(PD_CMCE)
+                .is_some_and(|rest| BitBuffer::from_bitstr(rest).peek_bits(5) == Some(CmcePduTypeDl::DTxCeased.into_raw()))
+        })
+        .count()
+}
+
+/// U-TX DEMAND: `issi` presses PTT in a running group call (TS 100 392-2 clause 14.7.2.4).
+fn u_tx_demand(issi: u32, call_id: u16) -> SapMsg {
+    let pdu = UTxDemand {
+        call_identifier: call_id,
+        tx_demand_priority: 1,
+        encryption_control: false,
+        reserved: false,
         facility: None,
         dm_ms_address: None,
         proprietary: None,
@@ -1004,6 +1039,9 @@ impl Sim {
                     _ if m.dest == TetraEntity::Llc => s.air.push(m),
                     _ => {}
                 }
+            }
+            while let Some(event) = s.telemetry.try_recv() {
+                s.dashboard.handle_telemetry(event);
             }
         }
         for i in 0..self.wires.len() {
@@ -2464,12 +2502,21 @@ fn multi_cell_sim_with(
     );
     primary.register_entity(switch);
 
-    let cell = |test, wire, carrier| Station {
+    // These two cells run without dashboard telemetry (their CMCE has no sink).
+    let cell = |test, wire, carrier: u16| Station {
         test,
         wire,
         carrier,
         air: Vec::new(),
         voice_down: Vec::new(),
+        telemetry: telemetry_channel().1,
+        dashboard: DashboardServer::new(
+            std::env::temp_dir()
+                .join(format!("bost-sim-dashboard-{}-c{carrier}", std::process::id()))
+                .join("config.toml")
+                .to_string_lossy()
+                .into_owned(),
+        ),
     };
     let mut stations = vec![cell(primary, wire, 1521)];
     stations.extend((1..STATIONS).map(|i| station(i, i as u16 + 1, extensions, configure)));
@@ -3147,4 +3194,112 @@ fn sim_ten_stations_thirty_radios_managed_talkgroups() {
     send(&mut sim, r#"{"groups":[]}"#, false);
     sim.register(3, issi(3), LocationUpdateType::PeriodicLocationUpdating, &[2004]);
     sim.run_until("radio 3 is affiliated to 2004", |s| s.relay.groups[&issi(3)].contains(&2004));
+}
+
+/// Ten stations, thirty radios, five groups spread over six stations each. In every group three
+/// radios on three stations talk one after the other within hang time, and the first one keys up
+/// again at the end, so every call keeps its call id. Each over's speaker reaches the other
+/// stations as a new network over on the running call. Every station's dashboard must show the
+/// current speaker and list every over in Last Heard; before, the stations that heard an over
+/// from the network kept the first speaker and never listed the others.
+#[test]
+fn sim_speaker_changes_within_hang_time_reach_every_dashboard() {
+    let las: Vec<u16> = (1..=STATIONS as u16).collect();
+    // The simulated TDMA clock runs far ahead of the wall clock the Brew workers use, so give hang
+    // time (and the talkers' UL inactivity, no voice frames are sent) room for the network round trip.
+    let mut sim = Sim::with_config(&las, &EXTENSIONS, &|_, config| {
+        config.cell.hangtime_secs = 60;
+        config.cell.ul_inactivity_secs = 60;
+    });
+
+    // Radio r sits on station r % 10; radios 0..5 are in group 0, 6..11 in group 1, and so on,
+    // so each group has one radio on each of six consecutive stations.
+    let radios: Vec<(u32, usize, u32)> = (0..RADIOS).map(|r| (FIRST_ISSI + r, r as usize % STATIONS, GROUPS[r as usize / 6])).collect();
+    for &(issi, st, gssi) in &radios {
+        sim.register(st, issi, LocationUpdateType::RoamingLocationUpdating, &[gssi]);
+    }
+    let members = |gssi: u32| -> Vec<(u32, usize)> { radios.iter().filter(|r| r.2 == gssi).map(|r| (r.0, r.1)).collect() };
+
+    // Every group starts with its first member.
+    let mut on_air: HashMap<u32, (u32, usize)> = HashMap::new();
+    for gssi in GROUPS {
+        let (talker, st) = members(gssi)[0];
+        sim.start_call(st, talker, gssi);
+        on_air.insert(gssi, (talker, st));
+    }
+    sim.steps(20);
+    let call_ids: HashMap<(usize, u32), u16> = GROUPS
+        .iter()
+        .flat_map(|&gssi| members(gssi).into_iter().map(move |(_, st)| (st, gssi)))
+        .map(|(st, gssi)| ((st, gssi), sim.local_call_id(st, gssi).unwrap_or_else(|| panic!("station {st} has the call on {gssi}"))))
+        .collect();
+
+    let mut changes = 0;
+    for next in [1usize, 2, 0] {
+        // The talkers let go; the overs end on the network and the stations go into hang time.
+        let ceased_before: HashMap<u32, usize> = GROUPS
+            .iter()
+            .map(|&gssi| (gssi, tx_ceased_count(&sim.stations[members(gssi)[next].1].air, gssi)))
+            .collect();
+        for gssi in GROUPS {
+            let (talker, st) = on_air[&gssi];
+            sim.submit(st, u_tx_ceased(talker, call_ids[&(st, gssi)]));
+        }
+        sim.run_until("every over ended on the network", |s| s.relay.calls.is_empty());
+        // The next talker's station ends its leg's over (D-TX CEASED) once the network says so.
+        sim.run_until("the next talkers' stations are in hang time", |s| {
+            GROUPS
+                .iter()
+                .all(|&gssi| tx_ceased_count(&s.stations[members(gssi)[next].1].air, gssi) > ceased_before[&gssi])
+        });
+
+        // The next member of every group presses PTT on its own station within hang time.
+        for gssi in GROUPS {
+            let (talker, st) = members(gssi)[next];
+            sim.submit(st, u_tx_demand(talker, call_ids[&(st, gssi)]));
+            on_air.insert(gssi, (talker, st));
+            changes += 1;
+        }
+        sim.run_until("every new over reached the network", |s| {
+            GROUPS.iter().all(|gssi| {
+                let (talker, st) = on_air[gssi];
+                s.relay.calls.values().any(|c| c.gssi == *gssi && c.owner == st && c.talker == talker)
+            })
+        });
+        sim.steps(20);
+
+        // Same call everywhere, the current speaker on every dashboard of the group.
+        for gssi in GROUPS {
+            let (talker, _) = on_air[&gssi];
+            for (_, st) in members(gssi) {
+                assert_eq!(sim.local_call_id(st, gssi), Some(call_ids[&(st, gssi)]), "station {st} kept its call on {gssi}");
+                let state = sim.stations[st].dashboard.state.read().unwrap();
+                let call = state
+                    .calls
+                    .get(&call_ids[&(st, gssi)])
+                    .unwrap_or_else(|| panic!("station {st}'s dashboard lists the call on {gssi}"));
+                assert_eq!(call.speaker_issi, Some(talker), "station {st}'s dashboard shows the speaker on {gssi}");
+            }
+        }
+    }
+    assert_eq!(changes, 15);
+
+    // Last Heard on every station of a group lists every over, oldest first: first, second, third
+    // member, then the first again. (A call start is listed with its first grant; drop repeats.)
+    for gssi in GROUPS {
+        let m = members(gssi);
+        let expected = vec![m[0].0, m[1].0, m[2].0, m[0].0];
+        for &(_, st) in &m {
+            let state = sim.stations[st].dashboard.state.read().unwrap();
+            let mut heard: Vec<u32> = state.last_heard.iter().rev().filter(|e| e.dest == gssi && e.activity == "call_group").map(|e| e.issi).collect();
+            heard.dedup();
+            assert_eq!(heard, expected, "station {st}'s Last Heard on {gssi}");
+        }
+    }
+
+    for gssi in GROUPS {
+        let (talker, st) = on_air[&gssi];
+        sim.submit(st, u_tx_ceased(talker, call_ids[&(st, gssi)]));
+    }
+    sim.run_until("every over ended on the network", |s| s.relay.calls.is_empty());
 }

@@ -142,8 +142,12 @@ pub struct CfgDashboard {
     /// with the git clone elsewhere), or when auto-detection picks the wrong directory.
     /// OTA pulls from github.com/Aitorrio/bost-flowstation (`ota_channel` selects the branch).
     pub source_dir: Option<String>,
-    /// OTA release channel: `"stable"` → git branch `main`, `"beta"` → `beta`. Default `stable`.
+    /// OTA source: `"installed"` (default: repository and branch of the installed checkout),
+    /// `"stable"` → product repository `main`, `"beta"` → `beta`, `"custom"` → `ota_repo` /
+    /// `ota_branch` (checked by the dashboard before use).
     pub ota_channel: String,
+    pub ota_repo: Option<String>,
+    pub ota_branch: Option<String>,
     /// Optional dashboard login credentials. POST /api/login accepts JSON `user`/`password`
     /// or a form body and issues an `fs_session` cookie for protected HTTP and WebSocket requests.
     /// When omitted, the dashboard is accessible without a password (default, home-network use).
@@ -166,7 +170,14 @@ pub struct CfgDashboard {
     /// Advanced DGNA control: when true, the dashboard shows the SS-DGNA attachment-mode picker.
     /// When false, operators always use the cell-level default attachment mode.
     pub show_dgna_attachment_mode_picker: bool,
+    /// Station default language of the dashboard and the login page (one of
+    /// [`DASHBOARD_LANGUAGES`]), chosen in the Setup wizard. A browser that picked its own
+    /// language keeps it; `None` = the browser's language.
+    pub language: Option<String>,
 }
+
+/// Languages the dashboard has strings for (`LANGS` in the dashboard page).
+pub const DASHBOARD_LANGUAGES: &[&str] = &["en", "de", "es", "fr", "pt", "ro", "hu", "zh"];
 
 impl Default for CfgDashboard {
     fn default() -> Self {
@@ -175,12 +186,15 @@ impl Default for CfgDashboard {
             https_port: 443,
             bind: "0.0.0.0".to_string(),
             source_dir: None,
-            ota_channel: "stable".to_string(),
+            ota_channel: "installed".to_string(),
+            ota_repo: None,
+            ota_branch: None,
             username: None,
             password: None,
             http_allowed_networks: Vec::new(),
             public_overview: false,
             show_dgna_attachment_mode_picker: false,
+            language: None,
         }
     }
 }
@@ -208,6 +222,10 @@ pub struct CfgDashboardDto {
     #[serde(default = "default_ota_channel")]
     pub ota_channel: String,
     #[serde(default)]
+    pub ota_repo: Option<String>,
+    #[serde(default)]
+    pub ota_branch: Option<String>,
+    #[serde(default)]
     pub username: Option<String>,
     #[serde(default)]
     pub password: Option<String>,
@@ -219,6 +237,8 @@ pub struct CfgDashboardDto {
     pub public_overview: bool,
     #[serde(default)]
     pub show_dgna_attachment_mode_picker: bool,
+    #[serde(default)]
+    pub language: Option<String>,
 
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -240,7 +260,7 @@ fn default_bind() -> String {
 }
 
 fn default_ota_channel() -> String {
-    "stable".to_string()
+    "installed".to_string()
 }
 
 pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, String> {
@@ -278,10 +298,12 @@ pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, Strin
         _ => return Err("dashboard: set both 'username' and 'password', or neither".to_string()),
     }
     let ota_channel = match src.ota_channel.trim().to_ascii_lowercase().as_str() {
-        "stable" | "beta" => src.ota_channel.trim().to_ascii_lowercase(),
-        other if other.is_empty() => "stable".to_string(),
+        "installed" | "stable" | "beta" | "custom" => src.ota_channel.trim().to_ascii_lowercase(),
+        other if other.is_empty() => "installed".to_string(),
         other => {
-            return Err(format!("dashboard: ota_channel must be \"stable\" or \"beta\" (got '{other}')"));
+            return Err(format!(
+                "dashboard: ota_channel must be \"installed\", \"stable\", \"beta\" or \"custom\" (got '{other}')"
+            ));
         }
     };
     if src.http_allowed_networks.len() > 32 {
@@ -299,12 +321,20 @@ pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, Strin
             http_allowed_networks.push(network);
         }
     }
+    let language = match src.language.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(l) if DASHBOARD_LANGUAGES.contains(&l) => Some(l.to_string()),
+        Some(l) => return Err(format!("dashboard: language {l:?} is not one of {DASHBOARD_LANGUAGES:?}")),
+    };
     Ok(CfgDashboard {
+        language,
         port: src.port,
         https_port: src.https_port,
         bind: src.bind,
         source_dir: src.source_dir,
         ota_channel,
+        ota_repo: src.ota_repo.filter(|v| !v.trim().is_empty()),
+        ota_branch: src.ota_branch.filter(|v| !v.trim().is_empty()),
         username: src.username,
         password: src.password,
         http_allowed_networks,
@@ -492,11 +522,14 @@ mod tests {
             bind: "0.0.0.0".into(),
             source_dir: None,
             ota_channel: "stable".into(),
+            ota_repo: None,
+            ota_branch: None,
             username: None,
             password: None,
             http_allowed_networks: Vec::new(),
             public_overview: false,
             show_dgna_attachment_mode_picker: false,
+            language: None,
             extra: HashMap::new(),
         };
         let c = apply_dashboard_patch(dto).expect("high preset");
@@ -512,13 +545,40 @@ mod tests {
             bind: "0.0.0.0".into(),
             source_dir: None,
             ota_channel: "stable".into(),
+            ota_repo: None,
+            ota_branch: None,
             username: None,
             password: None,
             http_allowed_networks: Vec::new(),
             public_overview: false,
             show_dgna_attachment_mode_picker: false,
+            language: None,
             extra: HashMap::new(),
         };
         assert!(apply_dashboard_patch(dto).is_err());
+    }
+
+    #[test]
+    fn language_is_optional_and_checked() {
+        let dto = |language: Option<&str>| CfgDashboardDto {
+            port: 80,
+            https_port: 443,
+            bind: "0.0.0.0".into(),
+            source_dir: None,
+            ota_channel: "stable".into(),
+            ota_repo: None,
+            ota_branch: None,
+            username: None,
+            password: None,
+            http_allowed_networks: Vec::new(),
+            public_overview: false,
+            show_dgna_attachment_mode_picker: false,
+            language: language.map(str::to_string),
+            extra: HashMap::new(),
+        };
+        assert_eq!(apply_dashboard_patch(dto(None)).unwrap().language, None);
+        assert_eq!(apply_dashboard_patch(dto(Some("de"))).unwrap().language.as_deref(), Some("de"));
+        assert_eq!(apply_dashboard_patch(dto(Some(""))).unwrap().language, None);
+        assert!(apply_dashboard_patch(dto(Some("xx"))).is_err());
     }
 }

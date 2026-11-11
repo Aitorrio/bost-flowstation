@@ -15,6 +15,10 @@ SOAPY_SX_DIR="${BOST_SOAPY_SX_DIR:-/opt/sxxcvr}"
 # µCell BB: SoapyMuCell + device-tree overlay (not the SXceiver module).
 MUCELL_GIT="${BOST_MUCELL_GIT:-https://github.com/Jankyneering/mu-cell-bb-drivers.git}"
 MUCELL_DIR="${BOST_MUCELL_DIR:-/opt/mu-cell-bb-drivers}"
+# ADALM-Pluto / Pluto+: SoapyPlutoSDR with timestamped streaming (pgreenland fork).
+PLUTO_GIT="${BOST_PLUTO_GIT:-https://github.com/pgreenland/SoapyPlutoSDR.git}"
+PLUTO_BRANCH="${BOST_PLUTO_BRANCH:-sdr_gadget_timestamping}"
+PLUTO_DIR="${BOST_PLUTO_DIR:-/opt/SoapyPlutoSDR}"
 
 log() { echo "[bost-setup-helper] $*"; }
 
@@ -269,6 +273,69 @@ install_driver_mucell() {
   echo "OK: driver=mucell installed"
 }
 
+pluto_module_present() {
+  local mod
+  shopt -s nullglob
+  local found=1
+  for mod in \
+    /usr/local/lib/SoapySDR/modules*/libPlutoSDRSupport.so \
+    /usr/local/lib/*/SoapySDR/modules*/libPlutoSDRSupport.so \
+    /usr/lib/*/SoapySDR/modules*/libPlutoSDRSupport.so \
+    /usr/lib/SoapySDR/modules*/libPlutoSDRSupport.so; do
+    if [[ -f "$mod" ]]; then
+      found=0
+      break
+    fi
+  done
+  shopt -u nullglob
+  [[ "$found" -eq 0 ]] && return 0
+  SoapySDRUtil --info 2>/dev/null | grep -qiE 'factories.*\bplutosdr\b' && return 0
+  return 1
+}
+
+install_driver_pluto() {
+  # Already built (installer or an earlier wizard run): nothing to do. An update of the
+  # FlowStation leaves the module alone.
+  if pluto_module_present; then
+    log "Pluto SoapySDR module already installed"
+    SoapySDRUtil --find="driver=plutosdr" 2>/dev/null | head -n 20 || true
+    echo "OK: driver=plutosdr ready"
+    return 0
+  fi
+
+  echo "PHASE deps"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y --no-install-recommends \
+    git make g++ cmake pkg-config \
+    libsoapysdr-dev soapysdr-tools libiio-dev libad9361-dev libusb-1.0-0-dev \
+    || die "could not install the Pluto build dependencies (libiio-dev, libad9361-dev, libusb-1.0-0-dev)"
+
+  echo "PHASE clone"
+  if [[ -d "$PLUTO_DIR/.git" ]]; then
+    log "Updating SoapyPlutoSDR in $PLUTO_DIR ($PLUTO_BRANCH)"
+    git -C "$PLUTO_DIR" fetch --depth 1 origin "$PLUTO_BRANCH"
+    git -C "$PLUTO_DIR" checkout -f -B "$PLUTO_BRANCH" FETCH_HEAD
+  else
+    log "Cloning SoapyPlutoSDR from $PLUTO_GIT ($PLUTO_BRANCH) → $PLUTO_DIR"
+    mkdir -p "$(dirname "$PLUTO_DIR")"
+    rm -rf "$PLUTO_DIR"
+    git clone --depth 1 -b "$PLUTO_BRANCH" "$PLUTO_GIT" "$PLUTO_DIR"
+  fi
+
+  echo "PHASE build"
+  cmake -S "$PLUTO_DIR" -B "$PLUTO_DIR/build" -DCMAKE_BUILD_TYPE=Release
+  cmake --build "$PLUTO_DIR/build" -j"$(nproc)"
+  echo "PHASE install"
+  cmake --install "$PLUTO_DIR/build"
+  ldconfig || true
+  pluto_module_present || die "SoapyPlutoSDR built but the plutosdr factory was not found"
+
+  log "Pluto driver installed"
+  SoapySDRUtil --find="driver=plutosdr" 2>/dev/null | head -n 20 || true
+  echo "OK: driver=plutosdr installed"
+}
+
 enable_service() {
   # Idempotent: never restart a live station just to flip the enable bit.
   # (`enable --now` can disrupt an already-running unit mid-wizard.)
@@ -299,7 +366,8 @@ case "$ACTION" in
       lime) install_driver_lime ;;
       mucell) install_driver_mucell ;;
       uhd) install_driver_uhd "${2:-}" ;;
-      *) die "unknown driver '$driver' (sx|lime|mucell|uhd)" ;;
+      pluto) install_driver_pluto ;;
+      *) die "unknown driver '$driver' (sx|lime|mucell|uhd|pluto)" ;;
     esac
     ;;
   enable-service)

@@ -232,8 +232,8 @@ fn run_helper(args: &[&str]) -> Result<String, String> {
 pub fn install_driver(driver: &str) -> Result<String, String> {
     let driver = driver.trim().to_ascii_lowercase();
     match driver.as_str() {
-        "sx" | "lime" | "mucell" | "uhd" => run_helper(&["install-driver", &driver]),
-        _ => Err("unsupported driver (use sx, lime, mucell or uhd)".into()),
+        "sx" | "lime" | "mucell" | "uhd" | "pluto" => run_helper(&["install-driver", &driver]),
+        _ => Err("unsupported driver (use sx, lime, mucell, uhd or pluto)".into()),
     }
 }
 
@@ -361,6 +361,104 @@ pub fn apply_setup(config_path: &str, req: &SetupApplyRequest) -> Result<(), Str
     Ok(())
 }
 
+/// The station default language (`[dashboard] language`), read from the config file so a change
+/// from the Setup wizard applies to the next page load without a restart.
+pub fn station_language(config_path: &str) -> Option<String> {
+    let text = fs::read_to_string(config_path).ok()?;
+    let table: toml::Table = toml::from_str(&text).ok()?;
+    let lang = table.get("dashboard")?.get("language")?.as_str()?.trim();
+    tetra_config::bluestation::DASHBOARD_LANGUAGES.contains(&lang).then(|| lang.to_string())
+}
+
+/// The page with `{{STATION_LANG}}` filled in (empty when no station language is set).
+pub fn with_station_language(page: &str, config_path: &str) -> String {
+    page.replacen("{{STATION_LANG}}", station_language(config_path).as_deref().unwrap_or(""), 1)
+}
+
+/// Store the station default language (`[dashboard] language`). No restart needed.
+pub fn set_station_language(config_path: &str, language: &str) -> Result<String, String> {
+    let lang = language.trim().to_ascii_lowercase();
+    if !tetra_config::bluestation::DASHBOARD_LANGUAGES.contains(&lang.as_str()) {
+        return Err(format!("unknown language {lang:?}"));
+    }
+    let current = fs::read_to_string(config_path).map_err(|e| e.to_string())?;
+    let mut table: toml::Table = toml::from_str(&current).map_err(|e| format!("parse config: {e}"))?;
+    let dash = table
+        .entry("dashboard".to_string())
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .ok_or_else(|| "dashboard must be a table".to_string())?;
+    if dash.get("language").and_then(|v| v.as_str()) == Some(lang.as_str()) {
+        return Ok(lang);
+    }
+    dash.insert("language".into(), toml::Value::String(lang.clone()));
+    let rendered = toml::to_string_pretty(&table).map_err(|e| e.to_string())?;
+    crate::net_dashboard::profiles::validate_and_write_toml(config_path, &rendered)?;
+    Ok(lang)
+}
+
+/// Setup wizard "Frequency" step: write TX/RX frequency (`[phy_io.soapysdr]`) and band, carrier,
+/// offset, duplex, reverse operation, colour code and location area (`[cell_info]`). The whole
+/// config is validated before it is written; nothing is restarted.
+pub fn set_station_frequency(config_path: &str, v: &JsonValue) -> Result<(), String> {
+    let int = |k: &str| v.get(k).and_then(|x| x.as_i64()).ok_or_else(|| format!("{k} missing or not a number"));
+    let ranged = |k: &str, lo: i64, hi: i64| -> Result<i64, String> {
+        let n = int(k)?;
+        if (lo..=hi).contains(&n) { Ok(n) } else { Err(format!("{k} must be {lo}..{hi}")) }
+    };
+    let tx = ranged("tx_freq", 100_000_000, 1_000_000_000)?;
+    let rx = ranged("rx_freq", 100_000_000, 1_000_000_000)?;
+    let band = ranged("freq_band", 1, 15)?;
+    let carrier = ranged("main_carrier", 0, 3999)?;
+    let offset = int("freq_offset")?;
+    if ![0, 6250, -6250, 12500].contains(&offset) {
+        return Err("freq_offset must be 0, 6250, -6250 or 12500".into());
+    }
+    let duplex_id = ranged("duplex_spacing", 0, 7)?;
+    let custom = match v.get("custom_duplex_spacing") {
+        None | Some(JsonValue::Null) => None,
+        Some(x) => Some(x.as_i64().filter(|n| (25_000..=100_000_000).contains(n))
+            .ok_or_else(|| "custom_duplex_spacing must be 25000..100000000 Hz".to_string())?),
+    };
+    let reverse = v.get("reverse_operation").and_then(|x| x.as_bool()).unwrap_or(false);
+    let colour = ranged("colour_code", 0, 63)?;
+    let la = ranged("location_area", 1, 16383)?;
+
+    let current = fs::read_to_string(config_path).map_err(|e| e.to_string())?;
+    let mut table: toml::Table = toml::from_str(&current).map_err(|e| format!("parse config: {e}"))?;
+    fn sub<'a>(t: &'a mut toml::Table, k: &str) -> Result<&'a mut toml::Table, String> {
+        t.entry(k.to_string())
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+            .as_table_mut()
+            .ok_or_else(|| format!("{k} must be a table"))
+    }
+    let soapy = sub(sub(&mut table, "phy_io")?, "soapysdr")?;
+    soapy.insert("tx_freq".into(), toml::Value::Integer(tx));
+    soapy.insert("rx_freq".into(), toml::Value::Integer(rx));
+    let cell = sub(&mut table, "cell_info")?;
+    for (k, n) in [
+        ("freq_band", band),
+        ("main_carrier", carrier),
+        ("freq_offset", offset),
+        ("duplex_spacing", duplex_id),
+        ("colour_code", colour),
+        ("location_area", la),
+    ] {
+        cell.insert(k.into(), toml::Value::Integer(n));
+    }
+    cell.insert("reverse_operation".into(), toml::Value::Boolean(reverse));
+    match custom {
+        Some(hz) => {
+            cell.insert("custom_duplex_spacing".into(), toml::Value::Integer(hz));
+        }
+        None => {
+            cell.remove("custom_duplex_spacing");
+        }
+    }
+    let rendered = toml::to_string_pretty(&table).map_err(|e| e.to_string())?;
+    crate::net_dashboard::profiles::validate_and_write_toml(config_path, &rendered)
+}
+
 pub fn status_payload(config_path: &str) -> JsonValue {
     let setup = read_setup_state(config_path);
     let rf = crate::rf_status::get();
@@ -402,4 +500,99 @@ pub fn status_payload(config_path: &str) -> JsonValue {
         "helper_path": helper,
         "setup_json": setup_json_path(config_path).to_string_lossy(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONFIG: &str = r#"
+config_version = "0.6"
+stack_mode = "Bs"
+
+[phy_io]
+backend = "None"
+
+[net_info]
+mcc = 901
+mnc = 9999
+
+[cell_info]
+main_carrier = 1521
+freq_band = 4
+freq_offset = 0
+duplex_spacing = 4
+reverse_operation = false
+location_area = 1
+"#;
+
+    fn temp_config(text: &str) -> std::path::PathBuf {
+        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let p = std::env::temp_dir().join(format!("fs-lang-test-{n}.toml"));
+        fs::write(&p, text).unwrap();
+        p
+    }
+
+    #[test]
+    fn wizard_frequency_is_written_and_loads() {
+        let p = temp_config(CONFIG);
+        let path = p.to_str().unwrap();
+        let body = serde_json::json!({
+            "tx_freq": 438_200_000u64, "rx_freq": 430_600_000u64, "freq_band": 4, "main_carrier": 1528,
+            "freq_offset": 0, "duplex_spacing": 7, "custom_duplex_spacing": 7_600_000,
+            "reverse_operation": false, "colour_code": 5, "location_area": 12,
+        });
+        set_station_frequency(path, &body).unwrap();
+        let cfg = tetra_config::bluestation::from_toml_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(cfg.cell.main_carrier, 1528);
+        assert_eq!(cfg.cell.duplex_spacing_id, 7);
+        assert_eq!(cfg.cell.custom_duplex_spacing, Some(7_600_000));
+        assert_eq!((cfg.cell.colour_code, cfg.cell.location_area), (5, 12));
+        let raw: toml::Table = toml::from_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(raw["phy_io"]["soapysdr"]["tx_freq"].as_integer(), Some(438_200_000));
+        assert_eq!(raw["phy_io"]["backend"].as_str(), Some("None"), "RF stays off until the wizard enables it");
+
+        // Table duplex again: the custom value is removed.
+        let mut table_dup = body.clone();
+        table_dup["duplex_spacing"] = 4.into();
+        table_dup["custom_duplex_spacing"] = serde_json::Value::Null;
+        table_dup["rx_freq"] = 433_200_000u64.into();
+        set_station_frequency(path, &table_dup).unwrap();
+        let cfg = tetra_config::bluestation::from_toml_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(cfg.cell.custom_duplex_spacing, None);
+
+        for (k, v) in [("colour_code", 64), ("location_area", 0), ("freq_offset", 1000), ("main_carrier", 4000)] {
+            let mut bad = body.clone();
+            bad[k] = v.into();
+            assert!(set_station_frequency(path, &bad).is_err(), "{k} = {v}");
+        }
+        let _ = fs::remove_file(&p);
+        let _ = fs::remove_file(format!("{path}.bak"));
+    }
+
+    #[test]
+    fn station_language_is_stored_and_filled_into_the_pages() {
+        let p = temp_config(CONFIG);
+        let path = p.to_str().unwrap();
+        assert_eq!(station_language(path), None);
+        assert_eq!(with_station_language("const L='{{STATION_LANG}}';", path), "const L='';");
+
+        assert_eq!(set_station_language(path, " DE ").unwrap(), "de");
+        assert_eq!(station_language(path).as_deref(), Some("de"));
+        assert_eq!(with_station_language("const L='{{STATION_LANG}}';", path), "const L='de';");
+        // The config still loads and carries it.
+        let cfg = tetra_config::bluestation::from_toml_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(cfg.dashboard.and_then(|d| d.language).as_deref(), Some("de"));
+
+        assert!(set_station_language(path, "xx").is_err());
+        assert_eq!(station_language(path).as_deref(), Some("de"), "a refused language changes nothing");
+        let _ = fs::remove_file(&p);
+        let _ = fs::remove_file(format!("{path}.bak"));
+    }
+
+    #[test]
+    fn both_pages_carry_the_station_language_placeholder() {
+        assert!(crate::net_dashboard::html::DASHBOARD_HTML.contains("'{{STATION_LANG}}'"));
+        assert!(crate::net_dashboard::html::LOGIN_HTML.contains("'{{STATION_LANG}}'"));
+    }
 }

@@ -31,9 +31,9 @@ HELPER_DST="/usr/local/sbin/bost-setup-helper.sh"
 SUDOERS_DST="/etc/sudoers.d/bost-setup"
 SERVICE_USER="${BOST_SERVICE_USER:-bts}"
 
-# Dashboard channel id for [dashboard].ota_channel
-OTA_CHANNEL="stable"
-[[ "$BRANCH" == "beta" ]] && OTA_CHANNEL="beta"
+# Dashboard channel id for [dashboard].ota_channel: "installed" = the dashboard update follows
+# the repository and branch installed here (BOST_REPO / BOST_BRANCH), forks included.
+OTA_CHANNEL="installed"
 
 # Dashboard listen preset: standard (80→443) or high (HTTPS 8443 only).
 # Override with BOST_DASH_PORTS=standard|high. Interactive prompt when TTY and unset.
@@ -168,6 +168,24 @@ if [[ "${BOST_FORCE_CLEAN:-0}" == "1" && -e "$SRC_ROOT" ]]; then
   rm -rf "$SRC_ROOT"
 fi
 
+# The checkout belongs to $SERVICE_USER (chown below), but this script and the dashboard update
+# run git as root. Newer git refuses such a repository ("dubious ownership") unless it is listed
+# as safe.directory, so register it once for all users (system config, root's as fallback).
+mark_safe_directory() {
+  local dir="$1" scope
+  for scope in --system --global; do
+    if git config "$scope" --get-all safe.directory 2>/dev/null | grep -qxF "$dir"; then
+      return 0
+    fi
+    if git config "$scope" --add safe.directory "$dir" 2>/dev/null; then
+      log "Registered $dir as git safe.directory ($scope)"
+      return 0
+    fi
+  done
+  warn "Could not register $dir as git safe.directory; run: git config --global --add safe.directory $dir"
+}
+mark_safe_directory "$SRC_ROOT"
+
 if [[ -d "$SRC_ROOT/.git" ]]; then
   log "Updating $SRC_ROOT → origin/$BRANCH"
   if ! git -C "$SRC_ROOT" remote get-url origin >/dev/null 2>&1; then
@@ -248,7 +266,7 @@ if [[ ! -f "$CFG_PATH" ]]; then
     python3 - "$CFG_PATH" "$OTA_CHANNEL" "$DASH_HTTP_PORT" "$DASH_HTTPS_PORT" <<'PY'
 import sys, re
 path = sys.argv[1]
-ota_channel = sys.argv[2] if len(sys.argv) > 2 else "stable"
+ota_channel = sys.argv[2] if len(sys.argv) > 2 else "installed"
 http_port = sys.argv[3] if len(sys.argv) > 3 else "80"
 https_port = sys.argv[4] if len(sys.argv) > 4 else "443"
 text = open(path, encoding="utf-8").read()
@@ -319,7 +337,7 @@ EOF
   cp "$CFG_PATH" "${CFG_PATH}.fallback"
 else
   log "Keeping existing $CFG_PATH"
-  # Ensure ota_channel exists / matches install branch when reinstalling with BOST_BRANCH=.
+  # Reinstalling: the dashboard update follows the repository and branch installed now.
   python3 - "$CFG_PATH" "$OTA_CHANNEL" <<'PY'
 import sys, re
 path, channel = sys.argv[1], sys.argv[2]
@@ -366,6 +384,7 @@ Defaults!${HELPER_DST} !requiretty
 EOF
 chmod 440 "$SUDOERS_DST"
 visudo -cf "$SUDOERS_DST" >/dev/null || die "invalid sudoers drop-in"
+
 
 # NetworkManager Wi-Fi resilience (powersave off). Harmless if NM is absent.
 NM_WIFI_SRC="$SRC_ROOT/contrib/install/networkmanager/bost-wifi.conf"
@@ -442,7 +461,7 @@ echo " Login:      admin / 1234"
 echo " Config:     ${CFG_PATH}"
 echo " Setup:      open the Setup tab / first-run wizard"
 echo " RF starts disabled (backend=None) until you finish Setup."
-echo " Repo:       https://github.com/Aitorrio/bost-flowstation (branch ${BRANCH}, OTA ${OTA_CHANNEL})"
+echo " Repo:       ${REPO_URL%.git} (branch ${BRANCH}, OTA ${OTA_CHANNEL})"
 if [[ "$WITH_ASTERISK_FEATURE" == "1" ]]; then
   echo " Voice:      libtetra-codec installed (LST Dispatch ACELP linked)"
 else
