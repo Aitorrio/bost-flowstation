@@ -2031,6 +2031,10 @@ impl MmBs {
         }
 
         let mut report_not_complete = false;
+        // Set when this PDU completes a group report that *we* requested (§16.8.3). If it still
+        // overflows the ACK cap, the MS will not multipacket: asking again only makes it resend
+        // the same full list (seen with two radios, ~2 requests/s without end).
+        let mut answered_report_request = false;
         if let Some(ref grr) = pdu.group_report_response {
             // ETSI EN 300 392-2 §16.10.27a: value 0 = complete; value 1 is reserved.
             let complete = group_report_response_is_complete(grr.len, grr.data);
@@ -2043,7 +2047,10 @@ impl MmBs {
                 grr.len
             );
             if complete {
-                self.group_report_requested_at.remove(&issi);
+                answered_report_request = self
+                    .group_report_requested_at
+                    .remove(&issi)
+                    .is_some_and(|at| at.elapsed() < GROUP_REPORT_REQUEST_COOLDOWN);
                 self.attach_overflow_remainder.remove(&issi);
             }
         }
@@ -2109,6 +2116,7 @@ impl MmBs {
                 &dropped_giu,
                 MAX_GROUPS_PER_ATTACH,
                 report_not_complete,
+                answered_report_request,
             );
         } else {
             self.attach_overflow_remainder.remove(&issi);
@@ -2120,6 +2128,8 @@ impl MmBs {
     /// - MS already mid-report (`report not complete`) or still overstuffs after a report →
     ///   SwMI D-ATTACH of the remainder (§16.8.1). Re-requesting report makes MXP600
     ///   re-send the full scan list in a PDU that truncates on the uplink.
+    ///   `answered_report_request`: this PDU is the "complete" answer to our own request;
+    ///   the caller has already cleared `group_report_requested_at`, so it is passed in.
     fn handle_attach_overflow_after_ack(
         &mut self,
         queue: &mut MessageQueue,
@@ -2128,6 +2138,7 @@ impl MmBs {
         dropped_giu: &[GroupIdentityUplink],
         max_per_pdu: usize,
         report_not_complete: bool,
+        answered_report_request: bool,
     ) {
         let dropped = dropped_giu.len();
         let now = std::time::Instant::now();
@@ -2140,7 +2151,7 @@ impl MmBs {
         self.attach_overflow_remainder
             .insert(issi, dropped_giu.to_vec());
 
-        if report_not_complete || report_pending {
+        if report_not_complete || report_pending || answered_report_request {
             tracing::warn!(
                 "ISSI {} attach overflow: {} groups beyond ACK cap {} (requested {}) — {} → SwMI D-ATTACH of remainder (ETSI §16.8.1 fallback)",
                 issi,
