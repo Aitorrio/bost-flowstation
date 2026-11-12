@@ -8,6 +8,7 @@ pub mod fir;
 pub mod history;
 pub mod modem_common;
 pub mod modulator;
+pub mod calibration;
 pub mod soapy_settings;
 pub mod soapy_time;
 pub mod soapyio;

@@ -495,6 +495,49 @@ impl SoapyIo {
     }
 }
 
+/// Live gain / register control used by the RX gain calibration feature. Every method here
+/// touches the SoapySDR handle and so must only ever be called on the PHY thread (see the
+/// FH-BUG-023 note in `soapy_dev.rs`); the calibration engine guarantees that.
+impl super::calibration::PhyDevice for SoapyIo {
+    fn set_rx_gain(&mut self, element: &str, db: f64) -> Result<(), String> {
+        if !self.rx_enabled() {
+            return Err("RX is not enabled on this device".to_string());
+        }
+        self.dev
+            .set_gain_element(soapysdr::Direction::Rx, self.rx_ch, element, db)
+            .map_err(|e| format!("set RX gain '{element}': {e}"))
+    }
+
+    fn set_tx_gain(&mut self, element: &str, db: f64) -> Result<(), String> {
+        if !self.tx_enabled() {
+            return Err("TX is not enabled on this device".to_string());
+        }
+        self.dev
+            .set_gain_element(soapysdr::Direction::Tx, self.tx_ch, element, db)
+            .map_err(|e| format!("set TX gain '{element}': {e}"))
+    }
+
+    fn read_rx_gains_db(&self) -> Vec<(String, f64)> {
+        self.read_rx_gains().into_iter().map(|(k, v)| (k, v as f64)).collect()
+    }
+
+    fn read_sx_register(&self, name: &str, addr: u32) -> Result<u32, String> {
+        self.dev
+            .read_register(name, addr)
+            .map_err(|e| format!("read register '{name}' @0x{addr:x}: {e}"))
+    }
+
+    fn write_sx_register(&mut self, name: &str, addr: u32, value: u32) -> Result<(), String> {
+        self.dev
+            .write_register(name, addr, value)
+            .map_err(|e| format!("write register '{name}' @0x{addr:x}: {e}"))
+    }
+
+    fn list_sx_register_ifaces(&self) -> Vec<String> {
+        self.dev.list_register_interfaces().unwrap_or_default()
+    }
+}
+
 // Messy logic related to opening a device follows...
 
 /// Struct to temporarily hold stuff related to opening and detecting a device
