@@ -4,6 +4,10 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## Pendiente de publicar — Ajustes del tiempo APRS en el dashboard
+
+- **Ajustes del tiempo APRS en el dashboard (PR #59, dn9cho).** En la página Config, la tarjeta «Servicio WX» pasa a ser «Servicio WX (METAR / APRS)», con tres secciones —General, METAR y APRS— y un solo botón Guardar. Ahí se configura el servicio meteorológico APRS (`APRSWX`, `[aprs_wx]`): clave API de aprs.fi (nunca se muestra; dejar el campo vacío conserva la guardada), estación por defecto, antigüedad a partir de la cual un informe se marca como antiguo y el envío periódico (estación, destino, grupo o ISSI, intervalo). Los cambios se aplican al momento, sin reiniciar, y se escriben en `config.toml`. Las pistas de estos campos y del intervalo METAR pasan a botones de ayuda «?». METAR funciona como antes.
+
 ## v0.5.9 — Calibración de ganancia RX y listas de escaneo largas
 
 - **Corrección: listas de escaneo de más de 12 grupos (PR #55, dn9cho).** Con radios que escanean 13 grupos o más, la estación repetía `SwMI group report requested` sin fin y los grupos a partir del 13.º nunca se adjuntaban ni se afiliaban en Brew. Si la radio responde al informe de nuevo con toda la lista (visto con Motorola MTP850 y MTM5400), ahora la estación adjunta ella misma los grupos restantes (`SwMI D-ATTACH remainder`, ETSI §16.8.1). Las listas de hasta 12 grupos no se ven afectadas.

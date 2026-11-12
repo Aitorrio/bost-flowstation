@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## Not yet released — APRS weather settings in the dashboard
+
+- **APRS weather settings in the dashboard (PR #59, dn9cho).** On the Config page the "WX service" card is now "WX service (METAR / APRS)" with three sections — General, METAR and APRS — and one Save button. The APRS weather service (`APRSWX`, `[aprs_wx]`) can be set up there: aprs.fi API key (never shown; leaving the field empty keeps the saved key), default station, age after which a report is marked old, and the periodic send (station, destination, group or ISSI, interval). Changes take effect at once, without a restart, and are written to `config.toml`. The hints of these fields and of the METAR interval moved behind "?" help buttons. METAR works as before.
+
 ## v0.5.9 — RX gain calibration and long scan lists
 
 - **Fix: scan lists with more than 12 groups (PR #55, dn9cho).** Radios scanning 13 or more groups made the station repeat `SwMI group report requested` endlessly, and groups beyond the 12th were never attached or affiliated at Brew. Radios that answer the report with their full list again (seen with Motorola MTP850 and MTM5400) now get the remaining groups attached by the station (`SwMI D-ATTACH remainder`, ETSI §16.8.1). Lists of up to 12 groups are not affected.
