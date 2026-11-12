@@ -9,7 +9,7 @@ dashboard, network entities), `bins/bluestation-bs` (the service binary).
 - **Branch `beta`** is where all work is committed and pushed. Since v0.5.3 upstream made `main`
   the stable OTA branch that installs update from; `beta` is the working branch. The old `bost`
   branch no longer exists on the remote.
-- Current release: **v0.5.8** (`BOST_VERSION` in `crates/tetra-core/src/lib.rs`, heading in
+- Current release: **v0.5.9** (`BOST_VERSION` in `crates/tetra-core/src/lib.rs`, heading in
   `CHANGELOG.md`). A release bumps both; `## vX.Y.Z — title` headings.
 - Two changelogs with the same entries: `CHANGELOG.md` in Spanish (the dashboard OTA reads it from GitHub, keep its format) and `CHANGELOG_en.md` in English. Every change goes into both in the same commit.
 - Project status and next steps: [`Docs/multi-cell-status.md`](Docs/multi-cell-status.md).

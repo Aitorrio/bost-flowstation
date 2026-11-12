@@ -13,6 +13,7 @@ use crate::net_telemetry::channel::TelemetrySink;
 use crate::net_telemetry::events::TelemetryEvent;
 use crate::phy::components::soapy_dev;
 
+use super::calibration::{self, CalControl, CalEngine, PhyDevice};
 use super::demodulator;
 use super::dsp_types::*;
 use super::fcfb;
@@ -49,6 +50,12 @@ pub struct RxTxDevSoapySdr {
     rx_dsp: Option<RxDsp>,
     tx_dsp: Option<TxDsp>,
     health: Option<SdrHealthMonitor>,
+    /// RX gain calibration engine, driven one PHY tick at a time.
+    cal: CalEngine,
+    /// Shared slot the dashboard posts calibration/gain/register actions to and reads results
+    /// from. On the primary cell this is the process-global handle; on extra cells it is an
+    /// unshared dead handle (see [`calibration::claim_phy_control`]).
+    cal_control: CalControl,
     /// Timeslots the uplink demodulators skipped over lost samples and the stack has not yet
     /// ticked through. Each pending one makes `rxtx_timeslot` return an empty slot without
     /// waiting for RX, so the stack's clock catches up with the air again.
@@ -194,6 +201,19 @@ impl RxTxDevSoapySdr {
 
         let health_telemetry = telemetry.clone();
 
+        // Claim the shared calibration control (primary cell) or a dead one (extra cells), and
+        // publish the device's register-interface names once so the dashboard editor can offer
+        // them. Reading them here is a one-off init read, safely on the constructing thread.
+        let cal_control = calibration::claim_phy_control();
+        {
+            let ifaces = sdr.list_sx_register_ifaces();
+            if let Ok(mut c) = cal_control.lock() {
+                if c.register_ifaces.is_empty() {
+                    c.register_ifaces = ifaces;
+                }
+            }
+        }
+
         Ok(Self {
             rx_dsp: if sdr.rx_enabled() {
                 Some(RxDsp::new(&mut fft_planner, &mut sdr, &phy_config))
@@ -208,6 +228,8 @@ impl RxTxDevSoapySdr {
             },
 
             health: health_telemetry.map(SdrHealthMonitor::new),
+            cal: CalEngine::new(),
+            cal_control,
             pending_skipped_slots: 0,
             catch_up_log_next: std::time::Instant::now(),
 
@@ -344,6 +366,15 @@ impl RxTxDev for RxTxDevSoapySdr {
         // PHY thread (FH-BUG-023). The single remaining sensor read is cheap and rare.
         if let (Some(health), Some(sdr)) = (self.health.as_mut(), self.sdr.as_ref()) {
             health.tick(sdr);
+        }
+
+        // RX gain calibration: one step per tick, measuring the block the demod just read.
+        // Distinct fields (sdr / rx_dsp / cal / cal_control) so the disjoint borrows are fine.
+        // The engine is idle (a cheap `try_lock` only) unless the dashboard asked for a sweep,
+        // a live gain apply, or a register read/write.
+        if let Some(sdr) = self.sdr.as_mut() {
+            let measurement = self.rx_dsp.as_ref().and_then(|rx| rx.measure_last_block());
+            self.cal.tick(sdr, measurement, &self.cal_control);
         }
 
         if let Some(rx_dsp) = &mut self.rx_dsp {
@@ -514,6 +545,19 @@ impl RxDsp {
                 }
             }
         }
+    }
+
+    /// Wideband power (dBFS) and DC/LO leak (dB) of the most recently received RX block, for
+    /// the gain calibration sweep. Reads the "new samples" region the channeliser just filled;
+    /// read-only and cheap (one pass over the block), so it is safe on the PHY tick.
+    fn measure_last_block(&self) -> Option<(f32, f32)> {
+        let start = self.rx_block_size.overlap;
+        let end = start + self.rx_block_size.new;
+        let slice = self.rx_buffer.get(start..end)?;
+        if slice.is_empty() {
+            return None;
+        }
+        Some((calibration::block_power_dbfs(slice), calibration::block_dc_leak_db(slice)))
     }
 
     /// Slots skipped over lost samples, as seen by the uplink demodulators (they share timing,

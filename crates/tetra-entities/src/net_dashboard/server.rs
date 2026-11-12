@@ -4288,6 +4288,28 @@ fn handle_connection(
     } else if req_line.contains("POST /api/roaming") {
         let (inner, body_str) = read_post_body(stream);
         serve_roaming_save(inner, &config_path, &body_str);
+    } else if req_line.contains("GET /api/rf/calibration") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        http_json_response(s, 200, &crate::net_dashboard::calibration::calibration_json().to_string());
+    } else if req_line.contains("POST /api/rf/calibration") {
+        let (inner, body_str) = read_post_body(stream);
+        match crate::net_dashboard::calibration::start_calibration(&body_str) {
+            Ok(v) => http_json_response(inner, 202, &v.to_string()),
+            Err(e) => http_response(inner, 400, &e),
+        }
+    } else if req_line.contains("POST /api/rf/gains") {
+        let (inner, body_str) = read_post_body(stream);
+        match crate::net_dashboard::calibration::apply_gains(&body_str) {
+            Ok(v) => http_json_response(inner, 200, &v.to_string()),
+            Err(e) => http_response(inner, 400, &e),
+        }
+    } else if req_line.contains("POST /api/rf/register") {
+        let (inner, body_str) = read_post_body(stream);
+        match crate::net_dashboard::calibration::register_op(&body_str) {
+            Ok(v) => http_json_response(inner, 200, &v.to_string()),
+            Err(e) => http_response(inner, 400, &e),
+        }
     } else if req_line.contains("POST /api/cells/add") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_add(inner, &config_path, &body_str);
