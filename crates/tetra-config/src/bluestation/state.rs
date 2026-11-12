@@ -270,6 +270,23 @@ pub struct WxRuntimeOverride {
     pub periodic_interval_secs: u64,
 }
 
+/// Runtime override for the APRS weather service (`[aprs_wx]`), edited from the dashboard.
+///
+/// Mirrors `[aprs_wx]`. When `Some`, it takes precedence over the config so edits apply
+/// immediately without a restart; the dashboard also writes the values back to the TOML.
+/// The aprs.fi API key is kept as a plain `String` here (in-memory only).
+#[derive(Debug, Clone, Default)]
+pub struct AprsWxRuntimeOverride {
+    pub apikey: String,
+    pub default_call: String,
+    pub max_age_secs: u64,
+    pub periodic_enabled: bool,
+    pub periodic_call: String,
+    pub periodic_dest: u32,
+    pub periodic_is_group: bool,
+    pub periodic_interval_secs: u64,
+}
+
 /// Runtime override for Telegram alerts, edited from the dashboard.
 ///
 /// Mirrors the editable `[telegram_alerts]` config. When `Some`, it takes precedence over the
@@ -656,6 +673,8 @@ pub struct StackState {
     pub issi_whitelist_override: Option<Vec<u32>>,
     /// Runtime override for the WX/METAR service (dashboard toggle). See WxRuntimeOverride.
     pub wx_override: Option<WxRuntimeOverride>,
+    /// Runtime override for the APRS weather service. See AprsWxRuntimeOverride.
+    pub aprs_wx_override: Option<AprsWxRuntimeOverride>,
     /// Runtime override for Telegram alerts (dashboard editing). See TelegramRuntimeOverride.
     pub telegram_override: Option<TelegramRuntimeOverride>,
     /// Runtime override for DAPNET settings (dashboard editing). See DapnetRuntimeOverride.
@@ -894,6 +913,7 @@ impl Default for StackState {
             next_live_sds_id: 1,
             issi_whitelist_override: None,
             wx_override: None,
+            aprs_wx_override: None,
             telegram_override: None,
             dapnet_override: None,
             geoalarm_override: None,
