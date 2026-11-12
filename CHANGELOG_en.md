@@ -13,6 +13,7 @@ Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), whi
 - **Pluto / Pluto+ driver.** "Install Pluto" in the wizard and on the Setup page builds SoapyPlutoSDR with timestamped streaming (pgreenland, `sdr_gadget_timestamping`) on demand; the installer does not build it. Device `driver=plutosdr`.
 - **Dashboard shows network speakers in hang time.** A radio taking the floor over Brew during the hang time of a running group call now updates the current speaker and Last Heard (before: only after a new call). Nothing changes on the air. Tested in a simulation with 10 stations and 30 radios.
 - **Installer.** Registers `/opt/bost-flowstation` as git `safe.directory` (no more "dubious ownership" on updates) and prints the repository it really installed.
+- **Infrastructure page: margins.** Help texts, counters and controls in the cards no longer touch the card edge; the tables stay edge-to-edge.
 
 ## v0.5.7 — SC3 (TEA2), managed talkgroups and fixes
 

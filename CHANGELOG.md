@@ -15,6 +15,7 @@ English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 - **Controlador Pluto / Pluto+.** «Instalar Pluto» en el asistente y en la página Setup compila SoapyPlutoSDR con flujo con marcas de tiempo (pgreenland, `sdr_gadget_timestamping`) cuando se pide; el instalador no lo compila. Device `driver=plutosdr`.
 - **El dashboard muestra a los hablantes de la red en el hangtime.** Una radio que toma la palabra por Brew durante el hangtime de una llamada de grupo en curso actualiza ahora el hablante actual y «Last Heard» (antes: solo tras una llamada nueva). El aire no cambia. Probado en simulación con 10 estaciones y 30 radios.
 - **Instalador.** Registra `/opt/bost-flowstation` como `safe.directory` de git (se acabó el «dubious ownership» al actualizar) y muestra el repositorio que realmente instaló.
+- **Página Infrastructure: márgenes.** Los textos de ayuda, contadores y controles de las tarjetas ya no quedan pegados al borde; las tablas siguen de borde a borde.
 
 ## v0.5.7 — SC3 (TEA2), grupos gestionados y correcciones
 

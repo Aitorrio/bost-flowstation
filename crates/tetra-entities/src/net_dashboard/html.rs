@@ -1210,6 +1210,16 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-dapnet .card-body,
 #page-asterisk .card-body,
 #page-network .card-body{padding:16px 18px;}
+/* Infrastructure: help texts and controls get the same inset as the card head; the
+   tables stay edge-to-edge on desktop (on phones they become padded stacked cards). */
+#page-roaming .card-body{padding:14px 18px;}
+@media (min-width:701px){
+  #page-roaming .card-body > .table-wrap{width:auto;margin-left:-18px;margin-right:-18px;}
+  #page-roaming .card-body > .table-wrap:last-child{margin-bottom:-14px;}
+}
+@media (max-width:700px){
+  #page-roaming .card-body{padding:12px;}
+}
 /* Setup info rows already pad themselves — avoid double inset once card-body has air. */
 #page-setup .card-body .info-row{padding-left:0;padding-right:0;}
 #page-setup .setup-device-list{margin:0 0 12px;}
