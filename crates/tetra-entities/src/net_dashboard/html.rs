@@ -5834,6 +5834,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                     <label class="field"><span data-i18n="cfg_rx">Uplink RX (MHz)</span><input type="text" inputmode="decimal" id="vc-rx-freq" class="form-input" placeholder="430.800000" onblur="normalizeMhzField(this)" onkeydown="if(event.key==='Enter'){normalizeMhzField(this);this.blur();}"></label>
                     <label class="field"><span data-i18n="cfg_colour">Colour code</span><input type="number" id="vc-colour" class="form-input" min="0" max="63"></label>
                   </div>
+                  <div class="help-text" style="margin-top:8px" data-i18n="cfg_duplex_hint_9">Using a non-standard duplex split (e.g. 9 MHz)? Open Advanced RF below, set Custom duplex (MHz) to your split (e.g. 9), then press Auto RX + carrier to fill RX.</div>
                   <details style="margin-top:14px">
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_rf_adv">Advanced RF</summary>
                     <div class="group-list">
@@ -7643,7 +7644,7 @@ const LANGS={
     "ui_failed": "failed",
     "cfg_auto_band_required": "Automatic calculation requires freq_band=4.",
     "cfg_auto_reverse_required": "Automatic calculation requires reverse_operation=false.",
-    "cfg_auto_result": "Calculated: main_carrier={carrier}, rx_freq={frequency} MHz",
+    "cfg_auto_result": "Calculated: main_carrier={carrier}, rx_freq={frequency} MHz (duplex {duplex} MHz)",
     "ui_monitor":"MONITOR",
     "ui_toggle_sidebar":"Toggle sidebar",
     "ui_text_size":"Text size",
@@ -8218,7 +8219,7 @@ const LANGS={
     cfg_live_help:'Changes apply to the active config.toml only — they are not saved into a TMO/Brew profile. Use Apply & Restart to put them on air.',
     cfg_live_apply_confirm:'Write live settings to config.toml and restart?',
     cfg_raw_apply_confirm:'Save raw config.toml and restart?',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',cfg_duplex_hint_9:'Using a non-standard duplex split (e.g. 9 MHz)? Open Advanced RF below, set Custom duplex (MHz) to your split (e.g. 9), then press Auto RX + carrier to fill RX.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_timers_hint:'Timers: empty/reset = engine default. Tap «?» on each field for details. Call timeout 0 = unlimited; T351 0 = off.',
     cfg_help_tx:'BS downlink (TX) frequency in MHz. Must match radios’ RX. Use Auto RX + carrier after setting TX when possible.',
@@ -8227,7 +8228,7 @@ const LANGS={
     cfg_help_main_carrier:'TETRA carrier number for the main control channel. Prefer Auto RX + carrier unless you know the value.',
     cfg_help_freq_band:'Frequency band id (ETSI). Default 4 is typical for 400 MHz amateur cells — change only if you know your band plan.',
     cfg_help_duplex_id:'Duplex spacing table id. Leave default unless you use a non-standard duplex; prefer Custom duplex (MHz) when needed.',
-    cfg_help_custom_duplex:'Optional duplex spacing in MHz (e.g. 7.6). Empty = use duplex spacing id. Overrides the table id when set.',
+    cfg_help_custom_duplex:'Optional duplex spacing in MHz — e.g. 9 for a 9 MHz split, or 7.6. Empty = use duplex spacing id. Overrides the table id when set, and Auto RX + carrier uses it to work out RX.',
     cfg_help_freq_offset:'Fine carrier offset in Hz (±6250 / ±12500). Usually 0.',
     cfg_help_reverse:'Swap UL/DL sense of the duplex. Rare; leave off unless your plan requires reverse operation.',
     cfg_rxlev_min:'Min. access level (dBm)',cfg_rxlev_default:'Default (−110)',cfg_help_rxlev_min:'RXLEV_ACCESS_MIN in SYSINFO (ETSI table 21.65): radios below this level cannot use the cell, and a higher value makes them reselect a better neighbour earlier. −125 to −50 dBm in 5 dB steps; default −110. Use the same value on neighbouring stations or set it per neighbour. See Docs/cell-reselection.md.',cfg_migration:'Migration supported',cfg_help_migration:'BS service details in SYSINFO: migration is supported by this cell (ETSI 18.5.2.1), for radios of another network (other MCC/MNC). Radios of another network are accepted only when [multi_network] is on and lists their network: they get a (V)ASSI (ETSI 16.4.1.1 b, 16.4.7). Otherwise every migrating registration is rejected with cause 12 “Migration not supported”. Turned on by itself while [multi_network] is on. Default off.',cfg_migration_auto:'On by itself: [multi_network] is enabled.',
@@ -8779,7 +8780,7 @@ const LANGS={
     cfg_need_name:'Introduce un nombre de perfil.',cfg_need_select:'Selecciona primero un perfil.',
     cfg_deleted:'✓ Eliminado',cfg_applied:'✓ Aplicado — reiniciando…',cfg_updated:'✓ Perfil guardado',
     cfg_apply_confirm:'¿Aplicar los perfiles Cell × Brew seleccionados y reiniciar? Se hará copia de seguridad del config.toml actual.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',cfg_duplex_hint_9:'¿Usas una separación duplex no estándar (p. ej. 9 MHz)? Abre RF avanzada abajo, pon Duplex personalizado (MHz) en tu separación (p. ej. 9) y pulsa Auto RX + carrier para rellenar RX.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     sds_filter_lip:'LIP',sds_filter_text:'Texto',sds_filter_status:'Estado',sds_filter_concat:'Concat',sds_filter_home:'Pantalla home',sds_filter_other:'Otros',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
@@ -8915,7 +8916,7 @@ const LANGS={
     cfg_help_main_carrier:'Número de portadora del canal de control principal. Prefiere Auto RX + carrier salvo que sepas el valor.',
     cfg_help_freq_band:'Id de banda (ETSI). El 4 es habitual en 400 MHz amateur — cámbialo solo si conoces tu plan.',
     cfg_help_duplex_id:'Id de tabla de dúplex. Déjalo por defecto salvo dúplex no estándar; si hace falta usa Dúplex personalizado (MHz).',
-    cfg_help_custom_duplex:'Separación de dúplex en MHz (p. ej. 7,6). Vacío = usar el id de tabla. Si lo rellenas, manda sobre el id.',
+    cfg_help_custom_duplex:'Separación de dúplex en MHz — p. ej. 9 para una separación de 9 MHz, o 7,6. Vacío = usar el id de tabla. Si lo rellenas, manda sobre el id, y Auto RX + carrier la usa para calcular RX.',
     cfg_help_freq_offset:'Offset fino de portadora en Hz (±6250 / ±12500). Normalmente 0.',
     cfg_help_reverse:'Invierte el sentido UL/DL del dúplex. Raro; déjalo apagado salvo que tu plan lo exija.',
     cfg_rxlev_min:'Nivel mín. de acceso (dBm)',cfg_rxlev_default:'Por defecto (−110)',cfg_help_rxlev_min:'RXLEV_ACCESS_MIN en SYSINFO (ETSI tabla 21.65): las radios por debajo de este nivel no pueden usar la celda, y un valor más alto hace que reseleccionen antes una vecina mejor. −125 a −50 dBm en pasos de 5 dB; por defecto −110. Usa el mismo valor en las estaciones vecinas o ajústalo por vecina. Ver Docs/cell-reselection.md.',cfg_migration:'Migración admitida',cfg_help_migration:'Detalles de servicio en SYSINFO: esta celda admite migración (ETSI 18.5.2.1), para radios de otra red (otro MCC/MNC). Las radios de otra red solo se aceptan si [multi_network] está activo y lista su red: reciben una (V)ASSI (ETSI 16.4.1.1 b, 16.4.7). Si no, todo registro migrante se rechaza con la causa 12 “Migration not supported”. Se activa solo mientras [multi_network] está activo. Apagado por defecto.',cfg_migration_auto:'Activa sola: [multi_network] está habilitado.',
@@ -9243,7 +9244,7 @@ const LANGS={
     "ui_failed": "falhou",
     "cfg_auto_band_required": "O cálculo automático requer freq_band=4.",
     "cfg_auto_reverse_required": "O cálculo automático requer reverse_operation=false.",
-    "cfg_auto_result": "Calculado: main_carrier={carrier}, rx_freq={frequency} MHz",
+    "cfg_auto_result": "Calculado: main_carrier={carrier}, rx_freq={frequency} MHz (duplex {duplex} MHz)",
     "bts_ip": "IP da BTS",
     "offline": "DESLIGADO",
     "online": "LIGADO",
@@ -10503,7 +10504,7 @@ const LANGS={
     "ui_failed": "échec",
     "cfg_auto_band_required": "Le calcul automatique nécessite freq_band=4.",
     "cfg_auto_reverse_required": "Le calcul automatique nécessite reverse_operation=false.",
-    "cfg_auto_result": "Calculé : main_carrier={carrier}, rx_freq={frequency} MHz",
+    "cfg_auto_result": "Calculé : main_carrier={carrier}, rx_freq={frequency} MHz (duplex {duplex} MHz)",
     "bts_ip": "IP de la BTS",
     "offline": "HORS LIGNE",
     "online": "EN LIGNE",
@@ -16700,7 +16701,7 @@ function autoCalcCarrier(){
   if(!Number.isInteger(main)){vcMsg('vc-rf-msg',t("ui_main_carrier_is_not_an_integer"),false);return;}
   vcSet('vc-main-carrier',main);
   vcSet('vc-rx-freq',hzToMhzDisplay(tx-duplex));
-  vcMsg('vc-rf-msg',t('cfg_auto_result',{carrier:main,frequency:hzToMhzDisplay(tx-duplex)}),true);
+  vcMsg('vc-rf-msg',t('cfg_auto_result',{carrier:main,frequency:hzToMhzDisplay(tx-duplex),duplex:(Math.round(duplex/1e3)/1e3)}),true);
 }
 async function openCellProfileSheet(mode){
   if(cfgSheetKind){vcMsg('vc-profiles-msg',t('cfg_sheet_busy'),false);return;}
