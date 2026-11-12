@@ -1614,6 +1614,20 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .rf-hw-gain-row .stage{color:var(--text3);}
 .rf-hw-gain-row .val{color:var(--text);font-weight:600;}
 
+/* RX gain calibration card */
+.rf-cal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin:10px 0;}
+.rf-cal-range{display:flex;gap:6px;}
+.rf-cal-range .form-input{width:100%;}
+.rf-cal-actions{display:flex;align-items:center;gap:12px;margin:10px 0;flex-wrap:wrap;}
+.rf-cal-result{margin:10px 0;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);}
+.rf-cal-result .rf-cal-rec{font-family:var(--mono);font-size:14px;color:var(--text);font-weight:600;}
+.rf-cal-result .rf-cal-figs{font-family:var(--mono);font-size:12px;color:var(--text3);margin-top:4px;}
+.rf-cal-sub{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}
+.rf-cal-apply{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+.rf-cal-adv{margin-top:12px;}
+.rf-cal-adv summary{cursor:pointer;color:var(--text2);}
+.rf-cal-reg{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:8px 0;}
+
 @media(max-width:900px){
   .rf-hw-grid{grid-template-columns:1fr;}
 }
@@ -5016,6 +5030,71 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <!-- RX Gain Calibration — sweeps LNA/PGA on the live SDR (SX1255/Lime), recommends the
+           best values, then restores the operator's current gains. Disturbs RX briefly. -->
+      <div class="section-label" data-i18n="rf_cal_title">RX Gain Calibration</div>
+      <div class="rf-quality-card" id="rf-cal-card">
+        <div class="rf-panel-title">
+          <span data-i18n="rf_cal_title">RX Gain Calibration</span>
+          <span class="rf-hint" id="rf-cal-device">—</span>
+        </div>
+        <div class="help-text" data-i18n="rf_cal_help">Aimed at PA-less SX1255/SX1257 boards (SXceiver, uCell) and LimeSDR. Sweeps LNA/PGA, measures the noise floor and LO/DC leak, and recommends gains. It briefly disturbs reception and restores your current gains when done.</div>
+        <div class="rf-cal-grid">
+          <label class="field"><span data-i18n="rf_cal_mode">Mode</span>
+            <select id="rf-cal-mode" class="form-input">
+              <option value="noise" data-i18n="rf_cal_mode_noise">Noise floor (no signal)</option>
+              <option value="uplink" data-i18n="rf_cal_mode_uplink">Live uplink (radio keyed)</option>
+            </select>
+          </label>
+          <label class="field"><span data-i18n="rf_cal_lna">LNA min/max/step (dB)</span>
+            <span class="rf-cal-range">
+              <input type="number" id="rf-cal-lna-min" class="form-input" value="0">
+              <input type="number" id="rf-cal-lna-max" class="form-input" value="48">
+              <input type="number" id="rf-cal-lna-step" class="form-input" value="6">
+            </span>
+          </label>
+          <label class="field"><span data-i18n="rf_cal_pga">PGA min/max/step (dB)</span>
+            <span class="rf-cal-range">
+              <input type="number" id="rf-cal-pga-min" class="form-input" value="0">
+              <input type="number" id="rf-cal-pga-max" class="form-input" value="30">
+              <input type="number" id="rf-cal-pga-step" class="form-input" value="6">
+            </span>
+          </label>
+          <label class="field"><span data-i18n="rf_cal_dwell">Dwell (blocks/point)</span>
+            <input type="number" id="rf-cal-dwell" class="form-input" value="8">
+          </label>
+        </div>
+        <div class="rf-cal-actions">
+          <button type="button" class="btn btn-primary" id="rf-cal-start" onclick="startCalibration()"><span data-i18n="rf_cal_start">Calibrate gains</span></button>
+          <span id="rf-cal-progress" class="rf-hint">—</span>
+        </div>
+        <div id="rf-cal-result" class="rf-cal-result" style="display:none"></div>
+        <div id="rf-cal-msg" class="help-text"></div>
+
+        <div class="rf-cal-sub">
+          <div class="rf-qmetric-label" data-i18n="rf_cal_apply_title">Apply gains live (no restart)</div>
+          <div class="rf-cal-apply">
+            <label class="field"><span>LNA (dB)</span><input type="number" id="rf-apply-lna" class="form-input" placeholder="36"></label>
+            <label class="field"><span>PGA (dB)</span><input type="number" id="rf-apply-pga" class="form-input" placeholder="12"></label>
+            <button type="button" class="btn" onclick="applyLiveGains()"><span data-i18n="rf_cal_apply">Apply</span></button>
+          </div>
+          <div class="help-text" data-i18n="rf_cal_apply_help">Applies to the running SDR immediately so you can hear the effect. Save them in Setup (RX gain LNA/PGA) to keep them across restarts.</div>
+        </div>
+
+        <details class="rf-cal-adv">
+          <summary data-i18n="rf_cal_reg_title">Advanced — raw SX1255 registers</summary>
+          <div class="help-text" data-i18n="rf_cal_reg_help">Direct register access. Wrong values can deafen or mistune the front end; use only with the datasheet.</div>
+          <div class="rf-cal-reg">
+            <label class="field"><span data-i18n="rf_cal_reg_iface">Interface</span><select id="rf-reg-iface" class="form-input"></select></label>
+            <label class="field"><span data-i18n="rf_cal_reg_addr">Addr (hex)</span><input type="text" id="rf-reg-addr" class="form-input" placeholder="0c"></label>
+            <label class="field"><span data-i18n="rf_cal_reg_value">Value (hex)</span><input type="text" id="rf-reg-value" class="form-input" placeholder="3f"></label>
+            <button type="button" class="btn" onclick="regRead()"><span data-i18n="rf_cal_reg_read">Read</span></button>
+            <button type="button" class="btn btn-warn" onclick="regWrite()"><span data-i18n="rf_cal_reg_write">Write</span></button>
+          </div>
+          <div id="rf-reg-result" class="help-text"></div>
+        </details>
+      </div>
+
     </div>
 
     <!-- ── ASTERISK SIP ── -->
@@ -5777,6 +5856,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                     <label class="field"><span data-i18n="cfg_rx">Uplink RX (MHz)</span><input type="text" inputmode="decimal" id="vc-rx-freq" class="form-input" placeholder="430.800000" onblur="normalizeMhzField(this)" onkeydown="if(event.key==='Enter'){normalizeMhzField(this);this.blur();}"></label>
                     <label class="field"><span data-i18n="cfg_colour">Colour code</span><input type="number" id="vc-colour" class="form-input" min="0" max="63"></label>
                   </div>
+                  <div class="help-text" style="margin-top:8px" data-i18n="cfg_duplex_hint_9">Using a non-standard duplex split (e.g. 9 MHz)? Open Advanced RF below, set Custom duplex (MHz) to your split (e.g. 9), then press Auto RX + carrier to fill RX.</div>
                   <details style="margin-top:14px">
                     <summary style="cursor:pointer;color:var(--muted);margin-bottom:10px" data-i18n="cfg_rf_adv">Advanced RF</summary>
                     <div class="group-list">
@@ -7625,7 +7705,7 @@ const LANGS={
     "ui_failed": "failed",
     "cfg_auto_band_required": "Automatic calculation requires freq_band=4.",
     "cfg_auto_reverse_required": "Automatic calculation requires reverse_operation=false.",
-    "cfg_auto_result": "Calculated: main_carrier={carrier}, rx_freq={frequency} MHz",
+    "cfg_auto_result": "Calculated: main_carrier={carrier}, rx_freq={frequency} MHz (duplex {duplex} MHz)",
     "ui_monitor":"MONITOR",
     "ui_toggle_sidebar":"Toggle sidebar",
     "ui_text_size":"Text size",
@@ -7973,6 +8053,17 @@ const LANGS={
     rf_dc:'DC offset (I/Q)',rf_iqa:'IQ amplitude imbalance',rf_iqp:'IQ phase imbalance',
     rf_hw_health:'Hardware Health',rf_hint_health:'polled every 5s',
     rf_temp:'SDR Temperature',rf_tx_gain:'TX Gain Stages (actual)',rf_rx_gain:'RX Gain Stages (actual)',
+    rf_cal_title:'RX Gain Calibration',rf_cal_help:'Aimed at PA-less SX1255/SX1257 boards (SXceiver, uCell) and LimeSDR. Sweeps LNA/PGA, measures the noise floor and LO/DC leak, and recommends gains. It briefly disturbs reception and restores your current gains when done.',
+    rf_cal_mode:'Mode',rf_cal_mode_noise:'Noise floor (no signal)',rf_cal_mode_uplink:'Live uplink (radio keyed)',
+    rf_cal_lna:'LNA min/max/step (dB)',rf_cal_pga:'PGA min/max/step (dB)',rf_cal_dwell:'Dwell (blocks/point)',
+    rf_cal_start:'Calibrate gains',rf_cal_confirm:'This sweeps the RX gains on the live SDR. Reception is disturbed for a few seconds and an in-progress call may drop. Your current gains are restored when it finishes. Continue?',
+    rf_cal_rec:'Recommended',rf_cal_use:'Use these gains',rf_cal_running:'Sweeping {done}/{total}',rf_cal_no_sdr:'no SDR detected',
+    rf_cal_apply_title:'Apply gains live (no restart)',rf_cal_apply:'Apply',rf_cal_apply_help:'Applies to the running SDR immediately so you can hear the effect. Save them in Setup (RX gain LNA/PGA) to keep them across restarts.',
+    rf_cal_need_gain:'Enter an LNA or PGA value first.',rf_cal_applied:'Gains applied to the live SDR.',
+    rf_cal_reg_title:'Advanced — raw SX1255 registers',rf_cal_reg_help:'Direct register access. Wrong values can deafen or mistune the front end; use only with the datasheet.',
+    rf_cal_reg_iface:'Interface',rf_cal_reg_addr:'Addr (hex)',rf_cal_reg_value:'Value (hex)',rf_cal_reg_read:'Read',rf_cal_reg_write:'Write',
+    rf_cal_reg_confirm:'Write this value to the SDR register now? A wrong value can deafen or mistune the front end.',rf_cal_reg_default:'(default)',
+    rf_cal_bad_addr:'Enter a hex address (e.g. 0c).',rf_cal_bad_val:'Enter a hex value (e.g. 3f).',
     rf_temp_cold:'cold',rf_temp_nominal:'nominal',rf_temp_warm:'warm',rf_temp_hot:'hot',rf_temp_na:'no sensor',
     rf_no_gains:'unavailable',rf_just_now:'just now',
 
@@ -8190,7 +8281,7 @@ const LANGS={
     cfg_live_help:'Changes apply to the active config.toml only — they are not saved into a TMO/Brew profile. Use Apply & Restart to put them on air.',
     cfg_live_apply_confirm:'Write live settings to config.toml and restart?',
     cfg_raw_apply_confirm:'Save raw config.toml and restart?',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',cfg_duplex_hint_9:'Using a non-standard duplex split (e.g. 9 MHz)? Open Advanced RF below, set Custom duplex (MHz) to your split (e.g. 9), then press Auto RX + carrier to fill RX.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_timers_hint:'Timers: empty/reset = engine default. Tap «?» on each field for details. Call timeout 0 = unlimited; T351 0 = off.',
     cfg_help_tx:'BS downlink (TX) frequency in MHz. Must match radios’ RX. When you leave the field, band, offset, main carrier and RX are calculated from it (with the duplex spacing below); Auto RX + carrier does the same.',
@@ -8763,7 +8854,7 @@ const LANGS={
     cfg_need_name:'Introduce un nombre de perfil.',cfg_need_select:'Selecciona primero un perfil.',
     cfg_deleted:'✓ Eliminado',cfg_applied:'✓ Aplicado — reiniciando…',cfg_updated:'✓ Perfil guardado',
     cfg_apply_confirm:'¿Aplicar los perfiles Cell × Brew seleccionados y reiniciar? Se hará copia de seguridad del config.toml actual.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',cfg_duplex_hint_9:'¿Usas una separación duplex no estándar (p. ej. 9 MHz)? Abre RF avanzada abajo, pon Duplex personalizado (MHz) en tu separación (p. ej. 9) y pulsa Auto RX + carrier para rellenar RX.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     sds_filter_lip:'LIP',sds_filter_text:'Texto',sds_filter_status:'Estado',sds_filter_concat:'Concat',sds_filter_home:'Pantalla home',sds_filter_other:'Otros',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
@@ -8776,6 +8867,17 @@ const LANGS={
     rf_dc:'Offset DC (I/Q)',rf_iqa:'Desequilibrio amplitud IQ',rf_iqp:'Desequilibrio fase IQ',
     rf_hw_health:'Estado Hardware',rf_hint_health:'consultado cada 5s',
     rf_temp:'Temperatura SDR',rf_tx_gain:'Ganancia TX (real)',rf_rx_gain:'Ganancia RX (real)',
+    rf_cal_title:'Calibración de ganancia RX',rf_cal_help:'Pensado para placas SX1255/SX1257 sin PA (SXceiver, uCell) y LimeSDR. Barre LNA/PGA, mide el ruido de fondo y la fuga de LO/DC, y recomienda ganancias. Perturba brevemente la recepción y restaura tus ganancias actuales al terminar.',
+    rf_cal_mode:'Modo',rf_cal_mode_noise:'Ruido de fondo (sin señal)',rf_cal_mode_uplink:'Uplink en vivo (radio transmitiendo)',
+    rf_cal_lna:'LNA min/max/paso (dB)',rf_cal_pga:'PGA min/max/paso (dB)',rf_cal_dwell:'Permanencia (bloques/punto)',
+    rf_cal_start:'Calibrar ganancias',rf_cal_confirm:'Esto barre las ganancias RX en el SDR en vivo. La recepción se perturba unos segundos y una llamada en curso puede caer. Tus ganancias actuales se restauran al terminar. ¿Continuar?',
+    rf_cal_rec:'Recomendado',rf_cal_use:'Usar estas ganancias',rf_cal_running:'Barriendo {done}/{total}',rf_cal_no_sdr:'sin SDR detectado',
+    rf_cal_apply_title:'Aplicar ganancias en vivo (sin reinicio)',rf_cal_apply:'Aplicar',rf_cal_apply_help:'Se aplican al SDR en marcha de inmediato para que oigas el efecto. Guárdalas en Setup (RX gain LNA/PGA) para conservarlas tras reiniciar.',
+    rf_cal_need_gain:'Introduce un valor de LNA o PGA primero.',rf_cal_applied:'Ganancias aplicadas al SDR en vivo.',
+    rf_cal_reg_title:'Avanzado — registros SX1255 directos',rf_cal_reg_help:'Acceso directo a registros. Valores erróneos pueden ensordecer o desintonizar el front end; úsalo solo con la hoja de datos.',
+    rf_cal_reg_iface:'Interfaz',rf_cal_reg_addr:'Dir (hex)',rf_cal_reg_value:'Valor (hex)',rf_cal_reg_read:'Leer',rf_cal_reg_write:'Escribir',
+    rf_cal_reg_confirm:'¿Escribir este valor en el registro del SDR ahora? Un valor erróneo puede ensordecer o desintonizar el front end.',rf_cal_reg_default:'(predeterminado)',
+    rf_cal_bad_addr:'Introduce una dirección hex (p. ej. 0c).',rf_cal_bad_val:'Introduce un valor hex (p. ej. 3f).',
     rf_temp_cold:'frío',rf_temp_nominal:'nominal',rf_temp_warm:'caliente',rf_temp_hot:'muy caliente',rf_temp_na:'sin sensor',
     rf_no_gains:'no disponible',rf_just_now:'ahora',
 
@@ -9219,7 +9321,7 @@ const LANGS={
     "ui_failed": "falhou",
     "cfg_auto_band_required": "O cálculo automático requer freq_band=4.",
     "cfg_auto_reverse_required": "O cálculo automático requer reverse_operation=false.",
-    "cfg_auto_result": "Calculado: main_carrier={carrier}, rx_freq={frequency} MHz",
+    "cfg_auto_result": "Calculado: main_carrier={carrier}, rx_freq={frequency} MHz (duplex {duplex} MHz)",
     "bts_ip": "IP da BTS",
     "offline": "DESLIGADO",
     "online": "LIGADO",
@@ -10480,7 +10582,7 @@ const LANGS={
     "ui_failed": "échec",
     "cfg_auto_band_required": "Le calcul automatique nécessite freq_band=4.",
     "cfg_auto_reverse_required": "Le calcul automatique nécessite reverse_operation=false.",
-    "cfg_auto_result": "Calculé : main_carrier={carrier}, rx_freq={frequency} MHz",
+    "cfg_auto_result": "Calculé : main_carrier={carrier}, rx_freq={frequency} MHz (duplex {duplex} MHz)",
     "bts_ip": "IP de la BTS",
     "offline": "HORS LIGNE",
     "online": "EN LIGNE",
@@ -12039,7 +12141,7 @@ function showPage(name,el){
   if(name==='stations'){loadBtsInfoLegacy();loadCells();loadDualCarrier();refreshProfileSelects();}
   if(name==='dgna'){syncDgnaAttachmentModePicker();renderDgnaPage();}
   if(name==='sdslog'){loadSdsLog();}
-  if(name==='rf'){loadCells();
+  if(name==='rf'){loadCells();calRefresh();
     requestAnimationFrame(()=>{
       try{
         rfResizeCanvas('rf-spectrum');
@@ -12068,6 +12170,115 @@ function showPage(name,el){
   if(name==='lst_dispatch')lstPageEnter();
   else if(lstToken)lstSetFastPoll(false);
   if(window.innerWidth<=700)closeMobileSidebar();
+}
+
+// ── RX gain calibration ──────────────────────────────────────────────────────
+let calPollTimer=null;
+async function calRefresh(){
+  try{
+    const r=await fetch('/api/rf/calibration',{credentials:'same-origin'});
+    if(!r.ok)return;
+    const d=await r.json();
+    renderCalStatus(d);
+    if(d.running){
+      if(calPollTimer)clearTimeout(calPollTimer);
+      calPollTimer=setTimeout(calRefresh,1000);
+    }
+  }catch{}
+}
+function calFmtDb(v){return(v==null||!isFinite(v))?'—':(Math.round(v*10)/10).toFixed(1);}
+function calEsc(s){const d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function renderCalStatus(d){
+  const dev=document.getElementById('rf-cal-device');
+  if(dev)dev.textContent=d.device?('SDR: '+d.device):t('rf_cal_no_sdr');
+  const prog=document.getElementById('rf-cal-progress');
+  const startBtn=document.getElementById('rf-cal-start');
+  if(d.running){
+    if(prog)prog.textContent=t('rf_cal_running',{done:d.progress.done,total:d.progress.total})+(d.current?(' · LNA '+d.current.lna+' PGA '+d.current.pga):'');
+    if(startBtn)startBtn.disabled=true;
+  }else{
+    if(prog)prog.textContent='';
+    if(startBtn)startBtn.disabled=false;
+  }
+  const res=document.getElementById('rf-cal-result');
+  if(res){
+    if(d.result){
+      const x=d.result;
+      let figs='noise '+calFmtDb(x.noise_dbfs)+' dBFS · leak '+calFmtDb(x.leak_db)+' dB';
+      if(x.uplink_snr_db!=null)figs+=' · UL SNR '+calFmtDb(x.uplink_snr_db)+' dB';
+      res.style.display='';
+      res.innerHTML='<div class="rf-cal-rec">'+t('rf_cal_rec')+': LNA '+x.lna+' dB / PGA '+x.pga+' dB</div>'+
+        '<div class="rf-cal-figs">'+calEsc(x.reason)+' — '+figs+'</div>'+
+        '<div style="margin-top:8px"><button type="button" class="btn btn-primary" onclick="applyRecommendation('+x.lna+','+x.pga+')">'+t('rf_cal_use')+'</button></div>';
+    }else{
+      res.style.display='none';res.innerHTML='';
+    }
+  }
+  const msg=document.getElementById('rf-cal-msg');
+  if(msg)msg.textContent=d.error?('⚠ '+d.error):(d.last_action||'');
+  const isel=document.getElementById('rf-reg-iface');
+  if(isel&&isel.options.length===0&&Array.isArray(d.register_ifaces)){
+    (d.register_ifaces.length?d.register_ifaces:['']).forEach(nm=>{
+      const o=document.createElement('option');o.value=nm;o.textContent=nm||t('rf_cal_reg_default');isel.appendChild(o);
+    });
+  }
+  const rr=document.getElementById('rf-reg-result');
+  if(rr&&d.last_register)rr.textContent='0x'+d.last_register.addr.toString(16)+' = 0x'+d.last_register.value.toString(16)+' ('+d.last_register.value+')';
+}
+function calNum(id){const el=document.getElementById(id);if(!el||el.value==='')return undefined;const n=parseFloat(el.value.replace(',','.'));return isFinite(n)?n:undefined;}
+async function startCalibration(){
+  const ok=await openSvcConfirm({title:t('rf_cal_start'),body:t('rf_cal_confirm'),confirmLabel:t('rf_cal_start'),danger:false});
+  if(!ok)return;
+  const body={
+    mode:document.getElementById('rf-cal-mode').value,
+    lna_min:calNum('rf-cal-lna-min'),lna_max:calNum('rf-cal-lna-max'),lna_step:calNum('rf-cal-lna-step'),
+    pga_min:calNum('rf-cal-pga-min'),pga_max:calNum('rf-cal-pga-max'),pga_step:calNum('rf-cal-pga-step'),
+    dwell:calNum('rf-cal-dwell'),
+  };
+  try{
+    const r=await fetch('/api/rf/calibration',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){vcMsg('rf-cal-msg',await r.text(),false);return;}
+    vcMsg('rf-cal-msg','',true);
+    calRefresh();
+  }catch(e){vcMsg('rf-cal-msg',String(e),false);}
+}
+async function applyRecommendation(lna,pga){
+  document.getElementById('rf-apply-lna').value=lna;
+  document.getElementById('rf-apply-pga').value=pga;
+  await applyLiveGains();
+}
+async function applyLiveGains(){
+  const rx=[];
+  const l=calNum('rf-apply-lna');const p=calNum('rf-apply-pga');
+  if(l!==undefined)rx.push(['lna',l]);
+  if(p!==undefined)rx.push(['pga',p]);
+  if(!rx.length){vcMsg('rf-cal-msg',t('rf_cal_need_gain'),false);return;}
+  try{
+    const r=await fetch('/api/rf/gains',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({rx:rx})});
+    if(!r.ok){vcMsg('rf-cal-msg',await r.text(),false);return;}
+    vcMsg('rf-cal-msg',t('rf_cal_applied'),true);
+  }catch(e){vcMsg('rf-cal-msg',String(e),false);}
+}
+function calParseHex(id){const el=document.getElementById(id);if(!el)return undefined;let s=(el.value||'').trim().replace(/^0x/i,'');if(s==='')return undefined;const n=parseInt(s,16);return isFinite(n)?n:undefined;}
+function calRegIface(){const el=document.getElementById('rf-reg-iface');return el?el.value:'';}
+async function regRead(){
+  const addr=calParseHex('rf-reg-addr');if(addr===undefined){vcMsg('rf-reg-result',t('rf_cal_bad_addr'),false);return;}
+  await calRegOp({op:'read',iface:calRegIface(),addr:addr});
+}
+async function regWrite(){
+  const addr=calParseHex('rf-reg-addr');const value=calParseHex('rf-reg-value');
+  if(addr===undefined){vcMsg('rf-reg-result',t('rf_cal_bad_addr'),false);return;}
+  if(value===undefined){vcMsg('rf-reg-result',t('rf_cal_bad_val'),false);return;}
+  const ok=await openSvcConfirm({title:t('rf_cal_reg_write'),body:t('rf_cal_reg_confirm'),confirmLabel:t('rf_cal_reg_write'),danger:true});
+  if(!ok)return;
+  await calRegOp({op:'write',iface:calRegIface(),addr:addr,value:value});
+}
+async function calRegOp(body){
+  try{
+    const r=await fetch('/api/rf/register',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok){vcMsg('rf-reg-result',await r.text(),false);return;}
+    setTimeout(calRefresh,300);
+  }catch(e){vcMsg('rf-reg-result',String(e),false);}
 }
 
 // ── Host network + WiFi management ─────────────────────────────────────────

@@ -19,7 +19,7 @@ pub const PRODUCT_NAME_NEXT: &str = "PTBS";
 pub const PRODUCT_NAME_NEXT_LONG: &str = "Personal Tetra Base Station";
 
 /// Our release line (independent of upstream crate package version).
-pub const BOST_VERSION: &str = "0.5.8";
+pub const BOST_VERSION: &str = "0.5.9";
 
 /// SC3 code revision shown on the dashboard Security page; not part of the product version.
 pub const SC3_REVISION: &str = "sc3-r4";
