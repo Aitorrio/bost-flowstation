@@ -16,7 +16,7 @@
 
 Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)). Improved by **Aitor, EA4HBL**.
 
-**Tested hardware:** LimeSDR Mini 2.0 · SXceiver · µCell BB · Ettus USRP B210 (and XC7K325T clones) · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400 · Sepura STP9000 · Sepura SRG3500 · Sepura SRG3900 · Sepura SC2229
+**Tested hardware:** LimeSDR Mini 2.0 · SXceiver · µCell BB · Ettus USRP B210 (and XC7K325T clones) · Motorola MXP600 · Motorola MTM800E · Motorola MTM5400 · Motorola MTP850 · Sepura STP9000 · Sepura SRG3500 · Sepura SRG3900 · Sepura SC2229
 
 > Protocol details, Brew theory, Asterisk/DAPNET/GeoAlarm and upstream bug history live in the [original FlowStation README](https://github.com/razvanzeces/flowstation/blob/main/README.md). This page documents **what this fork adds** and **how to run it**.
 
@@ -77,6 +77,13 @@ The Setup wizard's **Install µCell** button builds [SoapyMuCell](https://github
 and the `mu-cell-bb_raspberrypi` overlay (not the SXceiver module). Device string: `driver=mucell`.
 Gain stages match SXceiver (`dac`/`mixer`, `lna`/`pga`). After install the Pi must reboot so the
 overlay loads; the wizard offers that reboot automatically.
+
+### ADALM-Pluto / Pluto+
+
+The Setup wizard's **Install Pluto** button builds SoapyPlutoSDR with timestamped
+streaming from [pgreenland/SoapyPlutoSDR](https://github.com/pgreenland/SoapyPlutoSDR) (branch
+`sdr_gadget_timestamping`). Device string: `driver=plutosdr`, or over the network
+`driver=plutosdr,uri=ip:192.168.2.1` (the Pluto's address).
 
 ### USRP B210 (and B200 / B210 clones)
 
@@ -403,7 +410,7 @@ sudo cp /etc/flowstation/config.toml /etc/flowstation/config.toml.fallback
 
 **Re-running the installer**
 
-If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented**. It keeps an existing `/etc/flowstation/config.toml` (and may refresh `ota_channel` to match the install branch), creates `.fallback` only when missing (never overwrites your reserve), aligns `/opt/bost-flowstation` to `origin/main` with `reset --hard` (keeps `target/`), and refreshes the service/helper pieces without wiping your station identity. For a full source re-clone keeping config: `sudo env BOST_FORCE_CLEAN=1 bash` with the same curl one-liner.
+If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented**. It keeps an existing `/etc/flowstation/config.toml` (and sets `ota_channel = "installed"`, so the dashboard update follows the repository and branch you installed), creates `.fallback` only when missing (never overwrites your reserve), aligns `/opt/bost-flowstation` to `origin/main` with `reset --hard` (keeps `target/`), and refreshes the service/helper pieces without wiping your station identity. For a full source re-clone keeping config: `sudo env BOST_FORCE_CLEAN=1 bash` with the same curl one-liner.
 
 ---
 
@@ -436,7 +443,7 @@ Restart, suspend, full power-off and OTA live in the **System** hero (top-right 
 - **Reiniciar** — soft restart of `bluestation-bs`
 - **Suspender** — soft standby: radio stack stops, dashboard stays up; the button becomes **Iniciar** to bring the station back
 - **Apagar** — full host shutdown (`systemctl poweroff`); you will likely need to cycle power to boot again
-- **Canal OTA** — **Estable** (`bost`, day-to-day) or **Beta** (`beta`, previews); persisted as `[dashboard] ota_channel`
+- **OTA source** — default **installed repository** (the repository and branch the station was installed from, forks included), **Stable** / **Beta** (original repository `main` / `beta`) or a **custom git URL** with branch; persisted as `[dashboard] ota_channel` (`installed`, `stable`, `beta`, `custom` with `ota_repo` / `ota_branch`)
 - **Actualizar** — OTA on the selected channel: `git fetch` + `reset --hard` to that branch (keeps `target/` for incremental builds), rebuild only if the running binary is behind, install, restart
 
 When a newer commit is on GitHub for the **active channel**, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).
@@ -522,7 +529,7 @@ For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream d
 - **Yiannis Samouhos, ysamouhos** — Multi-cell support with multiple SDR and AIE.
 - **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, USRP B210 support, the WAP packet-data (SNDCP) gateway with its live status page, end-to-end encryption (E2EE) of SDS, and individual call handover between the cells of a multi-cell station (PR #30).
 - **Sebastian, OE4SXM** ([sebastianmadl](https://github.com/sebastianmadl)) — roaming between stations over Brew (group and individual calls across stations, announced and unannounced cell reselection), multi-cell roaming (individual calls with the network follow the radio between cells, built on David's PR #30; cells sharing a location area; multi-cell stations roaming with other stations), the Infrastructure dashboard page (formerly Roaming / Cells) with the Brew server's cell list, configurable minimum access level and migration flag, group access and RX only from the Brew server, English changelog.
-- **Chris, DN9CHO** ([dn9cho](https://github.com/dn9cho)) — the APRSWX SDS command (APRS weather station reports from aprs.fi on the radio, PR #40) and the fix for long group calls being cut off after six minutes (PR #44).
+- **Chris, DN9CHO** ([dn9cho](https://github.com/dn9cho)) — the APRSWX SDS command (APRS weather station reports from aprs.fi on the radio, PR #40), the fix for long group calls being cut off after six minutes (PR #44) and the fix for scan lists with more than 12 groups (PR #55).
 
 ---
 

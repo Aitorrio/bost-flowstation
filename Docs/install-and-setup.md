@@ -19,7 +19,7 @@ sudo ./contrib/install/install-bost.sh
 ### What the script does
 
 1. Installs build tools + SoapySDR tools/libs (and Lime modules if available in apt).
-2. Clones or updates `/opt/bost-flowstation` (branch `main` by default; set `BOST_BRANCH=beta` for the preview channel), unless `BOST_SRC` points at an existing tree. Updates use `git fetch` + `reset --hard` (same idea as dashboard OTA) and set `[dashboard] ota_channel` accordingly.
+2. Clones or updates `/opt/bost-flowstation` (branch `main` by default; set `BOST_BRANCH=beta` for the preview channel), unless `BOST_SRC` points at an existing tree. Updates use `git fetch` + `reset --hard` (same idea as dashboard OTA) and set `[dashboard] ota_channel = "installed"`, so the dashboard update follows the installed repository and branch (`BOST_REPO` / `BOST_BRANCH`, forks included).
 3. Builds `bluestation-bs` with Cargo and installs it to `/usr/local/bin/bluestation-bs`.
 4. Writes `/etc/flowstation/config.toml` if missing, with:
    - `phy_io.backend = "None"` (web always starts)
@@ -67,6 +67,8 @@ sudo systemctl reload NetworkManager
 
 ## First login
 
+The Setup wizard starts with the station language. It is stored as `[dashboard] language` and is the default for the dashboard and the login page; a browser that picked its own language in the menu keeps it, and without a station language the browser language is used (English when the dashboard has no strings for it). The update notes in System → OTA come from `CHANGELOG_en.md` for every station language except Spanish (`CHANGELOG.md`).
+
 1. Open the URL printed by the installer:
    - **Standard:** `https://<pi-ip>/` (or `http://<pi-ip>/` — redirects to HTTPS)
    - **High port:** `https://<pi-ip>:8443/`
@@ -92,7 +94,9 @@ The dashboard never runs free-form shell. Driver install and systemd ensure go t
 
 `/usr/local/sbin/bost-setup-helper.sh`
 
-Allowed actions: `install-driver sx|lime|mucell|uhd`, `enable-service`, `restart-service`.
+Allowed actions: `install-driver sx|lime|mucell|uhd|pluto`, `enable-service`, `restart-service`.
+
+**Pluto (`pluto`):** builds SoapyPlutoSDR with timestamped streaming from [pgreenland/SoapyPlutoSDR](https://github.com/pgreenland/SoapyPlutoSDR) (branch `sdr_gadget_timestamping`) in `/opt/SoapyPlutoSDR` (deps `libiio-dev`, `libad9361-dev`, `libusb-1.0-0-dev`). Override with `BOST_PLUTO_GIT` / `BOST_PLUTO_BRANCH` / `BOST_PLUTO_DIR`. Installed on demand like the other drivers (Setup wizard → Install Pluto); the installer does not build it. Device string: `driver=plutosdr`, over the network `driver=plutosdr,uri=ip:192.168.2.1`.
 
 **SXceiver (`sx`):** clones and builds [tejeez/sxxcvr](https://github.com/tejeez/sxxcvr) into `/opt/sxxcvr` (SoapySX module), then `ldconfig`. Override with `BOST_SOAPY_SX_DIR` / `BOST_SOAPY_SX_GIT` if needed. Hardware must be stacked on the Pi HAT for `SoapySDRUtil --find` / `--probe=driver=sx` to see it.
 

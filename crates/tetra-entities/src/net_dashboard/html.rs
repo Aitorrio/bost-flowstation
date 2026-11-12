@@ -1210,6 +1210,16 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-dapnet .card-body,
 #page-asterisk .card-body,
 #page-network .card-body{padding:16px 18px;}
+/* Infrastructure: help texts and controls get the same inset as the card head; the
+   tables stay edge-to-edge on desktop (on phones they become padded stacked cards). */
+#page-roaming .card-body{padding:14px 18px;}
+@media (min-width:701px){
+  #page-roaming .card-body > .table-wrap{width:auto;margin-left:-18px;margin-right:-18px;}
+  #page-roaming .card-body > .table-wrap:last-child{margin-bottom:-14px;}
+}
+@media (max-width:700px){
+  #page-roaming .card-body{padding:12px;}
+}
 /* Setup info rows already pad themselves — avoid double inset once card-body has air. */
 #page-setup .card-body .info-row{padding-left:0;padding-right:0;}
 #page-setup .setup-device-list{margin:0 0 12px;}
@@ -3849,7 +3859,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 }
 .setup-wiz-step{display:none;}
 .setup-wiz-step.active{display:block;}
+.setup-lang-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
+.setup-lang{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg2);color:var(--text);cursor:pointer;font-size:14px;text-align:left;}
+.setup-lang b{font-size:12px;min-width:26px;color:var(--muted);}
+.setup-lang.selected{border-color:var(--accent,#2563eb);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#2563eb) 30%,transparent);}
+.setup-lang.selected b{color:var(--accent,#2563eb);}
 .setup-wiz-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px;justify-content:flex-end;}
+.wiz-field-stack{display:flex;flex-direction:column;gap:4px;flex:1 1 auto;min-width:0;}
+.wiz-field-stack .form-input{width:100%;}
+.wiz-field-stack small{color:var(--muted);font-size:12px;text-align:right;}
+.wiz-freq-result{margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:13px;line-height:1.7;}
+.wiz-freq-result .muted{color:var(--muted);}
+.wiz-freq-result.err{border-color:var(--danger);color:var(--danger);}
 .setup-device-list{display:flex;flex-direction:column;gap:8px;margin:12px 0;}
 .setup-device{
   text-align:left;padding:12px 14px;border:1px solid var(--border);border-radius:10px;
@@ -5600,6 +5621,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <button class="btn" onclick="setupInstallDriver('lime')" data-i18n="setup_install_lime">Instalar Lime</button>
             <button class="btn" onclick="setupInstallDriver('mucell')" data-i18n="setup_install_mucell">Instalar µCell</button>
             <button class="btn" onclick="setupInstallDriver('uhd')" data-i18n="setup_install_uhd">Instalar USRP (UHD)</button>
+            <button class="btn" onclick="setupInstallDriver('pluto')" data-i18n="setup_install_pluto">Instalar Pluto</button>
           </div>
         </div>
         <div class="card-body">
@@ -5830,7 +5852,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 </div>
                 <div class="card-body">
                   <div class="group-list">
-                    <label class="field"><span data-i18n="cfg_tx">Downlink TX (MHz)</span><input type="text" inputmode="decimal" id="vc-tx-freq" class="form-input" placeholder="438.025000" onblur="normalizeMhzField(this)" onkeydown="if(event.key==='Enter'){normalizeMhzField(this);this.blur();}"></label>
+                    <label class="field"><span data-i18n="cfg_tx">Downlink TX (MHz)</span><input type="text" inputmode="decimal" id="vc-tx-freq" class="form-input" placeholder="438.025000" onblur="autoCalcIfTx()" onkeydown="if(event.key==='Enter'){this.blur();}"></label>
                     <label class="field"><span data-i18n="cfg_rx">Uplink RX (MHz)</span><input type="text" inputmode="decimal" id="vc-rx-freq" class="form-input" placeholder="430.800000" onblur="normalizeMhzField(this)" onkeydown="if(event.key==='Enter'){normalizeMhzField(this);this.blur();}"></label>
                     <label class="field"><span data-i18n="cfg_colour">Colour code</span><input type="number" id="vc-colour" class="form-input" min="0" max="63"></label>
                   </div>
@@ -5852,8 +5874,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                         <div class="vc-dual-hint" id="vc-dual-hint">—</div>
                       </div>
                       <label class="field"><span><span data-i18n="ui_freq_band">Freq band</span></span><input type="number" id="vc-freq-band" class="form-input" value="4"></label>
-                      <label class="field"><span><span data-i18n="ui_duplex_spacing_id">Duplex spacing id</span></span><input type="number" id="vc-duplex-id" class="form-input" value="4"></label>
-                      <label class="field"><span data-i18n="cfg_custom_duplex">Custom duplex (MHz)</span><input type="text" inputmode="decimal" id="vc-custom-duplex" class="form-input" placeholder="7.600000" onblur="normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'})" onkeydown="if(event.key==='Enter'){normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});this.blur();}"></label>
+                      <label class="field"><span><span data-i18n="ui_duplex_spacing_id">Duplex spacing id</span></span><input type="number" id="vc-duplex-id" class="form-input" value="4" min="0" max="7" onchange="autoCalcIfTx()"></label>
+                      <label class="field"><span data-i18n="cfg_custom_duplex">Custom duplex (MHz)</span><input type="text" inputmode="decimal" id="vc-custom-duplex" class="form-input" placeholder="7.600000" onblur="if(Number.isFinite(normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'}))||this.value==='')autoCalcIfTx()" onkeydown="if(event.key==='Enter'){this.blur();}"></label>
                       <label class="field"><span><span data-i18n="ui_freq_offset_hz">Freq offset (Hz)</span></span>
                         <select id="vc-freq-offset" class="form-input">
                           <option value="0">0</option>
@@ -6865,6 +6887,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <div class="info-row"><div class="info-key" data-i18n="sys_version">FS Version</div><div class="info-val accent" id="sysVersion">—</div></div>
+          <div class="info-row"><div class="info-key" data-i18n="sys_source">Installed from</div><div class="info-val" id="sysSource" style="overflow-wrap:anywhere">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="sys_os">OS</div><div class="info-val" id="sysOs">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="sys_config">Active Config</div><div class="info-val" id="sysConfigPath">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="sys_cpu">CPU</div><div class="info-val" id="sysCpu">—</div></div>
@@ -7296,11 +7319,20 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
     <div class="ota-step is-active" id="ota-step-choose">
       <div class="ota-channel-field">
         <label for="ota-channel-select" data-i18n="ota_channel_title">OTA channel</label>
-        <select id="ota-channel-select" onchange="saveOtaChannel()">
+        <select id="ota-channel-select" onchange="onOtaChannelSelect()">
+          <option value="installed" data-i18n="ota_channel_installed">Installed repository</option>
           <option value="stable" data-i18n="ota_channel_stable">Stable (main)</option>
           <option value="beta" data-i18n="ota_channel_beta">Beta</option>
+          <option value="custom" data-i18n="ota_channel_custom">Custom git URL</option>
         </select>
-        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Stable = main (day-to-day). Beta = previews. This release bridges to PTBS — please OTA once.</span>
+        <div id="ota-custom-fields" style="display:none;margin-top:10px">
+          <label for="ota-custom-repo" data-i18n="ota_custom_repo">Git URL</label>
+          <input type="text" id="ota-custom-repo" class="form-input" placeholder="https://github.com/owner/bost-flowstation.git" autocomplete="off" spellcheck="false" onchange="saveOtaChannel()">
+          <label for="ota-custom-branch" style="margin-top:8px" data-i18n="ota_custom_branch">Branch</label>
+          <input type="text" id="ota-custom-branch" class="form-input" placeholder="main" autocomplete="off" spellcheck="false" onchange="saveOtaChannel()">
+        </div>
+        <span class="ota-channel-hint" id="ota-source-line"></span>
+        <span class="ota-channel-hint" id="ota-channel-hint" data-i18n="ota_channel_help">Default: the repository and branch this station was installed from.</span>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" onclick="closeUpdateModal()" data-i18n="cancel">Cancel</button>
@@ -7393,6 +7425,15 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 <div id="setup-wizard" aria-modal="true" role="dialog">
   <div class="setup-wiz-card">
     <div class="setup-wiz-step active" data-step="0">
+      <h2 style="margin:0 0 8px;font-size:22px">Language · Sprache · Idioma · Langue</h2>
+      <p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 14px" data-i18n="wiz_lang_help">Choose the language of this station. It becomes the default for the dashboard and the login page; each browser can still pick its own in the menu.</p>
+      <div class="setup-lang-grid" id="wiz-lang-grid"></div>
+      <div class="config-msg" id="wiz-lang-msg"></div>
+      <div class="setup-wiz-nav">
+        <button class="btn btn-primary" onclick="wizLangContinue()" data-i18n="wiz_continue">Continuar</button>
+      </div>
+    </div>
+    <div class="setup-wiz-step" data-step="1">
       <h2 style="margin:0 0 8px;font-size:22px" data-i18n="wiz_welcome_title">Bienvenido a Bost FlowStation</h2>
       <p style="color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 16px" data-i18n="wiz_welcome_body">
         Este asistente configura el SDR, parámetros RF y el arranque automático.
@@ -7405,15 +7446,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="btn btn-primary" onclick="wizNext()" data-i18n="wiz_continue">Continuar</button>
       </div>
     </div>
-    <div class="setup-wiz-step" data-step="1">
+    <div class="setup-wiz-step" data-step="2">
       <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_sdr_title">Seleccionar SDR</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_sdr_help">Escanea dispositivos SoapySDR o instala un driver (SXceiver / Lime / µCell / USRP).</p>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_sdr_help">Escanea dispositivos SoapySDR o instala un driver (SXceiver / Lime / µCell / USRP / Pluto).</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btn-sm" onclick="setupScanSdr(true)" data-i18n="setup_scan">Escanear</button>
         <button class="btn btn-sm" onclick="setupInstallDriver('sx',true)" data-i18n="setup_install_sx">Instalar SXceiver</button>
         <button class="btn btn-sm" onclick="setupInstallDriver('lime',true)" data-i18n="setup_install_lime">Instalar Lime</button>
         <button class="btn btn-sm" onclick="setupInstallDriver('mucell',true)" data-i18n="setup_install_mucell">Instalar µCell</button>
         <button class="btn btn-sm" onclick="setupInstallDriver('uhd',true)" data-i18n="setup_install_uhd">Instalar USRP (UHD)</button>
+        <button class="btn btn-sm" onclick="setupInstallDriver('pluto',true)" data-i18n="setup_install_pluto">Instalar Pluto</button>
       </div>
       <div class="setup-device-list" id="wiz-device-list"></div>
       <label class="field" style="display:block;margin-top:10px"><span data-i18n="wiz_device_args">Argumentos device</span>
@@ -7425,7 +7467,26 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="btn btn-primary" onclick="wizNext()" data-i18n="wiz_next">Siguiente</button>
       </div>
     </div>
-    <div class="setup-wiz-step" data-step="2">
+    <div class="setup-wiz-step" data-step="3">
+      <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_freq_title">Frequency</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_freq_help">Enter the downlink (TX) frequency of this station. Band, offset, main carrier and the uplink (RX) are calculated from it.</p>
+      <div class="group-list">
+        <label class="field"><span data-i18n="cfg_tx">Downlink TX (MHz)</span><input type="text" inputmode="decimal" id="wiz-tx" class="form-input" placeholder="438.025000" onblur="normalizeMhzField(this);wizFreqCalc()" onkeydown="if(event.key==='Enter'){this.blur();}"></label>
+        <label class="field"><span data-i18n="wiz_dup">Duplex spacing</span><select id="wiz-dup" class="form-input" onchange="wizFreqCalc()"></select></label>
+        <label class="field"><span data-i18n="cfg_custom_duplex">Custom duplex (MHz)</span><span class="wiz-field-stack"><input type="text" inputmode="decimal" id="wiz-custom-dup" class="form-input" placeholder="7.600000" onblur="normalizeMhzField(this,{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});wizFreqCalc()" onkeydown="if(event.key==='Enter'){this.blur();}"><small data-i18n="wiz_custom_dup_hint">7.6 is filled to 7.600000 (7600000 Hz). Empty = table value.</small></span></label>
+        <label class="field" style="align-items:center;cursor:pointer"><span data-i18n="wiz_reverse">Reverse operation (RX above TX)</span><span class="field-control"><span class="sw"><input type="checkbox" id="wiz-rev" onchange="wizFreqCalc()"><i></i></span></span></label>
+        <label class="field"><span data-i18n="cfg_colour">Colour code</span><input type="number" id="wiz-cc" class="form-input" min="0" max="63" value="1"></label>
+        <label class="field"><span data-i18n="wiz_la">Location area</span><input type="number" id="wiz-la" class="form-input" min="1" max="16383" value="1"></label>
+      </div>
+      <div class="wiz-freq-result" id="wiz-freq-result">—</div>
+      <p class="help-text" style="margin-top:10px" data-i18n="wiz_freq_more">All RF settings are under Config → RF later.</p>
+      <div class="config-msg" id="wiz-freq-msg"></div>
+      <div class="setup-wiz-nav">
+        <button class="btn" onclick="wizPrev()" data-i18n="wiz_back">Atrás</button>
+        <button class="btn btn-primary" onclick="wizSaveFrequency()" data-i18n="wiz_next">Siguiente</button>
+      </div>
+    </div>
+    <div class="setup-wiz-step" data-step="4">
       <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_params_title">RF / Red / Brew</h2>
       <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_params_help">
         Usa los formularios de Config para editar todo, o mantén los valores por defecto.
@@ -7437,7 +7498,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="btn btn-primary" onclick="wizNext()" data-i18n="wiz_next">Siguiente</button>
       </div>
     </div>
-    <div class="setup-wiz-step" data-step="3">
+    <div class="setup-wiz-step" data-step="5">
       <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_rf_title">Activar RF</h2>
       <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_rf_help">
         Pone <code>phy_io.backend = SoapySdr</code>, guarda el device y reinicia el servicio.
@@ -7449,7 +7510,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         <button class="btn" onclick="wizNext()" data-i18n="wiz_skip_now">Omitir por ahora</button>
       </div>
     </div>
-    <div class="setup-wiz-step" data-step="4">
+    <div class="setup-wiz-step" data-step="6">
       <h2 style="margin:0 0 8px;font-size:20px" data-i18n="wiz_auto_title">Arranque automático</h2>
       <p style="color:var(--muted);font-size:13px;margin:0 0 12px" data-i18n="wiz_auto_help">Asegura que la unidad systemd esté enabled para volver tras un reinicio.</p>
       <div class="config-msg" id="wiz-systemd-msg"></div>
@@ -7964,17 +8025,18 @@ const LANGS={
     security:'Security',stations:'Home',calls:'Calls',lastheard:'Last Heard',log:'Log',rf:'RF',health:'Health',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
     home_quick_title:'Quick profiles',home_more_settings:'More settings',
     setup_sec:'First-run / SDR',setup_title:'Setup',setup_open_wizard:'Open wizard',setup_sdr_title:'SDR devices',
-    setup_scan:'Scan',setup_install_sx:'Install SXceiver',setup_install_lime:'Install Lime',setup_install_mucell:'Install µCell',setup_install_uhd:'Install USRP (UHD)',
+    setup_scan:'Scan',setup_install_sx:'Install SXceiver',setup_install_lime:'Install Lime',setup_install_mucell:'Install µCell',setup_install_pluto:'Install Pluto',setup_install_uhd:'Install USRP (UHD)',
     setup_enable_rf:'Enable RF & Restart',setup_autostart:'Ensure autostart',setup_mark_done:'Mark setup done',
     setup_complete_key:'Setup complete',setup_backend_key:'Config backend',setup_device_key:'Device',
     setup_unit_key:'Service unit',setup_helper_key:'Helper',
     setup_installing:'Installing {driver}…',setup_session:'Session expired — log in again, then retry.',
     setup_install_fail:'Install failed',setup_drv_ok:'Driver installed (OK).',
-    wiz_welcome_title:'Welcome to Bost FlowStation',wiz_welcome_body:'This wizard configures your SDR, RF parameters, and systemd autostart. The dashboard stays available even when the radio is offline.',
+    wiz_lang_help:'Choose the language of this station. It becomes the default for the dashboard and the login page; each browser can still pick its own in the menu.',wiz_welcome_title:'Welcome to Bost FlowStation',wiz_welcome_body:'This wizard configures your SDR, RF parameters, and systemd autostart. The dashboard stays available even when the radio is offline.',
     wiz_skip:'Skip with defaults',wiz_continue:'Continue',wiz_back:'Back',wiz_next:'Next',wiz_finish:'Finish',wiz_skip_now:'Skip for now',
-    wiz_sdr_title:'Select SDR',wiz_sdr_help:'Scan SoapySDR devices or install a driver (SXceiver / Lime / µCell / USRP).',wiz_device_args:'Device args',
+    wiz_sdr_title:'Select SDR',wiz_sdr_help:'Scan SoapySDR devices or install a driver (SXceiver / Lime / µCell / USRP / Pluto).',wiz_device_args:'Device args',
     wiz_reboot_title:'Rebooting Pi…',wiz_reboot_body:'µCell needs a reboot so the device-tree overlay can load. The page will come back on its own.',
     wiz_reboot_confirm:'µCell driver installed. Reboot the Pi now so the board can be opened?',
+    wiz_freq_title:'Frequency',wiz_freq_help:'Enter the downlink (TX) frequency of this station. Band, offset, main carrier and the uplink (RX) are calculated from it.',wiz_dup:'Duplex spacing',wiz_dup_custom:'custom (radio table)',wiz_custom_dup_hint:'7.6 is filled to 7.600000 (7600000 Hz). Empty = table value.',wiz_reverse:'Reverse operation (RX above TX)',wiz_la:'Location area',wiz_freq_more:'All RF settings are under Config → RF later.',wiz_freq_line:'Band {band} · Offset {offset} Hz · Main carrier {carrier}',
     wiz_params_title:'RF / Network / Brew',wiz_params_help:'Use the Config tab forms for full editing, or keep the example defaults for now.',
     wiz_use_defaults:'Use current config defaults',wiz_open_config:'Open Config forms',
     wiz_rf_title:'Enable RF',wiz_rf_help:'Sets phy_io.backend = SoapySdr, writes the device string, and restarts the service.',
@@ -8222,13 +8284,16 @@ const LANGS={
     cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',cfg_duplex_hint_9:'Using a non-standard duplex split (e.g. 9 MHz)? Open Advanced RF below, set Custom duplex (MHz) to your split (e.g. 9), then press Auto RX + carrier to fill RX.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_timers_hint:'Timers: empty/reset = engine default. Tap «?» on each field for details. Call timeout 0 = unlimited; T351 0 = off.',
-    cfg_help_tx:'BS downlink (TX) frequency in MHz. Must match radios’ RX. Use Auto RX + carrier after setting TX when possible.',
+    cfg_help_tx:'BS downlink (TX) frequency in MHz. Must match radios’ RX. When you leave the field, band, offset, main carrier and RX are calculated from it (with the duplex spacing below); Auto RX + carrier does the same.',
     cfg_help_rx:'BS uplink (RX) frequency in MHz. Usually TX minus duplex. Auto RX + carrier can fill this from TX.',
     cfg_help_colour:'TETRA colour code 0–63. All radios on this cell must use the same value.',
     cfg_help_main_carrier:'TETRA carrier number for the main control channel. Prefer Auto RX + carrier unless you know the value.',
     cfg_help_freq_band:'Frequency band id (ETSI). Default 4 is typical for 400 MHz amateur cells — change only if you know your band plan.',
-    cfg_help_duplex_id:'Duplex spacing table id. Leave default unless you use a non-standard duplex; prefer Custom duplex (MHz) when needed.',
-    cfg_help_custom_duplex:'Optional duplex spacing in MHz — e.g. 9 for a 9 MHz split, or 7.6. Empty = use duplex spacing id. Overrides the table id when set, and Auto RX + carrier uses it to work out RX.',
+    cfg_help_duplex_id:'Duplex spacing table id (0-7), sent to the radios. In band 4 (400 MHz): 0 = 10 MHz, 1 = 7 MHz, 3 = 8 MHz, 4 = 5 MHz, 5 = 9.5 MHz. For a spacing not in the table use the id your radios have it under (e.g. 7) and set Custom duplex (MHz).',
+    cfg_help_custom_duplex:'Optional duplex spacing in MHz (e.g. 7.6, saved as 7600000 Hz). Empty = use the table value of the duplex spacing id. When set, it is used instead of the table value; the id is still sent.',
+    cfg_auto_result_full:'Calculated: band {band}, offset {offset} Hz, main_carrier {carrier}, RX {frequency} MHz',
+    cfg_auto_no_table_duplex:'Duplex spacing id {id} has no table value in band {band}. Enter Custom duplex (MHz).',
+    cfg_auto_band_range:'TX frequency is outside the TETRA bands (100-1000 MHz).',
     cfg_help_freq_offset:'Fine carrier offset in Hz (±6250 / ±12500). Usually 0.',
     cfg_help_reverse:'Swap UL/DL sense of the duplex. Rare; leave off unless your plan requires reverse operation.',
     cfg_rxlev_min:'Min. access level (dBm)',cfg_rxlev_default:'Default (−110)',cfg_help_rxlev_min:'RXLEV_ACCESS_MIN in SYSINFO (ETSI table 21.65): radios below this level cannot use the cell, and a higher value makes them reselect a better neighbour earlier. −125 to −50 dBm in 5 dB steps; default −110. Use the same value on neighbouring stations or set it per neighbour. See Docs/cell-reselection.md.',cfg_migration:'Migration supported',cfg_help_migration:'BS service details in SYSINFO: migration is supported by this cell (ETSI 18.5.2.1), for radios of another network (other MCC/MNC). Radios of another network are accepted only when [multi_network] is on and lists their network: they get a (V)ASSI (ETSI 16.4.1.1 b, 16.4.7). Otherwise every migrating registration is rejected with cause 12 “Migration not supported”. Turned on by itself while [multi_network] is on. Default off.',cfg_migration_auto:'On by itself: [multi_network] is enabled.',
@@ -8270,12 +8335,12 @@ const LANGS={
     cfg_apply_confirm:'Apply selected Cell × Brew profiles and restart? Current config.toml will be backed up.',
     cfg_need_name:'Enter a profile name.',cfg_need_select:'Select a profile first.',cfg_deleted:'✓ Deleted',cfg_applied:'✓ Applied — restarting…',cfg_updated:'✓ Profile saved',
 
-    update:'Update',update_available:'Update available',update_title:'OTA Update — github.com/Aitorrio/bost-flowstation',
+    update:'Update',update_available:'Update available',update_title:'OTA Update',
     update_confirm:'Pull latest from the {channel} channel (branch {branch}) and rebuild?\nThe service will restart automatically if a new build is needed.',
     ota_channel_title:'OTA channel',
-    ota_channel_stable:'Stable (main)',
+    ota_channel_stable:'Stable (main)',ota_channel_installed:'Installed repository',ota_channel_custom:'Custom git URL',ota_custom_repo:'Git URL',ota_custom_branch:'Branch',ota_source_line:'Updates come from {repo} · {branch}.',ota_source_no_check:'Not on GitHub: no update check, the update itself still works.',ota_custom_missing:'Enter git URL and branch first.',
     ota_channel_beta:'Beta',
-    ota_channel_help:'Stable tracks git branch main (was bost). Beta = previews. Coming soon: rebrand to PTBS (Personal Tetra Base Station) — please run OTA once on this bridge release.',
+    ota_channel_help:'Default: the repository and branch this station was installed from (also a fork). Stable/Beta = original repository main/beta. Custom git URL = any repository and branch.',
     ota_channel_saved:'✓ Channel saved — checks use {channel} ({branch}).',
     ota_channel_save_fail:'✗ Could not save OTA channel',
     ota_check:'Check for updates',
@@ -8322,7 +8387,7 @@ const LANGS={
     restart_wait_retry:'Retry / Reload',
     restart_wait_timeout:'The station did not come back in time. Check power and run: systemctl status bluestation-bs — then Retry. Only power-cycle as a last resort.',
     system:'System',sys_info:'System Info',sys_hostname:'Hostname',sys_uptime:'Uptime',
-    sys_version:'Bost version',sys_os:'OS',sys_config:'Active Config',
+    sys_version:'Bost version',sys_source:'Installed from',sys_os:'OS',sys_config:'Active Config',
     sys_cpu:'CPU',sys_cpu_load:'CPU Load',sys_ram:'RAM',sys_temp:'CPU Temp',
     network:'Network',network_links:'Links',network_ethernet:'Ethernet',network_wifi_sec:'WiFi',network_primary_hint:'The default-route address is what U-STATUS and outbound traffic use. You can open the dashboard on any listed IP.',network_default_route:'DEFAULT ROUTE',network_iface:'Interface',network_kind:'Type',network_state:'State',network_no_links:'No network interfaces found.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WiFi',network_kind_other:'Other',network_conn_wired:'Wired connection',network_nm_connected:'Connected',network_nm_disconnected:'Disconnected',network_nm_unavailable:'Unavailable',network_nm_connecting:'Connecting',network_nm_disconnecting:'Disconnecting',network_nm_unmanaged:'Unmanaged',network_nm_deactivating:'Deactivating',eth_warn_lose_access:'If you are connected via Ethernet, disconnecting the cable profile may cut off this session. Keep WiFi or another path available.',eth_no_saved:'No saved Ethernet profiles.',eth_connected:'CONNECTED',wifi_status:'Current connection',wifi_saved:'Saved networks',wifi_visible:'Available networks',wifi_loading:'Loading…',wifi_scanning:'Scanning…',wifi_no_device:'No WiFi device detected on this host.',wifi_radio_disabled:'WiFi radio is disabled.',wifi_not_connected:'Not connected to any network.',wifi_no_saved:'No saved networks.',wifi_no_networks:'No networks in range.',wifi_ssid:'Network',wifi_signal:'Signal',wifi_ip:'IP address',wifi_actions:'Actions',wifi_disconnect:'Disconnect',wifi_connect:'Connect',wifi_connect_to:'Connect to',wifi_connecting:'Connecting…',wifi_connected:'CONNECTED',wifi_connected_ok:'Connected.',wifi_saved_tag:'SAVED',wifi_open:'OPEN',wifi_forget:'Forget',wifi_confirm_forget:'Forget network',wifi_password:'Password',wifi_hidden:'Hidden network (SSID not broadcast)',wifi_add_hidden:'Hidden network',wifi_scan:'Scan',wifi_refresh:'Refresh',wifi_radio_off:'Disable WiFi',wifi_radio_on:'Enable WiFi',wifi_warn_lose_access:'If connected to the dashboard via WiFi, changing networks may temporarily disconnect you. Make sure you have a backup access path (Ethernet or known good network).',wifi_reconnect_hint:'Disconnect only drops the active profile — NetworkManager can reconnect automatically. Use Disable WiFi to keep the radio off on purpose.',wifi_err_no_ssid:'SSID required',cancel:'Cancel',sys_sensors:'Host Hardware Sensors',sys_sensors_empty:'No sensors detected on this host.',sys_rf:'RF Hardware (SoapySDR)',sys_autorefresh:'Auto-refresh 5s',
     profile_edit_title:'Edit Config Profile',profile_edit_btn:'Edit',
@@ -8439,19 +8504,19 @@ const LANGS={
     confirm_shutdown:'Oprire Bost FlowStation?\nServiciul se va opri și trebuie repornit manual.',
     confirm_logout:'Deconectare?',
     saved:'✓ Salvat — repornire pentru aplicare.',save_fail:'✗ Salvare eșuată',conn_error:'Eroare de conexiune.',
-    update:'Update',update_available:'Actualizare disponibilă',update_title:'Update OTA — github.com/Aitorrio/bost-flowstation',
+    update:'Update',update_available:'Actualizare disponibilă',update_title:'Update OTA',
     update_confirm:'Descarcă ultima versiune din ramura bost și recompilează?\nServiciul va reporni automat.',
     cr_enhanced:'Versiune îmbunătățită de Aitor, EA4HBL',
     geo_lat:'Latitudine Bost FlowStation',geo_lon:'Longitudine Bost FlowStation',
     setup:'Setup',setup_sec:'Primul pornire / SDR',setup_title:'Setup',setup_open_wizard:'Deschide asistentul',setup_sdr_title:'Dispozitive SDR',
-    setup_scan:'Scanare',setup_install_sx:'Instalează SXceiver',setup_install_lime:'Instalează Lime',setup_install_mucell:'Instalează µCell',
+    setup_scan:'Scanare',setup_install_sx:'Instalează SXceiver',setup_install_lime:'Instalează Lime',setup_install_mucell:'Instalează µCell',setup_install_pluto:'Instalează Pluto',
     setup_enable_rf:'Activează RF și repornește',setup_autostart:'Asigură autostart',setup_mark_done:'Marchează setup finalizat',
     setup_complete_key:'Setup complet',setup_backend_key:'Backend config',setup_device_key:'Device',setup_unit_key:'Unitate systemd',setup_helper_key:'Helper',
     setup_installing:'Se instalează {driver}…',setup_session:'Sesiune expirată — autentifică-te din nou.',
     setup_install_fail:'Instalare eșuată',setup_drv_ok:'Driver instalat (OK).',
     wiz_welcome_title:'Bun venit la Bost FlowStation',wiz_welcome_body:'Acest asistent configurează SDR-ul, parametrii RF și autostart-ul systemd. Panoul web rămâne disponibil chiar dacă radio-ul e offline.',
     wiz_skip:'Omite cu implicite',wiz_continue:'Continuă',wiz_back:'Înapoi',wiz_next:'Următorul',wiz_finish:'Finalizează',wiz_skip_now:'Omite deocamdată',
-    wiz_sdr_title:'Selectează SDR',wiz_sdr_help:'Scanează dispozitive SoapySDR sau instalează un driver (SXceiver / Lime / µCell / USRP).',wiz_device_args:'Argumente device',
+    wiz_sdr_title:'Selectează SDR',wiz_sdr_help:'Scanează dispozitive SoapySDR sau instalează un driver (SXceiver / Lime / µCell / USRP / Pluto).',wiz_device_args:'Argumente device',
     wiz_reboot_title:'Se repornește Pi…',wiz_reboot_body:'µCell necesită reboot pentru overlay-ul device-tree. Pagina revine singură.',
     wiz_reboot_confirm:'Driver µCell instalat. Repornești Pi acum ca placa să poată fi deschisă?',
     wiz_params_title:'RF / Rețea / Brew',wiz_params_help:'Folosește formularele din Config pentru editare completă, sau păstrează implicitele.',
@@ -8614,21 +8679,22 @@ const LANGS={
     confirm_shutdown:'Bost FlowStation herunterfahren?\nDer Dienst wird gestoppt und muss manuell neu gestartet werden.',
     confirm_logout:'Abmelden?',
     saved:'✓ Gespeichert — Neustart zum Anwenden.',save_fail:'✗ Fehler beim Speichern',conn_error:'Verbindungsfehler.',
-    update:'Update',update_available:'Update verfügbar',update_title:'OTA-Update — github.com/Aitorrio/bost-flowstation',
+    update:'Update',update_available:'Update verfügbar',update_title:'OTA-Update',
     update_confirm:'Neueste Version vom bost-Branch holen und neu bauen?\nDer Dienst startet automatisch neu.',
     cr_enhanced:'Verbesserte Version von Aitor, EA4HBL',
     geo_lat:'Bost FlowStation Breitengrad',geo_lon:'Bost FlowStation Längengrad',
     setup:'Setup',setup_sec:'Ersteinrichtung / SDR',setup_title:'Setup',setup_open_wizard:'Assistent öffnen',setup_sdr_title:'SDR-Geräte',
-    setup_scan:'Scannen',setup_install_sx:'SXceiver installieren',setup_install_lime:'Lime installieren',setup_install_mucell:'µCell installieren',
+    setup_scan:'Scannen',setup_install_sx:'SXceiver installieren',setup_install_lime:'Lime installieren',setup_install_mucell:'µCell installieren',setup_install_uhd:'USRP (UHD) installieren',setup_no_sdr:'Keine SDR-Geräte von SoapySDRUtil --find gemeldet.',setup_install_pluto:'Pluto installieren',
     setup_enable_rf:'RF aktivieren & neu starten',setup_autostart:'Autostart sicherstellen',setup_mark_done:'Setup als fertig markieren',
     setup_complete_key:'Setup fertig',setup_backend_key:'Config-Backend',setup_device_key:'Device',setup_unit_key:'Systemd-Unit',setup_helper_key:'Helper',
     setup_installing:'Installiere {driver}…',setup_session:'Sitzung abgelaufen — bitte erneut anmelden.',
     setup_install_fail:'Installation fehlgeschlagen',setup_drv_ok:'Treiber installiert (OK).',
-    wiz_welcome_title:'Willkommen bei Bost FlowStation',wiz_welcome_body:'Dieser Assistent konfiguriert SDR, RF-Parameter und systemd-Autostart. Das Dashboard bleibt auch ohne Radio verfügbar.',
+    wiz_lang_help:'Sprache dieser Station wählen. Sie wird zur Standardsprache von Dashboard und Anmeldeseite; jeder Browser kann im Menü trotzdem eine eigene wählen.',wiz_welcome_title:'Willkommen bei Bost FlowStation',wiz_welcome_body:'Dieser Assistent konfiguriert SDR, RF-Parameter und systemd-Autostart. Das Dashboard bleibt auch ohne Radio verfügbar.',
     wiz_skip:'Mit Standardwerten überspringen',wiz_continue:'Weiter',wiz_back:'Zurück',wiz_next:'Weiter',wiz_finish:'Fertig',wiz_skip_now:'Vorerst überspringen',
-    wiz_sdr_title:'SDR wählen',wiz_sdr_help:'SoapySDR-Geräte scannen oder Treiber installieren (SXceiver / Lime / µCell / USRP).',wiz_device_args:'Device-Argumente',
+    wiz_sdr_title:'SDR wählen',wiz_sdr_help:'SoapySDR-Geräte scannen oder Treiber installieren (SXceiver / Lime / µCell / USRP / Pluto).',wiz_device_args:'Device-Argumente',
     wiz_reboot_title:'Pi wird neu gestartet…',wiz_reboot_body:'µCell braucht einen Neustart, damit das Device-Tree-Overlay geladen wird. Die Seite kommt von selbst zurück.',
     wiz_reboot_confirm:'µCell-Treiber installiert. Pi jetzt neu starten, damit das Board geöffnet werden kann?',
+    wiz_freq_title:'Frequenz',wiz_freq_help:'Downlink-(TX-)Frequenz dieser Station eingeben. Band, Offset, Main Carrier und Uplink (RX) werden daraus berechnet.',wiz_dup:'Duplexabstand',wiz_dup_custom:'eigener (Tabelle im Funkgerät)',wiz_custom_dup_hint:'7,6 wird zu 7.600000 (7600000 Hz). Leer = Tabellenwert.',wiz_reverse:'Reverse operation (RX über TX)',wiz_la:'Location Area',wiz_freq_more:'Alle RF-Einstellungen später unter Config → RF.',wiz_freq_line:'Band {band} · Offset {offset} Hz · Main Carrier {carrier}',
     wiz_params_title:'RF / Netz / Brew',wiz_params_help:'Nutze die Config-Formulare für volle Bearbeitung oder behalte die Standardwerte.',
     wiz_use_defaults:'Aktuelle Standardwerte verwenden',wiz_open_config:'Config öffnen',
     wiz_rf_title:'RF aktivieren',wiz_rf_help:'Setzt phy_io.backend = SoapySdr, speichert device und startet den Dienst neu.',
@@ -8636,12 +8702,19 @@ const LANGS={
     telegram:'Telegram',cfg_sec_profiles:'Profile',cfg_profiles_title:'Szenarien',cfg_apply_restart:'Anwenden & neu starten',
     cfg_cell_profile:'Cell (RF + Netz)',cfg_brew_profile:'Brew-Backhaul',cfg_sec_live:'Live-Einstellungen',cfg_live_title:'In laufende config.toml schreiben',cfg_save_live:'Live speichern',
     cfg_sec_rf:'RF',cfg_rf_title:'Frequenzen',cfg_auto:'Auto RX + Carrier',
+    cfg_help_duplex_id:'Duplex-Tabellen-ID (0-7), wird an die Funkgeräte gesendet. Band 4 (400 MHz): 0 = 10 MHz, 1 = 7 MHz, 3 = 8 MHz, 4 = 5 MHz, 5 = 9,5 MHz. Für einen Abstand außerhalb der Tabelle die ID nehmen, unter der ihn die Funkgeräte haben (z. B. 7), und Eigener Duplex (MHz) setzen.',
+    cfg_help_custom_duplex:'Optionaler Duplexabstand in MHz (z. B. 7,6, gespeichert als 7600000 Hz). Leer = Tabellenwert der Duplex-ID. Gesetzt wird er statt des Tabellenwerts verwendet; die ID wird weiter gesendet.',
+    cfg_custom_duplex:'Eigener Duplex (MHz)',
+    cfg_help_tx:'Downlink-(TX-)Frequenz der BS in MHz. Muss zum RX der Funkgeräte passen. Beim Verlassen des Felds werden Band, Offset, Main Carrier und RX daraus berechnet (mit dem Duplex unten); Auto RX + Carrier macht dasselbe.',
+    cfg_auto_result_full:'Berechnet: Band {band}, Offset {offset} Hz, main_carrier {carrier}, RX {frequency} MHz',
+    cfg_auto_no_table_duplex:'Duplex-ID {id} hat in Band {band} keinen Tabellenwert. Eigenen Duplex (MHz) eintragen.',
+    cfg_auto_band_range:'TX-Frequenz liegt außerhalb der TETRA-Bänder (100-1000 MHz).',
     update_running:'Aktualisierung läuft… Fenster nicht schließen.',
     update_done_ok:'✓ Update abgeschlossen. Neustart…',
     update_done_err:'✗ Update fehlgeschlagen. Siehe Log unten.',
     update_close:'Schließen',
     system:'System',sys_info:'Systeminfo',sys_hostname:'Hostname',sys_uptime:'Laufzeit',
-    sys_os:'OS',sys_version:'Bost-Version',sys_config:'Aktive Konfig',
+    sys_os:'OS',sys_version:'Bost-Version',sys_source:'Installiert von',ota_channel_installed:'Installiertes Repository',ota_channel_custom:'Eigene Git-URL',ota_custom_repo:'Git-URL',ota_custom_branch:'Branch',ota_source_line:'Updates kommen von {repo} · {branch}.',ota_source_no_check:'Nicht auf GitHub: keine Update-Prüfung, das Update selbst geht trotzdem.',ota_custom_missing:'Zuerst Git-URL und Branch eintragen.',ota_channel_help:'Standard: das Repository und der Branch, von dem die Station installiert wurde (auch ein Fork). Stable/Beta = Original-Repository main/beta. Eigene Git-URL = beliebiges Repository mit Branch.',sys_config:'Aktive Konfig',
     sys_cpu:'CPU',sys_cpu_load:'CPU-Auslastung',sys_ram:'RAM',sys_temp:'CPU-Temp',
     network:'Netzwerk',network_links:'Verbindungen',network_ethernet:'Ethernet',network_wifi_sec:'WLAN',network_primary_hint:'Die Standardroute-Adresse nutzen U-STATUS und ausgehender Verkehr. Das Dashboard ist über jede gelistete IP erreichbar.',network_default_route:'STANDARDROUTE',network_iface:'Schnittstelle',network_kind:'Typ',network_state:'Status',network_no_links:'Keine Netzwerkschnittstellen gefunden.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WLAN',network_kind_other:'Andere',network_conn_wired:'Kabelverbindung',network_nm_connected:'Verbunden',network_nm_disconnected:'Getrennt',network_nm_unavailable:'Nicht verfügbar',network_nm_connecting:'Verbinden',network_nm_disconnecting:'Trennen',network_nm_unmanaged:'Nicht verwaltet',network_nm_deactivating:'Deaktivieren',eth_warn_lose_access:'Wenn Sie per Ethernet verbunden sind, kann das Trennen des Profils diese Sitzung unterbrechen. Halten Sie WLAN oder einen anderen Weg bereit.',eth_no_saved:'Keine gespeicherten Ethernet-Profile.',eth_connected:'VERBUNDEN',wifi_status:'Aktuelle Verbindung',wifi_saved:'Gespeicherte Netzwerke',wifi_visible:'Verfügbare Netzwerke',wifi_loading:'Wird geladen…',wifi_scanning:'Suche läuft…',wifi_no_device:'Kein WLAN-Gerät erkannt.',wifi_radio_disabled:'WLAN-Funk ist deaktiviert.',wifi_not_connected:'Mit keinem Netzwerk verbunden.',wifi_no_saved:'Keine gespeicherten Netzwerke.',wifi_no_networks:'Keine Netzwerke in Reichweite.',wifi_ssid:'Netzwerk',wifi_signal:'Signal',wifi_ip:'IP-Adresse',wifi_actions:'Aktionen',wifi_disconnect:'Trennen',wifi_connect:'Verbinden',wifi_connect_to:'Verbinden mit',wifi_connecting:'Verbinde…',wifi_connected:'VERBUNDEN',wifi_connected_ok:'Verbunden.',wifi_saved_tag:'GESPEICHERT',wifi_open:'OFFEN',wifi_forget:'Vergessen',wifi_confirm_forget:'Netzwerk vergessen',wifi_password:'Passwort',wifi_hidden:'Verstecktes Netzwerk (SSID nicht gesendet)',wifi_add_hidden:'Verstecktes Netzwerk',wifi_scan:'Suchen',wifi_refresh:'Aktualisieren',wifi_radio_off:'WLAN deaktivieren',wifi_radio_on:'WLAN aktivieren',wifi_warn_lose_access:'Wenn Sie über WLAN mit dem Dashboard verbunden sind, kann ein Netzwerkwechsel die Verbindung trennen. Stellen Sie sicher, dass Sie einen alternativen Zugang haben.',wifi_err_no_ssid:'SSID erforderlich',cancel:'Abbrechen',sys_sensors:'Host-Hardware-Sensoren',sys_sensors_empty:'Keine Sensoren erkannt.',sys_rf:'RF-Hardware (SoapySDR)',sys_autorefresh:'Auto-Aktualisierung 5s',
     profile_edit_title:'Konfigprofil bearbeiten',profile_edit_btn:'Bearbeiten',
@@ -8691,17 +8764,18 @@ const LANGS={
     stations:'Inicio',calls:'Llamadas',lastheard:'Última Actividad',log:'Log',rf:'RF',health:'Salud',asterisk:'Asterisk SIP',dapnet:'DAPNET',echolink:'EchoLink',echolink_title:'EchoLink',meshcom:'MeshCom',meshcom_title:'MeshCom',geoalarm:'GeoAlarm',geoalarm_title:'GeoAlarm',setup:'Setup',config:'Config',
     home_quick_title:'Perfiles rápidos',home_more_settings:'Más ajustes',
     setup_sec:'Primer arranque / SDR',setup_title:'Setup',setup_open_wizard:'Abrir asistente',setup_sdr_title:'Dispositivos SDR',
-    setup_scan:'Escanear',setup_install_sx:'Instalar SXceiver',setup_install_lime:'Instalar Lime',setup_install_mucell:'Instalar µCell',setup_install_uhd:'Instalar USRP (UHD)',
+    setup_scan:'Escanear',setup_install_sx:'Instalar SXceiver',setup_install_lime:'Instalar Lime',setup_install_mucell:'Instalar µCell',setup_no_sdr:'SoapySDRUtil --find no ha detectado ningún SDR.',setup_install_pluto:'Instalar Pluto',setup_install_uhd:'Instalar USRP (UHD)',
     setup_enable_rf:'Activar RF y reiniciar',setup_autostart:'Asegurar autostart',setup_mark_done:'Marcar setup hecho',
     setup_complete_key:'Setup completo',setup_backend_key:'Backend config',setup_device_key:'Device',
     setup_unit_key:'Unidad systemd',setup_helper_key:'Helper',
     setup_installing:'Instalando {driver}…',setup_session:'La sesión ha caducado. Entra de nuevo y reintenta.',
     setup_install_fail:'No se pudo instalar',setup_drv_ok:'Driver instalado (OK).',
-    wiz_welcome_title:'Bienvenido a Bost FlowStation',wiz_welcome_body:'Este asistente configura el SDR, parámetros RF y el arranque automático. El panel web sigue disponible aunque la radio esté apagada.',
+    wiz_lang_help:'Elige el idioma de esta estación. Será el idioma por defecto del panel y de la página de acceso; cada navegador puede elegir el suyo en el menú.',wiz_welcome_title:'Bienvenido a Bost FlowStation',wiz_welcome_body:'Este asistente configura el SDR, parámetros RF y el arranque automático. El panel web sigue disponible aunque la radio esté apagada.',
     wiz_skip:'Omitir con valores por defecto',wiz_continue:'Continuar',wiz_back:'Atrás',wiz_next:'Siguiente',wiz_finish:'Finalizar',wiz_skip_now:'Omitir por ahora',
-    wiz_sdr_title:'Seleccionar SDR',wiz_sdr_help:'Escanea dispositivos SoapySDR o instala un driver (SXceiver / Lime / µCell / USRP).',wiz_device_args:'Argumentos device',
+    wiz_sdr_title:'Seleccionar SDR',wiz_sdr_help:'Escanea dispositivos SoapySDR o instala un driver (SXceiver / Lime / µCell / USRP / Pluto).',wiz_device_args:'Argumentos device',
     wiz_reboot_title:'Reiniciando la Pi…',wiz_reboot_body:'µCell necesita reiniciar para cargar el overlay del device-tree. La página volverá sola.',
     wiz_reboot_confirm:'Driver µCell instalado. ¿Reiniciar la Pi ahora para que la placa se pueda abrir?',
+    wiz_freq_title:'Frecuencia',wiz_freq_help:'Introduce la frecuencia de bajada (TX) de esta estación. Banda, offset, main carrier y subida (RX) se calculan a partir de ella.',wiz_dup:'Separación dúplex',wiz_dup_custom:'propia (tabla de la radio)',wiz_custom_dup_hint:'7,6 se completa a 7.600000 (7600000 Hz). Vacío = valor de tabla.',wiz_reverse:'Operación inversa (RX por encima de TX)',wiz_la:'Location area',wiz_freq_more:'Todos los ajustes RF, más tarde en Config → RF.',wiz_freq_line:'Banda {band} · Offset {offset} Hz · Main carrier {carrier}',
     wiz_params_title:'RF / Red / Brew',wiz_params_help:'Usa los formularios de Config para editar todo, o mantén los valores por defecto.',
     wiz_use_defaults:'Usar valores actuales por defecto',wiz_open_config:'Abrir Config',
     wiz_rf_title:'Activar RF',wiz_rf_help:'Pone phy_io.backend = SoapySdr, guarda el device y reinicia el servicio.',
@@ -8910,13 +8984,16 @@ const LANGS={
     svc_standby_will_start:'El servicio está en espera. “{action}” lo iniciará de nuevo. ¿Continuar?',
     saved:'✓ Guardado — reinicia para aplicar.',save_fail:'✗ Error al guardar',conn_error:'Error de conexión.',
     cfg_timers_hint:'Temporizadores: vacío/reset = default del motor. Pulsa «?» en cada campo para detalles. Call timeout 0 = ilimitado; T351 0 = off.',
-    cfg_help_tx:'Frecuencia de bajada (TX) de la BTS en MHz. Debe coincidir con el RX de las radios. Tras fijar TX, usa Auto RX + carrier si puedes.',
+    cfg_help_tx:'Frecuencia de bajada (TX) de la BTS en MHz. Debe coincidir con el RX de las radios. Al salir del campo se calculan banda, offset, main carrier y RX (con el dúplex de abajo); Auto RX + carrier hace lo mismo.',
     cfg_help_rx:'Frecuencia de subida (RX) de la BTS en MHz. Suele ser TX menos el dúplex. Auto RX + carrier puede calcularla.',
     cfg_help_colour:'Colour code TETRA 0–63. Todas las radios de la celda deben usar el mismo.',
     cfg_help_main_carrier:'Número de portadora del canal de control principal. Prefiere Auto RX + carrier salvo que sepas el valor.',
     cfg_help_freq_band:'Id de banda (ETSI). El 4 es habitual en 400 MHz amateur — cámbialo solo si conoces tu plan.',
-    cfg_help_duplex_id:'Id de tabla de dúplex. Déjalo por defecto salvo dúplex no estándar; si hace falta usa Dúplex personalizado (MHz).',
-    cfg_help_custom_duplex:'Separación de dúplex en MHz — p. ej. 9 para una separación de 9 MHz, o 7,6. Vacío = usar el id de tabla. Si lo rellenas, manda sobre el id, y Auto RX + carrier la usa para calcular RX.',
+    cfg_help_duplex_id:'Id de tabla de dúplex (0-7), se envía a las radios. En banda 4 (400 MHz): 0 = 10 MHz, 1 = 7 MHz, 3 = 8 MHz, 4 = 5 MHz, 5 = 9,5 MHz. Para una separación fuera de la tabla usa el id que tengan tus radios (p. ej. 7) y rellena Dúplex personalizado (MHz).',
+    cfg_help_custom_duplex:'Separación de dúplex en MHz (p. ej. 7,6, se guarda como 7600000 Hz). Vacío = valor de tabla del id. Si lo rellenas se usa en lugar del valor de tabla; el id se sigue enviando.',
+    cfg_auto_result_full:'Calculado: banda {band}, offset {offset} Hz, main_carrier {carrier}, RX {frequency} MHz',
+    cfg_auto_no_table_duplex:'El id de dúplex {id} no tiene valor de tabla en la banda {band}. Rellena Dúplex personalizado (MHz).',
+    cfg_auto_band_range:'La frecuencia TX está fuera de las bandas TETRA (100-1000 MHz).',
     cfg_help_freq_offset:'Offset fino de portadora en Hz (±6250 / ±12500). Normalmente 0.',
     cfg_help_reverse:'Invierte el sentido UL/DL del dúplex. Raro; déjalo apagado salvo que tu plan lo exija.',
     cfg_rxlev_min:'Nivel mín. de acceso (dBm)',cfg_rxlev_default:'Por defecto (−110)',cfg_help_rxlev_min:'RXLEV_ACCESS_MIN en SYSINFO (ETSI tabla 21.65): las radios por debajo de este nivel no pueden usar la celda, y un valor más alto hace que reseleccionen antes una vecina mejor. −125 a −50 dBm en pasos de 5 dB; por defecto −110. Usa el mismo valor en las estaciones vecinas o ajústalo por vecina. Ver Docs/cell-reselection.md.',cfg_migration:'Migración admitida',cfg_help_migration:'Detalles de servicio en SYSINFO: esta celda admite migración (ETSI 18.5.2.1), para radios de otra red (otro MCC/MNC). Las radios de otra red solo se aceptan si [multi_network] está activo y lista su red: reciben una (V)ASSI (ETSI 16.4.1.1 b, 16.4.7). Si no, todo registro migrante se rechaza con la causa 12 “Migration not supported”. Se activa solo mientras [multi_network] está activo. Apagado por defecto.',cfg_migration_auto:'Activa sola: [multi_network] está habilitado.',
@@ -8952,12 +9029,12 @@ const LANGS={
     cfg_help_brew_lip:'Reenvía cada informe LIP UL a Brew hacia el ISSI de abajo, digan lo que digan las radios como destino.',
     cfg_help_brew_lip_issi:'ISSI de destino en Brew para LIP capturado (1–16777215).',
     cfg_brew_sds:'Reenvío SDS',cfg_brew_rssi:'Exportar RSSI',cfg_brew_lip:'Reenvío de LIP',cfg_brew_lip_issi:'ISSI de destino de LIP a través de Brew',
-    update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA — github.com/Aitorrio/bost-flowstation',
+    update:'Actualizar',update_available:'Actualización disponible',update_title:'Actualización OTA',
     update_confirm:'¿Obtener lo último del canal {channel} (rama {branch}) y recompilar?\nEl servicio se reiniciará automáticamente si hace falta una build nueva.',
     ota_channel_title:'Canal OTA',
-    ota_channel_stable:'Estable (main)',
+    ota_channel_stable:'Estable (main)',ota_channel_installed:'Repositorio instalado',ota_channel_custom:'URL git propia',ota_custom_repo:'URL git',ota_custom_branch:'Rama',ota_source_line:'Las actualizaciones vienen de {repo} · {branch}.',ota_source_no_check:'No está en GitHub: sin comprobación de actualizaciones, la actualización funciona igual.',ota_custom_missing:'Introduce primero la URL git y la rama.',
     ota_channel_beta:'Beta',
-    ota_channel_help:'Estable sigue la rama git main (antes bost). Beta = novedades. Próximo rebrand a PTBS (Personal Tetra Base Station) — haz OTA una vez con esta versión puente.',
+    ota_channel_help:'Por defecto: el repositorio y la rama desde los que se instaló la estación (también un fork). Estable/Beta = repositorio original main/beta. URL git propia = cualquier repositorio y rama.',
     ota_channel_saved:'✓ Canal guardado — las comprobaciones usan {channel} ({branch}).',
     ota_channel_save_fail:'✗ No se pudo guardar el canal OTA',
     ota_check:'Comprobar actualizaciones',
@@ -9004,7 +9081,7 @@ const LANGS={
     restart_wait_retry:'Reintentar / Recargar',
     restart_wait_timeout:'La estación no ha vuelto a tiempo. Revisa la alimentación y ejecuta: systemctl status bluestation-bs — luego Reintentar. Solo corta la corriente como último recurso.',
     system:'Sistema',sys_info:'Info del Sistema',sys_hostname:'Hostname',sys_uptime:'Tiempo activo',
-    sys_os:'OS',sys_version:'Versión Bost',sys_config:'Config Activa',
+    sys_os:'OS',sys_version:'Versión Bost',sys_source:'Instalado desde',sys_config:'Config Activa',
     sys_cpu:'CPU',sys_cpu_load:'Carga CPU',sys_ram:'RAM',sys_temp:'Temp CPU',
     network:'Red',network_links:'Enlaces',network_ethernet:'Ethernet',network_wifi_sec:'WiFi',network_primary_hint:'La dirección de la ruta por defecto es la que usan U-STATUS y el tráfico saliente. Puedes abrir el dashboard con cualquiera de las IPs listadas.',network_default_route:'RUTA POR DEFECTO',network_iface:'Interfaz',network_kind:'Tipo',network_state:'Estado',network_no_links:'No se encontraron interfaces de red.',network_kind_ethernet:'Ethernet',network_kind_wifi:'WiFi',network_kind_other:'Otra',network_conn_wired:'Conexión cableada',network_nm_connected:'Conectado',network_nm_disconnected:'Desconectado',network_nm_unavailable:'No disponible',network_nm_connecting:'Conectando',network_nm_disconnecting:'Desconectando',network_nm_unmanaged:'Sin gestionar',network_nm_deactivating:'Desactivando',eth_warn_lose_access:'Si estás conectado por Ethernet, desconectar el perfil cableado puede cortar esta sesión. Mantén WiFi u otra vía disponible.',eth_no_saved:'Sin perfiles Ethernet guardados.',eth_connected:'CONECTADO',wifi_status:'Conexión actual',wifi_saved:'Redes guardadas',wifi_visible:'Redes disponibles',wifi_loading:'Cargando…',wifi_scanning:'Escaneando…',wifi_no_device:'No se detectó dispositivo WiFi.',wifi_radio_disabled:'Radio WiFi desactivada.',wifi_not_connected:'No conectado a ninguna red.',wifi_no_saved:'Sin redes guardadas.',wifi_no_networks:'Sin redes en rango.',wifi_ssid:'Red',wifi_signal:'Señal',wifi_ip:'Dirección IP',wifi_actions:'Acciones',wifi_disconnect:'Desconectar',wifi_connect:'Conectar',wifi_connect_to:'Conectar a',wifi_connecting:'Conectando…',wifi_connected:'CONECTADO',wifi_connected_ok:'Conectado.',wifi_saved_tag:'GUARDADO',wifi_open:'ABIERTO',wifi_forget:'Olvidar',wifi_confirm_forget:'Olvidar red',wifi_password:'Contraseña',wifi_hidden:'Red oculta (SSID no difundido)',wifi_add_hidden:'Red oculta',wifi_scan:'Escanear',wifi_refresh:'Actualizar',wifi_radio_off:'Desactivar WiFi',wifi_radio_on:'Activar WiFi',wifi_warn_lose_access:'Si estás conectado al dashboard vía WiFi, cambiar de red puede desconectarte temporalmente. Asegúrate de tener una vía de acceso alternativa.',wifi_reconnect_hint:'Desconectar solo baja el perfil activo - NetworkManager puede reconectar solo. Usa Desactivar WiFi para dejar la radio apagada a proposito.',wifi_err_no_ssid:'SSID requerido',cancel:'Cancelar',sys_sensors:'Sensores del Sistema',sys_sensors_empty:'No se detectaron sensores.',sys_rf:'Hardware RF (SoapySDR)',sys_autorefresh:'Auto-actualización 5s',
     profile_edit_title:'Editar Perfil Config',profile_edit_btn:'Editar',
@@ -9076,7 +9153,7 @@ const LANGS={
     confirm_shutdown:'Leállítja a Bost FlowStation-t?\nA szolgáltatást kézzel kell újraindítani.',
     confirm_logout:'Kijelentkezik?',
     saved:'✓ Mentve — újraindítás szükséges az alkalmazáshoz.',save_fail:'✗ Mentési hiba',conn_error:'Kapcsolódási hiba.',
-    update:'Frissítés',update_available:'Elérhető frissítés',update_title:'OTA frissítés — github.com/Aitorrio/bost-flowstation',
+    update:'Frissítés',update_available:'Elérhető frissítés',update_title:'OTA frissítés',
     update_confirm:'Letölti a legújabb verziót a bost ágból és újraépíti?\nA szolgáltatás automatikusan újraindul.',
     cr_enhanced:'Fejlesztett verzió: Aitor, EA4HBL',
     geo_lat:'Bost FlowStation szélesség',geo_lon:'Bost FlowStation hosszúság',
@@ -9164,7 +9241,7 @@ const LANGS={
     confirm_shutdown:'确定关闭 Bost FlowStation？\n服务将停止，需要手动重启。',
     confirm_logout:'确定注销吗？',
     saved:'✓ 已保存 — 重启后生效',save_fail:'✗ 保存失败',conn_error:'连接错误',
-    update:'更新',update_available:'有可用更新',update_title:'OTA 在线更新 — github.com/Aitorrio/bost-flowstation',
+    update:'更新',update_available:'有可用更新',update_title:'OTA 在线更新',
     update_confirm:'是否从 bost 分支拉取最新代码并重新构建？\n服务将自动重启。',
     cr_enhanced:'改进版本：Aitor, EA4HBL',
     geo_lat:'Bost FlowStation 纬度',geo_lon:'Bost FlowStation 经度',
@@ -9278,6 +9355,7 @@ const LANGS={
     "setup_install_sx": "Instalar SXceiver",
     "setup_install_lime": "Instalar Lime",
     "setup_install_mucell": "Instalar µCell",
+    "setup_install_pluto": "Instalar Pluto",
     "setup_install_uhd": "Instalar USRP (UHD)",
     "setup_enable_rf": "Ativar RF e reiniciar",
     "setup_autostart": "Ativar arranque automático",
@@ -9300,7 +9378,7 @@ const LANGS={
     "wiz_finish": "Concluir",
     "wiz_skip_now": "Ignorar por agora",
     "wiz_sdr_title": "Selecionar SDR",
-    "wiz_sdr_help": "Procura dispositivos SoapySDR ou instala um driver (SXceiver / Lime / µCell / USRP).",
+    "wiz_sdr_help": "Procura dispositivos SoapySDR ou instala um driver (SXceiver / Lime / µCell / USRP / Pluto).",
     "wiz_device_args": "Argumentos do dispositivo",
     "wiz_reboot_title": "A reiniciar o Pi…",
     "wiz_reboot_body": "O µCell precisa de um reinício para carregar o device-tree overlay. A página será restabelecida automaticamente.",
@@ -9915,7 +9993,7 @@ const LANGS={
     "cfg_updated": "✓ Perfil guardado",
     "update": "Atualizar",
     "update_available": "Atualização disponível",
-    "update_title": "Atualização OTA — github.com/Aitorrio/bost-flowstation",
+    "update_title": "Atualização OTA",
     "update_confirm": "Obter a versão mais recente do canal {channel} (branch {branch}) e recompilar?\nO serviço reiniciará automaticamente se for necessária uma nova compilação.",
     "ota_channel_title": "Canal OTA",
     "ota_channel_stable": "Estável (main)",
@@ -10538,6 +10616,7 @@ const LANGS={
     "setup_install_sx": "Installer SXceiver",
     "setup_install_lime": "Installer Lime",
     "setup_install_mucell": "Installer µCell",
+    "setup_install_pluto": "Installer Pluto",
     "setup_install_uhd": "Installer USRP (UHD)",
     "setup_enable_rf": "Activer la RF et redémarrer",
     "setup_autostart": "Activer le démarrage automatique",
@@ -10560,7 +10639,7 @@ const LANGS={
     "wiz_finish": "Terminer",
     "wiz_skip_now": "Ignorer pour le moment",
     "wiz_sdr_title": "Sélectionner le SDR",
-    "wiz_sdr_help": "Recherchez les périphériques SoapySDR ou installez un pilote (SXceiver / Lime / µCell / USRP).",
+    "wiz_sdr_help": "Recherchez les périphériques SoapySDR ou installez un pilote (SXceiver / Lime / µCell / USRP / Pluto).",
     "wiz_device_args": "Arguments du périphérique",
     "wiz_reboot_title": "Redémarrage du Pi…",
     "wiz_reboot_body": "µCell nécessite un redémarrage pour charger le device-tree overlay. La page se reconnectera automatiquement.",
@@ -11175,7 +11254,7 @@ const LANGS={
     "cfg_updated": "✓ Profil enregistré",
     "update": "Mettre à jour",
     "update_available": "Mise à jour disponible",
-    "update_title": "Mise à jour OTA — github.com/Aitorrio/bost-flowstation",
+    "update_title": "Mise à jour OTA",
     "update_confirm": "Récupérer la dernière version du canal {channel} (branche {branch}) et recompiler ?\nLe service redémarrera automatiquement si une nouvelle compilation est nécessaire.",
     "ota_channel_title": "Canal OTA",
     "ota_channel_stable": "Stable (main)",
@@ -11724,9 +11803,12 @@ const LANGS={
 
 function dashboardLanguage(value){
   const code=String(value||'').toLowerCase().split('-')[0];
-  return Object.prototype.hasOwnProperty.call(LANGS,code)?code:'es';
+  return Object.prototype.hasOwnProperty.call(LANGS,code)?code:'en';
 }
-let currentLang=dashboardLanguage(localStorage.getItem('fs_lang')||navigator.language||'es');
+// Station default language ([dashboard] language, set in the Setup wizard; filled in by the
+// server). Order: this browser's own choice, the station default, the browser language, English.
+const STATION_LANG=(s=>s.indexOf('{{')===0?'':s)('{{STATION_LANG}}');
+let currentLang=dashboardLanguage(localStorage.getItem('fs_lang')||STATION_LANG||navigator.language||'en');
 function t(k,v){let s=(LANGS[currentLang]||LANGS.en)[k]||(LANGS.en[k]||k);if(v)Object.keys(v).forEach(x=>{s=s.replace('{'+x+'}',v[x]);});return s;}
 function applyLang(){
   document.documentElement.lang=currentLang==='pt'?'pt-PT':currentLang;
@@ -16685,23 +16767,59 @@ async function applyRawConfigAndRestart(){
     beginServiceRestartWait();
   }catch(e){setConfigMsg(String(e),false);}
 }
-function autoCalcCarrier(){
+// Duplex spacing table in kHz, [duplex_spacing id][freq_band], same as
+// TETRA_DUPLEX_SPACING in tetra-core freqs.rs. null = no value in the table.
+const TETRA_DUPLEX_KHZ=[
+  [null,1600,10000,10000,10000,10000,10000,null,null,null,null,null,null,null,null,null],
+  [null,4500,null,36000,7000,null,null,null,45000,45000,null,null,null,null,null,null],
+  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+  [null,null,null,8000,8000,null,null,null,18000,18000,null,null,null,null,null,null],
+  [null,null,null,18000,5000,null,30000,30000,null,39000,null,null,null,null,null,null],
+  [null,null,null,null,9500,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]];
+const TETRA_FREQ_OFFSETS=[0,6250,-6250,12500];
+// TX (downlink) frequency -> freq_band, freq_offset, main_carrier and RX.
+// DL = band*100 MHz + carrier*25 kHz + offset, UL = DL -/+ duplex (reverse).
+// quiet: run from a field blur; then only a result or a real problem is shown.
+function autoCalcCarrier(quiet){
   const txMhz=normalizeMhzField(document.getElementById('vc-tx-freq'));
-  const band=vcNum('vc-freq-band')??4;
-  const reverse=!!document.getElementById('vc-reverse')?.checked;
-  const offset=vcNum('vc-freq-offset')??0;
+  if(txMhz===null){if(!quiet)vcMsg('vc-rf-msg',t("ui_tx_freq_required"),false);return;}
+  if(!Number.isFinite(txMhz))return;
   const duplexMhz=normalizeMhzField(document.getElementById('vc-custom-duplex'),{min:0.025,max:100,allowEmpty:true,invalidKey:'cfg_duplex_invalid'});
   if(duplexMhz!==null&&!Number.isFinite(duplexMhz))return;
-  const duplex=duplexMhz===null?5000000:Math.round(duplexMhz*1e6);
-  if(txMhz===null||!Number.isFinite(txMhz)){vcMsg('vc-rf-msg',t("ui_tx_freq_required"),false);return;}
-  if(band!==4){vcMsg('vc-rf-msg',t('cfg_auto_band_required'),false);return;}
-  if(reverse){vcMsg('vc-rf-msg',t('cfg_auto_reverse_required'),false);return;}
+  const reverse=!!document.getElementById('vc-reverse')?.checked;
   const tx=Math.round(txMhz*1e6);
-  const main=(tx-400000000-offset)/25000;
-  if(!Number.isInteger(main)){vcMsg('vc-rf-msg',t("ui_main_carrier_is_not_an_integer"),false);return;}
+  const band=Math.floor(tx/1e8);
+  if(band<1||band>15){vcMsg('vc-rf-msg',t('cfg_auto_band_range'),false);return;}
+  const curOffset=vcNum('vc-freq-offset')??0;
+  const offsets=[curOffset].concat(TETRA_FREQ_OFFSETS.filter(o=>o!==curOffset));
+  let main=null,offset=0;
+  for(const o of offsets){
+    const c=(tx-band*1e8-o)/25000;
+    if(Number.isInteger(c)&&c>=0&&c<=3999){main=c;offset=o;break;}
+  }
+  if(main===null){vcMsg('vc-rf-msg',t("ui_main_carrier_is_not_an_integer"),false);return;}
+  const dupId=vcNum('vc-duplex-id')??4;
+  let duplex;
+  if(duplexMhz!==null){duplex=Math.round(duplexMhz*1e6);}
+  else{
+    const khz=(TETRA_DUPLEX_KHZ[dupId]||[])[band];
+    if(khz==null){vcMsg('vc-rf-msg',t('cfg_auto_no_table_duplex',{id:dupId,band:band}),false);return;}
+    duplex=khz*1000;
+  }
+  const rx=reverse?tx+duplex:tx-duplex;
+  vcSet('vc-freq-band',band);
+  vcSet('vc-freq-offset',String(offset));
   vcSet('vc-main-carrier',main);
-  vcSet('vc-rx-freq',hzToMhzDisplay(tx-duplex));
-  vcMsg('vc-rf-msg',t('cfg_auto_result',{carrier:main,frequency:hzToMhzDisplay(tx-duplex),duplex:(Math.round(duplex/1e3)/1e3)}),true);
+  onVcMainCarrierChange();
+  vcSet('vc-rx-freq',hzToMhzDisplay(rx));
+  vcMsg('vc-rf-msg',t('cfg_auto_result_full',{carrier:main,band:band,offset:offset,frequency:hzToMhzDisplay(rx)}),true);
+}
+// Recalculate when TX or the duplex settings change and a TX is entered.
+function autoCalcIfTx(){
+  const el=document.getElementById('vc-tx-freq');
+  if(el&&el.value.trim()!=='')autoCalcCarrier(true);
 }
 async function openCellProfileSheet(mode){
   if(cfgSheetKind){vcMsg('vc-profiles-msg',t('cfg_sheet_busy'),false);return;}
@@ -18555,24 +18673,23 @@ async function checkOtaInModal(){
   setOtaChannelHintKey('ota_checking');
   try{
     const sel=document.getElementById('ota-channel-select');
-    const channel=(sel&&sel.value)||'stable';
+    const body=otaChannelBody();
+    const channel=body.channel;
+    if(channel==='custom'&&(!body.repo||!body.branch)){setOtaChannelHintKey('ota_custom_missing');return;}
     const saveR=await fetch('/api/update/channel',{
       method:'POST',
       credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({channel}),
+      body:JSON.stringify(body),
     });
-    if(!saveR.ok)throw new Error('channel save failed');
+    if(!saveR.ok)throw new Error('channel save failed: '+(await saveR.text().catch(()=>'')));
     const saved=await saveR.json();
-    otaChannelCache={channel:saved.channel||channel,branch:saved.branch||(channel==='beta'?'beta':'main')};
+    otaApplyChannelInfo(saved,channel);
 
     const r=await fetch('/api/update/check?refresh=1&notes=1',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)throw new Error('check http '+r.status);
     const d=await r.json();
-    if(d&&d.channel){
-      otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'main')};
-      if(sel)sel.value=otaChannelCache.channel;
-    }
+    if(d&&d.channel)otaApplyChannelInfo({channel:d.channel,branch:d.branch});
     applyUpdateCheckUi(d);
     if(d.check_failed){
       setOtaChannelHintKey('ota_check_failed');
@@ -19771,6 +19888,16 @@ function renderSystemInfo(opts){
   opts=opts||{};
     document.getElementById('sysHostname').textContent=sysData.hostname||'—';
     document.getElementById('sysVersion').textContent=sysData.stack_version||'—';
+    const srcEl=document.getElementById('sysSource');
+    if(srcEl){
+      const repo=sysData.source_repo||'', br=sysData.source_branch||'';
+      if(!repo){srcEl.textContent='—';}
+      else{
+        const web=/^https:\/\//.test(repo)?repo+(br?'/tree/'+encodeURI(br):''):'';
+        const label=escHtml(repo.replace(/^https:\/\//,''))+(br?' · <b>'+escHtml(br)+'</b>':'');
+        srcEl.innerHTML=web?'<a href="'+escHtmlAttr(web)+'" target="_blank" rel="noopener">'+label+'</a>':label;
+      }
+    }
     document.getElementById('sysOs').textContent=sysData.os||'—';
     document.getElementById('sysConfigPath').textContent=sysData.config_path||'—';
 
@@ -21200,7 +21327,7 @@ window.addEventListener('resize', () => {
 // Best-effort: query GitHub for the latest OTA tip once at boot (and when System
 // is opened). If a newer version exists, show the sidebar glance badge + System
 // banner and highlight the Update button. Failures are silent.
-let otaChannelCache={channel:'stable',branch:'main'};
+let otaChannelCache={channel:'installed',branch:'main'};
 let otaLastCheck=null;
 function applyUpdateCheckUi(d){
   if(d)otaLastCheck=d;
@@ -21223,35 +21350,88 @@ function applyUpdateCheckUi(d){
     if(btnLabel)btnLabel.textContent=t('update');
   }
 }
+// OTA source: channel plus, for "custom", git URL and branch. The server answers with the
+// resolved source (repo, branch) and the installed checkout.
+function otaChannelBody(){
+  const sel=document.getElementById('ota-channel-select');
+  const channel=(sel&&sel.value)||'installed';
+  const body={channel};
+  if(channel==='custom'){
+    body.repo=(document.getElementById('ota-custom-repo')?.value||'').trim();
+    body.branch=(document.getElementById('ota-custom-branch')?.value||'').trim();
+  }
+  return body;
+}
+function otaApplyChannelInfo(d,fallback){
+  if(!d)return;
+  const prev=otaChannelCache||{};
+  otaChannelCache={
+    channel:d.channel||fallback||prev.channel||'installed',
+    branch:d.branch||prev.branch||'main',
+    repo:d.repo!==undefined?d.repo:prev.repo,
+    installed_repo:d.installed_repo!==undefined?d.installed_repo:prev.installed_repo,
+    installed_branch:d.installed_branch!==undefined?d.installed_branch:prev.installed_branch,
+    github:d.github!==undefined?d.github:prev.github,
+  };
+  const sel=document.getElementById('ota-channel-select');
+  if(sel)sel.value=otaChannelCache.channel;
+  const inst=sel&&sel.querySelector('option[value="installed"]');
+  if(inst){
+    const r=otaChannelCache.installed_repo, b=otaChannelCache.installed_branch;
+    inst.textContent=t('ota_channel_installed')+(r?' — '+r.replace(/^https:\/\//,'')+(b?' · '+b:''):'');
+  }
+  const repoIn=document.getElementById('ota-custom-repo'), brIn=document.getElementById('ota-custom-branch');
+  if(repoIn&&d.custom_repo!==undefined&&document.activeElement!==repoIn)repoIn.value=d.custom_repo||'';
+  if(brIn&&d.custom_branch!==undefined&&document.activeElement!==brIn)brIn.value=d.custom_branch||'';
+  otaShowCustomFields();
+  const line=document.getElementById('ota-source-line');
+  if(line&&otaChannelCache.repo){
+    line.textContent=t('ota_source_line',{repo:otaChannelCache.repo.replace(/^https:\/\//,''),branch:otaChannelCache.branch})
+      +(otaChannelCache.github===false?' '+t('ota_source_no_check'):'');
+  }
+}
+function otaShowCustomFields(){
+  const sel=document.getElementById('ota-channel-select');
+  const box=document.getElementById('ota-custom-fields');
+  if(box)box.style.display=(sel&&sel.value==='custom')?'block':'none';
+}
+function onOtaChannelSelect(){
+  otaShowCustomFields();
+  const b=otaChannelBody();
+  // A custom source is saved once URL and branch are filled in.
+  if(b.channel==='custom'&&(!b.repo||!b.branch)){document.getElementById('ota-custom-repo')?.focus();return;}
+  saveOtaChannel();
+}
 async function loadOtaChannel(){
   try{
     const r=await fetch('/api/update/channel',{credentials:'same-origin',cache:'no-store'});
     if(!r.ok)return;
     const d=await r.json();
     if(!d||!d.channel)return;
-    otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'main')};
-    const sel=document.getElementById('ota-channel-select');
-    if(sel)sel.value=otaChannelCache.channel;
+    otaApplyChannelInfo(d);
   }catch{/* silent */}
 }
 async function saveOtaChannel(){
   const sel=document.getElementById('ota-channel-select');
   if(!sel)return;
-  const channel=sel.value||'stable';
+  const body=otaChannelBody();
+  const channel=body.channel;
+  if(channel==='custom'&&(!body.repo||!body.branch))return;
   try{
     const r=await fetch('/api/update/channel',{
       method:'POST',
       credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({channel}),
+      body:JSON.stringify(body),
     });
     if(!r.ok){
-      await dashAlert(t('notice'),t('ota_channel_save_fail'));
+      const why=await r.text().catch(()=>'');
+      await dashAlert(t('notice'),t('ota_channel_save_fail')+(why?' ('+why+')':''));
       await loadOtaChannel();
       return;
     }
     const d=await r.json();
-    otaChannelCache={channel:d.channel||channel,branch:d.branch||(channel==='beta'?'beta':'main')};
+    otaApplyChannelInfo(d,channel);
     const modalOpen=document.getElementById('update-modal')?.classList.contains('open');
     if(!modalOpen){
       setOtaChannelHintKey('ota_channel_saved',{channel:otaChannelCache.channel,branch:otaChannelCache.branch});
@@ -21278,11 +21458,7 @@ async function checkUpdate(opts){
       const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});
       if(!r.ok)return;
       const d=await r.json();
-      if(d&&d.channel){
-        otaChannelCache={channel:d.channel,branch:d.branch||(d.channel==='beta'?'beta':'main')};
-        const sel=document.getElementById('ota-channel-select');
-        if(sel)sel.value=otaChannelCache.channel;
-      }
+      if(d&&d.channel)otaApplyChannelInfo({channel:d.channel,branch:d.branch});
       applyUpdateCheckUi(d);
     }catch{/* silent */}
   })();
@@ -21410,11 +21586,23 @@ async function maybeShowSetupWizard(){
     setupStateCache=d;
     if(d.setup && d.setup.setup_complete===false){
       openSetupWizard(false);
+    }else if(!STATION_LANG){
+      // Station set up before the language step existed: ask once after the next login,
+      // so [dashboard] language need not be edited by hand.
+      openLanguageOnlyWizard();
     }
   }catch(e){/* silent */}
 }
 
+let wizLangOnly=false;
+function openLanguageOnlyWizard(){
+  wizLangOnly=true;wizStep=0;
+  const w=document.getElementById('setup-wizard');
+  if(w){w.classList.add('open');}
+  wizShowStep();
+}
 function openSetupWizard(manual){
+  wizLangOnly=false;
   wizStep=0;
   const w=document.getElementById('setup-wizard');
   if(w){w.classList.add('open');}
@@ -21427,12 +21615,113 @@ function closeSetupWizard(){
   if(w)w.classList.remove('open');
 }
 function wizShowStep(){
+  if(wizStep===0)wizRenderLangs();
+  if(wizStep===3)wizFreqLoad();
   document.querySelectorAll('.setup-wiz-step').forEach(el=>{
     el.classList.toggle('active', String(el.getAttribute('data-step'))===String(wizStep));
   });
 }
-function wizNext(){wizStep=Math.min(4,wizStep+1);wizShowStep();}
+function wizNext(){wizStep=Math.min(6,wizStep+1);wizShowStep();}
+// Step 0: station language ([dashboard] language). Picking one switches the page at once;
+// Continue stores it as the station default.
+function wizRenderLangs(){
+  const box=document.getElementById('wiz-lang-grid');if(!box)return;
+  box.innerHTML=Object.keys(LANGUAGE_NAMES).map(l=>'<button type="button" class="setup-lang'+(l===currentLang?' selected':'')+'" onclick="wizPickLang(\''+l+'\')"><b>'+(l==='zh'?'CN':l.toUpperCase())+'</b><span>'+escHtml(LANGUAGE_NAMES[l])+'</span></button>').join('');
+}
+function wizPickLang(l){setLang(l);wizRenderLangs();setText('wiz-lang-msg','');}
+async function wizLangContinue(){
+  try{
+    const r=await fetch('/api/setup/language',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:currentLang})});
+    if(!r.ok){setText('wiz-lang-msg',await r.text());return;}
+  }catch(e){setText('wiz-lang-msg',String(e));return;}
+  if(wizLangOnly){wizLangOnly=false;closeSetupWizard();return;}
+  wizNext();
+}
 function wizPrev(){wizStep=Math.max(0,wizStep-1);wizShowStep();}
+// Step 3: frequency. TX → band, offset, main carrier, RX (DL = band*100 MHz + carrier*25 kHz
+// + offset, UL = DL ∓ duplex), duplex from the table id or the custom value.
+function tetraFreqCalc(txHz,dupId,customHz,reverse,offsetPref){
+  const band=Math.floor(txHz/1e8);
+  if(band<1||band>15)return {err:t('cfg_auto_band_range')};
+  const offsets=[offsetPref||0].concat(TETRA_FREQ_OFFSETS.filter(o=>o!==(offsetPref||0)));
+  let carrier=null,offset=0;
+  for(const o of offsets){const c=(txHz-band*1e8-o)/25000;if(Number.isInteger(c)&&c>=0&&c<=3999){carrier=c;offset=o;break;}}
+  if(carrier===null)return {err:t('ui_main_carrier_is_not_an_integer')};
+  let duplex;
+  if(customHz!=null)duplex=customHz;
+  else{const k=(TETRA_DUPLEX_KHZ[dupId]||[])[band];if(k==null)return {err:t('cfg_auto_no_table_duplex',{id:dupId,band})};duplex=k*1000;}
+  return {band,offset,carrier,duplex,rx:reverse?txHz+duplex:txHz-duplex};
+}
+let wizFreqOffset=0,wizFreqLoaded=false;
+function wizDupOptions(band){
+  const sel=document.getElementById('wiz-dup');if(!sel)return;
+  const cur=sel.value===''?'4':sel.value;
+  let html='';
+  for(let id=0;id<8;id++){
+    const k=(TETRA_DUPLEX_KHZ[id]||[])[band];
+    html+='<option value="'+id+'">'+id+' · '+(k==null?escHtml(t('wiz_dup_custom')):(k/1000)+' MHz')+'</option>';
+  }
+  sel.innerHTML=html;sel.value=cur;
+}
+async function wizFreqLoad(){
+  if(wizFreqLoaded){wizFreqCalc();return;}
+  wizDupOptions(4);
+  try{
+    const r=await fetch('/api/visual-config',{credentials:'same-origin'});
+    if(r.ok){
+      const d=await r.json();
+      const soapy=d?.phy_io?.soapysdr||{}, cell=d?.cell_info||{};
+      if(soapy.tx_freq)vcSet('wiz-tx',hzToMhzDisplay(soapy.tx_freq));
+      vcSet('wiz-dup',String(cell.duplex_spacing??4));
+      vcSet('wiz-custom-dup',cell.custom_duplex_spacing?hzToMhzDisplay(cell.custom_duplex_spacing):'');
+      const rev=document.getElementById('wiz-rev');if(rev)rev.checked=!!cell.reverse_operation;
+      if(cell.colour_code!=null)vcSet('wiz-cc',cell.colour_code);
+      if(cell.location_area!=null)vcSet('wiz-la',cell.location_area);
+      wizFreqOffset=Number(cell.freq_offset)||0;
+    }
+  }catch(e){/* keep defaults */}
+  wizFreqLoaded=true;
+  wizFreqCalc();
+}
+function wizFreqInputs(){
+  const tx=parseMhzInput(document.getElementById('wiz-tx')?.value||'');
+  const cd=parseMhzInput(document.getElementById('wiz-custom-dup')?.value||'');
+  return {
+    txHz:(tx==null||!Number.isFinite(tx))?null:Math.round(tx*1e6),
+    customHz:(cd==null||!Number.isFinite(cd))?null:Math.round(cd*1e6),
+    dupId:Number(document.getElementById('wiz-dup')?.value||4),
+    reverse:!!document.getElementById('wiz-rev')?.checked,
+  };
+}
+function wizFreqCalc(){
+  const box=document.getElementById('wiz-freq-result');if(!box)return null;
+  const v=wizFreqInputs();
+  if(v.txHz==null){box.className='wiz-freq-result';box.textContent='—';wizDupOptions(4);return null;}
+  wizDupOptions(Math.floor(v.txHz/1e8));
+  const r=tetraFreqCalc(v.txHz,v.dupId,v.customHz,v.reverse,wizFreqOffset);
+  if(r.err){box.className='wiz-freq-result err';box.textContent=r.err;return null;}
+  box.className='wiz-freq-result';
+  box.innerHTML='<div><b>'+escHtml(t('cfg_rx').replace(/\s*\(MHz\)/,''))+'</b>: '+hzToMhzDisplay(r.rx)+' MHz</div>'
+    +'<div class="muted">'+escHtml(t('wiz_freq_line',{band:r.band,offset:r.offset,carrier:r.carrier}))+'</div>';
+  return r;
+}
+async function wizSaveFrequency(){
+  const v=wizFreqInputs();
+  const msg=document.getElementById('wiz-freq-msg');
+  if(v.txHz==null){wizNext();return;} // nothing entered: keep the config as it is
+  const r=wizFreqCalc();
+  if(!r)return;
+  const cc=Number(document.getElementById('wiz-cc')?.value), la=Number(document.getElementById('wiz-la')?.value);
+  try{
+    const resp=await fetch('/api/setup/frequency',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tx_freq:v.txHz,rx_freq:r.rx,freq_band:r.band,main_carrier:r.carrier,freq_offset:r.offset,
+        duplex_spacing:v.dupId,custom_duplex_spacing:v.customHz,reverse_operation:v.reverse,colour_code:cc,location_area:la})});
+    if(!resp.ok){if(msg)msg.textContent=await resp.text();return;}
+  }catch(e){if(msg)msg.textContent=String(e);return;}
+  if(msg)msg.textContent='';
+  wizNext();
+}
+
 
 async function setupScanSdr(inWizard){
   const msg=document.getElementById(inWizard?'wiz-sdr-msg':'setup-page-msg');
@@ -21471,6 +21760,7 @@ async function setupInstallDriver(driver,inWizard){
       if(driver==='lime'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=lime';setupSelectedDevice='driver=lime';}
       if(driver==='mucell'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=mucell';setupSelectedDevice='driver=mucell';}
       if(driver==='uhd'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=uhd';setupSelectedDevice='driver=uhd';}
+      if(driver==='pluto'){const inp=document.getElementById('wiz-device');if(inp)inp.value='driver=plutosdr';setupSelectedDevice='driver=plutosdr';}
       if(needReboot){
         // µCell overlay is only read at boot — apply device string then reboot the Pi.
         try{
@@ -21825,8 +22115,9 @@ const LOGIN_I18N={
   hu:{user:'Felhasználó',pass:'Jelszó',enter:'Belépés',entering:'Belépés…',bad:'Hibás hitelesítő adatok',err:'Belépési hiba (',net:'Hálózati hiba: ',credit:'Fejlesztett verzió: Aitor, EA4HBL',title:'Belépés'},
   zh:{user:'用户名',pass:'密码',enter:'登录',entering:'登录中…',bad:'凭据无效',err:'登录错误 (',net:'网络错误: ',credit:'改进版本：Aitor, EA4HBL',title:'登录'},
 };
-const _pref=String(localStorage.getItem('fs_lang')||navigator.language||'es').toLowerCase().split('-')[0];
-const _lang=Object.prototype.hasOwnProperty.call(LOGIN_I18N,_pref)?_pref:'es';
+const STATION_LANG=(s=>s.indexOf('{{')===0?'':s)('{{STATION_LANG}}');
+const _pref=String(localStorage.getItem('fs_lang')||STATION_LANG||navigator.language||'en').toLowerCase().split('-')[0];
+const _lang=Object.prototype.hasOwnProperty.call(LOGIN_I18N,_pref)?_pref:'en';
 const L=LOGIN_I18N[_lang];
 document.documentElement.lang=_lang==='pt'?'pt-PT':_lang;
 document.title='{{PRODUCT_NAME}} — '+L.title;
