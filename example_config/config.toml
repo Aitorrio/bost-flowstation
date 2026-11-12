@@ -610,7 +610,8 @@ voice_service = true
 #   DN9CHO-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm
 # Works for any APRS/CWOP weather station on aprs.fi.
 # Requires [wx_service] enabled = true (same service ISSI) and an aprs.fi API key
-# (free: log in at aprs.fi -> My account -> API keys). Config file only, not in the dashboard.
+# (free: log in at aprs.fi -> My account -> API keys). Also editable in the dashboard:
+# Config -> WX / METAR / APRS -> "APRS weather" block (the dashboard rewrites this section on save).
 #
 # [aprs_wx]
 # apikey = "123456.abcdefgh"     # aprs.fi API key; empty = feature off

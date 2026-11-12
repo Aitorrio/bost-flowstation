@@ -529,7 +529,7 @@ For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream d
 - **Yiannis Samouhos, ysamouhos** — Multi-cell support with multiple SDR and AIE.
 - **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, USRP B210 support, the WAP packet-data (SNDCP) gateway with its live status page, end-to-end encryption (E2EE) of SDS, and individual call handover between the cells of a multi-cell station (PR #30).
 - **Sebastian, OE4SXM** ([sebastianmadl](https://github.com/sebastianmadl)) — roaming between stations over Brew (group and individual calls across stations, announced and unannounced cell reselection), multi-cell roaming (individual calls with the network follow the radio between cells, built on David's PR #30; cells sharing a location area; multi-cell stations roaming with other stations), the Infrastructure dashboard page (formerly Roaming / Cells) with the Brew server's cell list, configurable minimum access level and migration flag, group access and RX only from the Brew server, English changelog.
-- **Chris, DN9CHO** ([dn9cho](https://github.com/dn9cho)) — the APRSWX SDS command (APRS weather station reports from aprs.fi on the radio, PR #40), the fix for long group calls being cut off after six minutes (PR #44) and the fix for scan lists with more than 12 groups (PR #55).
+- **Chris, DN9CHO** ([dn9cho](https://github.com/dn9cho)) — the APRSWX SDS command (APRS weather station reports from aprs.fi on the radio, PR #40), the fix for long group calls being cut off after six minutes (PR #44), the fix for scan lists with more than 12 groups (PR #55) and the dashboard settings for the APRS weather service (PR #59).
 
 ---
 

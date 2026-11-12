@@ -4394,6 +4394,12 @@ fn handle_connection(
     } else if req_line.contains("POST /api/profiles/import") {
         let body = read_http_body(&mut stream);
         serve_profiles_import(stream, &config_path, &body);
+    } else if req_line.contains("GET /api/aprs_wx") {
+        drain_http_headers(&mut stream);
+        serve_aprs_wx_get(stream, &shared_config);
+    } else if req_line.contains("POST /api/aprs_wx") {
+        let body = read_http_body(&mut stream);
+        serve_aprs_wx_post(stream, &shared_config, &config_path, &String::from_utf8_lossy(&body));
     } else if req_line.contains("GET /api/wx") {
         let mut buf = BufReader::new(stream);
         loop {
@@ -6745,6 +6751,138 @@ fn serve_wx_post(stream: PrefixedConn, shared_config: &Option<tetra_config::blue
         ov.periodic_enabled,
         ov.periodic_issi,
         ov.periodic_icao
+    );
+    http_response(stream, 200, "OK");
+}
+
+// ---------------------------------------------------------------------------
+// APRS weather service config (`[aprs_wx]`, dashboard-editable). See net_dashboard::wx_service.
+// ---------------------------------------------------------------------------
+
+/// GET /api/aprs_wx — the effective `[aprs_wx]` settings as JSON. The aprs.fi API key itself is
+/// never returned, only whether one is set.
+fn serve_aprs_wx_get(mut stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>) {
+    let a = match shared_config {
+        Some(cfg) => cfg.effective_aprs_wx(),
+        None => tetra_config::bluestation::CfgAprsWx::default(),
+    };
+    let body = serde_json::json!({
+        "has_apikey": a.has_apikey(),
+        "default_call": a.default_call,
+        "max_age_secs": a.max_age_secs,
+        "periodic_enabled": a.periodic_enabled,
+        "periodic_call": a.periodic_call,
+        "periodic_dest": a.periodic_dest,
+        "periodic_is_group": a.periodic_is_group,
+        "periodic_interval_secs": a.periodic_interval_secs,
+    })
+    .to_string();
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body.as_bytes());
+}
+
+/// POST /api/aprs_wx — update `[aprs_wx]`. Body: JSON with the GET fields; `apikey` is only
+/// changed when a non-empty value is sent (empty keeps the saved key) or when `apikey_clear`
+/// is true. Applies immediately via the StackState override on every cell AND rewrites the TOML.
+fn serve_aprs_wx_post(
+    stream: PrefixedConn,
+    shared_config: &Option<tetra_config::bluestation::SharedConfig>,
+    config_path: &str,
+    body: &str,
+) {
+    use crate::net_dashboard::wx_service::sanitize_aprs_call;
+    use tetra_config::bluestation::{AprsWxRuntimeOverride, CfgAprsWx};
+
+    let json: serde_json::Value = match serde_json::from_str(body.trim()) {
+        Ok(v) => v,
+        Err(e) => {
+            http_response(stream, 400, &format!("Invalid JSON: {e}"));
+            return;
+        }
+    };
+    let Some(cfg) = shared_config else {
+        http_response(stream, 503, "Config not available");
+        return;
+    };
+
+    // Start from the current effective values so a partial POST only changes what it sends.
+    let cur = cfg.effective_aprs_wx();
+    let as_u32 = |k: &str, d: u32| json.get(k).and_then(|x| x.as_u64()).map(|n| n.min(16_777_215) as u32).unwrap_or(d);
+    let as_u64 = |k: &str, d: u64| json.get(k).and_then(|x| x.as_u64()).unwrap_or(d);
+    let as_bool = |k: &str, d: bool| json.get(k).and_then(|x| x.as_bool()).unwrap_or(d);
+    let as_call = |k: &str, d: &str| {
+        json.get(k)
+            .and_then(|x| x.as_str())
+            .map(sanitize_aprs_call)
+            .unwrap_or_else(|| d.to_string())
+    };
+
+    let new_key = json
+        .get("apikey")
+        .and_then(|x| x.as_str())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if new_key.chars().any(|c| c.is_control() || c == '"' || c == '\\') {
+        http_response(stream, 400, "API key contains invalid characters");
+        return;
+    }
+    let apikey = if as_bool("apikey_clear", false) {
+        String::new()
+    } else if !new_key.is_empty() {
+        new_key
+    } else {
+        cur.apikey.val.clone()
+    };
+
+    let ov = AprsWxRuntimeOverride {
+        apikey,
+        default_call: as_call("default_call", &cur.default_call),
+        max_age_secs: as_u64("max_age_secs", cur.max_age_secs),
+        periodic_enabled: as_bool("periodic_enabled", cur.periodic_enabled),
+        periodic_call: as_call("periodic_call", &cur.periodic_call),
+        periodic_dest: as_u32("periodic_dest", cur.periodic_dest),
+        periodic_is_group: as_bool("periodic_is_group", cur.periodic_is_group),
+        periodic_interval_secs: as_u64("periodic_interval_secs", cur.periodic_interval_secs).max(CfgAprsWx::MIN_PERIODIC_SECS),
+    };
+
+    let periodic_call = if ov.periodic_call.is_empty() {
+        ov.default_call.clone()
+    } else {
+        ov.periodic_call.clone()
+    };
+    if ov.periodic_enabled {
+        if ov.apikey.is_empty() || periodic_call.is_empty() || ov.periodic_dest == 0 {
+            http_response(stream, 400, "Periodic send needs an API key, a callsign and a destination");
+            return;
+        }
+    }
+
+    // 1) Apply at runtime — on every cell (each runs its own WX responder).
+    cfg.state_write().aprs_wx_override = Some(ov.clone());
+    for (_, cell_cfg) in crate::net_site::extra_cells() {
+        cell_cfg.state_write().aprs_wx_override = Some(ov.clone());
+    }
+
+    // 2) Persist to TOML.
+    if let Err(e) = crate::net_dashboard::wx_service::write_aprs_wx_to_toml(config_path, &ov) {
+        tracing::warn!("Dashboard: APRS WX applied at runtime but failed to persist to TOML: {}", e);
+        http_response(stream, 200, "Applied at runtime; failed to write config file (check permissions)");
+        return;
+    }
+
+    tracing::info!(
+        "Dashboard: APRS WX updated (apikey={} default_call={} periodic={} call={} -> {}{} every {}s)",
+        if ov.apikey.is_empty() { "unset" } else { "set" },
+        ov.default_call,
+        ov.periodic_enabled,
+        periodic_call,
+        if ov.periodic_is_group { "GSSI " } else { "ISSI " },
+        ov.periodic_dest,
+        ov.periodic_interval_secs
     );
     http_response(stream, 200, "OK");
 }
