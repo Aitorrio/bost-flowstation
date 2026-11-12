@@ -1241,7 +1241,7 @@ impl SdsBsSubentity {
             return;
         };
 
-        let aprs = self.config.config().aprs_wx.clone();
+        let aprs = self.config.effective_aprs_wx();
 
         std::thread::Builder::new()
             .name("wx-fetch".into())
@@ -1374,7 +1374,7 @@ impl SdsBsSubentity {
     /// (source = WX service ISSI). Independent of the METAR periodic send.
     pub fn tick_periodic_aprs_wx(&mut self) {
         let cfg = self.config.config();
-        let aprs = &cfg.aprs_wx;
+        let aprs = self.config.effective_aprs_wx();
         if !aprs.periodic_enabled || aprs.periodic_dest == 0 || !aprs.has_apikey() {
             return;
         }
