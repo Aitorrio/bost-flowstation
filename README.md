@@ -78,6 +78,13 @@ and the `mu-cell-bb_raspberrypi` overlay (not the SXceiver module). Device strin
 Gain stages match SXceiver (`dac`/`mixer`, `lna`/`pga`). After install the Pi must reboot so the
 overlay loads; the wizard offers that reboot automatically.
 
+### ADALM-Pluto / Pluto+
+
+The Setup wizard's **Install Pluto** button builds SoapyPlutoSDR with timestamped
+streaming from [pgreenland/SoapyPlutoSDR](https://github.com/pgreenland/SoapyPlutoSDR) (branch
+`sdr_gadget_timestamping`). Device string: `driver=plutosdr`, or over the network
+`driver=plutosdr,uri=ip:192.168.2.1` (the Pluto's address).
+
 ### USRP B210 (and B200 / B210 clones)
 
 The installer and the Setup wizard's **Install USRP (UHD)** button put in `uhd-host`, the
@@ -403,7 +410,7 @@ sudo cp /etc/flowstation/config.toml /etc/flowstation/config.toml.fallback
 
 **Re-running the installer**
 
-If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented**. It keeps an existing `/etc/flowstation/config.toml` (and may refresh `ota_channel` to match the install branch), creates `.fallback` only when missing (never overwrites your reserve), aligns `/opt/bost-flowstation` to `origin/main` with `reset --hard` (keeps `target/`), and refreshes the service/helper pieces without wiping your station identity. For a full source re-clone keeping config: `sudo env BOST_FORCE_CLEAN=1 bash` with the same curl one-liner.
+If you ever need to run [`contrib/install/install-bost.sh`](contrib/install/install-bost.sh) again: it is **repair-oriented**. It keeps an existing `/etc/flowstation/config.toml` (and sets `ota_channel = "installed"`, so the dashboard update follows the repository and branch you installed), creates `.fallback` only when missing (never overwrites your reserve), aligns `/opt/bost-flowstation` to `origin/main` with `reset --hard` (keeps `target/`), and refreshes the service/helper pieces without wiping your station identity. For a full source re-clone keeping config: `sudo env BOST_FORCE_CLEAN=1 bash` with the same curl one-liner.
 
 ---
 
@@ -436,7 +443,7 @@ Restart, suspend, full power-off and OTA live in the **System** hero (top-right 
 - **Reiniciar** — soft restart of `bluestation-bs`
 - **Suspender** — soft standby: radio stack stops, dashboard stays up; the button becomes **Iniciar** to bring the station back
 - **Apagar** — full host shutdown (`systemctl poweroff`); you will likely need to cycle power to boot again
-- **Canal OTA** — **Estable** (`bost`, day-to-day) or **Beta** (`beta`, previews); persisted as `[dashboard] ota_channel`
+- **OTA source** — default **installed repository** (the repository and branch the station was installed from, forks included), **Stable** / **Beta** (original repository `main` / `beta`) or a **custom git URL** with branch; persisted as `[dashboard] ota_channel` (`installed`, `stable`, `beta`, `custom` with `ota_repo` / `ota_branch`)
 - **Actualizar** — OTA on the selected channel: `git fetch` + `reset --hard` to that branch (keeps `target/` for incremental builds), rebuild only if the running binary is behind, install, restart
 
 When a newer commit is on GitHub for the **active channel**, a banner appears above the System hero and a matching badge shows in the sidebar (click → System).

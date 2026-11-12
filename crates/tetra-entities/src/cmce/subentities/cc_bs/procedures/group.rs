@@ -334,6 +334,9 @@ impl CcBsSubentity {
         let prev_speaker = call.source_issi;
         let was_local_floor = call.local_floor;
         let was_tx = call.tx_active;
+        // A new over: another speaker, or the same one keying up again (Brew opens a new session
+        // per over). A repeated start for the session already on air is not.
+        let new_over = prev_speaker != source_issi || call.brew_uuid != Some(brew_uuid);
 
         // Hard preempt: a local MS still thinks it owns the floor. Soft grant alone leaves the
         // walkie transmitting while NetworkCallReady makes the console believe it is on air.
@@ -391,6 +394,20 @@ impl CcBsSubentity {
                 call.origin = CallOrigin::Network { brew_uuid };
             }
             CallOrigin::Network { .. } => {}
+        }
+
+        // Dashboard: the network speaker now holds this call's floor. notify_floor_granted is for
+        // local speakers (it arms the UMAC UL-inactivity timer), so report the speaker on its own;
+        // without this the dashboard kept the first speaker and Last Heard missed every later over.
+        if new_over {
+            self.emit(crate::net_telemetry::TelemetryEvent::CallSpeakerChanged {
+                call_id,
+                is_group: true,
+                dest_addr: dest_gssi,
+                speaker_issi: source_issi,
+                carrier_num,
+                ts,
+            });
         }
 
         // Network speaker owns DL: flip media source in-place (never Open — that closes/reopens
