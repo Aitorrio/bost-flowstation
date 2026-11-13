@@ -2,7 +2,7 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
-## Not yet released — APRS weather settings in the dashboard
+## v0.5.10 — APRS weather settings in the dashboard
 
 - **APRS weather settings in the dashboard (PR #59, dn9cho).** On the Config page the "WX service" card is now "WX service (METAR / APRS)" with three sections — General, METAR and APRS — and one Save button. The APRS weather service (`APRSWX`, `[aprs_wx]`) can be set up there: aprs.fi API key (never shown; leaving the field empty keeps the saved key), default station, age after which a report is marked old, and the periodic send (station, destination, group or ISSI, interval). Changes take effect at once, without a restart, and are written to `config.toml`. The hints of these fields and of the METAR interval moved behind "?" help buttons. METAR works as before.
 - **No delivery-failure report to local services (PR #60, dn9cho).** When an SDS cannot be delivered within the defer deadline (destination in a call or asleep in energy economy), the station now reports the failure to the sender only if that sender is a radio registered on the cell. Before, an undeliverable periodic METAR or APRSWX report also produced a failure report to the WX service ISSI, which is not a radio, and the station retransmitted it to nobody until `exhausted retransmissions`.

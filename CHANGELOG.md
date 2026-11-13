@@ -4,7 +4,7 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
-## Pendiente de publicar — Ajustes del tiempo APRS en el dashboard
+## v0.5.10 — Ajustes del tiempo APRS en el dashboard
 
 - **Ajustes del tiempo APRS en el dashboard (PR #59, dn9cho).** En la página Config, la tarjeta «Servicio WX» pasa a ser «Servicio WX (METAR / APRS)», con tres secciones —General, METAR y APRS— y un solo botón Guardar. Ahí se configura el servicio meteorológico APRS (`APRSWX`, `[aprs_wx]`): clave API de aprs.fi (nunca se muestra; dejar el campo vacío conserva la guardada), estación por defecto, antigüedad a partir de la cual un informe se marca como antiguo y el envío periódico (estación, destino, grupo o ISSI, intervalo). Los cambios se aplican al momento, sin reiniciar, y se escriben en `config.toml`. Las pistas de estos campos y del intervalo METAR pasan a botones de ayuda «?». METAR funciona como antes.
 - **Sin aviso de fallo de entrega a servicios locales (PR #60, dn9cho).** Cuando un SDS no puede entregarse dentro del plazo de espera (destino en una llamada o dormido en ahorro de energía), la estación solo avisa del fallo al remitente si este es un terminal registrado en la celda. Antes, un METAR o un informe APRSWX periódico no entregado también generaba un aviso de fallo al ISSI del servicio WX, que no es un terminal, y la estación lo retransmitía a nadie hasta `exhausted retransmissions`.
