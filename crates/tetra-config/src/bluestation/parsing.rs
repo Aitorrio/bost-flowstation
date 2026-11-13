@@ -936,7 +936,7 @@ alert_critical_logs = false
             + r#"
 [aprs_wx]
 apikey = " 123456.abcdef "
-default_call = "dn9cho-13"
+default_call = "n0call-13"
 periodic_enabled = true
 periodic_dest = 1001
 periodic_interval_secs = 60
@@ -945,8 +945,8 @@ periodic_interval_secs = 60
         let a = cfg.aprs_wx;
         assert!(a.has_apikey());
         assert_eq!(a.apikey.val, "123456.abcdef");
-        assert_eq!(a.default_call, "DN9CHO-13");
-        assert_eq!(a.effective_periodic_call(), "DN9CHO-13");
+        assert_eq!(a.default_call, "N0CALL-13");
+        assert_eq!(a.effective_periodic_call(), "N0CALL-13");
         assert_eq!(a.max_age_secs, 3600);
         assert_eq!(a.effective_interval_secs(), 300);
     }
