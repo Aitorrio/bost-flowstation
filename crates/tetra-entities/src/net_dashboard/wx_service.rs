@@ -356,7 +356,7 @@ const APRSFI_API: &str = "https://api.aprs.fi/api/get";
 const APRSFI_USER_AGENT: &str = "FlowStation-APRS-WX (+https://github.com/Aitorrio/bost-flowstation)";
 
 /// Uppercase an APRS callsign/object name and keep only the characters aprs.fi accepts
-/// in a station name (letters, digits, '-'), max 9 chars (e.g. "dn9cho-13" -> "DN9CHO-13").
+/// in a station name (letters, digits, '-'), max 9 chars (e.g. "n0call-13" -> "N0CALL-13").
 pub fn sanitize_callsign(s: &str) -> String {
     s.split_whitespace()
         .next()
@@ -410,7 +410,7 @@ pub fn fetch_aprs_wx(call: &str, apikey: &str, max_age_secs: u64) -> Result<Stri
 /// aprs.fi units: temp °C, pressure mbar(=hPa), humidity %, wind_direction °, wind_speed and
 /// wind_gust m/s, rain_1h/rain_24h/rain_mn mm, luminosity W/m². All values arrive as strings.
 /// Output example:
-/// `DN9CHO-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm`
+/// `N0CALL-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm`
 pub fn format_aprs_wx(call: &str, resp: &serde_json::Value, now_unix: i64, max_age_secs: u64) -> Result<String, String> {
     if resp.get("result").and_then(|v| v.as_str()) != Some("ok") {
         let desc = resp.get("description").and_then(|v| v.as_str()).unwrap_or("aprs.fi error");
@@ -749,29 +749,29 @@ mod tests {
 
     #[test]
     fn request_aprs() {
-        assert!(matches!(parse_wx_request("APRSWX DN9CHO-13"), Some(WxRequest::Aprs(ref s)) if s == "DN9CHO-13"));
-        assert!(matches!(parse_wx_request("aprswx dn9cho-13 bitte"), Some(WxRequest::Aprs(ref s)) if s == "DN9CHO-13"));
+        assert!(matches!(parse_wx_request("APRSWX N0CALL-13"), Some(WxRequest::Aprs(ref s)) if s == "N0CALL-13"));
+        assert!(matches!(parse_wx_request("aprswx n0call-13 bitte"), Some(WxRequest::Aprs(ref s)) if s == "N0CALL-13"));
         assert!(matches!(parse_wx_request("AprsWx"), Some(WxRequest::Aprs(ref s)) if s.is_empty()));
         assert!(matches!(parse_wx_request(" APRSWX "), Some(WxRequest::Aprs(ref s)) if s.is_empty()));
         assert!(parse_wx_request("APRSWX AB").is_none());
         // Plain "APRS" stays free (e.g. for a future position query) and is not a WX command.
         assert!(parse_wx_request("APRS").is_none());
-        assert!(parse_wx_request("APRS DN9CHO-13").is_none());
+        assert!(parse_wx_request("APRS N0CALL-13").is_none());
         assert!(parse_wx_request("APRSWXX").is_none());
     }
 
     #[test]
     fn aprs_format_full() {
         let v: serde_json::Value = serde_json::from_str(
-            r#"{"command":"get","result":"ok","found":1,"what":"wx","entries":[{"name":"DN9CHO-13","time":"1762524300",
+            r#"{"command":"get","result":"ok","found":1,"what":"wx","entries":[{"name":"N0CALL-13","time":"1762524300",
             "temp":"12.3","pressure":"1016.4","humidity":"78","wind_direction":"225","wind_speed":"3.1","wind_gust":"6.9",
             "rain_1h":"0.2","rain_24h":"4.0","rain_mn":"3.1","luminosity":"120"}]}"#,
         )
         .unwrap();
-        let out = format_aprs_wx("DN9CHO-13", &v, 1762524300 + 60, 3600).unwrap();
+        let out = format_aprs_wx("N0CALL-13", &v, 1762524300 + 60, 3600).unwrap();
         assert_eq!(
             out,
-            "DN9CHO-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm | Sun 120W/m2"
+            "N0CALL-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm | Sun 120W/m2"
         );
         assert!(out.len() <= 220);
     }

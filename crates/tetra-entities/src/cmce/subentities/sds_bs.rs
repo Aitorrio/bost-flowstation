@@ -386,6 +386,16 @@ impl SdsBsSubentity {
         let Some(mr) = Self::sds_tl_message_reference(&p.user_defined_data) else {
             return;
         };
+        // Only a radio registered on this cell listens to our MCCH. A local service (WX service,
+        // remote control, dashboard console) or a sender elsewhere would never acknowledge the
+        // report, so sending it only costs MCCH capacity and retransmissions.
+        if !self.config.state_read().subscribers.is_registered(p.source_issi) {
+            tracing::debug!(
+                "SDS: not reporting delivery failure to {} (not a radio registered on this cell)",
+                p.source_issi
+            );
+            return;
+        }
         // SDS-TL SHORT REPORT: [PID 0x82, type 0x10 (report), delivery status, message reference],
         // addressed FROM the unreachable destination TO the original sender. Sent immediately on the
         // MCCH (not deferred) — if the sender is itself busy it falls back to its own timeout.
@@ -1266,7 +1276,7 @@ impl SdsBsSubentity {
                     WxRequest::Aprs(call) => {
                         let call = if call.is_empty() { aprs.default_call.clone() } else { call };
                         if call.is_empty() {
-                            "APRSWX: usage APRSWX <CALL>, e.g. APRSWX DN9CHO-13".to_string()
+                            "APRSWX: usage APRSWX <CALL>, e.g. APRSWX N0CALL-13".to_string()
                         } else if !aprs.has_apikey() {
                             tracing::warn!("WX: APRS request for {} but [aprs_wx].apikey is not set", call);
                             format!("{call}: APRS WX not configured")
@@ -1861,5 +1871,50 @@ mod lip_tests {
     fn rejects_non_short_and_truncated_lip() {
         assert_eq!(decode_lip_short_location(&[0x0A, 0x40, 0, 0, 0, 0, 0, 0]), None);
         assert_eq!(decode_lip_short_location(&[0x0A, 0x00]), None);
+    }
+}
+
+#[cfg(test)]
+mod failure_report_tests {
+    use super::*;
+
+    const SENDER: u32 = 2620101;
+    const DEST: u32 = 2620102;
+
+    fn sds() -> SdsBsSubentity {
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../../example_config/config.toml")).unwrap();
+        SdsBsSubentity::new(SharedConfig::from_parts(cfg, None))
+    }
+
+    /// An SDS-TL text (message reference 0x2A) to DEST that has been waiting past the deadline,
+    /// while DEST is still on a traffic timeslot.
+    fn expire_sds_from(sds: &mut SdsBsSubentity, source_issi: u32) -> usize {
+        sds.config.state_write().active_call_ts.insert(DEST, (4, 2, 0));
+        sds.pending_sds.push(PendingSds {
+            source_issi,
+            dest_ssi: DEST,
+            user_defined_data: SdsUserData::Type4(48, vec![0x82, 0x00, 0x2A, 0x01, b'h', b'i']),
+            queued_at: std::time::Instant::now()
+                .checked_sub(SDS_DEFER_DEADLINE + std::time::Duration::from_secs(1))
+                .unwrap(),
+        });
+        let mut queue = MessageQueue::new();
+        sds.flush_pending_sds(&mut queue);
+        assert!(sds.pending_sds.is_empty(), "the expired SDS must be dropped");
+        std::iter::from_fn(|| queue.pop_front()).count()
+    }
+
+    #[test]
+    fn failure_is_reported_to_a_registered_radio() {
+        let mut sds = sds();
+        sds.config.state_write().subscribers.register(SENDER);
+        assert_eq!(expire_sds_from(&mut sds, SENDER), 1, "one SDS-TL failure report to the sender");
+    }
+
+    #[test]
+    fn failure_is_not_reported_to_a_local_service_issi() {
+        let mut sds = sds();
+        // The WX service ISSI (9998 in the example config) is not a radio and never registers.
+        assert_eq!(expire_sds_from(&mut sds, 9998), 0, "no report to a sender that is not on the air");
     }
 }

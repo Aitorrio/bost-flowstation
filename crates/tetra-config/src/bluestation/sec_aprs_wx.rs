@@ -5,7 +5,7 @@ use crate::bluestation::SecretField;
 /// APRS weather-station SDS service (aprs.fi), an extension of the built-in WX/METAR service.
 ///
 /// Two capabilities, both answered from the WX service ISSI (`[wx_service].service_issi`):
-///   1. On-demand: a radio sends an SDS "APRSWX <CALL>" (e.g. "APRSWX DN9CHO-13") or just "APRSWX"
+///   1. On-demand: a radio sends an SDS "APRSWX <CALL>" (e.g. "APRSWX N0CALL-13") or just "APRSWX"
 ///      (uses `default_call`) to the service ISSI and gets the station's latest weather
 ///      report back. Requires `[wx_service].enabled = true` and a non-empty `apikey`.
 ///   2. Periodic: the BS auto-sends the weather of `periodic_call` (or `default_call`) to
@@ -18,7 +18,7 @@ use crate::bluestation::SecretField;
 pub struct CfgAprsWx {
     /// aprs.fi API key. Empty = APRS weather disabled (requests get a short notice).
     pub apikey: SecretField,
-    /// Callsign used for a bare "APRSWX" request and for the periodic send (e.g. "DN9CHO-13").
+    /// Callsign used for a bare "APRSWX" request and for the periodic send (e.g. "N0CALL-13").
     pub default_call: String,
     /// Optional: report age (seconds) above which the reply is marked "OLD". 0 = never.
     pub max_age_secs: u64,
