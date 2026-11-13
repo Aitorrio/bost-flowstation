@@ -1693,6 +1693,9 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 }
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;}
 .form-row{margin-bottom:12px;}
+.wx-src{font-size:12px;color:var(--muted);}
+.wx-src a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;}
+@media (max-width:700px){.wx-subcard>.card-head{flex-direction:column;align-items:flex-start;gap:2px;}.wx-subcard>.card-head .card-actions{margin-left:0;}}
 .form-label{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text3);display:block;margin-bottom:5px;}
 .form-input{
   width:100%;background:var(--bg3);border:1px solid var(--border2);
@@ -3060,6 +3063,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   }
   #page-config .card:has(#wx-enabled) .group-list .field .field-control:has(.sw){
     max-width:none;flex-wrap:wrap;justify-content:flex-end;
+  }
+  #page-config .card:has(#wx-enabled) .group-list .field .field-control:has(#aprswx-apikey){
+    max-width:none;flex:1 1 100%;flex-wrap:nowrap;justify-content:flex-end;gap:8px;
+  }
+  #page-config .card:has(#wx-enabled) .group-list .field .field-control #aprswx-apikey{
+    flex:1 1 auto;min-width:0;
   }
   /* Remote toolbars: stack on phone */
   #page-config .remote-add-row,
@@ -6073,29 +6082,35 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
-      <!-- ── WX / METAR SERVICE ──
-           Built-in weather responder. On-demand: a radio SDSes "METAR <ICAO>" to the
-           service ISSI and gets a decoded reply. Periodic: auto-sends a station's METAR
-           to a chosen ISSI/GSSI at an interval. Toggles + targets editable here; applies
-           instantly and persists to config.toml. -->
-      <div class="section-label" data-i18n="cfg_sec_wx">WX / METAR</div>
+      <!-- ── WX SERVICE (METAR / APRS) ──
+           Built-in weather responder, one card with three blocks:
+           General  – on/off and service ISSI ([wx_service]), shared by both sources.
+           METAR    – periodic METAR send ([wx_service]).
+           APRS     – aprs.fi weather station: API key, default station, periodic send ([aprs_wx]).
+           One Save button stores both sections; changes apply instantly and persist to
+           config.toml. The aprs.fi API key is never sent back to the browser. -->
+      <div class="section-label" data-i18n="cfg_sec_wx">WX / METAR / APRS</div>
       <div class="card">
         <div class="card-head">
-          <div class="card-title" data-i18n="wx_title">WX / METAR Service</div>
+          <div class="card-title" data-i18n="wx_title">WX Service (METAR / APRS)</div>
           <div class="card-actions">
             <button class="btn btn-primary" onclick="saveWx()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
           </div>
         </div>
         <div class="card-body">
           <div style="color:var(--muted);font-size:13px;margin-bottom:14px" data-i18n="wx_help">
-            Built-in weather service. Radios send an SDS like "METAR LROP" to the service
-            ISSI to get a decoded report. Optionally auto-send a fixed station's METAR to an
-            ISSI or talkgroup at a set interval. Data from aviationweather.gov.
+            Built-in weather service. Radios send an SDS to the service ISSI: "METAR &lt;ICAO&gt;" or "APRSWX &lt;CALL&gt;".
           </div>
 
-          <div class="group-list" style="margin-bottom:18px">
+          <div class="card wx-subcard" style="margin-bottom:12px">
+            <div class="card-head">
+              <div class="card-title" data-i18n="wx_sec_general">General</div>
+              <div class="card-actions"><span class="wx-src"><span data-i18n="wx_sec_general_note">applies to METAR and APRS</span></span></div>
+            </div>
+            <div class="card-body">
+          <div class="group-list">
             <label class="field" style="cursor:pointer">
-              <span class="field-label" data-i18n="wx_enabled">Enable on-demand METAR responder</span>
+              <span class="field-label" data-i18n="wx_enabled">Enable on-demand weather responder (METAR, APRS)</span>
               <span class="field-control"><span class="sw"><input type="checkbox" id="wx-enabled"><i></i></span></span>
             </label>
             <div class="field">
@@ -6104,7 +6119,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                      placeholder="9998" style="width:160px"></span>
             </div>
           </div>
-
+            </div>
+          </div>
+          <div class="card wx-subcard" style="margin-bottom:12px">
+            <div class="card-head">
+              <div class="card-title" data-i18n="wx_sec_metar">METAR</div>
+              <div class="card-actions"><span class="wx-src"><span data-i18n="wx_sec_metar_note">airport weather from aviationweather.gov</span></span></div>
+            </div>
+            <div class="card-body">
           <div class="group-list">
             <label class="field" style="cursor:pointer">
               <span class="field-label" data-i18n="wx_periodic_enabled">Enable periodic auto-broadcast</span>
@@ -6128,7 +6150,59 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
             <div class="field">
               <span class="field-label" data-i18n="wx_periodic_interval">Interval (seconds)</span>
               <span class="field-control"><input type="number" id="wx-periodic-interval" class="form-input" min="300" placeholder="1800" style="width:160px"></span>
-              <span class="field-hint" data-i18n="wx_interval_hint">Minimum 300 s (5 min) to avoid hammering the weather API.</span>
+            </div>
+          </div>
+            </div>
+          </div>
+          <div class="card wx-subcard" style="margin-bottom:12px">
+            <div class="card-head">
+              <div class="card-title" data-i18n="wx_sec_aprs">APRS</div>
+              <div class="card-actions"><span class="wx-src"><span data-i18n="wx_sec_aprs_note">APRS/CWOP stations from</span> <a href="https://aprs.fi" target="_blank" rel="noopener">aprs.fi</a></span></div>
+            </div>
+            <div class="card-body">
+          <div id="aprswx-nokey" style="display:none;color:var(--warn);font-size:12px;font-weight:600;margin:0 0 10px" data-i18n="aprswx_nokey">No API key saved – "APRSWX" requests are not answered.</div>
+          <div class="group-list" style="margin-bottom:12px">
+            <div class="field">
+              <span class="field-label" data-i18n="aprswx_apikey">aprs.fi API key</span>
+              <span class="field-control">
+                <input type="password" id="aprswx-apikey" class="form-input" autocomplete="new-password" spellcheck="false" style="width:260px">
+                <button type="button" class="btn btn-sm" id="aprswx-apikey-clear" onclick="clearAprsWxKey()" style="display:none" data-i18n="aprswx_apikey_clear">Remove</button>
+              </span>
+            </div>
+            <div class="field">
+              <span class="field-label" data-i18n="aprswx_default_call">Default station</span>
+              <span class="field-control"><input type="text" id="aprswx-default-call" class="form-input" maxlength="12" placeholder="CALL-13" spellcheck="false" style="text-transform:uppercase;width:160px"></span>
+            </div>
+            <div class="field">
+              <span class="field-label" data-i18n="aprswx_max_age">Mark reports older than (seconds)</span>
+              <span class="field-control"><input type="number" id="aprswx-max-age" class="form-input" min="0" placeholder="3600" style="width:160px"></span>
+            </div>
+          </div>
+          <div class="group-list">
+            <label class="field" style="cursor:pointer">
+              <span class="field-label" data-i18n="wx_periodic_enabled">Enable periodic auto-broadcast</span>
+              <span class="field-control"><span class="sw"><input type="checkbox" id="aprswx-periodic-enabled"><i></i></span></span>
+            </label>
+            <div class="field">
+              <span class="field-label" data-i18n="aprswx_periodic_call">Station for periodic send</span>
+              <span class="field-control"><input type="text" id="aprswx-periodic-call" class="form-input" maxlength="12" spellcheck="false" style="text-transform:uppercase;width:160px"></span>
+            </div>
+            <div class="field">
+              <span class="field-label" data-i18n="wx_periodic_dest">Destination</span>
+              <span class="field-control"><input type="number" id="aprswx-periodic-dest" class="form-input" min="1" max="16777215" placeholder="ISSI or GSSI" style="width:160px" data-i18n-placeholder="ui_issi_or_gssi"></span>
+            </div>
+            <label class="field" style="cursor:pointer">
+              <span class="field-label" data-i18n="wx_periodic_isgroup">Destination is group</span>
+              <span class="field-control">
+                <span style="color:var(--muted);font-size:12px" data-i18n="wx_periodic_isgroup_hint">(GSSI instead of individual ISSI)</span>
+                <span class="sw"><input type="checkbox" id="aprswx-periodic-isgroup"><i></i></span>
+              </span>
+            </label>
+            <div class="field">
+              <span class="field-label" data-i18n="wx_periodic_interval">Interval (seconds)</span>
+              <span class="field-control"><input type="number" id="aprswx-periodic-interval" class="form-input" min="300" placeholder="1800" style="width:160px"></span>
+            </div>
+          </div>
             </div>
           </div>
           <div class="config-msg" id="wx-msg"></div>
@@ -8122,7 +8196,7 @@ const LANGS={
     no_terminals:'No radios registered',no_calls:'No active calls',
     live_log:'Live Log',autoscroll:'Auto-scroll',filter_all:'All',
     clear:'Clear',export:'Export',restart:'Restart',shutdown:'Shutdown',delete:'Delete',save:'Save',
-    cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_remote:'Remote control',cfg_sec_wx:'WX / METAR',    whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
+    cfg_sec_configuration:'Configuration',cfg_sec_access:'Access Control',cfg_sec_remote:'Remote control',cfg_sec_wx:'WX / METAR / APRS',    whitelist_title:'ISSI Whitelist',whitelist_add:'Add ISSI',whitelist_empty:'List empty — open network (any radio may register).',
     whitelist_help:'Part of the Cell profile. Empty = open network. In a profile sheet, Save stores it on that profile; in Live settings, Apply & Restart writes the active config only.',
     whitelist_cell_banner:'Access control for Cell “{cell}”. Travels with that profile (not with Brew).',
     whitelist_live_banner:'Access control for the live config.toml. Apply & Restart writes it to the running station.',
@@ -8134,10 +8208,11 @@ const LANGS={
     remote_issis_empty:'None yet',remote_cmds_empty:'No commands yet',
     remote_cmds_title:'Commands (code → action)',remote_cmd_add:'Add command',remote_status_code:'Status code',remote_action:'Action',remote_cmd_del:'Remove',
     remote_empty_issi:'Add at least one authorized ISSI when enabled.',remote_invalid_code:'Enter a status code (0–65535).',
-    wx_title:'WX / METAR Service',wx_help:'Built-in weather service. Radios send an SDS like "METAR LROP" to the service ISSI to get a decoded report. Optionally auto-send a fixed station\'s METAR to an ISSI or talkgroup at a set interval. Data from aviationweather.gov. "APRSWX <CALL>" returns an APRS weather station from aprs.fi (needs [aprs_wx] in config.toml).',
-    wx_enabled:'Enable on-demand METAR responder',wx_service_issi:'Service ISSI',wx_periodic_enabled:'Enable periodic auto-broadcast',
+    wx_title:'WX Service (METAR / APRS)',wx_help:'Built-in weather service. Radios send an SDS to the service ISSI: "METAR <ICAO>" for a decoded airport report or "APRSWX <CALL>" for the latest report of an APRS weather station. Example: "METAR EDDK". Both sources can also send their data periodically to an ISSI or talkgroup.',
+    wx_enabled:'Enable on-demand weather responder (METAR, APRS)',wx_service_issi:'Service ISSI',wx_periodic_enabled:'Enable periodic auto-broadcast',
     wx_periodic_icao:'Station ICAO',wx_periodic_dest:'Destination',wx_periodic_isgroup:'Destination is group',wx_periodic_isgroup_hint:'(GSSI instead of individual ISSI)',
     wx_periodic_interval:'Interval (seconds)',wx_interval_hint:'Minimum 300 s (5 min) to avoid hammering the weather API.',wx_periodic_incomplete:'Set both station ICAO and destination for periodic mode.',
+    aprswx_apikey:'aprs.fi API key',aprswx_apikey_ph_set:'saved – empty keeps it',aprswx_apikey_ph_unset:'e.g. 123456.abcdefgh',aprswx_apikey_clear:'Remove',aprswx_apikey_hint:'Free with an aprs.fi account: My account → API keys. Without a key the APRS service is off.',aprswx_default_call:'Default station',aprswx_default_call_hint:'Used for a bare "APRSWX" and for the periodic send.',aprswx_max_age:'Mark reports older than (seconds)',aprswx_max_age_hint:'Older reports get an "OLD" mark. 0 = never.',aprswx_periodic_call:'Station for periodic send',aprswx_periodic_call_hint:'Empty = default station.',aprswx_periodic_incomplete:'Periodic APRS send needs an API key, a station and a destination.',aprswx_key_removed:'The API key will be removed on save.',aprswx_nokey:'No API key saved – "APRSWX" requests are not answered.',wx_sec_general:'General',wx_sec_general_note:'applies to METAR and APRS',wx_sec_metar:'METAR',wx_sec_metar_note:'airport weather from aviationweather.gov',wx_sec_aprs:'APRS',wx_sec_aprs_note:'APRS/CWOP stations from',wx_saved:'✓ Saved – active now.',wx_save_partial:'General and METAR saved, APRS not: ',aprswx_apikey_ph_set_short:'saved',
     sds_title:'⬡ Send SDS Message',sds_dest:'Destination ISSI',
     sds_as_issi:'Sent as ISSI {issi}',
     sds_callout_enable:'TPG2200 Call-Out / Send alarm',
@@ -8471,13 +8546,15 @@ const LANGS={
     no_terminals:'Niciun radio înregistrat',no_calls:'Niciun apel activ',
     live_log:'Log Live',autoscroll:'Auto-scroll',filter_all:'Toate',
     clear:'Șterge',export:'Export',restart:'Repornire',shutdown:'Oprire',save:'Salvează',
-    cfg_sec_configuration:'Configurație',cfg_sec_access:'Control acces',cfg_sec_wx:'WX / METAR',whitelist_title:'Listă albă ISSI',whitelist_add:'Adaugă ISSI',whitelist_empty:'Listă goală — rețea deschisă (orice radio se poate înregistra).',
+    cfg_sec_configuration:'Configurație',cfg_sec_access:'Control acces',cfg_sec_wx:'WX / METAR / APRS',whitelist_title:'Listă albă ISSI',whitelist_add:'Adaugă ISSI',whitelist_empty:'Listă goală — rețea deschisă (orice radio se poate înregistra).',
     whitelist_help:'Când lista e goală, orice radio se poate înregistra (rețea deschisă). Când are intrări, doar ISSI-urile listate sunt acceptate; restul sunt respinse. Modificările se aplică instant și persistă după repornire.',
     whitelist_enforced:'ACTIVĂ',whitelist_open:'DESCHISĂ',whitelist_invalid:'Introdu un ISSI valid (1–16777215).',
-    wx_title:'Serviciu WX / METAR',wx_help:'Serviciu meteo integrat. Radiourile trimit un SDS de forma "METAR LROP" către ISSI-ul serviciului și primesc raportul decodat. Opțional, trimite automat METAR-ul unei stații fixe către un ISSI sau grup la interval. Date de la aviationweather.gov.',
-    wx_enabled:'Activează răspunsul METAR la cerere',wx_service_issi:'ISSI serviciu',wx_periodic_enabled:'Activează trimiterea periodică',
+    wx_title:'Serviciu WX (METAR / APRS)',wx_help:'Serviciu meteo integrat. Radiourile trimit un SDS către ISSI-ul serviciului: "METAR <ICAO>" pentru un raport de aeroport decodat sau "APRSWX <INDICATIV>" pentru ultimul raport al unei stații meteo APRS. Exemplu: "METAR EDDK". Ambele surse pot trimite datele și periodic către un ISSI sau grup.',
+    wx_enabled:'Activează răspunsul meteo la cerere (METAR, APRS)',wx_service_issi:'ISSI serviciu',wx_periodic_enabled:'Activează trimiterea periodică',
     wx_periodic_icao:'Cod ICAO stație',wx_periodic_dest:'Destinație',wx_periodic_isgroup:'Destinația e grup',wx_periodic_isgroup_hint:'(GSSI în loc de ISSI individual)',
     wx_periodic_interval:'Interval (secunde)',wx_interval_hint:'Minim 300 s (5 min) ca să nu suprasolicităm API-ul meteo.',wx_periodic_incomplete:'Setează și ICAO stație și destinație pentru modul periodic.',
+    aprswx_apikey:'Cheie API aprs.fi',aprswx_apikey_ph_set:'salvată – gol = o păstrează',aprswx_apikey_ph_unset:'ex. 123456.abcdefgh',aprswx_apikey_clear:'Șterge',aprswx_apikey_hint:'Gratuită cu un cont aprs.fi: My account → API keys. Fără cheie, serviciul APRS este oprit.',aprswx_default_call:'Stație implicită',aprswx_default_call_hint:'Folosită pentru "APRSWX" simplu și pentru trimiterea periodică.',aprswx_max_age:'Marchează rapoartele mai vechi de (secunde)',aprswx_max_age_hint:'Rapoartele mai vechi primesc marcajul "OLD". 0 = niciodată.',aprswx_periodic_call:'Stație pentru trimiterea periodică',aprswx_periodic_call_hint:'Gol = stația implicită.',aprswx_periodic_incomplete:'Trimiterea periodică APRS necesită cheie API, stație și destinație.',aprswx_key_removed:'Cheia API va fi ștearsă la salvare.',aprswx_nokey:'Nicio cheie API salvată – cererile "APRSWX" nu primesc răspuns.',wx_sec_general:'General',wx_sec_general_note:'pentru METAR și APRS',wx_sec_metar:'METAR',wx_sec_metar_note:'vremea aeroporturilor de la aviationweather.gov',wx_sec_aprs:'APRS',wx_sec_aprs_note:'stații APRS/CWOP de la',wx_saved:'✓ Salvat – activ imediat.',wx_save_partial:'General și METAR salvate, APRS nu: ',aprswx_apikey_ph_set_short:'salvată',
+    ui_issi_or_gssi:'ISSI sau GSSI',
     live_sds_desc:'Transmite un mesaj text către toate radiourile din celulă, repetând la intervalul Home Mode Display.',
     live_sds_text:'Text mesaj (max 251 caractere)',live_sds_repeat:'Repetări (0=∞)',live_sds_send:'Broadcast',
     live_sds_clear_all:'Șterge Tot',live_sds_empty:'Niciun broadcast activ.',
@@ -8642,13 +8719,15 @@ const LANGS={
     no_terminals:'Keine Radios registriert',no_calls:'Keine aktiven Anrufe',
     live_log:'Live-Log',autoscroll:'Auto-Scroll',filter_all:'Alle',
     clear:'Löschen',export:'Exportieren',restart:'Neustart',shutdown:'Herunterfahren',save:'Speichern',
-    cfg_sec_configuration:'Konfiguration',cfg_sec_access:'Zugriffskontrolle',cfg_sec_wx:'WX / METAR',whitelist_title:'ISSI-Whitelist',whitelist_add:'ISSI hinzufügen',whitelist_empty:'Liste leer — offenes Netz (jedes Funkgerät darf sich anmelden).',
+    cfg_sec_configuration:'Konfiguration',cfg_sec_access:'Zugriffskontrolle',cfg_sec_wx:'WX / METAR / APRS',whitelist_title:'ISSI-Whitelist',whitelist_add:'ISSI hinzufügen',whitelist_empty:'Liste leer — offenes Netz (jedes Funkgerät darf sich anmelden).',
     whitelist_help:'Ist die Liste leer, darf sich jedes Funkgerät anmelden (offenes Netz). Bei Einträgen werden nur die gelisteten ISSIs akzeptiert; alle anderen werden abgewiesen. Änderungen wirken sofort und bleiben nach Neustart erhalten.',
     whitelist_enforced:'AKTIV',whitelist_open:'OFFEN',whitelist_invalid:'Gültige ISSI eingeben (1–16777215).',
-    wx_title:'WX / METAR-Dienst',wx_help:'Integrierter Wetterdienst. Funkgeräte senden eine SDS wie "METAR LROP" an die Dienst-ISSI und erhalten einen dekodierten Bericht. Optional automatisches Senden des METAR einer festen Station an eine ISSI oder Gruppe in Intervallen. Daten von aviationweather.gov. "APRSWX <CALL>" liefert eine APRS-Wetterstation von aprs.fi (benötigt [aprs_wx] in config.toml).',
-    wx_enabled:'METAR-Antwort auf Anfrage aktivieren',wx_service_issi:'Dienst-ISSI',wx_periodic_enabled:'Periodisches Senden aktivieren',
+    wx_title:'WX-Dienst (METAR / APRS)',wx_help:'Integrierter Wetterdienst. Funkgeräte senden eine SDS an die Dienst-ISSI: "METAR <ICAO>" für einen dekodierten Flughafen-Bericht oder "APRSWX <RUFZEICHEN>" für den aktuellen Bericht einer APRS-Wetterstation. Beispiel: "METAR EDDK". Beide Quellen können ihre Daten auch periodisch an eine ISSI oder Gruppe senden.',
+    wx_enabled:'Wetter-Abfragen beantworten (METAR, APRS)',wx_service_issi:'Dienst-ISSI',wx_periodic_enabled:'Periodisches Senden aktivieren',
     wx_periodic_icao:'Stations-ICAO',wx_periodic_dest:'Ziel',wx_periodic_isgroup:'Ziel ist Gruppe',wx_periodic_isgroup_hint:'(GSSI statt einzelner ISSI)',
     wx_periodic_interval:'Intervall (Sekunden)',wx_interval_hint:'Mindestens 300 s (5 Min), um die Wetter-API nicht zu überlasten.',wx_periodic_incomplete:'Stations-ICAO und Ziel für den periodischen Modus setzen.',
+    aprswx_apikey:'aprs.fi-API-Schlüssel',aprswx_apikey_ph_set:'gespeichert – leer = behalten',aprswx_apikey_ph_unset:'z. B. 123456.abcdefgh',aprswx_apikey_clear:'Entfernen',aprswx_apikey_hint:'Kostenlos mit einem aprs.fi-Konto: My account → API keys. Ohne Schlüssel ist der APRS-Dienst aus.',aprswx_default_call:'Standard-Station',aprswx_default_call_hint:'Für ein einfaches "APRSWX" und für das periodische Senden.',aprswx_max_age:'Berichte markieren, älter als (Sekunden)',aprswx_max_age_hint:'Ältere Berichte erhalten den Vermerk "OLD". 0 = nie.',aprswx_periodic_call:'Station für periodisches Senden',aprswx_periodic_call_hint:'Leer = Standard-Station.',aprswx_periodic_incomplete:'Für periodisches APRS-Senden werden API-Schlüssel, Station und Ziel benötigt.',aprswx_key_removed:'Der API-Schlüssel wird beim Speichern entfernt.',aprswx_nokey:'Kein API-Schlüssel gespeichert – "APRSWX"-Abfragen werden nicht beantwortet.',wx_sec_general:'Allgemein',wx_sec_general_note:'gilt für METAR und APRS',wx_sec_metar:'METAR',wx_sec_metar_note:'Flughafen-Wetter von aviationweather.gov',wx_sec_aprs:'APRS',wx_sec_aprs_note:'APRS/CWOP-Stationen von',wx_saved:'✓ Gespeichert – sofort aktiv.',wx_save_partial:'Allgemein und METAR gespeichert, APRS nicht: ',aprswx_apikey_ph_set_short:'gespeichert',
+    ui_issi_or_gssi:'ISSI oder GSSI',
     live_sds_desc:'Sendet eine Textnachricht an alle Funkgeräte der Zelle, wiederholt im Home-Mode-Display-Intervall.',
     live_sds_text:'Nachrichtentext (max. 251 Zeichen)',live_sds_repeat:'Wiederh. (0=∞)',live_sds_send:'Senden',
     live_sds_clear_all:'Alle löschen',live_sds_empty:'Keine aktiven Broadcasts.',
@@ -8895,7 +8974,7 @@ const LANGS={
     no_terminals:'No hay radios registrados',no_calls:'No hay llamadas activas',
     live_log:'Log en Vivo',autoscroll:'Auto-desplaz.',filter_all:'Todos',
     clear:'Limpiar',export:'Exportar',restart:'Reiniciar',shutdown:'Apagar',delete:'Eliminar',save:'Guardar',
-    cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_remote:'Control remoto',cfg_sec_wx:'WX / METAR',    whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
+    cfg_sec_configuration:'Configuración',cfg_sec_access:'Control de acceso',cfg_sec_remote:'Control remoto',cfg_sec_wx:'WX / METAR / APRS',    whitelist_title:'Lista blanca ISSI',whitelist_add:'Añadir ISSI',whitelist_empty:'Lista vacía — red abierta (cualquier radio puede registrarse).',
     whitelist_help:'Forma parte del perfil Cell. Lista vacía = red abierta. En la hoja de perfil, Guardar lo guarda en ese perfil; en Ajustes en vivo, Aplicar y reiniciar escribe solo la config activa.',
     whitelist_cell_banner:'Control de acceso del Cell “{cell}”. Viaja con ese perfil (no con Brew).',
     whitelist_live_banner:'Control de acceso del config.toml en vivo. Aplicar y reiniciar lo escribe en la estación.',
@@ -8907,10 +8986,12 @@ const LANGS={
     remote_issis_empty:'Ninguno aún',remote_cmds_empty:'Sin comandos aún',
     remote_cmds_title:'Comandos (código → acción)',remote_cmd_add:'Añadir comando',remote_status_code:'Código de estado',remote_action:'Acción',remote_cmd_del:'Quitar',
     remote_empty_issi:'Añade al menos un ISSI autorizado si está activado.',remote_invalid_code:'Introduce un código de estado (0–65535).',
-    wx_title:'Servicio WX / METAR',wx_help:'Servicio meteorológico integrado. Las radios envían un SDS como "METAR LROP" al ISSI del servicio y reciben un informe decodificado. Opcionalmente envía automáticamente el METAR de una estación fija a un ISSI o grupo a intervalos. Datos de aviationweather.gov. "APRSWX <CALL>" devuelve una estación meteorológica APRS de aprs.fi (requiere [aprs_wx] en config.toml).',
-    wx_enabled:'Activar respuesta METAR a petición',wx_service_issi:'ISSI del servicio',wx_periodic_enabled:'Activar envío periódico',
+    wx_title:'Servicio WX (METAR / APRS)',wx_help:'Servicio meteorológico integrado. Las radios envían un SDS al ISSI del servicio: "METAR <ICAO>" para un informe de aeropuerto decodificado o "APRSWX <INDICATIVO>" para el último informe de una estación meteorológica APRS. Ejemplo: "METAR EDDK". Ambas fuentes pueden enviar también sus datos periódicamente a un ISSI o grupo.',
+    wx_enabled:'Responder consultas meteorológicas (METAR, APRS)',wx_service_issi:'ISSI del servicio',wx_periodic_enabled:'Activar envío periódico',
     wx_periodic_icao:'ICAO de estación',wx_periodic_dest:'Destino',wx_periodic_isgroup:'El destino es grupo',wx_periodic_isgroup_hint:'(GSSI en vez de ISSI individual)',
     wx_periodic_interval:'Intervalo (segundos)',wx_interval_hint:'Mínimo 300 s (5 min) para no saturar la API meteorológica.',wx_periodic_incomplete:'Indica ICAO de estación y destino para el modo periódico.',
+    aprswx_apikey:'Clave API de aprs.fi',aprswx_apikey_ph_set:'guardada – vacío = conservar',aprswx_apikey_ph_unset:'p. ej. 123456.abcdefgh',aprswx_apikey_clear:'Quitar',aprswx_apikey_hint:'Gratis con una cuenta de aprs.fi: My account → API keys. Sin clave, el servicio APRS está desactivado.',aprswx_default_call:'Estación por defecto',aprswx_default_call_hint:'Para un "APRSWX" sin indicativo y para el envío periódico.',aprswx_max_age:'Marcar informes con más de (segundos)',aprswx_max_age_hint:'Los informes más antiguos llevan la marca "OLD". 0 = nunca.',aprswx_periodic_call:'Estación para el envío periódico',aprswx_periodic_call_hint:'Vacío = estación por defecto.',aprswx_periodic_incomplete:'El envío periódico APRS necesita clave API, estación y destino.',aprswx_key_removed:'La clave API se quitará al guardar.',aprswx_nokey:'No hay clave API guardada – las peticiones "APRSWX" no se responden.',wx_sec_general:'General',wx_sec_general_note:'para METAR y APRS',wx_sec_metar:'METAR',wx_sec_metar_note:'tiempo de aeropuertos de aviationweather.gov',wx_sec_aprs:'APRS',wx_sec_aprs_note:'estaciones APRS/CWOP de',wx_saved:'✓ Guardado – activo ya.',wx_save_partial:'General y METAR guardados, APRS no: ',aprswx_apikey_ph_set_short:'guardada',
+    ui_issi_or_gssi:'ISSI o GSSI',
     live_sds_desc:'Transmite un mensaje de texto a todos los radios de la celda, repitiéndose al intervalo de Home Mode Display.',
     live_sds_text:'Texto del mensaje (máx. 251 caracteres)',live_sds_repeat:'Repetir (0=∞)',live_sds_send:'Difundir',
     live_sds_clear_all:'Borrar Todo',live_sds_empty:'No hay difusiones activas.',
@@ -9127,13 +9208,15 @@ const LANGS={
     no_terminals:'Nincs regisztrált rádió',no_calls:'Nincs aktív hívás',
     live_log:'Élő napló',autoscroll:'Automatikus görgetés',filter_all:'Mind',
     clear:'Törlés',export:'Exportálás',restart:'Újraindítás',shutdown:'Leállítás',save:'Mentés',
-    cfg_sec_configuration:'Konfiguráció',cfg_sec_access:'Hozzáférés-vezérlés',cfg_sec_wx:'WX / METAR',whitelist_title:'ISSI engedélyezőlista',whitelist_add:'ISSI hozzáadása',whitelist_empty:'Üres lista — nyílt hálózat (bármely rádió regisztrálhat).',
+    cfg_sec_configuration:'Konfiguráció',cfg_sec_access:'Hozzáférés-vezérlés',cfg_sec_wx:'WX / METAR / APRS',whitelist_title:'ISSI engedélyezőlista',whitelist_add:'ISSI hozzáadása',whitelist_empty:'Üres lista — nyílt hálózat (bármely rádió regisztrálhat).',
     whitelist_help:'Ha a lista üres, bármely rádió regisztrálhat (nyílt hálózat). Ha vannak elemek, csak a listázott ISSI-k engedélyezettek; a többit elutasítja. A módosítások azonnal érvénybe lépnek és újraindítás után is megmaradnak.',
     whitelist_enforced:'AKTÍV',whitelist_open:'NYÍLT',whitelist_invalid:'Adjon meg érvényes ISSI-t (1–16777215).',
-    wx_title:'WX / METAR szolgáltatás',wx_help:'Beépített időjárás-szolgáltatás. A rádiók "METAR LROP" formájú SDS-t küldenek a szolgáltatás ISSI-jére, és dekódolt jelentést kapnak. Opcionálisan automatikusan elküldi egy rögzített állomás METAR-ját egy ISSI-re vagy csoportra adott időközönként. Adatok: aviationweather.gov.',
-    wx_enabled:'METAR válasz kérésre engedélyezése',wx_service_issi:'Szolgáltatás ISSI',wx_periodic_enabled:'Időszakos küldés engedélyezése',
+    wx_title:'WX szolgáltatás (METAR / APRS)',wx_help:'Beépített időjárás-szolgáltatás. A rádiók SDS-t küldenek a szolgáltatás ISSI-re: "METAR <ICAO>" egy dekódolt repülőtéri jelentéshez, vagy "APRSWX <HÍVÓJEL>" egy APRS időjárás-állomás legfrissebb jelentéséhez. Példa: "METAR EDDK". Mindkét forrás időszakosan is küldheti adatait egy ISSI-nek vagy csoportnak.',
+    wx_enabled:'Időjárás-lekérdezések megválaszolása (METAR, APRS)',wx_service_issi:'Szolgáltatás ISSI',wx_periodic_enabled:'Időszakos küldés engedélyezése',
     wx_periodic_icao:'Állomás ICAO',wx_periodic_dest:'Cél',wx_periodic_isgroup:'A cél csoport',wx_periodic_isgroup_hint:'(GSSI egyedi ISSI helyett)',
     wx_periodic_interval:'Időköz (másodperc)',wx_interval_hint:'Legalább 300 mp (5 perc), hogy ne terhelje túl az időjárás API-t.',wx_periodic_incomplete:'Add meg az állomás ICAO-t és a célt az időszakos módhoz.',
+    aprswx_apikey:'aprs.fi API-kulcs',aprswx_apikey_ph_set:'mentve – üres = megtartja',aprswx_apikey_ph_unset:'pl. 123456.abcdefgh',aprswx_apikey_clear:'Eltávolítás',aprswx_apikey_hint:'Ingyenes aprs.fi fiókkal: My account → API keys. Kulcs nélkül az APRS szolgáltatás ki van kapcsolva.',aprswx_default_call:'Alapértelmezett állomás',aprswx_default_call_hint:'Egyszerű "APRSWX" kéréshez és az időszakos küldéshez.',aprswx_max_age:'Régebbi jelentések jelölése (másodperc)',aprswx_max_age_hint:'A régebbi jelentések "OLD" jelölést kapnak. 0 = soha.',aprswx_periodic_call:'Állomás az időszakos küldéshez',aprswx_periodic_call_hint:'Üres = alapértelmezett állomás.',aprswx_periodic_incomplete:'Az időszakos APRS-küldéshez API-kulcs, állomás és cél szükséges.',aprswx_key_removed:'Az API-kulcs mentéskor törlődik.',aprswx_nokey:'Nincs mentett API-kulcs – az "APRSWX" kérésekre nincs válasz.',wx_sec_general:'Általános',wx_sec_general_note:'METAR-ra és APRS-re vonatkozik',wx_sec_metar:'METAR',wx_sec_metar_note:'repülőtéri időjárás az aviationweather.gov-ról',wx_sec_aprs:'APRS',wx_sec_aprs_note:'APRS/CWOP állomások, forrás:',wx_saved:'✓ Mentve – azonnal érvényes.',wx_save_partial:'Általános és METAR mentve, APRS nem: ',aprswx_apikey_ph_set_short:'mentve',
+    ui_issi_or_gssi:'ISSI vagy GSSI',
     sds_title:'⬡ SDS üzenet küldése',sds_dest:'Cél ISSI',
     sds_as_issi:'Küldés ISSI-ként: {issi}',
     sds_msg_label:'Üzenet',cancel:'Mégse',send:'Küldés',
@@ -9210,13 +9293,15 @@ const LANGS={
     no_terminals:'暂无终端注册',no_calls:'无活跃通话',
     live_log:'实时日志',autoscroll:'自动滚动',filter_all:'全部',
     clear:'清除',export:'导出',restart:'重启',shutdown:'关机',save:'保存',
-    cfg_sec_configuration:'配置',cfg_sec_access:'访问控制',cfg_sec_wx:'WX / METAR',whitelist_title:'ISSI 白名单',whitelist_add:'添加 ISSI',whitelist_empty:'列表为空 — 开放网络（任何电台均可注册）。',
+    cfg_sec_configuration:'配置',cfg_sec_access:'访问控制',cfg_sec_wx:'WX / METAR / APRS',whitelist_title:'ISSI 白名单',whitelist_add:'添加 ISSI',whitelist_empty:'列表为空 — 开放网络（任何电台均可注册）。',
     whitelist_help:'列表为空时，任何电台均可注册（开放网络）。有条目时，仅接受列出的 ISSI，其余一律拒绝。更改即时生效并在重启后保留。',
     whitelist_enforced:'已启用',whitelist_open:'开放',whitelist_invalid:'请输入有效的 ISSI（1–16777215）。',
-    wx_title:'WX / METAR 服务',wx_help:'内置气象服务。电台向服务 ISSI 发送如 "METAR LROP" 的 SDS 即可获得解码报告。可选择按间隔自动向 ISSI 或群组发送固定台站的 METAR。数据来自 aviationweather.gov。',
-    wx_enabled:'启用按需 METAR 响应',wx_service_issi:'服务 ISSI',wx_periodic_enabled:'启用定时广播',
+    wx_title:'WX 服务（METAR / APRS）',wx_help:'内置气象服务。电台向服务 ISSI 发送 SDS："METAR <ICAO>" 获取解码后的机场报告，或 "APRSWX <呼号>" 获取 APRS 气象站的最新报告。示例："METAR EDDK"。两种来源也可定时将数据发送到 ISSI 或通话组。',
+    wx_enabled:'启用按需气象响应（METAR、APRS）',wx_service_issi:'服务 ISSI',wx_periodic_enabled:'启用定时广播',
     wx_periodic_icao:'台站 ICAO',wx_periodic_dest:'目标',wx_periodic_isgroup:'目标为群组',wx_periodic_isgroup_hint:'（GSSI 而非单个 ISSI）',
     wx_periodic_interval:'间隔（秒）',wx_interval_hint:'最少 300 秒（5 分钟），以免频繁请求气象 API。',wx_periodic_incomplete:'定时模式需同时设置台站 ICAO 和目标。',
+    aprswx_apikey:'aprs.fi API 密钥',aprswx_apikey_ph_set:'已保存 – 留空即保留',aprswx_apikey_ph_unset:'例如 123456.abcdefgh',aprswx_apikey_clear:'移除',aprswx_apikey_hint:'使用 aprs.fi 账户免费获取：My account → API keys。没有密钥时 APRS 服务关闭。',aprswx_default_call:'默认气象站',aprswx_default_call_hint:'用于仅发送 "APRSWX" 以及定时发送。',aprswx_max_age:'标记早于此时间的报告（秒）',aprswx_max_age_hint:'较旧的报告标记为 "OLD"。0 = 从不。',aprswx_periodic_call:'定时发送的气象站',aprswx_periodic_call_hint:'留空 = 默认气象站。',aprswx_periodic_incomplete:'APRS 定时发送需要 API 密钥、气象站和目标。',aprswx_key_removed:'保存时将移除 API 密钥。',aprswx_nokey:'未保存 API 密钥 – 不会回复 "APRSWX" 查询。',wx_sec_general:'通用',wx_sec_general_note:'适用于 METAR 和 APRS',wx_sec_metar:'METAR',wx_sec_metar_note:'来自 aviationweather.gov 的机场天气',wx_sec_aprs:'APRS',wx_sec_aprs_note:'APRS/CWOP 气象站，来源：',wx_saved:'✓ 已保存 – 立即生效。',wx_save_partial:'通用和 METAR 已保存，APRS 未保存：',aprswx_apikey_ph_set_short:'已保存',
+    ui_issi_or_gssi:'ISSI 或 GSSI',
     sds_title:'⬡ 发送 SDS 短消息',sds_dest:'目标 ISSI',
     sds_as_issi:'以 ISSI {issi} 发送',
     live_sds_desc:'向本小区所有终端广播文本消息，按 Home Mode Display 间隔重复发送。直到删除或达到重复次数为止。',
@@ -9531,7 +9616,7 @@ const LANGS={
     "cfg_sec_configuration": "Configuração",
     "cfg_sec_access": "Controlo de acesso",
     "cfg_sec_remote": "Controlo remoto",
-    "cfg_sec_wx": "WX / METAR",
+    "cfg_sec_wx": "WX / METAR / APRS",
     "whitelist_title": "Lista de ISSI autorizados",
     "whitelist_add": "Adicionar ISSI",
     "whitelist_empty": "Lista vazia — rede aberta (qualquer rádio pode registar-se).",
@@ -9558,9 +9643,9 @@ const LANGS={
     "remote_cmd_del": "Remover",
     "remote_empty_issi": "Adiciona pelo menos um ISSI autorizado quando esta função estiver ativa.",
     "remote_invalid_code": "Introduz um código de estado (0–65535).",
-    "wx_title": "Serviço WX / METAR",
-    "wx_help": "Serviço meteorológico integrado. Os rádios enviam uma SDS, como «METAR LROP», para o ISSI do serviço para receber um relatório descodificado. Opcionalmente, envia automaticamente o METAR de uma estação fixa para um ISSI ou talkgroup a intervalos definidos. Dados de aviationweather.gov.",
-    "wx_enabled": "Ativar resposta a pedidos METAR",
+    "wx_title": "Serviço WX (METAR / APRS)",
+    "wx_help": "Serviço meteorológico integrado. Os rádios enviam uma SDS para o ISSI do serviço: «METAR <ICAO>» para um relatório de aeroporto descodificado ou «APRSWX <INDICATIVO>» para o último relatório de uma estação meteorológica APRS. Exemplo: «METAR EDDK». Ambas as fontes também podem enviar os seus dados periodicamente para um ISSI ou grupo.",
+    "wx_enabled": "Ativar resposta a pedidos meteorológicos (METAR, APRS)",
     "wx_service_issi": "ISSI do serviço",
     "wx_periodic_enabled": "Ativar difusão automática periódica",
     "wx_periodic_icao": "Código ICAO da estação",
@@ -9570,6 +9655,29 @@ const LANGS={
     "wx_periodic_interval": "Intervalo (segundos)",
     "wx_interval_hint": "Mínimo de 300 s (5 min) para não sobrecarregar a API meteorológica.",
     "wx_periodic_incomplete": "Define o código ICAO da estação e o destino para o modo periódico.",
+    "aprswx_apikey": "Chave API do aprs.fi",
+    "aprswx_apikey_ph_set": "guardada – vazio = manter",
+    "aprswx_apikey_ph_unset": "p. ex. 123456.abcdefgh",
+    "aprswx_apikey_clear": "Remover",
+    "aprswx_apikey_hint": "Gratuita com uma conta aprs.fi: My account → API keys. Sem chave, o serviço APRS fica desligado.",
+    "aprswx_default_call": "Estação predefinida",
+    "aprswx_default_call_hint": "Usada para um «APRSWX» simples e para o envio periódico.",
+    "aprswx_max_age": "Marcar relatórios com mais de (segundos)",
+    "aprswx_max_age_hint": "Os relatórios mais antigos recebem a marca «OLD». 0 = nunca.",
+    "aprswx_periodic_call": "Estação para o envio periódico",
+    "aprswx_periodic_call_hint": "Vazio = estação predefinida.",
+    "aprswx_periodic_incomplete": "O envio periódico APRS precisa de chave API, estação e destino.",
+    "aprswx_key_removed": "A chave API será removida ao guardar.",
+    "aprswx_nokey": "Nenhuma chave API guardada – os pedidos «APRSWX» não têm resposta.",
+    "wx_sec_general": "Geral",
+    "wx_sec_general_note": "aplica-se a METAR e APRS",
+    "wx_sec_metar": "METAR",
+    "wx_sec_metar_note": "tempo de aeroportos de aviationweather.gov",
+    "wx_sec_aprs": "APRS",
+    "wx_sec_aprs_note": "estações APRS/CWOP de",
+    "wx_saved": "✓ Guardado – ativo de imediato.",
+    "wx_save_partial": "Geral e METAR guardados, APRS não: ",
+    "aprswx_apikey_ph_set_short": "guardada",
     "sds_title": "⬡ Enviar mensagem SDS",
     "sds_dest": "ISSI de destino",
     "sds_as_issi": "Enviado com o ISSI {issi}",
@@ -10792,7 +10900,7 @@ const LANGS={
     "cfg_sec_configuration": "Configuration",
     "cfg_sec_access": "Contrôle d’accès",
     "cfg_sec_remote": "Commande à distance",
-    "cfg_sec_wx": "WX / METAR",
+    "cfg_sec_wx": "WX / METAR / APRS",
     "whitelist_title": "Liste des ISSI autorisés",
     "whitelist_add": "Ajouter un ISSI",
     "whitelist_empty": "Liste vide — réseau ouvert (toute radio peut s’enregistrer).",
@@ -10819,9 +10927,9 @@ const LANGS={
     "remote_cmd_del": "Supprimer",
     "remote_empty_issi": "Ajoutez au moins un ISSI autorisé lorsque cette fonction est activée.",
     "remote_invalid_code": "Saisissez un code d’état (0–65535).",
-    "wx_title": "Service WX / METAR",
-    "wx_help": "Service météorologique intégré. Les radios envoient un SDS tel que « METAR LROP » à l’ISSI du service pour recevoir un bulletin décodé. En option, envoyez automatiquement le METAR d’une station fixe à un ISSI ou talkgroup à intervalle défini. Données de aviationweather.gov.",
-    "wx_enabled": "Activer la réponse aux demandes METAR",
+    "wx_title": "Service WX (METAR / APRS)",
+    "wx_help": "Service météo intégré. Les radios envoient un SDS à l’ISSI du service : « METAR <ICAO> » pour un bulletin d’aéroport décodé ou « APRSWX <INDICATIF> » pour le dernier relevé d’une station météo APRS. Exemple : « METAR EDDK ». Les deux sources peuvent aussi envoyer leurs données périodiquement à un ISSI ou à un groupe.",
+    "wx_enabled": "Activer la réponse aux demandes météo (METAR, APRS)",
     "wx_service_issi": "ISSI du service",
     "wx_periodic_enabled": "Activer la diffusion automatique périodique",
     "wx_periodic_icao": "Code OACI de la station",
@@ -10831,6 +10939,29 @@ const LANGS={
     "wx_periodic_interval": "Intervalle (secondes)",
     "wx_interval_hint": "Minimum 300 s (5 min) pour ne pas surcharger l’API météorologique.",
     "wx_periodic_incomplete": "Définissez le code OACI de la station et la destination pour le mode périodique.",
+    "aprswx_apikey": "Clé API aprs.fi",
+    "aprswx_apikey_ph_set": "enregistrée – vide = conserver",
+    "aprswx_apikey_ph_unset": "p. ex. 123456.abcdefgh",
+    "aprswx_apikey_clear": "Supprimer",
+    "aprswx_apikey_hint": "Gratuite avec un compte aprs.fi : My account → API keys. Sans clé, le service APRS est désactivé.",
+    "aprswx_default_call": "Station par défaut",
+    "aprswx_default_call_hint": "Utilisée pour un « APRSWX » seul et pour l’envoi périodique.",
+    "aprswx_max_age": "Marquer les relevés de plus de (secondes)",
+    "aprswx_max_age_hint": "Les relevés plus anciens portent la mention « OLD ». 0 = jamais.",
+    "aprswx_periodic_call": "Station pour l’envoi périodique",
+    "aprswx_periodic_call_hint": "Vide = station par défaut.",
+    "aprswx_periodic_incomplete": "L’envoi périodique APRS nécessite une clé API, une station et une destination.",
+    "aprswx_key_removed": "La clé API sera supprimée à l’enregistrement.",
+    "aprswx_nokey": "Aucune clé API enregistrée – les demandes « APRSWX » restent sans réponse.",
+    "wx_sec_general": "Général",
+    "wx_sec_general_note": "pour METAR et APRS",
+    "wx_sec_metar": "METAR",
+    "wx_sec_metar_note": "météo des aéroports d’aviationweather.gov",
+    "wx_sec_aprs": "APRS",
+    "wx_sec_aprs_note": "stations APRS/CWOP, source :",
+    "wx_saved": "✓ Enregistré – actif immédiatement.",
+    "wx_save_partial": "Général et METAR enregistrés, APRS non : ",
+    "aprswx_apikey_ph_set_short": "enregistrée",
     "sds_title": "⬡ Envoyer un message SDS",
     "sds_dest": "ISSI de destination",
     "sds_as_issi": "Envoyé avec l’ISSI {issi}",
@@ -16339,6 +16470,9 @@ const CFG_HELP_BY_ID={
   'rm-tel-tls':'roam_help_link_tls','rm-cmd-tls':'roam_help_link_tls','rm-tel-pass':'roam_help_link_pass','rm-cmd-pass':'roam_help_link_pass','rm-tel-lat':'roam_help_tel_pos','rm-tel-lon':'roam_help_tel_pos','rm-tel-site':'roam_help_tel_site',
   'rm-n-id':'roam_help_n_id','rm-n-carrier':'roam_help_n_carrier','rm-n-ext':'roam_help_n_ext','rm-n-types':'roam_help_n_types','rm-n-sync':'roam_help_n_sync',
   'rm-n-load':'roam_help_n_load','rm-n-la':'roam_help_n_la','rm-n-rxlev':'roam_help_n_rxlev','rm-n-txpwr':'roam_help_n_txpwr',
+  'wx-periodic-interval':'wx_interval_hint','aprswx-periodic-interval':'wx_interval_hint',
+  'aprswx-apikey':'aprswx_apikey_hint','aprswx-default-call':'aprswx_default_call_hint',
+  'aprswx-max-age':'aprswx_max_age_hint','aprswx-periodic-call':'aprswx_periodic_call_hint',
 };
 let cfgHelpPop=null,cfgHelpBtn=null;
 function closeCfgHelp(){
@@ -17138,12 +17272,21 @@ async function saveSdsCommands(){
 }
 function setRemoteMsg(txt,ok){const el=document.getElementById('remote-msg');if(!el)return;el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},4000);}
 
-// ── WX / METAR service ──────────────────────────────────────────────────────
+// ── WX service: General + METAR ([wx_service]) and APRS weather ([aprs_wx]) ──────
+let aprsWxHasKey=false, aprsWxClearKey=false;
+function updateAprsWxKeyUi(){
+  const key=document.getElementById('aprswx-apikey');if(!key)return;
+  const saved=aprsWxHasKey&&!aprsWxClearKey;
+  const ph=saved?(matchMedia('(max-width:700px)').matches?'aprswx_apikey_ph_set_short':'aprswx_apikey_ph_set'):'aprswx_apikey_ph_unset';
+  key.setAttribute('data-i18n-placeholder',ph);key.placeholder=t(ph);
+  document.getElementById('aprswx-apikey-clear').style.display=saved?'':'none';
+  document.getElementById('aprswx-nokey').style.display=(saved||key.value.trim())?'none':'';
+}
 async function loadWx(){
   try{
-    const r=await fetch('/api/wx');
-    if(!r.ok){setWxMsg(t('conn_error'),false);return;}
-    const d=await r.json();
+    const [r,ra]=await Promise.all([fetch('/api/wx'),fetch('/api/aprs_wx',{cache:'no-store'})]);
+    if(!r.ok||!ra.ok){setWxMsg(t('conn_error'),false);return;}
+    const d=await r.json(), a=await ra.json();
     document.getElementById('wx-enabled').checked=!!d.enabled;
     document.getElementById('wx-service-issi').value=d.service_issi||'';
     document.getElementById('wx-periodic-enabled').checked=!!d.periodic_enabled;
@@ -17151,26 +17294,57 @@ async function loadWx(){
     document.getElementById('wx-periodic-issi').value=d.periodic_issi||'';
     document.getElementById('wx-periodic-isgroup').checked=!!d.periodic_is_group;
     document.getElementById('wx-periodic-interval').value=d.periodic_interval_secs||1800;
+    aprsWxHasKey=!!a.has_apikey;aprsWxClearKey=false;
+    const key=document.getElementById('aprswx-apikey');key.value='';
+    if(!key.dataset.hook){key.dataset.hook='1';key.addEventListener('input',updateAprsWxKeyUi);}
+    document.getElementById('aprswx-default-call').value=a.default_call||'';
+    document.getElementById('aprswx-max-age').value=(a.max_age_secs??3600);
+    document.getElementById('aprswx-periodic-enabled').checked=!!a.periodic_enabled;
+    document.getElementById('aprswx-periodic-call').value=a.periodic_call||'';
+    document.getElementById('aprswx-periodic-dest').value=a.periodic_dest||'';
+    document.getElementById('aprswx-periodic-isgroup').checked=!!a.periodic_is_group;
+    document.getElementById('aprswx-periodic-interval').value=a.periodic_interval_secs||1800;
+    updateAprsWxKeyUi();
   }catch{setWxMsg(t('conn_error'),false);}
 }
+function clearAprsWxKey(){aprsWxClearKey=true;document.getElementById('aprswx-apikey').value='';updateAprsWxKeyUi();setWxMsg(t('aprswx_key_removed'),true);}
 async function saveWx(){
+  const val=id=>document.getElementById(id);
+  const call=id=>(val(id).value||'').trim().toUpperCase();
   const body={
-    enabled:document.getElementById('wx-enabled').checked,
-    service_issi:parseInt(document.getElementById('wx-service-issi').value)||9998,
-    periodic_enabled:document.getElementById('wx-periodic-enabled').checked,
-    periodic_issi:parseInt(document.getElementById('wx-periodic-issi').value)||0,
-    periodic_is_group:document.getElementById('wx-periodic-isgroup').checked,
-    periodic_icao:(document.getElementById('wx-periodic-icao').value||'').trim().toUpperCase(),
-    periodic_interval_secs:Math.max(300,parseInt(document.getElementById('wx-periodic-interval').value)||1800)
+    enabled:val('wx-enabled').checked,
+    service_issi:parseInt(val('wx-service-issi').value)||9998,
+    periodic_enabled:val('wx-periodic-enabled').checked,
+    periodic_issi:parseInt(val('wx-periodic-issi').value)||0,
+    periodic_is_group:val('wx-periodic-isgroup').checked,
+    periodic_icao:(val('wx-periodic-icao').value||'').trim().toUpperCase(),
+    periodic_interval_secs:Math.max(300,parseInt(val('wx-periodic-interval').value)||1800)
   };
   if(body.periodic_enabled&&(!body.periodic_issi||!body.periodic_icao)){setWxMsg(t('wx_periodic_incomplete'),false);return;}
+  const key=(val('aprswx-apikey').value||'').trim();
+  const aprs={
+    apikey:key,
+    apikey_clear:aprsWxClearKey&&!key,
+    default_call:call('aprswx-default-call'),
+    max_age_secs:Math.max(0,parseInt(val('aprswx-max-age').value)||0),
+    periodic_enabled:val('aprswx-periodic-enabled').checked,
+    periodic_call:call('aprswx-periodic-call'),
+    periodic_dest:parseInt(val('aprswx-periodic-dest').value)||0,
+    periodic_is_group:val('aprswx-periodic-isgroup').checked,
+    periodic_interval_secs:Math.max(300,parseInt(val('aprswx-periodic-interval').value)||1800)
+  };
+  const willHaveKey=!!key||(aprsWxHasKey&&!aprsWxClearKey);
+  if(aprs.periodic_enabled&&(!willHaveKey||!(aprs.periodic_call||aprs.default_call)||!aprs.periodic_dest)){setWxMsg(t('aprswx_periodic_incomplete'),false);return;}
+  const post=(url,b)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
   try{
-    const r=await fetch('/api/wx',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(r.ok){setWxMsg(t('saved'),true);loadWx();}
-    else setWxMsg(t('save_fail')+': '+await r.text(),false);
+    const r=await post('/api/wx',body);
+    if(!r.ok){setWxMsg(t('save_fail')+': '+await r.text(),false);return;}
+    const ra=await post('/api/aprs_wx',aprs);
+    if(!ra.ok){setWxMsg(t('wx_save_partial')+await ra.text(),false);return;}
+    setWxMsg(t('wx_saved'),true);loadWx();
   }catch{setWxMsg(t('conn_error'),false);}
 }
-function setWxMsg(txt,ok){const el=document.getElementById('wx-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},4000);}
+function setWxMsg(txt,ok){const el=document.getElementById('wx-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';setTimeout(()=>{if(el.textContent===txt)el.textContent='';},5000);}
 
 // ── Telegram alerts ─────────────────────────────────────────────────────────
 let tgChats=[];            // recipient chat IDs (numbers)

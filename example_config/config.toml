@@ -605,16 +605,17 @@ voice_service = true
 
 # OPTIONAL: APRS weather station via aprs.fi (extension of the WX service above)
 #
-# Radios send an SDS "APRSWX <CALL>" (e.g. "APRSWX DN9CHO-13") — or just "APRSWX" for
+# Radios send an SDS "APRSWX <CALL>" (e.g. "APRSWX N0CALL-13") — or just "APRSWX" for
 # default_call — to the WX service_issi and get the station's latest weather back:
-#   DN9CHO-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm
+#   N0CALL-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm
 # Works for any APRS/CWOP weather station on aprs.fi.
 # Requires [wx_service] enabled = true (same service ISSI) and an aprs.fi API key
-# (free: log in at aprs.fi -> My account -> API keys). Config file only, not in the dashboard.
+# (free: log in at aprs.fi -> My account -> API keys). Also editable in the dashboard:
+# Config -> WX / METAR / APRS -> "APRS weather" block (the dashboard rewrites this section on save).
 #
 # [aprs_wx]
 # apikey = "123456.abcdefgh"     # aprs.fi API key; empty = feature off
-# default_call = "DN9CHO-13"     # station for a bare "APRSWX" and for the periodic send
+# default_call = "N0CALL-13"     # station for a bare "APRSWX" and for the periodic send
 # max_age_secs = 3600            # mark reports older than this "OLD" (0 = never)
 # periodic_enabled = false       # auto-send default_call / periodic_call periodically
 # periodic_call = ""             # optional other station for the periodic send

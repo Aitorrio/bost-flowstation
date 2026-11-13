@@ -356,7 +356,7 @@ const APRSFI_API: &str = "https://api.aprs.fi/api/get";
 const APRSFI_USER_AGENT: &str = "FlowStation-APRS-WX (+https://github.com/Aitorrio/bost-flowstation)";
 
 /// Uppercase an APRS callsign/object name and keep only the characters aprs.fi accepts
-/// in a station name (letters, digits, '-'), max 9 chars (e.g. "dn9cho-13" -> "DN9CHO-13").
+/// in a station name (letters, digits, '-'), max 9 chars (e.g. "n0call-13" -> "N0CALL-13").
 pub fn sanitize_callsign(s: &str) -> String {
     s.split_whitespace()
         .next()
@@ -410,7 +410,7 @@ pub fn fetch_aprs_wx(call: &str, apikey: &str, max_age_secs: u64) -> Result<Stri
 /// aprs.fi units: temp °C, pressure mbar(=hPa), humidity %, wind_direction °, wind_speed and
 /// wind_gust m/s, rain_1h/rain_24h/rain_mn mm, luminosity W/m². All values arrive as strings.
 /// Output example:
-/// `DN9CHO-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm`
+/// `N0CALL-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm`
 pub fn format_aprs_wx(call: &str, resp: &serde_json::Value, now_unix: i64, max_age_secs: u64) -> Result<String, String> {
     if resp.get("result").and_then(|v| v.as_str()) != Some("ok") {
         let desc = resp.get("description").and_then(|v| v.as_str()).unwrap_or("aprs.fi error");
@@ -602,6 +602,97 @@ pub fn write_wx_to_toml(config_path: &str, ov: &tetra_config::bluestation::WxRun
     std::fs::write(config_path, new_content)
 }
 
+/// TOML basic-string escape for values written by the dashboard.
+fn toml_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Normalise a callsign typed in the dashboard: trim, uppercase, keep `A-Z 0-9 -` only.
+pub fn sanitize_aprs_call(s: &str) -> String {
+    s.trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(12)
+        .collect::<String>()
+        .to_uppercase()
+}
+
+/// Rewrite (or insert) the `[aprs_wx]` section in the TOML file, preserving everything
+/// else. Same approach as [`write_wx_to_toml`]: the whole section is regenerated from the
+/// override values, and an existing `[aprs_wx]` block (from its header up to the next
+/// section header or EOF) is replaced. A commented-out example (`# [aprs_wx]`) is left alone.
+pub fn write_aprs_wx_to_toml(config_path: &str, ov: &tetra_config::bluestation::AprsWxRuntimeOverride) -> std::io::Result<()> {
+    let original = std::fs::read_to_string(config_path)?;
+
+    let section = format!(
+        "[aprs_wx]\n\
+         apikey = \"{}\"\n\
+         default_call = \"{}\"\n\
+         max_age_secs = {}\n\
+         periodic_enabled = {}\n\
+         periodic_call = \"{}\"\n\
+         periodic_dest = {}\n\
+         periodic_is_group = {}\n\
+         periodic_interval_secs = {}",
+        toml_escape(&ov.apikey),
+        toml_escape(&ov.default_call),
+        ov.max_age_secs,
+        ov.periodic_enabled,
+        toml_escape(&ov.periodic_call),
+        ov.periodic_dest,
+        ov.periodic_is_group,
+        ov.periodic_interval_secs
+    );
+
+    let lines: Vec<&str> = original.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 12);
+    let mut i = 0;
+    let mut replaced = false;
+
+    while i < lines.len() {
+        let trimmed = lines[i].trim_start();
+        if trimmed.starts_with("[aprs_wx]") {
+            // Keep a blank line before the section, even if the previous section's writer
+            // (e.g. write_wx_to_toml) swallowed it.
+            if out.last().is_some_and(|l| !l.trim().is_empty()) {
+                out.push(String::new());
+            }
+            out.push(section.clone());
+            replaced = true;
+            i += 1;
+            while i < lines.len() {
+                let t = lines[i].trim_start();
+                if t.starts_with('[') && t.contains(']') {
+                    break;
+                }
+                i += 1;
+            }
+            if i < lines.len() {
+                out.push(String::new()); // keep a blank line before the next section
+            }
+            continue;
+        }
+        out.push(lines[i].to_string());
+        i += 1;
+    }
+
+    if !replaced {
+        if !out.is_empty() && !out.last().map(|l| l.is_empty()).unwrap_or(true) {
+            out.push(String::new());
+        }
+        out.push(section);
+    }
+
+    let mut new_content = out.join("\n");
+    if original.ends_with('\n') || !replaced {
+        new_content.push('\n');
+    }
+
+    let backup = format!("{config_path}.aprs_wx.bak");
+    let _ = std::fs::copy(config_path, &backup);
+    std::fs::write(config_path, new_content)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,29 +749,29 @@ mod tests {
 
     #[test]
     fn request_aprs() {
-        assert!(matches!(parse_wx_request("APRSWX DN9CHO-13"), Some(WxRequest::Aprs(ref s)) if s == "DN9CHO-13"));
-        assert!(matches!(parse_wx_request("aprswx dn9cho-13 bitte"), Some(WxRequest::Aprs(ref s)) if s == "DN9CHO-13"));
+        assert!(matches!(parse_wx_request("APRSWX N0CALL-13"), Some(WxRequest::Aprs(ref s)) if s == "N0CALL-13"));
+        assert!(matches!(parse_wx_request("aprswx n0call-13 bitte"), Some(WxRequest::Aprs(ref s)) if s == "N0CALL-13"));
         assert!(matches!(parse_wx_request("AprsWx"), Some(WxRequest::Aprs(ref s)) if s.is_empty()));
         assert!(matches!(parse_wx_request(" APRSWX "), Some(WxRequest::Aprs(ref s)) if s.is_empty()));
         assert!(parse_wx_request("APRSWX AB").is_none());
         // Plain "APRS" stays free (e.g. for a future position query) and is not a WX command.
         assert!(parse_wx_request("APRS").is_none());
-        assert!(parse_wx_request("APRS DN9CHO-13").is_none());
+        assert!(parse_wx_request("APRS N0CALL-13").is_none());
         assert!(parse_wx_request("APRSWXX").is_none());
     }
 
     #[test]
     fn aprs_format_full() {
         let v: serde_json::Value = serde_json::from_str(
-            r#"{"command":"get","result":"ok","found":1,"what":"wx","entries":[{"name":"DN9CHO-13","time":"1762524300",
+            r#"{"command":"get","result":"ok","found":1,"what":"wx","entries":[{"name":"N0CALL-13","time":"1762524300",
             "temp":"12.3","pressure":"1016.4","humidity":"78","wind_direction":"225","wind_speed":"3.1","wind_gust":"6.9",
             "rain_1h":"0.2","rain_24h":"4.0","rain_mn":"3.1","luminosity":"120"}]}"#,
         )
         .unwrap();
-        let out = format_aprs_wx("DN9CHO-13", &v, 1762524300 + 60, 3600).unwrap();
+        let out = format_aprs_wx("N0CALL-13", &v, 1762524300 + 60, 3600).unwrap();
         assert_eq!(
             out,
-            "DN9CHO-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm | Sun 120W/m2"
+            "N0CALL-13 14:05Z | 12.3C | 78% | 1016.4hPa | Wind SW 11km/h gust 25 | Rain 1h 0.2 today 3.1mm | Sun 120W/m2"
         );
         assert!(out.len() <= 220);
     }
@@ -771,6 +862,100 @@ mod tests {
         assert!(out.contains("[wx_service]"));
         assert!(out.contains("enabled = true"));
         assert!(out.contains("[cell]"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn aprs_ov() -> tetra_config::bluestation::AprsWxRuntimeOverride {
+        tetra_config::bluestation::AprsWxRuntimeOverride {
+            apikey: "123456.abc\"def".to_string(),
+            default_call: "N0CALL-13".to_string(),
+            max_age_secs: 3600,
+            periodic_enabled: true,
+            periodic_call: String::new(),
+            periodic_dest: 26302,
+            periodic_is_group: true,
+            periodic_interval_secs: 1800,
+        }
+    }
+
+    #[test]
+    fn aprs_call_is_sanitised() {
+        assert_eq!(sanitize_aprs_call(" n0call-13 "), "N0CALL-13");
+        assert_eq!(sanitize_aprs_call("DL0ABC 13;\""), "DL0ABC13");
+    }
+
+    #[test]
+    fn write_aprs_toml_replaces_section_and_keeps_the_rest() {
+        let cfg =
+            "[cell]\nfoo = 1\n\n[aprs_wx]\napikey = \"old\"\ndefault_call = \"X\"\n\n# comment of the next section\n[security]\nbar = 2\n";
+        let path = std::env::temp_dir().join("fs_aprs_wx_test_replace.toml");
+        std::fs::write(&path, cfg).unwrap();
+        write_aprs_wx_to_toml(path.to_str().unwrap(), &aprs_ov()).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(out.matches("[aprs_wx]").count(), 1);
+        assert!(out.contains("apikey = \"123456.abc\\\"def\""));
+        assert!(out.contains("default_call = \"N0CALL-13\""));
+        assert!(out.contains("periodic_dest = 26302"));
+        assert!(out.contains("periodic_is_group = true"));
+        assert!(!out.contains("\"old\""));
+        assert!(out.contains("[cell]\nfoo = 1"));
+        assert!(out.contains("[security]\nbar = 2"));
+        // The result must still parse as the station config section it is.
+        let parsed: toml::Value = toml::from_str(&out).unwrap();
+        assert_eq!(parsed["aprs_wx"]["apikey"].as_str(), Some("123456.abc\"def"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn write_aprs_toml_keeps_blank_line_after_wx_service() {
+        // write_wx_to_toml leaves [aprs_wx] directly below [wx_service]; we put the blank line back.
+        let cfg = "[wx_service]\nenabled = true\nperiodic_interval_secs = 300\n[aprs_wx]\napikey = \"old\"\n";
+        let path = std::env::temp_dir().join("fs_aprs_wx_test_blank.toml");
+        std::fs::write(&path, cfg).unwrap();
+        write_aprs_wx_to_toml(path.to_str().unwrap(), &aprs_ov()).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("periodic_interval_secs = 300\n\n[aprs_wx]\n"), "got:\n{out}");
+        assert_eq!(out.matches("\n\n\n").count(), 0);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn saving_both_sections_keeps_them_apart() {
+        // The dashboard's single Save writes [wx_service] first, then [aprs_wx].
+        let cfg = "[cell_info]\nfoo = 1\n\n[wx_service]\nenabled = false\n\n[aprs_wx]\napikey = \"old\"\n\n[security]\nbar = 2\n";
+        let path = std::env::temp_dir().join("fs_aprs_wx_test_both.toml");
+        std::fs::write(&path, cfg).unwrap();
+        let wx = tetra_config::bluestation::WxRuntimeOverride {
+            enabled: true,
+            service_issi: 9998,
+            periodic_enabled: false,
+            periodic_issi: 0,
+            periodic_is_group: false,
+            periodic_icao: String::new(),
+            periodic_interval_secs: 300,
+        };
+        write_wx_to_toml(path.to_str().unwrap(), &wx).unwrap();
+        write_aprs_wx_to_toml(path.to_str().unwrap(), &aprs_ov()).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("periodic_interval_secs = 300\n\n[aprs_wx]\n"), "got:\n{out}");
+        assert!(out.contains("periodic_interval_secs = 1800\n\n[security]\n"), "got:\n{out}");
+        let parsed: toml::Value = toml::from_str(&out).unwrap();
+        assert_eq!(parsed["wx_service"]["enabled"].as_bool(), Some(true));
+        assert_eq!(parsed["aprs_wx"]["default_call"].as_str(), Some("N0CALL-13"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn write_aprs_toml_appends_and_ignores_commented_example() {
+        let cfg = "[cell]\nfoo = 1\n# [aprs_wx]\n# apikey = \"123\"\n";
+        let path = std::env::temp_dir().join("fs_aprs_wx_test_append.toml");
+        std::fs::write(&path, cfg).unwrap();
+        write_aprs_wx_to_toml(path.to_str().unwrap(), &aprs_ov()).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("# [aprs_wx]\n# apikey = \"123\""));
+        assert!(out.ends_with("periodic_interval_secs = 1800\n"));
+        let parsed: toml::Value = toml::from_str(&out).unwrap();
+        assert_eq!(parsed["aprs_wx"]["default_call"].as_str(), Some("N0CALL-13"));
         let _ = std::fs::remove_file(&path);
     }
 }
