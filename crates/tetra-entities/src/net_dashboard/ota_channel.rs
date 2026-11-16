@@ -189,8 +189,16 @@ pub fn validate_branch(branch: &str) -> Result<(), String> {
 /// `ota_repo` / `ota_branch`; for the other channels those keys are left as they are, so
 /// switching back to `custom` keeps them.
 pub fn write_ota_source(config_path: &str, channel: &str, repo: Option<&str>, branch: Option<&str>) -> Result<(), String> {
+    let txt = std::fs::read_to_string(config_path).unwrap_or_default();
+    let txt = ota_source_text(&txt, channel, repo, branch)?;
+    // Same style as dual_carrier: direct write. Config path is owned by the service.
+    std::fs::write(config_path, txt).map_err(|e| format!("failed to save OTA source: {e}"))
+}
+
+/// The config text with the OTA source set (see [`write_ota_source`]); used by Fleet Control too.
+pub fn ota_source_text(original: &str, channel: &str, repo: Option<&str>, branch: Option<&str>) -> Result<String, String> {
     let channel = normalize_channel(channel);
-    let mut txt = std::fs::read_to_string(config_path).unwrap_or_default();
+    let mut txt = original.to_string();
     if channel == "custom" {
         let repo = repo.map(str::trim).unwrap_or_default();
         let branch = branch.map(str::trim).unwrap_or_default();
@@ -200,8 +208,7 @@ pub fn write_ota_source(config_path: &str, channel: &str, repo: Option<&str>, br
         txt = set_dashboard_key(&txt, "ota_branch", &format!("\"{branch}\""));
     }
     txt = set_dashboard_key(&txt, "ota_channel", &format!("\"{channel}\""));
-    // Same style as dual_carrier: direct write. Config path is owned by the service.
-    std::fs::write(config_path, txt).map_err(|e| format!("failed to save OTA source: {e}"))
+    Ok(txt)
 }
 
 /// Testable TOML rewrite for `ota_channel` (kept for callers and tests).
@@ -262,7 +269,7 @@ fn set_dashboard_key(original: &str, key: &str, value: &str) -> String {
 }
 
 /// Value of `key` under `[dashboard]` (quotes removed), if set.
-fn dashboard_value(txt: &str, key: &str) -> Option<String> {
+pub(crate) fn dashboard_value(txt: &str, key: &str) -> Option<String> {
     let mut in_dash = false;
     for line in txt.lines() {
         let trimmed = line.trim_start();

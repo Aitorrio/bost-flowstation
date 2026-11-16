@@ -39,6 +39,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | **Multi-cell roaming** and **Infrastructure** page *(new in v0.5.6, first called Roaming / Cells)* | Calls follow the radio between the cells of a station, cells can share a location area, multi-cell stations roam with other stations; one dashboard page for cells, neighbours and reselection |
 | **Group access from the Brew server** *(new in v0.5.6)* | Allow / block list and RX only per group, set on the brew-server and enforced on air: refused attachment, no floor for listeners, emergency always passes |
 | **Multi Network** *(new in v0.5.6)* | One network per cell, migration (ETSI 16.4.1.1 b) and radios of other networks through the Brew server; the cell a radio uses decides the network it talks in (e.g. own Brew network or TetraPack / Brandmeister); switch on the **Infrastructure** page (off removes the extra networks again; with several networks the Brew profile select shows "Multi Network active") |
+| **Fleet Control** *(new in v0.5.11)* | Manage many stations from the Brew server: software and state at a glance, remote and live update, maintenance banner and restart, read and change the config, graphs and alarms; each station opts in |
 | **Ambience Listening (SS-AL)** *(new in v0.5.4)* | Dispatcher-invoked receive-only call: a supporting radio connects and keys its mic on its own (indicated on the radio, not covert) |
 | **Request for Location (LIP)** *(new in v0.5.4)* | Dispatcher asks a radio for its position (once or polled); the LIP report reaches the console that requested it |
 
@@ -383,6 +384,20 @@ A radio whose home network (MCC/MNC) differs from the cell's can register here b
 
 Whether a radio migrates or attaches with an identity of its own in the other network is set in the radio, per network: with "ITSI attach" it registers as a radio of that network (on a `via` cell the brew-server sends it there, e.g. to TetraPack); with "Migration" it keeps its home network and gets a (V)ASSI here. On a Motorola MTP6650 this is *Netzwerke → Registrierungsmethode* per network plus *Grundfunktionen → Migration*; details in [`Docs/networks.md`](Docs/networks.md) ("Radio configuration").
 
+## Fleet Control: managed from the Brew server *(new in v0.5.11)*
+
+With a brew-server that offers Fleet Control, the station can be managed from the server over the existing control channel (`[command]`, WebSocket, works behind NAT, no new port). Nothing changes until the station's own administrator turns it on: Infrastructure page, Brew line → **Fleet Control** ("Station management by SwMI (BrewServer)"), default off, stored as `[command] fleet_control = true`. Switching it off asks twice and the server logs it for its admins and fleet managers.
+
+What the server can do once it is on (each item is announced as a capability, so older servers and stations simply do not use it):
+
+- **Overview** — the station reports its software version, cells, RF state and health (`StationHello`); the server lists every managed station with its state.
+- **Remote update** (`update-v1`) — the server asks for the newest version on the station's update source and starts an update; the station runs the same installer as the OTA and reports each step. **Live update** (`update-live-v1`) builds while the radio stays on and restarts at the end, if wanted only when no call is running.
+- **Maintenance and restart** (`maintenance-v1`, `restart-v1`) — a maintenance banner on the dashboard (also without a login) and a restart of the service from the server.
+- **Station config** (`config-v1`) — the server reads the config and changes it in steps (cells, neighbours, reselection values, Brew, telemetry, update source, single values of the config file); never passwords or keys. Templates, bulk changes and neighbour suggestions are on the server side.
+- **Graphs and alarms** (`metrics-v1`) — once a minute CPU load, temperatures, RF state, radios and calls for the server's 24 h graphs and alarms.
+
+The existing control commands (kick, DGNA, SDS, emergency clear, ambience listening, service restart / shutdown) do not depend on the switch. Station side in [`Docs/fleet-control.md`](Docs/fleet-control.md); protocol and server side in brew-server `docs/Fleet-Control.md`.
+
 ## Stability and system robustness
 
 This fork hardens day-to-day operation so your BTS keeps working — and stays recoverable — in most of the situations that used to mean “reinstall from scratch”.
@@ -528,7 +543,7 @@ For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream d
 - **Aitor, EA4HBL** — this fork (install, Setup, visual config, OTA UX, Spanish UI).
 - **Yiannis Samouhos, ysamouhos** — Multi-cell support with multiple SDR and AIE.
 - **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, USRP B210 support, the WAP packet-data (SNDCP) gateway with its live status page, end-to-end encryption (E2EE) of SDS, and individual call handover between the cells of a multi-cell station (PR #30).
-- **Sebastian, OE4SXM** ([sebastianmadl](https://github.com/sebastianmadl)) — roaming between stations over Brew (group and individual calls across stations, announced and unannounced cell reselection), multi-cell roaming (individual calls with the network follow the radio between cells, built on David's PR #30; cells sharing a location area; multi-cell stations roaming with other stations), the Infrastructure dashboard page (formerly Roaming / Cells) with the Brew server's cell list, configurable minimum access level and migration flag, group access and RX only from the Brew server, English changelog.
+- **Sebastian, OE4SXM** ([sebastianmadl](https://github.com/sebastianmadl)) — roaming between stations over Brew (group and individual calls across stations, announced and unannounced cell reselection), multi-cell roaming (individual calls with the network follow the radio between cells, built on David's PR #30; cells sharing a location area; multi-cell stations roaming with other stations), the Infrastructure dashboard page (formerly Roaming / Cells) with the Brew server's cell list, configurable minimum access level and migration flag, group access and RX only from the Brew server, Multi Network, Fleet Control (station side), English changelog.
 - **Chris, DN9CHO** ([dn9cho](https://github.com/dn9cho)) — APRS weather station reports from aprs.fi on the radio (`APRSWX` SDS command, on request or as a periodic send, configurable live in the WX card of the dashboard), plus fixes for group calls cut off after six minutes and for radios scanning more than 12 groups.
 
 ---

@@ -995,6 +995,16 @@ impl UmacBs {
             }
         }
 
+        // A capacity request in a subslot of an active traffic timeslot that was not reserved for
+        // this radio is a random access on the assigned channel (clause 23.5.1). The radio repeats
+        // it until a MAC-RESOURCE with the random access flag answers it (clause 23.5.1.4.8); a
+        // listener sending an SDS in a call otherwise retried until it gave up and left the call.
+        // The flag goes only into the MAC-RESOURCE that carries the grant (see above for why it
+        // must not land on later in-call signalling).
+        let ra_on_assigned_channel = pdu.reservation_req.is_some()
+            && self.scheduler_for(carrier_num).circuit_is_active(Direction::Dl, msg_dltime.t)
+            && self.scheduler_for(carrier_num).ul_get_slot_owner(msg_dltime, prim.block_num) != Some(addr.ssi);
+
         // Handle reservation if present
         if let Some(res_req) = &pdu.reservation_req {
             let grant_result = self.scheduler_for_mut(carrier_num).ul_process_cap_req(msg_dltime.t, addr, res_req);
@@ -1003,6 +1013,10 @@ impl UmacBs {
                 // so the MS can tag its reservation when continuing the burst.
                 self.scheduler_for_mut(carrier_num)
                     .dl_enqueue_grant(msg_dltime.t, addr, grant, usage_marker);
+                if ra_on_assigned_channel {
+                    self.scheduler_for_mut(carrier_num)
+                        .dl_enqueue_grant_random_access_ack(msg_dltime.t, addr);
+                }
             } else {
                 tracing::warn!("rx_mac_access: No grant for reservation request {:?}", res_req);
             }

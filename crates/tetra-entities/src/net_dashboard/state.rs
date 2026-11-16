@@ -23,6 +23,19 @@ pub struct MsState {
     pub encrypting: bool,
     /// Multi-cell: the cell the MS is registered on (None on a single-cell station).
     pub cell: Option<u8>,
+    /// Multi Network: a visitor from another network (`issi` is its (V)ASSI here).
+    pub home: Option<MsHome>,
+}
+
+/// Home identity of a Multi Network visitor.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct MsHome {
+    /// Its ISSI in its own network.
+    pub issi: u32,
+    pub mcc: u16,
+    pub mnc: u16,
+    /// That network's name from the Brew server, empty when unknown.
+    pub network: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -166,6 +179,9 @@ pub struct DashboardStateInner {
     /// Per-ISSI security flags (authenticated, encrypting). Kept beside `ms_map` because
     /// authentication completes *before* the registration that creates the MS entry.
     pub ms_security: HashMap<u32, (bool, bool)>,
+    /// Multi Network visitors by (V)ASSI: their home identity, for the radio list. Kept beside
+    /// `ms_map` because MM reports it with the registration accept, before the entry exists.
+    pub ms_home: HashMap<u32, MsHome>,
     /// Set when the stack started on the fallback config instead of the primary.
     /// Contains the parse error that caused the primary config to be rejected.
     pub fallback_config_active: bool,
@@ -332,6 +348,7 @@ impl DashboardStateInner {
             config_path,
             brew_online: false,
             ms_security: HashMap::new(),
+            ms_home: HashMap::new(),
             brew_version: 0,
             fallback_config_active: false,
             fallback_config_reason: String::new(),
@@ -568,6 +585,7 @@ impl DashboardStateInner {
                 cell: e.cell,
                 authenticated: self.ms_security.get(&e.issi).map(|f| f.0).unwrap_or(false),
                 encrypting: self.ms_security.get(&e.issi).map(|f| f.1).unwrap_or(false),
+                home: self.ms_home.get(&e.issi).cloned(),
             })
             .collect()
     }

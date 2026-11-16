@@ -880,9 +880,17 @@ impl SiteSwitch {
             }
             CallControl::NetworkCallHold { brew_uuid, .. } => match self.sessions.get_mut(brew_uuid) {
                 Some(s) => {
-                    s.pending.remove(&cell);
-                    // Only the last cell of a network call to answer may put it on hold.
-                    s.origin.is_none() && s.anchor.is_none() && s.pending.is_empty()
+                    // The cell leaves the call, also when it already carries it (its last member
+                    // left the group mid-call). Only when no cell is left does the network entity
+                    // park the session; it then stops sending downlink voice to a circuit the
+                    // cell may already use for another call.
+                    s.remove_cell(cell);
+                    if s.origin.is_none() && s.cells().is_empty() {
+                        self.sessions.remove(brew_uuid);
+                        true
+                    } else {
+                        false
+                    }
                 }
                 None => true,
             },
@@ -2066,6 +2074,76 @@ main_carrier = 1525
         site.from_cell(1, hold);
         site.tick();
         assert_eq!(site.net_got().len(), 1);
+    }
+
+    #[test]
+    fn hold_after_ready_reaches_the_network_entity() {
+        // One cell carries a network call and its only member changes group mid-call: the hold
+        // must reach the network entity, or its voice keeps going to the slot the next call uses.
+        let mut site = Site::new();
+        site.member(0, 100, 91);
+        let uuid = Uuid::from_u128(4);
+        site.from_net(cc(CallControl::NetworkCallStart {
+            brew_uuid: uuid,
+            source_issi: 9000,
+            dest_gssi: 91,
+            priority: 0,
+        }));
+        let (c0, _) = site.tick();
+        assert!(start_uuid(&c0).is_some());
+        site.from_cell(
+            0,
+            cc(CallControl::NetworkCallReady {
+                brew_uuid: uuid,
+                call_id: 9,
+                carrier_num: C0,
+                ts: 2,
+                usage: 9,
+            }),
+        );
+        site.tick();
+        site.net_got();
+        // Cell 1 (no members) holds first; cell 0 carries the call until its member leaves.
+        site.from_cell(1, cc(CallControl::NetworkCallHold { brew_uuid: uuid, dest_gssi: 91 }));
+        site.tick();
+        assert!(site.net_got().is_empty(), "cell 0 still carries the call");
+        site.from_cell(0, cc(CallControl::NetworkCallHold { brew_uuid: uuid, dest_gssi: 91 }));
+        site.tick();
+        assert_eq!(
+            net_got_cc(&site, |c| matches!(c, CallControl::NetworkCallHold { .. })),
+            1,
+            "hold forwarded once the last cell left"
+        );
+
+        // The same slot now carries the next network call: its voice reaches the cell.
+        site.member(0, 100, 983872);
+        let next = Uuid::from_u128(5);
+        site.from_net(cc(CallControl::NetworkCallStart {
+            brew_uuid: next,
+            source_issi: 9001,
+            dest_gssi: 983872,
+            priority: 0,
+        }));
+        site.tick();
+        site.from_cell(
+            0,
+            cc(CallControl::NetworkCallReady {
+                brew_uuid: next,
+                call_id: 10,
+                carrier_num: C0,
+                ts: 2,
+                usage: 10,
+            }),
+        );
+        site.tick();
+        site.net.outbox.lock().unwrap().push(SapMsg::new(
+            Sap::TmdSap,
+            TetraEntity::Brew,
+            TetraEntity::Umac,
+            SapMsgInner::TmdCircuitDataReq(TmdCircuitDataReq { carrier_num: C0, ts: 2, data: vec![1, 2, 3] }),
+        ));
+        let (c0, _) = site.tick();
+        assert!(voice_on(&c0, C0), "voice of the new call is played on the cell");
     }
 
     #[test]

@@ -174,7 +174,7 @@ fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEnt
 
     thread::spawn(move || {
         let transport = WebSocketTransport::new(ws_config);
-        let mut worker = ControlWorker::new(command_dispatchers, transport);
+        let mut worker = ControlWorker::new(command_dispatchers, transport).with_shared(cfg);
         worker.run();
     })
 }
@@ -613,6 +613,10 @@ fn main() {
         migrate_legacy_dashboard_ports(&format!("{}.fallback", args.config));
     }
 
+    // Fleet Control: a config change from the Brew server that waits for confirmation arms the
+    // rollback watchdog now, before anything else can fail.
+    tetra_entities::net_control::fleet_config::boot(&args.config);
+
     // Load config — parse+validate primary; on failure try <config>.fallback the same way.
     let loaded = if args.require_sc3 {
         let c = try_load_stack_config(&args.config).unwrap_or_else(|e| { eprintln!("ERROR: {}", e); std::process::exit(1) });
@@ -973,6 +977,11 @@ fn main() {
                                     TelemetryEvent::MsGroupAttach { issi, gssis } => radio_directory::attach_groups(*issi, gssis),
                                     TelemetryEvent::MsGroupDetach { issi, gssis } => radio_directory::detach_groups(*issi, gssis),
                                     TelemetryEvent::SdsLog { .. } => health_registry().note_sds(),
+                                    // SDR temperature per cell for the Fleet Control metrics (`metrics-v1`).
+                                    TelemetryEvent::SdrHealth { temperature_c, .. } => tetra_entities::net_control::metrics::note_sdr_temp(0, *temperature_c),
+                                    TelemetryEvent::CellRf { cell, event: tetra_entities::net_telemetry::events::CellRfEvent::SdrHealth { temperature_c, .. } } => {
+                                        tetra_entities::net_control::metrics::note_sdr_temp(*cell, *temperature_c)
+                                    }
                                     _ => {}
                                 }
                                 // Feed decoded TETRA LIP positions (SDS protocol-id 10, inbound from
