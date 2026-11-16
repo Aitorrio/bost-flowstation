@@ -540,6 +540,17 @@ impl<T: NetworkTransport> BrewWorker<T> {
         }
     }
 
+    /// The address here of a radio the server names by `issi` (one of its own): on a cell of
+    /// another network a migrated radio is on its (V)ASSI, every other radio keeps its ISSI.
+    fn mni_local_ssi(&self, issi: u32) -> u32 {
+        if !self.config.config().mni_enabled() || self.mni_station_network().is_none() {
+            return issi;
+        }
+        let state = self.config.state_read();
+        let Some((this, _)) = state.multi_network.server.as_ref() else { return issi };
+        state.multi_network.vassi_of(*this, issi).unwrap_or(issi)
+    }
+
     fn send_logged(&mut self, msg: &[u8], what: &str) {
         if let Err(e) = self.transport.send_reliable(msg) {
             tracing::error!("BrewWorker: failed to send {}: {}", what, e);
@@ -1098,6 +1109,8 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         if !self.transport.server_brew_extensions().iter().any(|e| e == BREW_EXT_MS_RESELECTION) {
                             continue;
                         }
+                        // A visitor under its home ISSI, or not at all (server without `mni`).
+                        let Some(issi) = self.mni_outbound_ssi(issi) else { continue };
                         let msg = build_service_ms_reselection(issi, reselection);
                         if let Err(e) = self.transport.send_reliable(&msg) {
                             tracing::error!("BrewWorker: failed to send MS reselection for ISSI {}: {}", issi, e);
@@ -1106,6 +1119,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         }
                     }
                     BrewCommand::SendRssiUpdate { issi, rssi_dbfs } => {
+                        let Some(issi) = self.mni_outbound_ssi(issi) else { continue };
                         let msg = build_service_rssi(issi, rssi_dbfs);
                         if let Err(e) = self.transport.send_reliable(&msg) {
                             tracing::error!("BrewWorker: failed to send RSSI update for ISSI {}: {}", issi, e);
@@ -1278,7 +1292,13 @@ impl<T: NetworkTransport> BrewWorker<T> {
                     && self.transport.server_brew_extensions().iter().any(|e| e == BREW_EXT_MS_MOVED) =>
             {
                 match parse_ms_moved(&svc.json_data) {
-                    Ok(issi) => self.send_event(BrewEvent::MsMoved { issi }),
+                    Ok(issi) => {
+                        let local = self.mni_local_ssi(issi);
+                        if local != issi {
+                            tracing::info!("BrewWorker: radio {} left, here it is visitor (V)ASSI {}", issi, local);
+                        }
+                        self.send_event(BrewEvent::MsMoved { issi: local })
+                    }
                     Err(e) => tracing::warn!("BrewWorker: malformed MS moved message: {}", e),
                 }
             }
@@ -2501,6 +2521,54 @@ password = "x"
         plain.transport.connect().unwrap();
         plain.handle_incoming_binary(&ms_moved(r#"{"issi":2320001}"#));
         assert!(events.try_recv().is_err());
+    }
+
+    /// Field 2026-11-15: the MTP (home 232/5 here) went from the cell of another network back
+    /// to its own; the server told the old cell "2320972 moved", but there the radio is on its
+    /// (V)ASSI, so the stale registration stayed until the presence check dropped it.
+    #[test]
+    fn ms_moved_on_a_cell_of_another_network_names_the_visitors_vassi() {
+        let text = CONFIG.replace("[brew]", "[networks.home.brew]");
+        let text = format!(
+            "network = \"home\"\n{text}\n[networks.home]\n[networks.tp]\nmcc = 901\nmnc = 1638\nvia = \"home\"\n\
+             [[cells]]\nid = 1\nnetwork = \"tp\"\n[cells.cell_info]\nmain_carrier = 1532\n"
+        );
+        let station = tetra_config::bluestation::parsing::from_toml_str(&text).expect("test config parses");
+        let mut offered: Vec<&str> = HANDOVER.to_vec();
+        offered.extend([BREW_EXT_MNI, BREW_EXT_MS_MOVED, BREW_EXT_MS_RESELECTION]);
+        let (event_tx, events) = bounded(64);
+        let (tx, command_rx) = bounded(64);
+        let cfg = SharedConfig::from_parts(station.for_extra_cell(tetra_core::CellId(1)).unwrap(), None);
+        let mut w = BrewWorker::new(cfg, event_tx, command_rx, MockTransport::new().with_brew_extensions(&offered));
+        w.transport.connect().unwrap();
+        let server = Mni { mcc: 232, mnc: 5 };
+        w.handle_incoming_binary(&networks_message(server));
+        while events.try_recv().is_ok() {}
+        w.config.state_write().multi_network.visitors.insert(VASSI, (server, 2320972));
+
+        w.handle_incoming_binary(&ms_moved(r#"{"issi":2320972}"#));
+        w.handle_incoming_binary(&ms_moved(r#"{"issi":2320973}"#));
+        let moved: Vec<u32> = std::iter::from_fn(|| events.try_recv().ok())
+            .filter_map(|e| match e {
+                BrewEvent::MsMoved { issi } => Some(issi),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(moved, vec![VASSI, 2320973], "the visitor on its (V)ASSI, others unchanged");
+
+        // What the station reports about it goes out under the home ISSI again.
+        let sent = run(
+            &mut w,
+            &tx,
+            vec![
+                BrewCommand::ReportReselection { issi: VASSI, reselection: tetra_saps::control::call_control::CellReselection::Undeclared },
+                BrewCommand::SendRssiUpdate { issi: VASSI, rssi_dbfs: -30.0 },
+            ],
+        );
+        let reselection = sent.iter().find(|m| m[0] == BREW_CLASS_SERVICE && m[1] == BREW_SERVICE_MS_RESELECTION).expect("reselection sent");
+        assert_eq!(service_body(reselection)["issi"], 2320972);
+        let rssi = sent.iter().find(|m| m[0] == BREW_CLASS_SERVICE && m[1] == BREW_SERVICE_RSSI).expect("RSSI sent");
+        assert_eq!(service_body(rssi)["issi"], 2320972);
     }
 
     // ── Individual call restore (call-restore) ──

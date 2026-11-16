@@ -624,6 +624,17 @@ impl Default for Sc3Status {
     fn default() -> Self { Self { phase: "not_authenticated", cck: "not_sent" } }
 }
 
+/// Fleet Control state shared by the control worker and the dashboard.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FleetControlState {
+    /// The local switch (`[command] fleet_control`); the dashboard changes it at run time.
+    pub enabled: bool,
+    /// The control server offered `fleet-control` (`X-Brew-Extensions`) on its last connect.
+    pub offered: bool,
+    /// The control channel is connected now.
+    pub connected: bool,
+}
+
 /// Mutable, stack-editable state (mutex-protected).
 #[derive(Debug, Clone)]
 pub struct StackState {
@@ -635,6 +646,8 @@ pub struct StackState {
     /// Brew extensions (`X-Brew-Extensions`) the server offered on the last connect, for the
     /// dashboard's Roaming page.
     pub brew_server_extensions: Vec<String>,
+    /// Fleet Control: the local switch and what the control channel reports.
+    pub fleet_control: FleetControlState,
     /// The Brew server's cell directory as last received (`None` until one arrives on this
     /// connection, or when the server does not offer `cell-directory`).
     pub brew_cell_directory: Option<Vec<BrewDirectoryCell>>,
@@ -900,6 +913,7 @@ impl Default for StackState {
             network_connected: false,
             brew_link_up: false,
             brew_server_extensions: Vec::new(),
+            fleet_control: FleetControlState::default(),
             brew_cell_directory: None,
             brew_group_access: BTreeMap::new(),
             brew_managed_groups: None,

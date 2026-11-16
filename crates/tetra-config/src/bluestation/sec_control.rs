@@ -16,6 +16,9 @@ pub struct CfgControl {
     pub ca_cert: Option<String>,
     /// Optional (username, password) for HTTP Basic authentication
     pub credentials: Option<(String, String)>,
+    /// Fleet Control: the server may manage this station (`fleet_control = true`). Off by
+    /// default; switched on the Infrastructure page. See `Docs/fleet-control.md`.
+    pub fleet_control: bool,
 }
 
 #[derive(Deserialize)]
@@ -38,6 +41,11 @@ pub struct CfgControlDto {
     /// config but does not connect, so the dashboard can turn it off without losing them.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+
+    /// Fleet Control switch (default off): the Brew server may manage this station over the
+    /// control channel once it offers `fleet-control`.
+    #[serde(default)]
+    pub fleet_control: bool,
 
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -65,5 +73,6 @@ pub fn apply_control_patch(src: CfgControlDto) -> Result<CfgControl, String> {
             _ => return Err("control: both username and password must be set for credentials".to_string()),
         },
         ca_cert: src.ca_cert,
+        fleet_control: src.fleet_control,
     })
 }

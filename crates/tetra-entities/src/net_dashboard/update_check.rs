@@ -426,6 +426,7 @@ pub fn check_for_update(
         .timeout(Duration::from_secs(12))
         .connect_timeout(Duration::from_secs(6))
         .user_agent(USER_AGENT)
+        .default_headers(crate::net_dashboard::source_auth::http_headers())
         .build()
     {
         Ok(c) => c,
