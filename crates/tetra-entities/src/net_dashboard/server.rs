@@ -3395,6 +3395,7 @@ fn serve_live_sds_list(mut stream: PrefixedConn, cfg: &Option<tetra_config::blue
                         "text": m.text,
                         "protocol_id": m.protocol_id,
                         "source_issi": m.source_issi,
+                        "dest_issi": m.dest_issi,
                         "repeat_count": m.repeat_count,
                         "sent_count": m.sent_count,
                     })
@@ -4835,7 +4836,7 @@ fn handle_connection(
         send_control_cmd(&cmd_tx, ControlCommand::ClearLiveSds);
         http_response(buf.into_inner(), 200, "OK");
     } else if req_line.contains("POST /api/live-sds") {
-        // POST /api/live-sds  body: JSON { "text": "...", "protocol_id": 220, "source_issi": 16777215, "repeat_count": 0 }
+        // POST /api/live-sds  body: JSON { "text": "...", "protocol_id": 220, "source_issi": 16777215, "dest_issi": 0, "repeat_count": 0 }
         let mut buf = BufReader::new(stream);
         let mut content_length = 0usize;
         loop {
@@ -4873,6 +4874,15 @@ fn handle_connection(
                         return;
                     }
                     let source_issi = source_issi as u32;
+                    // Optional single destination radio (0 / absent = whole cell).
+                    let dest_issi = match v.get("dest_issi").and_then(|d| d.as_u64()).unwrap_or(0) {
+                        0 => None,
+                        d if is_valid_ssi(d) => Some(d as u32),
+                        _ => {
+                            http_response(buf.into_inner(), 400, "dest_issi out of range (must be 1..=16777215)");
+                            return;
+                        }
+                    };
                     let repeat_count = v.get("repeat_count").and_then(|r| r.as_u64()).unwrap_or(0) as u32;
                     tracing::info!("Dashboard: AddLiveSds text={:?} repeat={}", text, repeat_count);
                     send_control_cmd(
@@ -4881,6 +4891,7 @@ fn handle_connection(
                             text,
                             protocol_id,
                             source_issi,
+                            dest_issi,
                             repeat_count,
                         },
                     );

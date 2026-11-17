@@ -2,6 +2,11 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.5.14 — Per-ISSI home mode text and resend time in seconds
+
+- **Per-ISSI text.** `[[cell_info.home_mode_display.per_issi]]` (and `sds_broadcast`) sends an individual text to each listed radio while it is registered (right after it registers, then every interval, with an optional own `interval_seconds`), in addition to the group broadcast. Live SDS (`POST /api/live-sds`) accepts `dest_issi` for a single radio.
+- **Resend time in seconds.** `[cell_info.home_mode_display]` and `[cell_info.sds_broadcast]` accept `interval_seconds` (takes precedence over `interval_multiframes`; 1 multiframe ≈ 1.02 s).
+
 ## v0.5.13 — SCK numbering starts at 0 (matching the standard and the radios)
 
 - **SCK number and SCK version start at 0.** The SCK number (SCKN) and SCK version (SCK-VN) are now numbered from 0, matching the TETRA standard (EN 300 392-7, SCKN 0-31) and the numbers the radios and key-fill devices show. The station used to number SCKs 1-32 and send the on-air field as SCKN − 1 — off by one versus a standard-compliant radio. The SCK number in the config and the dashboard now matches exactly what the radio shows.

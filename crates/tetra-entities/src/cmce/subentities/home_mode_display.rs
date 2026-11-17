@@ -6,13 +6,16 @@
 ///
 /// Ported from Mihajlo Stefanovic (Misadeks) bluestation feature/home-mode-display,
 /// adapted for flowstation architecture (no dltime in send_d_sds_data, Layer2Service split).
+use std::collections::HashMap;
 use tetra_config::bluestation::{CfgHomeModeDisplay, HomeModeDisplaySdsTextCodingScheme, SharedConfig};
 use tetra_core::{BitBuffer, TdmaTime};
 use tetra_saps::control::enums::sds_user_data::SdsUserData;
 
 pub(super) struct HomeModeDisplayTx {
     pub source_issi: u32,
-    pub dest_gssi: u32,
+    /// Destination SSI: a GSSI for broadcasts, an ISSI when `dest_is_issi`.
+    pub dest_ssi: u32,
+    pub dest_is_issi: bool,
     pub payload: SdsUserData,
 }
 
@@ -27,6 +30,9 @@ pub(super) struct HomeModeDisplaySender {
     live_sds_last_tx: Option<TdmaTime>,
     /// Index into live_sds_queue for round-robin; reset when queue shrinks.
     live_sds_idx: usize,
+    /// Last per-ISSI text TX per radio. An entry is dropped when the radio is not registered, so a
+    /// radio gets its text right after (re)registering.
+    issi_last_tx: HashMap<u32, TdmaTime>,
 }
 
 impl HomeModeDisplaySender {
@@ -52,6 +58,7 @@ impl HomeModeDisplaySender {
             msg_ref: 0,
             live_sds_last_tx: None,
             live_sds_idx: 0,
+            issi_last_tx: HashMap::new(),
         }
     }
 
@@ -97,6 +104,7 @@ impl HomeModeDisplaySender {
         // We work with a write lock so we can increment sent_count and remove exhausted messages.
         let tx_result: Option<HomeModeDisplayTx> = {
             let mut state = config.state_write();
+            let state = &mut *state;
             let queue = &mut state.live_sds_queue;
             if queue.is_empty() {
                 None
@@ -107,6 +115,14 @@ impl HomeModeDisplaySender {
                 }
                 let idx = self.live_sds_idx;
                 let msg = &mut queue[idx];
+
+                // Addressed to one radio that is not on this cell: skip it (not counted as sent).
+                if let Some(dest) = msg.dest_issi {
+                    if !state.subscribers.is_registered(dest) {
+                        self.live_sds_idx = (idx + 1) % queue.len();
+                        return None;
+                    }
+                }
 
                 let (encoded_text, _) = Self::encode_text(&msg.text, 0x01); // ISO-8859-1 default
                 let text_len = encoded_text.len().min(Self::MAX_TEXT_BYTES);
@@ -119,7 +135,8 @@ impl HomeModeDisplaySender {
 
                 let tx = HomeModeDisplayTx {
                     source_issi: msg.source_issi,
-                    dest_gssi: Self::HOME_MODE_BROADCAST_GSSI,
+                    dest_ssi: msg.dest_issi.unwrap_or(Self::HOME_MODE_BROADCAST_GSSI),
+                    dest_is_issi: msg.dest_issi.is_some(),
                     payload,
                 };
 
@@ -263,7 +280,80 @@ impl HomeModeDisplaySender {
 
         Some(HomeModeDisplayTx {
             source_issi,
-            dest_gssi: Self::HOME_MODE_BROADCAST_GSSI,
+            dest_ssi: Self::HOME_MODE_BROADCAST_GSSI,
+            dest_is_issi: false,
+            payload,
+        })
+    }
+
+    /// Per-ISSI texts of `[cell_info.home_mode_display]`.
+    pub fn tick_per_issi(&mut self, config: &SharedConfig, dltime: TdmaTime) -> Option<HomeModeDisplayTx> {
+        let cfg = config.config().cell.home_mode_display.clone();
+        self.tick_per_issi_cfg(config, cfg, dltime)
+    }
+
+    /// Per-ISSI texts of `[cell_info.sds_broadcast]`.
+    pub fn tick_per_issi_broadcast(&mut self, config: &SharedConfig, dltime: TdmaTime) -> Option<HomeModeDisplayTx> {
+        let cfg = config.config().cell.sds_broadcast.clone();
+        self.tick_per_issi_cfg(config, cfg, dltime)
+    }
+
+    /// Returns at most one individual message per tick (naturally staggers the radios so the MCCH is
+    /// not flooded). A radio is due when it is registered and its resend interval has elapsed, or it
+    /// has not been sent to since it (re)registered.
+    fn tick_per_issi_cfg(&mut self, config: &SharedConfig, cfg: Option<CfgHomeModeDisplay>, dltime: TdmaTime) -> Option<HomeModeDisplayTx> {
+        let cfg = match cfg {
+            Some(c) if !c.per_issi.is_empty() && c.source_issi <= 0x00FF_FFFF => c,
+            _ => {
+                self.issi_last_tx.clear();
+                return None;
+            }
+        };
+        let start_time = *self.start_time.get_or_insert(dltime);
+        let start_delay_slots = Self::HOME_MODE_START_DELAY_FRAMES.saturating_mul(Self::SLOTS_PER_FRAME).min(i32::MAX as u32) as i32;
+        if start_time.age(dltime) < start_delay_slots {
+            return None;
+        }
+
+        let text_coding_scheme = Self::text_coding_scheme_to_sds_tl_value(cfg.text_coding_scheme);
+        let mut chosen: Option<&tetra_config::bluestation::CfgHomeModeDisplayIssi> = None;
+        {
+            let state = config.state_read();
+            // Forget radios that left, and entries removed from the config.
+            self.issi_last_tx
+                .retain(|issi, _| state.subscribers.is_registered(*issi) && cfg.per_issi.iter().any(|e| e.issi == *issi));
+            for e in &cfg.per_issi {
+                if chosen.is_some() || !state.subscribers.is_registered(e.issi) {
+                    continue;
+                }
+                let interval_mf = e.interval_multiframes.unwrap_or(cfg.interval_multiframes);
+                if interval_mf == 0 {
+                    continue; // 0 disables repeats for this radio's entry
+                }
+                let interval_slots = interval_mf.saturating_mul(Self::SLOTS_PER_MULTIFRAME).min(i32::MAX as u32) as i32;
+                let due = match self.issi_last_tx.get(&e.issi) {
+                    None => true,
+                    Some(last) => last.age(dltime) >= interval_slots,
+                };
+                if due {
+                    chosen = Some(e);
+                }
+            }
+        }
+        let e = chosen?;
+        let (encoded_text, _) = Self::encode_text(&e.text, text_coding_scheme);
+        let text_len = encoded_text.len().min(Self::MAX_TEXT_BYTES);
+        let mut user_data = Vec::with_capacity(text_len + 1);
+        user_data.push(text_coding_scheme);
+        user_data.extend_from_slice(&encoded_text[..text_len]);
+        let payload = Self::build_sds_tl_transfer_payload(cfg.protocol_id, self.msg_ref, &user_data);
+        self.msg_ref = self.msg_ref.wrapping_add(1);
+        self.issi_last_tx.insert(e.issi, dltime);
+        tracing::info!("SDS: Home Mode Display per-ISSI text to {} (protocol_id={})", e.issi, cfg.protocol_id);
+        Some(HomeModeDisplayTx {
+            source_issi: cfg.source_issi,
+            dest_ssi: e.issi,
+            dest_is_issi: true,
             payload,
         })
     }
