@@ -143,6 +143,7 @@ impl CmceBs {
                 text,
                 protocol_id,
                 source_issi,
+                dest_issi,
                 repeat_count,
             } => {
                 let mut state = sds.shared_config().state_write();
@@ -153,6 +154,7 @@ impl CmceBs {
                     text: text.clone(),
                     protocol_id,
                     source_issi,
+                    dest_issi,
                     repeat_count,
                     sent_count: 0,
                 });

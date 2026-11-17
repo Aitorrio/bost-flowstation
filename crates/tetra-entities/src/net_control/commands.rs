@@ -72,6 +72,8 @@ pub enum ControlCommand {
         text: String,
         protocol_id: u8,
         source_issi: u32,
+        /// `Some(issi)` = only to this radio; `None` = whole cell.
+        dest_issi: Option<u32>,
         repeat_count: u32,
     },
 
