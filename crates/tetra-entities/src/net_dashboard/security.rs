@@ -281,7 +281,7 @@ pub fn parse_edit(body: &str, current: &CfgSecurity) -> Result<SecurityEdit, Str
                     return Err("A changed CCK needs a new CCK ID; restart and register the radios again".into());
                 }
                 Some(AieEdit { class3: Some(CckEdit { key, id }), enabled: true, ksg,
-                    sck: [0; 10], sckn: 1, sck_vn: 0, clear_groups: vec![] })
+                    sck: [0; 10], sckn: 0, sck_vn: 0, clear_groups: vec![] })
             } else {
                 if a.get("cck").is_some() || a.get("cck_id").is_some() {
                     return Err("CCK fields require class 3".into());
@@ -302,8 +302,8 @@ pub fn parse_edit(body: &str, current: &CfgSecurity) -> Result<SecurityEdit, Str
                                 .ok_or_else(|| format!("{name} must be {low}-{high}")),
                         }
                     };
-                    let sckn = number("sckn", old.map_or(1, |c| c.sckn as u64), 1, 32)? as u8;
-                    let sck_vn = number("sck_vn", old.map_or(1, |c| c.sck_vn as u64), 0, 65535)? as u16;
+                    let sckn = number("sckn", old.map_or(0, |c| c.sckn as u64), 0, 31)? as u8;
+                    let sck_vn = number("sck_vn", old.map_or(0, |c| c.sck_vn as u64), 0, 65535)? as u16;
                     let clear_groups = match a.get("clear_groups") {
                         Some(v) => v.as_array().ok_or("clear_groups must be an array")?.iter().map(|g| {
                             g.as_u64().filter(|n| (1..=0xFF_FFFF).contains(n)).map(|n| n as u32)
