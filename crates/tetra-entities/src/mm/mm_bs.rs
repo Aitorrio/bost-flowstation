@@ -1420,6 +1420,24 @@ impl MmBs {
             {
                 tracing::info!("MM: visitor {}:{} registered on (V)ASSI {}", mni, v.issi, issi);
             }
+            if let (Some(v), Some(sink)) = (self.visitors.get(issi), &self.telemetry) {
+                // The dashboard lists the visitor under its home identity (display only).
+                let network = self
+                    .config
+                    .state_read()
+                    .multi_network
+                    .server
+                    .as_ref()
+                    .and_then(|(_, nets)| nets.iter().find(|n| n.mni == mni).map(|n| n.name.clone()))
+                    .unwrap_or_default();
+                sink.send(crate::net_telemetry::TelemetryEvent::MsVisitor {
+                    issi,
+                    mcc: mni.mcc,
+                    mnc: mni.mnc,
+                    home_issi: v.issi,
+                    network,
+                });
+            }
             self.visitors.confirm(issi);
         } else if migration == Migration::Home {
             tracing::info!("MM: ISSI {} back from another network (migration case c)", issi);
@@ -3051,12 +3069,16 @@ impl MmBs {
         if let Some(old) = previous {
             self.config.state_write().multi_network.visitors.remove(&old);
             if let Some(client) = self.client_mgr.remove_client(old) {
+                // A registration the presence check already dropped was deregistered then.
+                let registered = self.config.state_read().subscribers.is_registered(old);
                 self.config.state_write().subscribers.deregister(old);
-                if !client.groups.is_empty() {
-                    let groups: Vec<u32> = client.groups.iter().copied().collect();
-                    self.emit_subscriber_update(queue, old, groups, BrewSubscriberAction::Deaffiliate);
+                if registered {
+                    if !client.groups.is_empty() {
+                        let groups: Vec<u32> = client.groups.iter().copied().collect();
+                        self.emit_subscriber_update(queue, old, groups, BrewSubscriberAction::Deaffiliate);
+                    }
+                    self.emit_subscriber_update(queue, old, Vec::new(), BrewSubscriberAction::Deregister);
                 }
-                self.emit_subscriber_update(queue, old, Vec::new(), BrewSubscriberAction::Deregister);
                 self.recovery_mark_dirty();
             }
         }
@@ -3588,6 +3610,12 @@ impl TetraEntityTrait for MmBs {
                         self.client_mgr.remove_client_quiet(issi);
                         self.config.state_write().subscribers.deregister(issi);
                         self.clear_registration_transients(issi);
+                        // A visitor that registered elsewhere migrated away: its (V)ASSI is
+                        // invalid now (TS 100 392-2 clause 16.4.7.1).
+                        if let Some(v) = self.visitors.remove(issi) {
+                            self.config.state_write().multi_network.visitors.remove(&issi);
+                            tracing::info!("MM: visitor {}:{} left, (V)ASSI {} released", v.mni, v.issi, issi);
+                        }
                         self.recovery_mark_dirty();
                     }
                     SapMsgInner::MmSubscriberUpdate(update) => {

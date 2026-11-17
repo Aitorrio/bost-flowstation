@@ -10,8 +10,8 @@ use tetra_config::bluestation::{SharedConfig, parsing};
 use tetra_core::CellId;
 use toml::{Table, Value as TomlValue};
 
-/// Brew extensions shown as server features: the ones this station uses (FlowStation ↔ brew-server, opt-in), plus `issi-check` (a brew-server answers it for another server's Multi Network link) and `mni` (Multi Network visitors; this station does not use it yet).
-const HANDOVER_EXTENSIONS: &[&str] = &["bts-info", "handover-v1", "ms-cell", "ms-moved", "ms-reselection", "call-restore", "call-handoff", "cell-directory", "group-access", "issi-check", "mni"];
+/// Brew extensions shown as server features: `fleet-control` (Fleet Control, offered on the Brew link or the control channel, with its switch), the ones this station uses (FlowStation ↔ brew-server, opt-in), plus `issi-check` (a brew-server answers it for another server's Multi Network link) and `mni` (Multi Network visitors; this station does not use it yet).
+const HANDOVER_EXTENSIONS: &[&str] = &["fleet-control", "bts-info", "handover-v1", "ms-cell", "ms-moved", "ms-reselection", "call-restore", "call-handoff", "cell-directory", "group-access", "issi-check", "mni"];
 
 /// Integer neighbour keys with their maximum (field widths, TS 100 392-2 table 18.64).
 const NEIGHBOUR_INT_KEYS: &[(&str, i64)] = &[
@@ -65,7 +65,7 @@ fn cell_info_table(table: &Table) -> Option<&Table> {
 }
 
 /// The `[[cells]]` entry with `id` in the file.
-fn extra_cell_entry(table: &Table, id: u8) -> Option<&Table> {
+pub(crate) fn extra_cell_entry(table: &Table, id: u8) -> Option<&Table> {
     table
         .get("cells")?
         .as_array()?
@@ -74,7 +74,7 @@ fn extra_cell_entry(table: &Table, id: u8) -> Option<&Table> {
         .find(|c| c.get("id").and_then(|v| v.as_integer()) == Some(id as i64))
 }
 
-fn extra_cell_entry_mut(table: &mut Table, id: u8) -> Option<&mut Table> {
+pub(crate) fn extra_cell_entry_mut(table: &mut Table, id: u8) -> Option<&mut Table> {
     table
         .get_mut("cells")?
         .as_array_mut()?
@@ -200,10 +200,17 @@ fn apply_networks(table: &mut Table, list: &JsonValue) -> Result<(), String> {
 /// "password"}`) as `[networks.<name>.brew]`. Keys the page does not edit stay as they are; an
 /// empty password keeps the saved one.
 fn apply_network_brew(entry: &mut Table, b: &JsonValue, name: &str) -> Result<(), String> {
-    let what = format!("networks.{name}.brew");
     if entry.contains_key("via") {
         return Err(format!("networks.{name}: give either its own Brew server or via, not both"));
     }
+    apply_brew_link(entry, b, &format!("networks.{name}.brew"))
+}
+
+/// A Brew link (`{"host", "port", "tls", "username", "password"}`) as the `brew` table of `entry`
+/// (a network entry, or the root for the classic `[brew]`). Keys not given here stay as they are;
+/// an empty password keeps the saved one. `what` names it in errors.
+pub(crate) fn apply_brew_link(entry: &mut Table, b: &JsonValue, what: &str) -> Result<(), String> {
+    let what = what.to_string();
     let obj = b.as_object().ok_or_else(|| format!("{what} must be an object"))?;
     let host = obj.get("host").and_then(|v| v.as_str()).map(str::trim).unwrap_or_default();
     if host.is_empty() || host.contains(char::is_whitespace) {
@@ -313,7 +320,11 @@ pub fn roaming_json(config_path: &str, shared: Option<&SharedConfig>) -> Result<
         ];
         SERVICE_DETAILS.iter().zip(flags).map(|(k, v)| (k.to_string(), json!(v))).collect()
     };
-    let offered: Vec<String> = shared.map(|s| s.state_read().brew_server_extensions.clone()).unwrap_or_default();
+    let mut offered: Vec<String> = shared.map(|s| s.state_read().brew_server_extensions.clone()).unwrap_or_default();
+    // Fleet Control is offered on the Brew link or on the control channel.
+    if shared.is_some_and(|s| s.state_read().fleet_control.offered) {
+        offered.push(crate::net_control::fleet::EXT_FLEET_CONTROL.to_string());
+    }
     let link_up = shared.is_some_and(|s| s.state_read().brew_link_up);
     let directory = shared.and_then(|s| s.state_read().brew_cell_directory.clone());
     let server_networks = shared.and_then(|s| s.state_read().multi_network.server.clone());
@@ -358,6 +369,7 @@ pub fn roaming_json(config_path: &str, shared: Option<&SharedConfig>) -> Result<
         "service_details": service_details,
         "telemetry": link_section_json(&table, "telemetry"),
         "command": link_section_json(&table, "command"),
+        "fleet_control": crate::net_dashboard::fleet::status_json(&table, &cfg, shared),
         "brew": {
             "configured": cfg.brew.is_some(),
             "login": brew_login,
@@ -396,7 +408,7 @@ fn link_section_json(table: &Table, key: &str) -> JsonValue {
 /// "latitude": x, "longitude": x` (both or neither). Keys the page does not edit (`ca_cert`) stay
 /// as they are; an empty password keeps the saved one, an empty username removes the login. Off
 /// with nothing filled in removes the section; off with values keeps them with `enabled = false`.
-fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) -> Result<(), String> {
+pub(crate) fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) -> Result<(), String> {
     let obj = v.as_object().ok_or_else(|| format!("{key} must be an object"))?;
     let enabled = match obj.get("enabled") {
         None | Some(JsonValue::Null) => true,
@@ -479,7 +491,7 @@ fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) -> Result<(),
     Ok(())
 }
 
-fn int_in(v: &JsonValue, what: &str, min: i64, max: i64) -> Result<i64, String> {
+pub(crate) fn int_in(v: &JsonValue, what: &str, min: i64, max: i64) -> Result<i64, String> {
     v.as_i64()
         .filter(|n| (min..=max).contains(n))
         .ok_or_else(|| format!("{what} must be {min}-{max}"))
@@ -535,7 +547,7 @@ fn neighbour_list(v: &JsonValue, what: &str) -> Result<TomlValue, String> {
     Ok(TomlValue::Array(entries))
 }
 
-fn table_mut<'a>(parent: &'a mut Table, key: &str) -> Result<&'a mut Table, String> {
+pub(crate) fn table_mut<'a>(parent: &'a mut Table, key: &str) -> Result<&'a mut Table, String> {
     parent
         .entry(key.to_string())
         .or_insert_with(|| TomlValue::Table(Table::new()))

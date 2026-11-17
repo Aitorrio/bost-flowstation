@@ -3,7 +3,7 @@ mod common;
 use tetra_config::bluestation::StackMode;
 use tetra_core::Direction;
 use tetra_core::tetra_entities::TetraEntity;
-use tetra_core::{BitBuffer, Layer2Service, PhyBlockNum, Sap, SsiType, TdmaTime, TetraAddress, TxReporter, debug};
+use tetra_core::{BitBuffer, Layer2Service, PhyBlockNum, PhysicalChannel, Sap, SsiType, TdmaTime, TetraAddress, TxReporter, debug};
 use tetra_entities::umac::umac_bs::UmacBs;
 use tetra_pdus::umac::enums::basic_slotgrant_granting_delay::BasicSlotgrantGrantingDelay;
 use tetra_pdus::umac::enums::reservation_requirement::ReservationRequirement;
@@ -2097,4 +2097,261 @@ fn verify_tea2_downlink_mode(clear_override: bool) {
     block.seek(sdu_start);
     let clear_sdu: String = (0..sdu_bits.len()).map(|_| if block.read_bit().unwrap() == 1 { '1' } else { '0' }).collect();
     assert_eq!(clear_sdu, sdu_bits, "TM-SDU decrypts with the slot's key stream");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Random access on an assigned (traffic) channel, TS 100 392-2 clause 23.5.1.4.8.
+//
+// Field case 2026-11-14: a radio listening to a network group call sent an SDS (LIP) on the
+// call's timeslot. Its MAC-ACCESS carried the first fragment and a capacity request. The BS
+// granted a slot but never set the random access flag, so the radio repeated the access every
+// few frames, gave up and left the channel, and stayed silent until its user pressed PTT.
+// ---------------------------------------------------------------------------------------------
+
+const LISTENER_ISSI: u32 = 15728641;
+
+fn listener_addr() -> TetraAddress {
+    TetraAddress {
+        ssi: LISTENER_ISSI,
+        ssi_type: SsiType::Issi,
+    }
+}
+
+/// MAC-ACCESS as the radio sent it in the field: first fragment of a U-SDS-DATA plus a
+/// request for one full slot, in an uplink subslot of the call's timeslot.
+fn listener_sds_access() -> SapMsg {
+    listener_access(ReservationRequirement::Req1Slot)
+}
+
+fn listener_access(reservation: ReservationRequirement) -> SapMsg {
+    let mut uplink = BitBuffer::new_autoexpand(92);
+    MacAccess {
+        fill_bits: false,
+        encrypted: false,
+        addr: Some(listener_addr()),
+        event_label: None,
+        length_ind: None,
+        frag_flag: Some(true),
+        reservation_req: Some(reservation),
+    }
+    .to_bitbuf(&mut uplink);
+    // TM-SDU start from the field log: BL-DATA, CMCE, PDU type 15 (U-SDS-DATA).
+    let sdu = BitBuffer::from_bitstr("00011010011110000100000001100010001001001111110000101100");
+    for i in 0..sdu.get_len() {
+        uplink.write_bits(sdu.peek_bits_startoffset(i, 1).unwrap(), 1);
+    }
+    uplink.seek(0);
+
+    SapMsg {
+        sap: Sap::TmvSap,
+        src: TetraEntity::Lmac,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmvUnitdataInd(TmvUnitdataInd {
+            carrier_num: MAIN_CARRIER,
+            pdu: uplink,
+            block_num: PhyBlockNum::Block1,
+            logical_channel: LogicalChannel::SchHu,
+            crc_pass: true,
+            scrambling_code: 864282631,
+            rssi_dbfs: f32::NEG_INFINITY,
+        }),
+    }
+}
+
+fn floor_released(ts: u8) -> SapMsg {
+    SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Cmce,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::CmceCallControl(CallControl::FloorReleased {
+            call_id: 1,
+            carrier_num: MAIN_CARRIER,
+            ts,
+        }),
+    }
+}
+
+fn downlink_slots(msgs: Vec<SapMsg>) -> Vec<tetra_saps::tmv::TmvUnitdataReqSlot> {
+    let mut out = Vec::new();
+    for msg in msgs {
+        match msg.msg {
+            SapMsgInner::TmvUnitdataReq(slot) => out.push(slot),
+            SapMsgInner::TmvUnitdataReqSlots(slots) => out.extend(slots.slots),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// All MAC-RESOURCE PDUs addressed to the listener on `ts`, in transmit order.
+fn resources_for_listener(slots: &[tetra_saps::tmv::TmvUnitdataReqSlot], ts: u8) -> Vec<MacResource> {
+    let mut out = Vec::new();
+    for slot in slots.iter().filter(|s| s.ts.t == ts) {
+        for blk in [&slot.blk1, &slot.blk2] {
+            if let Some(pdu) = block_mac_resource_for(blk, listener_addr()) {
+                out.push(pdu);
+            }
+        }
+    }
+    out
+}
+
+/// Call on TS2 with the floor released (hangtime, downlink in signalling mode), as after a
+/// network over ends or while the BS holds a new network talker back.
+fn call_in_hangtime() -> ComponentTest {
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 4 }; // uplink message time is ts2
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Lmac, TetraEntity::Cmce]);
+    test.submit_message(open_shared_voice_circuit(2));
+    test.submit_message(floor_released(2));
+    test.run_stack(Some(4));
+    test.dump_sinks();
+    test
+}
+
+#[test]
+fn test_listener_capacity_request_in_hangtime_is_acknowledged_as_random_access() {
+    debug::setup_logging_verbose();
+    let mut test = call_in_hangtime();
+
+    test.submit_message(listener_sds_access());
+    test.run_stack(Some(12));
+    let slots = downlink_slots(test.dump_sinks());
+    let resources = resources_for_listener(&slots, 2);
+
+    let grant = resources
+        .iter()
+        .find(|pdu| pdu.slot_granting_element.is_some())
+        .expect("the capacity request must be answered with a slot grant on the call's timeslot");
+    assert!(
+        grant.random_access_flag,
+        "the grant answers a random access and must carry the random access flag (clause 23.5.1.4.8), \
+         otherwise the radio repeats its access until it gives up"
+    );
+}
+
+#[test]
+fn test_granted_slot_in_hangtime_is_received_as_signalling() {
+    debug::setup_logging_verbose();
+    let mut test = call_in_hangtime();
+
+    // Before any grant every uplink slot of the call is decoded as traffic (preempt UL watch).
+    test.run_stack(Some(8));
+    let before = downlink_slots(test.dump_sinks());
+    assert!(
+        before.iter().filter(|s| s.ts.t == 2 && s.ts.f != 18).all(|s| s.ul_phy_chan == PhysicalChannel::Tp),
+        "without a grant the call's uplink stays in traffic decode"
+    );
+
+    test.submit_message(listener_sds_access());
+    test.run_stack(Some(12));
+    let after = downlink_slots(test.dump_sinks());
+    assert!(
+        after.iter().any(|s| s.ts.t == 2 && s.ul_phy_chan == PhysicalChannel::Cp),
+        "the slot granted to the listener carries its MAC-END (SCH/F) and must not be decoded as speech"
+    );
+}
+
+#[test]
+fn test_unsent_grant_does_not_leave_random_access_flag_for_later_facch() {
+    // Protection for other radios: if the downlink goes back to speech before the grant went out
+    // (a new network talker ends hangtime), the grant is dropped and its random access flag must
+    // go with it. It must never turn up on a later, unrelated FACCH to that radio, which some
+    // radios reject.
+    debug::setup_logging_verbose();
+    let mut test = call_in_hangtime();
+
+    test.submit_message(listener_sds_access());
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Cmce,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::CmceCallControl(CallControl::RemoteFloorGranted {
+            call_id: 1,
+            carrier_num: MAIN_CARRIER,
+            ts: 2,
+        }),
+    });
+    test.run_stack(Some(2));
+    let early = downlink_slots(test.dump_sinks());
+    assert!(
+        resources_for_listener(&early, 2).is_empty(),
+        "test premise: the grant is dropped before it goes out"
+    );
+
+    test.submit_message(SapMsg {
+        sap: Sap::TmaSap,
+        src: TetraEntity::Llc,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmaUnitdataReq(TmaUnitdataReq {
+            req_handle: 0,
+            pdu: BitBuffer::from_bitstr("1010101010101010"),
+            main_address: listener_addr(),
+            link_id: 2,
+            endpoint_id: 0,
+            stealing_permission: true,
+            subscriber_class: 0,
+            air_interface_encryption: None,
+            stealing_repeats_flag: None,
+            data_category: None,
+            carrier_num: Some(MAIN_CARRIER),
+            chan_alloc: Some(CmceChanAllocReq {
+                usage: Some(4),
+                carrier: Some(MAIN_CARRIER),
+                timeslots: [false, true, false, false],
+                alloc_type: ChanAllocType::Replace,
+                ul_dl_assigned: UlDlAssignment::Both,
+                cell_change: false,
+            }),
+            stealing_slot: None,
+            tx_reporter: None,
+        }),
+    });
+    test.run_stack(Some(8));
+    let slots = downlink_slots(test.dump_sinks());
+    let resources = resources_for_listener(&slots, 2);
+    assert!(!resources.is_empty(), "expected the FACCH to the listener on ts 2");
+    assert!(
+        resources.iter().all(|pdu| !pdu.random_access_flag),
+        "a later FACCH must not carry the flag of a dropped grant"
+    );
+}
+
+#[test]
+fn test_capacity_request_in_own_reserved_slot_is_not_flagged() {
+    // Reserved access (clause 23.5.2) is not a random access: no acknowledgement flag.
+    debug::setup_logging_verbose();
+    let mut test = call_in_hangtime();
+
+    {
+        let umac = test
+            .router
+            .get_entity(TetraEntity::Umac)
+            .expect("umac registered")
+            .as_any_mut()
+            .downcast_mut::<UmacBs>()
+            .expect("entity is UmacBs");
+        // Reserve every uplink slot of TS2 for the listener, whatever the message time is.
+        let mut t = TdmaTime { h: 0, m: 1, f: 1, t: 2 };
+        for _ in 0..(18 * 60) {
+            // First subslot only: the second stays free so the request below can be granted.
+            if umac.channel_scheduler.ul_get_slot_owner(t, PhyBlockNum::Block1).is_none() {
+                umac.channel_scheduler.ul_reserve_grant(LISTENER_ISSI, vec![t], true, None);
+            }
+            t = t.add_timeslots(4);
+        }
+    }
+
+    test.submit_message(listener_access(ReservationRequirement::Req1Subslot));
+    test.run_stack(Some(12));
+    let slots = downlink_slots(test.dump_sinks());
+    let resources = resources_for_listener(&slots, 2);
+    assert!(
+        resources.iter().any(|pdu| pdu.slot_granting_element.is_some()),
+        "the request in the reserved subslot is still granted"
+    );
+    assert!(
+        resources.iter().all(|pdu| !pdu.random_access_flag),
+        "an access in a subslot reserved for the radio is reserved access, not random access"
+    );
 }

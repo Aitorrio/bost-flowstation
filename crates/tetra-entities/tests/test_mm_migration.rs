@@ -490,3 +490,85 @@ fn test_group_access_checks_a_migrated_radio_of_the_servers_network_by_its_home_
     assert!(state.group_may_talk(GSSI, vassi) && state.group_may_join(GSSI, vassi), "checked by its home ISSI");
     assert!(!state.group_may_join(GSSI, 4013), "others stay refused");
 }
+
+/// The dashboard learns a visitor's home identity with its accept (`MsVisitor`), with the
+/// network's name when the server listed it; a radio of this network sends none.
+#[test]
+fn test_visitor_accept_tells_the_dashboard_its_home_identity() {
+    use tetra_config::bluestation::BrewNetwork;
+    use tetra_entities::mm::mm_bs::MmBs;
+    use tetra_entities::net_telemetry::{TelemetryEvent, telemetry_channel};
+    debug::setup_logging_verbose();
+    const VISITOR: u32 = 2320972;
+    let mut test = ComponentTest::from_config(multi_network_config(0), Some(TdmaTime::default()));
+    test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Cmce]);
+    let (sink, source) = telemetry_channel();
+    test.register_entity(MmBs::new(test.get_shared_config(), Some(sink), None));
+    test.config.state_write().multi_network.server = Some((OWN, vec![BrewNetwork { mni: HOME, name: "Home net".into(), up: true }]));
+    let (vassi, _) = migrate(&mut test, VISITOR, vec![]);
+    let mut seen = Vec::new();
+    while let Some(e) = source.try_recv() {
+        if let TelemetryEvent::MsVisitor { issi, mcc, mnc, home_issi, network } = e {
+            seen.push((issi, mcc, mnc, home_issi, network));
+        }
+    }
+    assert_eq!(seen, vec![(vassi, HOME.mcc, HOME.mnc, VISITOR, "Home net".to_string())]);
+
+    // A radio of this network: no visitor event.
+    submit_demand(&mut test, ussi(2320973), demand(LocationUpdateType::ItsiAttach, None, None, vec![]));
+    let _ = test.dump_sinks();
+    while let Some(e) = source.try_recv() {
+        assert!(!matches!(e, TelemetryEvent::MsVisitor { .. }), "{e:?}");
+    }
+}
+
+/// Field 2026-11-15: the MTP went from the cell of another network back to its own; the server
+/// told this cell that the radio registered elsewhere (`ms-moved`, as a Deregister from Brew on
+/// its (V)ASSI). The (V)ASSI is invalid after the migration (clause 16.4.7.1): it is released,
+/// so a later location update on it is "ITSI/ATSI unknown".
+#[test]
+fn test_visitor_that_registered_elsewhere_releases_its_vassi() {
+    use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
+    debug::setup_logging_verbose();
+    let mut test = mm_test(multi_network_config(0));
+    let (vassi, _) = migrate(&mut test, 2320972, vec![home_group(9)]);
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Mm,
+        msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate { issi: vassi, groups: Vec::new(), action: BrewSubscriberAction::Deregister }),
+    });
+    test.run_stack(Some(2));
+    {
+        let st = test.config.state_read();
+        assert!(!st.subscribers.is_registered(vassi));
+        assert!(!st.multi_network.visitors.contains_key(&vassi), "the (V)ASSI is released");
+    }
+    test.dump_sinks();
+    submit_demand(&mut test, TetraAddress::issi(vassi), demand(LocationUpdateType::RoamingLocationUpdating, None, None, vec![]));
+    let msgs = test.dump_sinks();
+    assert_eq!(reject_cause(&msgs).map(|(_, c)| c), Some(RejectCause::ItsiAtsiUnknown as u8));
+}
+
+/// The presence check dropped the visitor's registration (deregistered on the network, client
+/// kept), then the radio migrated again: its old (V)ASSI is not deregistered a second time
+/// (that second one reached the server with the bare (V)ASSI, field 2026-11-15).
+#[test]
+fn test_migrating_again_after_a_presence_drop_deregisters_the_old_vassi_once() {
+    use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
+    debug::setup_logging_verbose();
+    let mut test = mm_test(multi_network_config(0));
+    let (first, _) = migrate(&mut test, 2320972, vec![home_group(9)]);
+    // What the presence check leaves behind (mm_bs: "did not answer the registration presence check").
+    test.config.state_write().subscribers.deregister(first);
+    test.dump_sinks();
+    // The new (V)ASSI comes with the first step of the identity exchange.
+    submit_demand(&mut test, ussi(2320972), demand(LocationUpdateType::MigratingLocationUpdating, None, Some(HOME), vec![]));
+    let msgs = test.dump_sinks();
+    assert!(downlink(&msgs, MmPduTypeDl::DLocationUpdateProceeding).is_some());
+    let deregistered = msgs.iter().any(|m| {
+        matches!(&m.msg, SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate { issi, action: BrewSubscriberAction::Deregister, .. }) if *issi == first)
+    });
+    assert!(!deregistered, "already deregistered by the presence check");
+    assert!(!test.config.state_read().multi_network.visitors.contains_key(&first));
+}

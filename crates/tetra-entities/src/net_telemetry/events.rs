@@ -278,6 +278,11 @@ pub enum TelemetryEvent {
     /// still names that cell went to another station, not to a sibling cell. Appended last for
     /// bitcode wire-stability.
     MsMovedAway { issi: u32, cell: u8 },
+    /// Multi Network: `issi` is the (V)ASSI of a visitor from network `mcc`/`mnc` whose own ISSI
+    /// there is `home_issi` (migration, TS 100 392-2 clause 16.4.1.1 b)). `network` is that
+    /// network's name as the Brew server named it, empty when unknown. Display only. Appended
+    /// last for bitcode wire-stability.
+    MsVisitor { issi: u32, mcc: u16, mnc: u16, home_issi: u32, network: String },
 }
 
 impl TelemetryEvent {

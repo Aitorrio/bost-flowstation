@@ -765,6 +765,7 @@ impl SharedConfig {
             .map(|(carrier_num, _, _)| carrier_num)
             .collect::<Vec<_>>();
         state.timeslot_alloc.configure_carriers(&carriers);
+        state.fleet_control.enabled = cfg.control.as_ref().is_some_and(|c| c.fleet_control);
 
         Ok(Self {
             cfg: Arc::new(cfg),
