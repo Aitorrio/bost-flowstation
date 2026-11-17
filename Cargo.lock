@@ -2084,6 +2084,7 @@ dependencies = [
  "tetra-security",
  "tokio",
  "toml",
+ "toml_edit",
  "tracing",
  "tungstenite",
  "uuid",

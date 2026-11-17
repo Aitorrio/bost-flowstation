@@ -2,6 +2,12 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.5.12 — Improved config editor and validate-before-save
+
+- **The editor no longer eats your comments.** Saving from the visual configurator rewrote the whole `config.toml` from the parsed struct and threw away every comment, blank line and commented-out section. The save is now surgical (via `toml_edit`): only the keys that actually change are touched, and comments, key order and number formatting are preserved. Commented-out sections (e.g. a `# rx_gain = 40` left on purpose) survive every save.
+- **A proper TOML editor (no longer a plain text box).** The advanced `config.toml` editor now has line numbers, syntax highlighting — with comments (and commented-out sections) clearly shown in their own colour — current-line highlighting, and two-space tab indentation. All in the dashboard itself, with no external assets (works offline on the Pi).
+- **Check before you save (can't brick the station).** A new "Check" button and `POST /api/config/validate` endpoint parse and validate the config **without writing it**: on an error the offending line is flagged in the gutter and scrolled into view. Save and "Apply & Restart" already validated server-side; they now also point at the error line in the editor.
+
 ## v0.5.11 — Fleet Control (phases 1 to 7)
 
 - **Fix: Multi Network visitor going back to its own network.** When the MTP went from the cell of another network (as a visitor, on a (V)ASSI) to its own network's cell on the same station, the visitor cell did not notice: the Brew server says "the radio registered elsewhere" with the radio's own ISSI, and there the radio only existed on its (V)ASSI. The old registration stayed for about 30 to 50 s until the presence check. The cell now finds the (V)ASSI behind the notice, drops the registration at once and releases the (V)ASSI, which is invalid after the migration (TS 100 392-2 clause 16.4.7.1). Also, a (V)ASSI the presence check had already deregistered is no longer deregistered a second time when the radio migrates again (that second one reached the server with the bare (V)ASSI), and a visitor's reselection and RSSI reach the server under its own ISSI.

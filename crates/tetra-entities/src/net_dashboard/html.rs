@@ -1259,9 +1259,9 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-asterisk .card-body .config-msg:not(:empty){
   border-top:none;padding:8px 0 0;min-height:0;
 }
-.cfg-adv-body #config-editor{
+.cfg-adv-body .cfg-code{
   min-height:320px;width:100%;box-sizing:border-box;
-  margin:0 0 4px;border-radius:8px;
+  margin:0 0 4px;
 }
 .cfg-adv-body .config-msg:not(:empty){border-top:none;padding-left:0;padding-right:0;}
 
@@ -1639,12 +1639,41 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 }
 
 /* ── Config editor ── */
-#config-editor{
-  width:100%;height:480px;resize:vertical;
-  background:var(--bg);border:none;outline:none;
-  font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--text);
-  padding:16px;tab-size:2;
+/* ── TOML code editor: textarea (editable, transparent text) overlaid on a syntax-
+   highlighted <pre>, with a line-number gutter and current/error line bands. All three
+   layers share font/size/line-height/padding so the caret lines up with the highlight. */
+.cfg-code{
+  display:flex;position:relative;height:480px;min-height:160px;resize:vertical;overflow:hidden;
+  background:var(--bg);border:1px solid var(--border);border-radius:8px;
 }
+.cfg-gutter{
+  flex:0 0 auto;min-width:3.2em;box-sizing:border-box;padding:12px 0;overflow:hidden;
+  font-family:var(--mono);font-size:12px;line-height:20px;color:var(--text3);
+  text-align:right;user-select:none;background:var(--bg2);border-right:1px solid var(--border);
+  white-space:pre;
+}
+.cfg-gutter .gl{display:block;padding:0 9px 0 10px;}
+.cfg-gutter .gl.cur{color:var(--text);font-weight:600;}
+.cfg-gutter .gl.err{color:var(--danger);font-weight:700;}
+.cfg-main{position:relative;flex:1 1 auto;overflow:hidden;}
+.cfg-hl,#config-editor{
+  position:absolute;inset:0;margin:0;box-sizing:border-box;padding:12px;border:0;
+  font-family:var(--mono);font-size:12px;line-height:20px;tab-size:2;
+  white-space:pre;overflow:auto;
+}
+.cfg-hl{z-index:1;pointer-events:none;color:var(--text);background:transparent;overflow:hidden;}
+.cfg-hl code{font:inherit;color:inherit;}
+#config-editor{z-index:2;background:transparent;color:transparent;caret-color:var(--text);outline:none;resize:none;}
+#config-editor::selection{background:rgba(120,160,255,.35);color:transparent;}
+.cfg-band{position:absolute;left:0;right:0;height:20px;pointer-events:none;z-index:0;display:none;}
+.cfg-band-cur{background:rgba(127,127,127,.10);}
+.cfg-band-err{background:rgba(255,80,80,.16);box-shadow:inset 3px 0 0 var(--danger);}
+.cfg-hl .tk-comment{color:var(--text3);font-style:italic;}
+.cfg-hl .tk-section{color:var(--accent);font-weight:600;}
+.cfg-hl .tk-eq{color:var(--text3);}
+.cfg-hl .tk-str{color:var(--ok);}
+.cfg-hl .tk-num{color:var(--warn);}
+.cfg-hl .tk-bool{color:var(--accent);}
 /* Feedback line under forms — hide when idle (empty) so it doesn't leave a
    dead separator + white gap before Save/Apply or the next card. */
 .config-msg{
@@ -2971,12 +3000,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   }
   .cfg-live-body,.cfg-adv-body{padding:12px 14px;}
   #page-config .card-body{padding:12px 14px;}
-  /* Advanced TOML: tall editor + sticky Save/Apply (keyboard-friendly) */
-  .cfg-adv-body #config-editor{
+  /* Advanced TOML: tall editor + sticky Save/Apply (keyboard-friendly). Bump the font on all
+     three layers together (gutter/highlight/textarea) so the caret stays aligned; keep the
+     20px line-height so the gutter rows and current/error bands still line up. */
+  .cfg-adv-body .cfg-code{
     min-height:min(52vh,420px);max-height:min(70vh,560px);
-    font-size:16px;line-height:1.45;padding:12px;border-radius:8px;
-    border:1px solid var(--border);box-sizing:border-box;resize:vertical;
-    -webkit-text-size-adjust:100%;
+  }
+  .cfg-adv-body .cfg-code .cfg-hl,
+  .cfg-adv-body .cfg-code #config-editor,
+  .cfg-adv-body .cfg-code .cfg-gutter{
+    font-size:15px;-webkit-text-size-adjust:100%;
   }
   .cfg-adv-actions{
     flex-direction:column;align-items:stretch;gap:8px;
@@ -6257,9 +6290,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </summary>
         <div class="cfg-adv-body">
           <div class="cfg-adv-warn" data-i18n="cfg_advanced_warn">Advanced users only</div>
-          <textarea id="config-editor" spellcheck="false" placeholder="Loading..." data-i18n-placeholder="ui_loading"></textarea>
+          <div class="cfg-code" id="cfg-code">
+            <div class="cfg-gutter" id="cfg-gutter" aria-hidden="true"></div>
+            <div class="cfg-main" id="cfg-main">
+              <div class="cfg-band cfg-band-cur" id="cfg-band-cur"></div>
+              <div class="cfg-band cfg-band-err" id="cfg-band-err"></div>
+              <pre class="cfg-hl" id="cfg-hl" aria-hidden="true"><code></code></pre>
+              <textarea id="config-editor" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="off" placeholder="Loading..." data-i18n-placeholder="ui_loading"></textarea>
+            </div>
+          </div>
           <div class="cfg-adv-actions">
             <button type="button" class="btn btn-primary" onclick="saveConfig()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
+            <button type="button" class="btn" onclick="checkConfig()"><span class="btn-icon" data-icon="check"></span><span data-i18n="cfg_check">Check</span></button>
             <button type="button" class="btn btn-warn" onclick="applyRawConfigAndRestart()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
           </div>
           <div class="config-msg" id="config-msg"></div>
@@ -7701,6 +7743,7 @@ const ICONS = {
   infrastructure:'<path d="M9.4 15 12 6.6 14.6 15"/><path d="M10.6 11.8h2.8"/><circle cx="12" cy="4.6" r="1"/><path d="M8.8 2.6a3.4 3.4 0 0 0 0 4M15.2 2.6a3.4 3.4 0 0 1 0 4"/><path d="M5 17.5h14M12 15v4M5 17.5V19M19 17.5V19"/><rect x="3" y="19" width="4" height="3" rx=".8"/><rect x="10" y="19" width="4" height="3" rx=".8"/><rect x="17" y="19" width="4" height="3" rx=".8"/>',
   roaming:'<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>',
   save:'<path d="M5 12.5 10 17.5 19 7"/>',
+  check:'<circle cx="12" cy="12" r="9"/><path d="M8 12.5 11 15.5 16 9"/>',
   restart:'<path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M17 4v3.5h-3.5"/>',
   shutdown:'<path d="M12 4v7"/><path d="M7.5 7.2a7 7 0 1 0 9 0"/>',
   update:'<path d="M12 19V6M7 11l5-5 5 5"/><path d="M6 4h12"/>',
@@ -8369,6 +8412,7 @@ const LANGS={
     cfg_profiles_import_confirm:'Replace Cell/Brew profiles on this station with the .ptbs file? Live config.toml is not changed and the service will not restart.',
     cfg_profiles_import_ok:'Profiles imported',cfg_profiles_import_err:'Could not import profiles',
     cfg_cell_profile:'TMO Cell',cfg_brew_profile:'Core Net (Brew)',cfg_apply_restart:'Apply & Restart',
+    cfg_check:'Check',cfg_checking:'Checking…',cfg_valid:'Config is valid',cfg_invalid:'Invalid config',
     cfg_add:'Add',cfg_edit:'Edit',cfg_profile_name:'Profile name',
     cfg_cell_sheet_add:'Add TMO Cell',cfg_cell_sheet_edit:'Edit TMO Cell',
     cfg_brew_sheet_add:'Add Core Net (Brew)',cfg_brew_sheet_edit:'Edit Core Net (Brew)',
@@ -8945,6 +8989,7 @@ const LANGS={
     tg_enabled:'Activar alertas Telegram',
     tg_test:'Enviar prueba',tg_testing:'Enviando prueba…',tg_test_ok:'✓ Prueba enviada a {n} chat(s)',
     cfg_sec_profiles:'Perfiles',cfg_profiles_title:'Perfiles de TMO',cfg_apply_restart:'Aplicar y reiniciar',
+    cfg_check:'Comprobar',cfg_checking:'Comprobando…',cfg_valid:'La configuración es válida',cfg_invalid:'Configuración no válida',
     cfg_profiles_help:'Utiliza los perfiles para guardar tus configuraciones preferidas de TMO y Servidor Brew y poder alternar rápidamente entre ellas.',
     cfg_profiles_pack_help:'Exporta o importa solo perfiles Cell/Brew (.ptbs). No cambia el config.toml vivo ni reinicia — usa Aplicar y reiniciar tras importar si quieres ponerlos al aire.',
     cfg_profiles_export:'Exportar .ptbs',cfg_profiles_import:'Importar .ptbs',
@@ -16332,12 +16377,123 @@ async function saveSnomNotify(){
 }
 
 // ── Config ────────────────────────────────────────────────────────────────
+// ── TOML code editor engine ─────────────────────────────────────────────────
+// A plain <textarea> with transparent text sits on top of a syntax-highlighted <pre>;
+// a gutter numbers the lines and two bands mark the current line and any error line.
+const CFG_LH=20, CFG_PAD=12;   // must match .cfg-hl / #config-editor line-height & padding (px)
+let cfgErrLine=null, cfgWired=false;
+function cfgEsc(s){return s.replace(/[&<>]/g,c=>c==='&'?'&amp;':c==='<'?'&lt;':'&gt;');}
+// Highlight one TOML line → HTML. Comments (incl. whole commented-out lines) are styled so they
+// stay clearly visible; section headers, strings, numbers and booleans each get their own colour.
+function cfgTokLine(line){
+  // Split off a trailing/standalone comment (a '#' that is not inside a quoted string).
+  let inS=false,q='',cut=-1;
+  for(let i=0;i<line.length;i++){const c=line[i];
+    if(inS){if(c===q)inS=false;}
+    else if(c==='"'||c==="'"){inS=true;q=c;}
+    else if(c==='#'){cut=i;break;}
+  }
+  let code=cut<0?line:line.slice(0,cut), com=cut<0?'':line.slice(cut);
+  let html='';
+  const tl=code.trimStart();
+  if(tl.startsWith('[')){
+    html='<span class="tk-section">'+cfgEsc(code)+'</span>';
+  }else{
+    const eq=code.indexOf('=');
+    if(eq>=0){
+      const key=code.slice(0,eq), val=code.slice(eq+1);
+      html='<span class="tk-key">'+cfgEsc(key)+'</span><span class="tk-eq">=</span>'+cfgTokVal(val);
+    }else{
+      html=cfgEsc(code);
+    }
+  }
+  if(com)html+='<span class="tk-comment">'+cfgEsc(com)+'</span>';
+  return html||'&nbsp;';
+}
+function cfgTokVal(v){
+  const lead=v.length-v.trimStart().length, body=v.slice(lead), pre=v.slice(0,lead);
+  let cls='';
+  if(/^["']/.test(body))cls='tk-str';
+  else if(/^(true|false)\b/.test(body.trim()))cls='tk-bool';
+  else if(/^[+-]?[\d.]/.test(body.trim()))cls='tk-num';
+  const inner=cls?'<span class="'+cls+'">'+cfgEsc(body)+'</span>':cfgEsc(body);
+  return cfgEsc(pre)+inner;
+}
+function cfgRender(){
+  const ta=document.getElementById('config-editor');if(!ta)return;
+  const hl=document.querySelector('#cfg-hl code'), gut=document.getElementById('cfg-gutter');
+  const lines=ta.value.split('\n');
+  if(hl)hl.innerHTML=lines.map(cfgTokLine).join('\n');
+  if(gut){let g='';for(let i=0;i<lines.length;i++){
+    const cls=(i+1===cfgErrLine)?'gl err':'gl';
+    g+='<span class="'+cls+'" data-ln="'+(i+1)+'">'+(i+1)+'</span>';
+  }gut.innerHTML=g;}
+  cfgSyncScroll();cfgBands();
+}
+function cfgSyncScroll(){
+  const ta=document.getElementById('config-editor');if(!ta)return;
+  const hl=document.getElementById('cfg-hl'), gut=document.getElementById('cfg-gutter');
+  if(hl){hl.scrollTop=ta.scrollTop;hl.scrollLeft=ta.scrollLeft;}
+  if(gut)gut.scrollTop=ta.scrollTop;
+}
+function cfgCurLine(){
+  const ta=document.getElementById('config-editor');if(!ta)return 0;
+  return ta.value.slice(0,ta.selectionStart).split('\n').length; // 1-based
+}
+function cfgBands(){
+  const ta=document.getElementById('config-editor');if(!ta)return;
+  const cur=document.getElementById('cfg-band-cur'), err=document.getElementById('cfg-band-err');
+  const place=(el,ln1)=>{
+    if(!el)return;
+    if(!ln1){el.style.display='none';return;}
+    const top=CFG_PAD+(ln1-1)*CFG_LH-ta.scrollTop;
+    if(top<0||top>ta.clientHeight){el.style.display='none';return;}
+    el.style.top=top+'px';el.style.display='block';
+  };
+  place(cur,cfgCurLine());
+  place(err,cfgErrLine);
+}
+function cfgSetErr(ln){cfgErrLine=(ln&&ln>0)?ln:null;cfgRender();
+  if(cfgErrLine){const ta=document.getElementById('config-editor');
+    if(ta){const want=CFG_PAD+(cfgErrLine-1)*CFG_LH-ta.clientHeight/2;ta.scrollTop=Math.max(0,want);cfgSyncScroll();cfgBands();}}
+}
+function cfgParseErrLine(msg){const m=/line\s+(\d+)/i.exec(msg||'');return m?parseInt(m[1],10):null;}
+function cfgEditorInit(){
+  if(cfgWired)return;const ta=document.getElementById('config-editor');if(!ta)return;cfgWired=true;
+  const upd=()=>cfgRender();
+  ta.addEventListener('input',()=>{cfgErrLine=null;upd();});
+  ta.addEventListener('scroll',()=>{cfgSyncScroll();cfgBands();});
+  ta.addEventListener('keyup',cfgBands);
+  ta.addEventListener('click',cfgBands);
+  ta.addEventListener('keydown',e=>{
+    if(e.key==='Tab'){e.preventDefault();
+      const s=ta.selectionStart,en=ta.selectionEnd;
+      ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(en);
+      ta.selectionStart=ta.selectionEnd=s+2;cfgRender();
+    }
+  });
+}
 async function loadConfig(){
-  try{const r=await fetch('/api/config');if(r.ok)document.getElementById('config-editor').value=await r.text();else setConfigMsg(t('conn_error'),false);}
+  cfgEditorInit();cfgErrLine=null;
+  try{const r=await fetch('/api/config');
+    if(r.ok){document.getElementById('config-editor').value=await r.text();cfgRender();}
+    else setConfigMsg(t('conn_error'),false);}
   catch{setConfigMsg(t('conn_error'),false);}
 }
 async function saveConfig(){
-  try{const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});if(r.ok)setConfigMsg(t('saved'),true);else setConfigMsg(t('save_fail')+': '+await r.text(),false);}
+  try{const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});
+    if(r.ok){setConfigMsg(t('saved'),true);cfgSetErr(null);}
+    else{const txt=await r.text();setConfigMsg(t('save_fail')+': '+txt,false);cfgSetErr(cfgParseErrLine(txt));}}
+  catch(e){setConfigMsg(t('conn_error'),false);}
+}
+// Dry-run: validate the editor contents WITHOUT writing, so errors are flagged before they can
+// brick the station. Flags the offending line in the gutter and jumps to it.
+async function checkConfig(){
+  setConfigMsg(t('cfg_checking'),true);
+  try{const r=await fetch('/api/config/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:document.getElementById('config-editor').value});
+    const j=await r.json();
+    if(j.ok){setConfigMsg(t('cfg_valid'),true);cfgSetErr(null);}
+    else{setConfigMsg(t('cfg_invalid')+': '+(j.error||''),false);cfgSetErr(j.line||cfgParseErrLine(j.error));}}
   catch(e){setConfigMsg(t('conn_error'),false);}
 }
 function setConfigMsg(txt,ok){const el=document.getElementById('config-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';}
@@ -16998,8 +17154,8 @@ async function applyRawConfigAndRestart(){
   if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
   try{
     const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});
-    if(!r.ok){setConfigMsg(t('save_fail')+': '+await r.text(),false);return;}
-    setConfigMsg(t('cfg_applied'),true);
+    if(!r.ok){const txt=await r.text();setConfigMsg(t('save_fail')+': '+txt,false);cfgSetErr(cfgParseErrLine(txt));return;}
+    setConfigMsg(t('cfg_applied'),true);cfgSetErr(null);
     try{
       const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
       if(!rr.ok)wsSend({type:'restart'});

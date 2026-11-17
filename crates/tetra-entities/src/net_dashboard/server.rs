@@ -4066,6 +4066,20 @@ fn handle_connection(
                 http_response(buf.into_inner(), code, &msg)
             }
         }
+    } else if req_line.contains("POST /api/config/validate") {
+        // Dry-run: parse + validate the posted config.toml WITHOUT writing it, so the editor can
+        // flag errors before the operator commits a change that could brick the station on restart.
+        let (inner, body_str) = read_post_body(stream);
+        let result = validate_config_body(&config_path, &body_str);
+        let json = match &result {
+            Ok(()) => serde_json::json!({ "ok": true }).to_string(),
+            Err((_, msg)) => {
+                serde_json::json!({ "ok": false, "error": msg, "line": config_error_line(msg) })
+                    .to_string()
+            }
+        };
+        // Always 200 — the validation verdict is in the body, not the HTTP status.
+        http_json_response(inner, 200, &json)
     } else if req_line.contains("POST /api/config") {
         let mut buf = BufReader::new(stream);
         let mut content_length = 0usize;
@@ -8115,6 +8129,31 @@ fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, Str
         tracing::warn!("Dashboard: failed to write config backup: {}", e);
     }
     atomic_write(config_path, body).map_err(|e| (500, e.to_string()))
+}
+
+/// Dry-run validation of a posted `config.toml`: unmask any still-masked secrets against the live
+/// file (so an untouched password doesn't read as invalid), then parse + `validate()` — WITHOUT
+/// writing anything. Used by `POST /api/config/validate` so the editor can flag errors before save.
+fn validate_config_body(config_path: &str, body: &str) -> Result<(), (u16, String)> {
+    let body = match std::fs::read_to_string(config_path) {
+        Ok(current) => unmask_config_secrets(body, &current),
+        Err(_) => body.to_string(),
+    };
+    match tetra_config::bluestation::parsing::from_toml_str(&body) {
+        Ok(cfg) => cfg
+            .validate()
+            .map_err(|e| (400, format!("config is invalid: {e}"))),
+        Err(e) => Err((400, format!("config does not parse: {e}"))),
+    }
+}
+
+/// Best-effort extraction of a 1-based line number from a TOML/validation error message, so the
+/// editor can jump to and highlight the offending line. TOML parse errors read
+/// "TOML parse error at line 42, column 3"; returns `None` when no line is mentioned.
+fn config_error_line(msg: &str) -> Option<usize> {
+    let idx = msg.find("line ")? + "line ".len();
+    let digits: String = msg[idx..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
 }
 
 fn serve_config_get(mut stream: PrefixedConn, config_path: &str) {

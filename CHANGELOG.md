@@ -4,6 +4,12 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## v0.5.12 — Editor de configuración mejorado y comprobación previa al guardado
+
+- **El editor ya no se come los comentarios.** Al guardar desde el configurador visual, la estación reescribía todo el `config.toml` a partir de la estructura y perdía cada comentario, línea en blanco y sección comentada. Ahora el guardado es quirúrgico (vía `toml_edit`): solo se tocan las claves que realmente cambian y se conservan los comentarios, el orden de las claves y el formato de los números. Las secciones comentadas (p. ej. una `# rx_gain = 40` dejada a propósito) sobreviven a cada guardado.
+- **Editor TOML en condiciones (ya no un simple cuadro de texto).** El editor avanzado de `config.toml` pasa a tener numeración de líneas, resaltado de sintaxis —con los comentarios (y las secciones comentadas) claramente visibles en su propio color—, resalte de la línea actual y tabulación a dos espacios. Todo en el propio dashboard, sin recursos externos (funciona sin conexión en la Pi).
+- **Comprobar antes de guardar (no se puede «brickear»).** Nuevo botón «Comprobar» y endpoint `POST /api/config/validate` que analiza y valida la configuración **sin escribirla**: si hay un error se marca la línea culpable en el margen y se salta a ella. El guardado y el «Aplicar y reiniciar» ya validaban en el servidor; ahora además señalan la línea del error en el editor.
+
 ## v0.5.11 — Fleet Control (fases 1 a 7)
 
 - **Corrección: invitado de Multi Network que vuelve a su propia red.** Al pasar el MTP de la celda de otra red (como invitado, con (V)ASSI) a la celda de su propia red en la misma estación, la celda de invitado no se daba cuenta: el servidor Brew avisa «la radio se registró en otra parte» con la ISSI propia, y allí la radio solo existía con su (V)ASSI. El registro viejo quedaba unos 30 a 50 s hasta la comprobación de presencia. Ahora la celda reconoce la (V)ASSI del aviso, quita el registro enseguida y libera la (V)ASSI, que tras la migración ya no es válida (TS 100 392-2 cláusula 16.4.7.1). Además, una (V)ASSI que la comprobación de presencia ya había dado de baja ya no se da de baja una segunda vez al migrar de nuevo (esa segunda baja llegaba al servidor con la (V)ASSI sin traducir), y la reselección y el RSSI de un invitado van al servidor con su ISSI propia.
