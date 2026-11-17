@@ -13,8 +13,8 @@ pub struct CipheringParameters {
     pub ksg_number: u8,
     /// True for security class 3 (DCK), false for class 2 (SCK).
     pub class3: bool,
-    /// Class 2: SCK number as sent (0 = SCK 1 … 31 = SCK 32). Class 3: the OTAR / GCK / security
-    /// information protocol support flags.
+    /// Class 2: SCK number as sent, 0 … 31 (Table A.96 — the on-air value is the SCK number
+    /// itself, no offset). Class 3: the OTAR / GCK / security information protocol support flags.
     pub sckn_field: u8,
 }
 
@@ -36,12 +36,12 @@ impl CipheringParameters {
         Self { ksg_number: tea - 1, class3: true, sckn_field: 0 }
     }
 
-    /// Class 2 parameters for TEA`tea` (1..=4) and SCK number `sckn` (1..=32).
+    /// Class 2 parameters for TEA`tea` (1..=4) and SCK number `sckn` (0..=31).
     pub fn class2(tea: u8, sckn: u8) -> Self {
         CipheringParameters {
             ksg_number: tea - 1,
             class3: false,
-            sckn_field: sckn - 1,
+            sckn_field: sckn & 0x1f,
         }
     }
 
@@ -50,9 +50,9 @@ impl CipheringParameters {
         (self.ksg_number < 7).then_some(self.ksg_number + 1)
     }
 
-    /// The SCK number (1..=32) for class 2.
+    /// The SCK number (0..=31) for class 2.
     pub fn sckn(self) -> Option<u8> {
-        (!self.class3).then_some(self.sckn_field + 1)
+        (!self.class3).then_some(self.sckn_field)
     }
 }
 
@@ -72,12 +72,12 @@ mod tests {
 
     #[test]
     fn class2_round_trip() {
-        let p = CipheringParameters::class2(1, 1);
+        let p = CipheringParameters::class2(1, 0);
         assert_eq!(p.to_bits(), 0);
-        let p = CipheringParameters::class2(2, 32);
+        let p = CipheringParameters::class2(2, 31);
         assert_eq!(p.to_bits(), 0b0001_0_11111);
         assert_eq!(CipheringParameters::from_bits(p.to_bits()), p);
-        assert_eq!((p.tea(), p.sckn()), (Some(2), Some(32)));
+        assert_eq!((p.tea(), p.sckn()), (Some(2), Some(31)));
     }
 
     #[test]

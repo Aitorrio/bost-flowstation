@@ -108,7 +108,7 @@ pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices)
         return (false, ext);
     };
     // Mixed cell: class 1 stays advertised so radios without AIE still register in clear.
-    // SCK number field: 0 = SCK 1 … 31 = SCK 32 (EN 300 392-7 Table A.96).
+    // SCK number field: 0 … 31, the SCK number itself (EN 300 392-7 Table A.96).
     if aie.class3.is_some() {
         ext.auth_required = true;
         ext.class1_supported = false;
@@ -120,7 +120,7 @@ pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices)
         ext.linked_gck_crypto_periods = Some(false);
         ext.short_gck_vn = Some(0);
     } else {
-        ext.sck_n = Some(aie.sckn - 1);
+        ext.sck_n = Some(aie.sckn & 0x1f);
     }
     (true, ext)
 }
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(ext.sck_n, Some(0));
         let (aie_service, ext) = sysinfo_security(Some(&aie()));
         assert!(aie_service);
-        assert_eq!(ext.sck_n, Some(2));
+        assert_eq!(ext.sck_n, Some(3));
         assert!(ext.class1_supported && ext.class2_supported && !ext.auth_required);
     }
 

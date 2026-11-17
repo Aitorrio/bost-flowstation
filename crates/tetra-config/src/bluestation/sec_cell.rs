@@ -26,6 +26,18 @@ pub struct CfgHomeModeDisplay {
     pub text_coding_scheme: HomeModeDisplaySdsTextCodingScheme,
     /// Text to broadcast (UTF-8 source, encoded per text_coding_scheme on TX).
     pub text: String,
+    /// Individual (per-ISSI) texts, sent point-to-point to each listed radio while it is registered
+    /// on the cell, in addition to the cell-wide group broadcast.
+    pub per_issi: Vec<CfgHomeModeDisplayIssi>,
+}
+
+/// One `[[cell_info.home_mode_display.per_issi]]` entry.
+#[derive(Debug, Clone)]
+pub struct CfgHomeModeDisplayIssi {
+    pub issi: u32,
+    pub text: String,
+    /// Resend interval in multiframes for this radio; `None` = same as the parent block.
+    pub interval_multiframes: Option<u32>,
 }
 
 /// Compiled WAP-IP gateway configuration (present when `[cell_info.wap_ip]` exists). The gateway
@@ -122,9 +134,58 @@ pub struct HomeModeDisplayDto {
     pub source_issi: Option<u32>,
     #[serde(alias = "interval_frames")]
     pub interval_multiframes: Option<u32>,
+    /// Resend interval in seconds. Takes precedence over `interval_multiframes` when set.
+    pub interval_seconds: Option<u32>,
     pub protocol_id: Option<u8>,
     pub text_coding_scheme: Option<HomeModeDisplaySdsTextCodingScheme>,
     pub text: Option<String>,
+    /// `[[cell_info.home_mode_display.per_issi]]`: individual text per radio.
+    pub per_issi: Option<Vec<HomeModeDisplayIssiDto>>,
+}
+
+/// Serde DTO for one per-ISSI entry.
+#[derive(Default, Deserialize)]
+pub struct HomeModeDisplayIssiDto {
+    pub issi: u32,
+    pub text: Option<String>,
+    pub interval_seconds: Option<u32>,
+    pub interval_multiframes: Option<u32>,
+}
+
+/// Seconds → multiframes (1 multiframe = 72 slots ≈ 1.02 s), at least 1.
+fn seconds_to_multiframes(s: u32) -> u32 {
+    ((s as u64 * 50 + 25) / 51).clamp(1, u32::MAX as u64) as u32
+}
+
+impl HomeModeDisplayDto {
+    fn compiled_per_issi(&self) -> Vec<CfgHomeModeDisplayIssi> {
+        self.per_issi
+            .iter()
+            .flatten()
+            // The SSI is serialized in 24 bits; drop out-of-range / zero entries instead of letting
+            // them reach the PDU writer.
+            .filter(|e| e.issi >= 1 && e.issi <= 0x00FF_FFFF)
+            .map(|e| CfgHomeModeDisplayIssi {
+                issi: e.issi,
+                text: e.text.clone().unwrap_or_default(),
+                interval_multiframes: match (e.interval_seconds, e.interval_multiframes) {
+                    (Some(0), _) | (None, Some(0)) => Some(0),
+                    (Some(sec), _) => Some(seconds_to_multiframes(sec)),
+                    (None, mf) => mf,
+                },
+            })
+            .collect()
+    }
+
+    /// Resend interval in multiframes: `interval_seconds` (1 multiframe = 72 slots ≈ 1.02 s) if set,
+    /// else `interval_multiframes`, else 96. A configured 0 stays 0 (rejected later as invalid).
+    fn interval_in_multiframes(&self) -> u32 {
+        match (self.interval_seconds, self.interval_multiframes) {
+            (Some(0), _) => 0,
+            (Some(s), _) => seconds_to_multiframes(s),
+            (None, mf) => mf.unwrap_or(96),
+        }
+    }
 }
 
 /// Service details for a neighbor cell — mirrors BsServiceDetails but for config parsing.
@@ -519,16 +580,18 @@ pub fn cell_dto_to_cfg(ci: CellInfoDto) -> CfgCellInfo {
         },
         home_mode_display: ci.home_mode_display.map(|h| CfgHomeModeDisplay {
             source_issi: h.source_issi.unwrap_or(0),
-            interval_multiframes: h.interval_multiframes.unwrap_or(96),
+            interval_multiframes: h.interval_in_multiframes(),
             protocol_id: h.protocol_id.unwrap_or(220),
             text_coding_scheme: h.text_coding_scheme.unwrap_or(HomeModeDisplaySdsTextCodingScheme::LATIN),
+            per_issi: h.compiled_per_issi(),
             text: h.text.unwrap_or_default(),
         }),
         sds_broadcast: ci.sds_broadcast.map(|h| CfgHomeModeDisplay {
             source_issi: h.source_issi.unwrap_or(0),
-            interval_multiframes: h.interval_multiframes.unwrap_or(96),
+            interval_multiframes: h.interval_in_multiframes(),
             protocol_id: h.protocol_id.unwrap_or(220),
             text_coding_scheme: h.text_coding_scheme.unwrap_or(HomeModeDisplaySdsTextCodingScheme::LATIN),
+            per_issi: h.compiled_per_issi(),
             text: h.text.unwrap_or_default(),
         }),
         wap_ip: ci.wap_ip.map(|w| CfgWapIp {
@@ -669,5 +732,37 @@ mod presence_config_tests {
             ..Default::default()
         });
         assert_eq!((high.presence_check_secs, high.presence_response_secs), (3600, 300));
+    }
+}
+
+#[cfg(test)]
+mod home_mode_interval_tests {
+    use super::*;
+
+    #[test]
+    fn seconds_override_multiframes_and_per_issi_parse() {
+        let dto: HomeModeDisplayDto = toml::from_str(
+            r#"
+            interval_seconds = 60
+            interval_multiframes = 10
+            text = "Cell"
+            [[per_issi]]
+            issi = 2260001
+            text = "Unit 1"
+            interval_seconds = 30
+            [[per_issi]]
+            issi = 99999999
+            text = "out of range, dropped"
+            [[per_issi]]
+            issi = 2260002
+            text = "Unit 2"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(dto.interval_in_multiframes(), 59);
+        let p = dto.compiled_per_issi();
+        assert_eq!(p.len(), 2);
+        assert_eq!((p[0].issi, p[0].interval_multiframes), (2260001, Some(29)));
+        assert_eq!((p[1].issi, p[1].interval_multiframes), (2260002, None));
     }
 }

@@ -22,6 +22,9 @@ pub struct LiveSdsMessage {
     pub protocol_id: u8,
     /// Source ISSI shown on the radio. Defaults to 16777215 (0xFFFFFF, "network").
     pub source_issi: u32,
+    /// `Some(issi)` = send only to this radio (point-to-point, only while it is registered);
+    /// `None` = broadcast to the whole cell.
+    pub dest_issi: Option<u32>,
     /// 0 = repeat forever; >0 = auto-remove after this many transmissions.
     pub repeat_count: u32,
     /// Number of times this message has been transmitted so far.

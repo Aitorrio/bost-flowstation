@@ -5828,8 +5828,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               </div>
             </div>
             <div style="display:flex;gap:16px;flex-wrap:wrap">
-              <div class="form-row"><label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sckn">SCK number (1-32)</label><input type="number" id="secp-sckn" class="form-input" min="1" max="32" value="1" style="width:120px" onchange="secpDirty()"></div>
-              <div class="form-row"><label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sckvn">SCK version</label><input type="number" id="secp-sckvn" class="form-input" min="0" max="65535" value="1" style="width:120px" onchange="secpDirty()"></div>
+              <div class="form-row"><label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sckn">SCK number (0-31)</label><input type="number" id="secp-sckn" class="form-input" min="0" max="31" value="0" style="width:120px" onchange="secpDirty()"></div>
+              <div class="form-row"><label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_sckvn">SCK version</label><input type="number" id="secp-sckvn" class="form-input" min="0" max="65535" value="0" style="width:120px" onchange="secpDirty()"></div>
             </div>
             <div class="form-row">
               <label class="help-text" style="display:block;margin-bottom:4px" data-i18n="secp_groups">Clear talkgroups (GSSI, comma separated) for radios without encryption</label>
@@ -8361,7 +8361,7 @@ const LANGS={
     secp_groups:'Clear talkgroups (GSSI, comma separated) for radios without encryption',
     secp_aie_enable:'Encrypt the cell (class 2)',secp_aie_staging:'Leave this off while you distribute the key: with it off the SCK below is only used for over-the-air delivery and the cell stays in clear. Switch it on once every radio reports the key as accepted.',
     secp_staged:'(staged for OTAR)',secp_otar_label:'OTAR',secp_otar_send:'Send SCK',secp_otar_send_all:'Send SCK to all online radios',secp_otar_hint:'Deliver the SCK over the air, sealed under this radio\'s K (needs the radio registered and its K on file)',
-    secp_otar_none:'No online radio with a saved key',secp_otar_confirm_all:'Send the SCK to {n} radio(s)?',secp_save_first:'Save your changes first',secp_offline:'offline',secp_ksg:'Algorithm (KSG)',secp_sck:'Static cipher key (SCK)',secp_sck_placeholder:'20 hex digits',secp_sckn:'SCK number (1-32)',secp_sckvn:'SCK version',
+    secp_otar_none:'No online radio with a saved key',secp_otar_confirm_all:'Send the SCK to {n} radio(s)?',secp_save_first:'Save your changes first',secp_offline:'offline',secp_ksg:'Algorithm (KSG)',secp_sck:'Static cipher key (SCK)',secp_sck_placeholder:'20 hex digits',secp_sckn:'SCK number (0-31)',secp_sckvn:'SCK version',
     secp_tea1_warn:'TEA1 is broken: it keeps only 32 of its 80 key bits and the key can be recovered from a few seconds of traffic. Use it for research or to talk to TEA1-only radios, never for protection.',
     secp_keep:'unchanged',secp_saved_ok:'Saved. Restart the station to apply.',secp_invalid_keys:'Keys on file that could not be parsed (ISSI): ',
     secp_algo_title:'Algorithms in this build',secp_th_algo:'Algorithm',secp_th_status:'Status',secp_th_note:'Notes',secp_available:'Available',secp_unavailable:'Not available',secp_weak:'Weak — research only',
@@ -9144,7 +9144,7 @@ const LANGS={
     secp_aie_enable:'Cifrar la celda (clase 2)',secp_aie_staging:'Déjalo desactivado mientras distribuyes la clave: con la celda en claro la SCK de abajo solo se usa para enviarla por el aire. Actívalo cuando todas las radios informen de que la han aceptado.',
     secp_staged:'(preparada para OTAR)',secp_otar_label:'OTAR',secp_otar_send:'Enviar SCK',secp_otar_send_all:'Enviar SCK a todas las radios conectadas',secp_otar_hint:'Entrega la SCK por el aire, sellada con la K de esta radio (la radio debe estar registrada y su K guardada)',
     secp_otar_none:'Ninguna radio conectada con clave guardada',secp_otar_confirm_all:'¿Enviar la SCK a {n} radio(s)?',secp_save_first:'Guarda los cambios primero',secp_offline:'desconectada',
-    secp_ksg:'Algoritmo (KSG)',secp_sck:'Clave estática (SCK)',secp_sck_placeholder:'20 dígitos hex',secp_sckn:'Número de SCK (1-32)',secp_sckvn:'Versión de SCK',secp_groups:'Grupos en claro (GSSI, separados por comas) para radios sin cifrado',
+    secp_ksg:'Algoritmo (KSG)',secp_sck:'Clave estática (SCK)',secp_sck_placeholder:'20 dígitos hex',secp_sckn:'Número de SCK (0-31)',secp_sckvn:'Versión de SCK',secp_groups:'Grupos en claro (GSSI, separados por comas) para radios sin cifrado',
     secp_tea1_warn:'TEA1 está roto: conserva solo 32 de sus 80 bits de clave y la clave se recupera con unos segundos de tráfico. Úsalo para investigación o para hablar con radios que solo tengan TEA1, nunca como protección.',
     secp_keep:'sin cambios',secp_saved_ok:'Guardado. Reinicia la estación para aplicarlo.',secp_invalid_keys:'Claves guardadas que no se pudieron leer (ISSI): ',
     secp_algo_title:'Algoritmos de esta compilación',secp_th_algo:'Algoritmo',secp_th_status:'Estado',secp_th_note:'Notas',secp_available:'Disponible',secp_unavailable:'No disponible',secp_weak:'Débil: solo investigación',
@@ -9898,7 +9898,7 @@ const LANGS={
     "secp_ksg": "Algoritmo (KSG)",
     "secp_sck": "Chave de cifra estática (SCK)",
     "secp_sck_placeholder": "20 dígitos hexadecimais",
-    "secp_sckn": "Número da SCK (1-32)",
+    "secp_sckn": "Número da SCK (0-31)",
     "secp_sckvn": "Versão da SCK",
     "secp_tea1_warn": "TEA1 está comprometido: conserva apenas 32 dos 80 bits da chave, que pode ser recuperada a partir de poucos segundos de tráfego. Usa-o apenas para investigação ou para comunicar com rádios que só suportam TEA1, nunca como proteção.",
     "secp_keep": "sem alterações",
@@ -11182,7 +11182,7 @@ const LANGS={
     "secp_ksg": "Algorithme (KSG)",
     "secp_sck": "Clé de chiffrement statique (SCK)",
     "secp_sck_placeholder": "20 chiffres hexadécimaux",
-    "secp_sckn": "Numéro de SCK (1-32)",
+    "secp_sckn": "Numéro de SCK (0-31)",
     "secp_sckvn": "Version de SCK",
     "secp_tea1_warn": "TEA1 est compromis : il ne conserve que 32 des 80 bits de la clé, récupérable à partir de quelques secondes de trafic. À utiliser pour la recherche ou pour communiquer avec des radios limitées à TEA1, jamais comme protection.",
     "secp_keep": "inchangé",
@@ -17780,8 +17780,8 @@ function secpFill(d){
   document.getElementById('secp-sck').value=aie&&s.class!==3?aie.sck_masked:'';secpSckDirty=false;
   document.getElementById('secp-cck').value=s.class===3?aie.cck_masked:'';secpCckDirty=false;
   document.getElementById('secp-cckid').value=s.class===3?aie.cck_id:1;
-  document.getElementById('secp-sckn').value=aie?.sckn??1;
-  document.getElementById('secp-sckvn').value=aie?.sck_vn??1;
+  document.getElementById('secp-sckn').value=aie?.sckn??0;
+  document.getElementById('secp-sckvn').value=aie?.sck_vn??0;
   document.getElementById('secp-groups').value=aie?(aie.clear_groups||[]).join(', '):'';
   const k=(d.ksgs||[]).find(x=>x.id===sel.value);
   document.getElementById('secp-ksg-note').textContent=k?k.note:'';
@@ -17813,7 +17813,7 @@ async function saveSecurity(){
     if((secpSckDirty&&sck&&!/^[0-9a-f]{20}$/.test(sck))||(cls===2&&!haveKey)){secpMsg('SCK: '+t('secp_sck_placeholder'),false);return;}
     aie={class:cls,enabled:cls===2};
     if(haveKey){
-      const sckn=number('secp-sckn',1,32),vn=number('secp-sckvn',0,65535);
+      const sckn=number('secp-sckn',0,31),vn=number('secp-sckvn',0,65535);
       const groups=document.getElementById('secp-groups').value.split(/[\s,;]+/).filter(Boolean).map(Number);
       if(sckn===null||vn===null||groups.some(n=>!Number.isInteger(n)||n<1||n>16777215)){secpMsg(t('secp_invalid_fields'),false);return;}
       Object.assign(aie,{ksg:document.getElementById('secp-ksg').value,sck:secpSckDirty?sck:'keep',sckn,sck_vn:vn,clear_groups:groups});

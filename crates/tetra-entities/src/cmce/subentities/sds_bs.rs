@@ -421,15 +421,27 @@ impl SdsBsSubentity {
         if crate::cell_context::is_primary() {
             crate::health::registry().set_sds_queue_depth(self.pending_sds.len());
         }
-        if let Some(hmd_tx) = self.home_mode_display_sender.tick_start(&self.config, dltime) {
-            self.send_d_sds_data(queue, hmd_tx.source_issi, hmd_tx.dest_gssi, SsiType::Gssi, hmd_tx.payload);
+        if let Some(tx) = self.home_mode_display_sender.tick_start(&self.config, dltime) {
+            self.send_hmd_tx(queue, tx);
+        }
+        if let Some(tx) = self.home_mode_display_sender.tick_per_issi(&self.config, dltime) {
+            self.send_hmd_tx(queue, tx);
         }
         if let Some(tx) = self.sds_broadcast_sender.tick_start_broadcast(&self.config, dltime) {
-            self.send_d_sds_data(queue, tx.source_issi, tx.dest_gssi, SsiType::Gssi, tx.payload);
+            self.send_hmd_tx(queue, tx);
+        }
+        if let Some(tx) = self.sds_broadcast_sender.tick_per_issi_broadcast(&self.config, dltime) {
+            self.send_hmd_tx(queue, tx);
         }
         if let Some(tx) = self.live_sds_sender.tick_live_sds(&self.config, dltime) {
-            self.send_d_sds_data(queue, tx.source_issi, tx.dest_gssi, SsiType::Gssi, tx.payload);
+            self.send_hmd_tx(queue, tx);
         }
+    }
+
+    /// Send a Home Mode Display / broadcast / live SDS message to its group or individual destination.
+    fn send_hmd_tx(&mut self, queue: &mut MessageQueue, tx: super::home_mode_display::HomeModeDisplayTx) {
+        let ssi_type = if tx.dest_is_issi { SsiType::Issi } else { SsiType::Gssi };
+        self.send_d_sds_data(queue, tx.source_issi, tx.dest_ssi, ssi_type, tx.payload);
     }
 
     /// Handle incoming U-SDS-DATA from a local MS (via RF uplink)

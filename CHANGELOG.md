@@ -4,6 +4,16 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## v0.5.14 — Texto de inicio por ISSI y tiempo de reenvío en segundos
+
+- **Texto por ISSI.** `[[cell_info.home_mode_display.per_issi]]` (y `sds_broadcast`) envía un texto individual a cada radio listada mientras está registrada (nada más registrarse y luego cada intervalo, con `interval_seconds` propio opcional), además de la difusión de grupo. El SDS en vivo (`POST /api/live-sds`) acepta `dest_issi` para un solo radio.
+- **Tiempo de reenvío en segundos.** `[cell_info.home_mode_display]` y `[cell_info.sds_broadcast]` aceptan `interval_seconds` (tiene prioridad sobre `interval_multiframes`; 1 multitrama ≈ 1,02 s).
+
+## v0.5.13 — Numeración de SCK desde 0 (como en el estándar y las radios)
+
+- **El número y la versión de SCK empiezan en 0.** El número de SCK (SCKN) y la versión de SCK (SCK-VN) ahora se numeran desde 0, igual que en el estándar TETRA (EN 300 392-7, SCKN 0-31) y que los números que muestran las radios y los equipos de carga de claves. Antes la estación numeraba las SCK del 1 al 32 y enviaba el campo por el aire como SCKN − 1, es decir, con un desfase de uno respecto a una radio conforme al estándar. El número de SCK de la configuración y del dashboard ahora coincide exactamente con el que se ve en la radio.
+- **Nota de migración.** Ajusta `security.aie.sckn` al número de SCK tal como lo muestra la radio (0-31). Una configuración que tuviera `sckn = 1` para alcanzar la «SCK 0» de la radio pasa a ser `sckn = 0`. El campo de versión del dashboard también parte de 0.
+
 ## v0.5.12 — Editor de configuración mejorado y comprobación previa al guardado
 
 - **El editor ya no se come los comentarios.** Al guardar desde el configurador visual, la estación reescribía todo el `config.toml` a partir de la estructura y perdía cada comentario, línea en blanco y sección comentada. Ahora el guardado es quirúrgico (vía `toml_edit`): solo se tocan las claves que realmente cambian y se conservan los comentarios, el orden de las claves y el formato de los números. Las secciones comentadas (p. ej. una `# rx_gain = 40` dejada a propósito) sobreviven a cada guardado.

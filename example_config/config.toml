@@ -358,9 +358,19 @@ voice_service = true
 # [cell_info.home_mode_display]
 # source_issi = 16777215          # ISSI shown as sender on the radio (default: 16777215)
 # interval_multiframes = 96       # Broadcast interval (1 MF ≈ 1s; default: 96 ≈ 96s)
+# interval_seconds = 96          # Alternative: resend time in seconds (overrides interval_multiframes)
 # protocol_id = 220               # SDS protocol ID for Home Mode Display (default: 220)
 # text_coding_scheme = "LATIN"    # "LATIN" = ISO-8859-1, "UTF16" = UCS-2/UTF-16BE
 # text = "FlowStation"            # Text shown on radio display
+#
+# Per-radio text: sent point-to-point to each listed ISSI while it is registered on the cell
+# (right after it registers, then every interval), in addition to the group broadcast above.
+# Optional interval_seconds / interval_multiframes per entry; default = the block's interval.
+# Also available under [cell_info.sds_broadcast].
+# [[cell_info.home_mode_display.per_issi]]
+# issi = 2260001
+# text = "Unit 1"
+# interval_seconds = 60
 ###############################################################################
 
 ###############################################################################
@@ -374,6 +384,7 @@ voice_service = true
 # [cell_info.sds_broadcast]
 # source_issi = 16777215          # ISSI shown as sender on the radio (default: 0)
 # interval_multiframes = 96       # Broadcast interval (1 MF ≈ 1s; default: 96 ≈ 96s)
+# interval_seconds = 96          # Alternative: resend time in seconds (overrides interval_multiframes)
 # protocol_id = 130               # SDS protocol ID (default: 220 — change to avoid conflict)
 # text_coding_scheme = "LATIN"    # "LATIN" = ISO-8859-1, "UTF16" = UCS-2/UTF-16BE
 # text = "YO6RZV"                 # Text payload to broadcast
@@ -480,8 +491,8 @@ voice_service = true
 # class = 2                       # 1 = clear cell (key staged for OTAR), 2 = encrypted cell
 # ksg = 3                         # 1 = TEA1 (keeps only 32 key bits — research only), 2 = TEA2, 3 = TEA3
 # sck = "00112233445566778899"    # 80-bit static cipher key, 20 hex digits
-# sckn = 1                        # SCK number 1-32
-# sck_vn = 1                      # SCK version number
+# sckn = 0                        # SCK number 0-31 (the same number the radios show)
+# sck_vn = 0                      # SCK version number (0-65535)
 # clear_groups = [900]            # talkgroups left in clear for radios without encryption
 #
 # OPTIONAL: End-to-end encryption (E2EE) of SDS — SFPG Rec 02-aligned, AES.

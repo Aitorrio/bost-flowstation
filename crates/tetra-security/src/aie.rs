@@ -32,7 +32,7 @@ pub struct Class2Keys {
     pub ksg: KsgId,
     /// The static cipher key in use.
     pub sck: CipherKey,
-    /// SCK number, 1 … 32 (broadcast in SYSINFO).
+    /// SCK number, 0 … 31 (broadcast in SYSINFO).
     #[zeroize(skip)]
     pub sckn: u8,
     /// SCK version number; its least significant bit goes into the encryption
