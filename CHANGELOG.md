@@ -4,6 +4,11 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## v0.5.14 — Texto de inicio por ISSI y tiempo de reenvío en segundos
+
+- **Texto por ISSI.** `[[cell_info.home_mode_display.per_issi]]` (y `sds_broadcast`) envía un texto individual a cada radio listada mientras está registrada (nada más registrarse y luego cada intervalo, con `interval_seconds` propio opcional), además de la difusión de grupo. El SDS en vivo (`POST /api/live-sds`) acepta `dest_issi` para un solo radio.
+- **Tiempo de reenvío en segundos.** `[cell_info.home_mode_display]` y `[cell_info.sds_broadcast]` aceptan `interval_seconds` (tiene prioridad sobre `interval_multiframes`; 1 multitrama ≈ 1,02 s).
+
 ## v0.5.13 — Numeración de SCK desde 0 (como en el estándar y las radios)
 
 - **El número y la versión de SCK empiezan en 0.** El número de SCK (SCKN) y la versión de SCK (SCK-VN) ahora se numeran desde 0, igual que en el estándar TETRA (EN 300 392-7, SCKN 0-31) y que los números que muestran las radios y los equipos de carga de claves. Antes la estación numeraba las SCK del 1 al 32 y enviaba el campo por el aire como SCKN − 1, es decir, con un desfase de uno respecto a una radio conforme al estándar. El número de SCK de la configuración y del dashboard ahora coincide exactamente con el que se ve en la radio.
@@ -14,8 +19,6 @@ English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 - **El editor ya no se come los comentarios.** Al guardar desde el configurador visual, la estación reescribía todo el `config.toml` a partir de la estructura y perdía cada comentario, línea en blanco y sección comentada. Ahora el guardado es quirúrgico (vía `toml_edit`): solo se tocan las claves que realmente cambian y se conservan los comentarios, el orden de las claves y el formato de los números. Las secciones comentadas (p. ej. una `# rx_gain = 40` dejada a propósito) sobreviven a cada guardado.
 - **Editor TOML en condiciones (ya no un simple cuadro de texto).** El editor avanzado de `config.toml` pasa a tener numeración de líneas, resaltado de sintaxis —con los comentarios (y las secciones comentadas) claramente visibles en su propio color—, resalte de la línea actual y tabulación a dos espacios. Todo en el propio dashboard, sin recursos externos (funciona sin conexión en la Pi).
 - **Comprobar antes de guardar (no se puede «brickear»).** Nuevo botón «Comprobar» y endpoint `POST /api/config/validate` que analiza y valida la configuración **sin escribirla**: si hay un error se marca la línea culpable en el margen y se salta a ella. El guardado y el «Aplicar y reiniciar» ya validaban en el servidor; ahora además señalan la línea del error en el editor.
-- **Texto por ISSI.** `[[cell_info.home_mode_display.per_issi]]` (y `sds_broadcast`) envía un texto individual a cada radio listada mientras está registrada (nada más registrarse y luego cada intervalo, con `interval_seconds` propio opcional), además de la difusión de grupo. El SDS en vivo (`POST /api/live-sds`) acepta `dest_issi` para un solo radio.
-- **Tiempo de reenvío en segundos.** `[cell_info.home_mode_display]` y `[cell_info.sds_broadcast]` aceptan `interval_seconds` (tiene prioridad sobre `interval_multiframes`; 1 multitrama ≈ 1,02 s).
 
 ## v0.5.11 — Fleet Control (fases 1 a 7)
 
