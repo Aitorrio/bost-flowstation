@@ -588,9 +588,178 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
 
     ensure_dual_carrier_rf_keys(&mut table)?;
 
-    let rendered = toml::to_string_pretty(&table).map_err(|e| e.to_string())?;
+    // Render the merged table back ONTO the original file text so comments, blank lines,
+    // commented-out sections and the operator's own key ordering/number formatting all survive.
+    // (A plain `toml::to_string_pretty` here rebuilds the file from the parsed struct and throws
+    // every comment away — the long-standing "the editor eats my comments" bug.) If, for any
+    // reason, the original can't be re-parsed as a format-preserving document, fall back to the
+    // old full re-render rather than failing the save.
+    let rendered = render_preserving_comments(&current, &table)
+        .unwrap_or_else(|_| toml::to_string_pretty(&table).unwrap_or_default());
     validate_toml_str(&rendered)?;
     backup_and_write(config_path, &rendered)
+}
+
+/// Apply a fully-merged [`toml::Table`] back onto the ORIGINAL config text using `toml_edit`,
+/// so comments, blank lines, commented-out blocks, key order and number formatting are preserved.
+///
+/// `desired` is the complete intended config (a parse of the original with the edited sections
+/// merged in), so this is a surgical diff: only keys whose value actually changed are rewritten,
+/// new keys are appended to their table, and keys the merge dropped (e.g. `[brew]` when Brew is
+/// turned off, or pruned optionals) are removed. Everything the operator wrote around those keys
+/// is left byte-for-byte intact.
+fn render_preserving_comments(original: &str, desired: &toml::Table) -> Result<String, String> {
+    let mut doc = original
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("re-parse config for comment-preserving write: {e}"))?;
+    sync_table_into_doc(doc.as_table_mut(), desired);
+    Ok(doc.to_string())
+}
+
+/// Recursively reconcile a `toml_edit` table (`dst`, carrying the original formatting/comments)
+/// with the desired `toml::Table` (`src`). Values that already match are left untouched so their
+/// original spelling and any attached comments survive; only genuine differences are written.
+fn sync_table_into_doc(dst: &mut toml_edit::Table, src: &toml::map::Map<String, TomlValue>) {
+    // Remove keys that the desired config no longer has (intentional deletions / pruned optionals).
+    // Comment-only lines are decor in `toml_edit`, not keys, so they are never touched here.
+    let stale: Vec<String> = dst
+        .iter()
+        .map(|(k, _)| k.to_string())
+        .filter(|k| !src.contains_key(k))
+        .collect();
+    for k in stale {
+        dst.remove(&k);
+    }
+
+    for (k, v) in src {
+        match (v, dst.get_mut(k)) {
+            // Both sides are tables → recurse so inner comments/formatting survive.
+            (TomlValue::Table(src_t), Some(item)) if item.is_table() => {
+                if let Some(dst_t) = item.as_table_mut() {
+                    sync_table_into_doc(dst_t, src_t);
+                }
+            }
+            // Key exists with a matching value → leave the original text exactly as written.
+            (_, Some(item)) if item_matches_value(item, v) => {}
+            // Key exists but the value changed → overwrite the item (keeps the key + its comment).
+            (_, Some(item)) => {
+                *item = build_item(v);
+            }
+            // New key → append it to this table.
+            (_, None) => {
+                dst.insert(k, build_item(v));
+            }
+        }
+    }
+}
+
+/// Build a `toml_edit::Item` from a `toml::Value`, choosing explicit tables / arrays-of-tables so
+/// freshly-inserted sections render with proper `[header]` / `[[header]]` syntax.
+fn build_item(v: &TomlValue) -> toml_edit::Item {
+    match v {
+        TomlValue::Table(t) => {
+            let mut tbl = toml_edit::Table::new();
+            sync_table_into_doc(&mut tbl, t);
+            toml_edit::Item::Table(tbl)
+        }
+        TomlValue::Array(a) if !a.is_empty() && a.iter().all(|e| matches!(e, TomlValue::Table(_))) => {
+            let mut aot = toml_edit::ArrayOfTables::new();
+            for e in a {
+                if let TomlValue::Table(t) = e {
+                    let mut tbl = toml_edit::Table::new();
+                    sync_table_into_doc(&mut tbl, t);
+                    aot.push(tbl);
+                }
+            }
+            toml_edit::Item::ArrayOfTables(aot)
+        }
+        _ => toml_edit::Item::Value(build_value(v)),
+    }
+}
+
+/// Build an inline `toml_edit::Value` from a `toml::Value` (scalars, value-arrays, inline tables).
+fn build_value(v: &TomlValue) -> toml_edit::Value {
+    match v {
+        TomlValue::String(s) => toml_edit::Value::from(s.as_str()),
+        TomlValue::Integer(i) => toml_edit::Value::from(*i),
+        TomlValue::Float(f) => toml_edit::Value::from(*f),
+        TomlValue::Boolean(b) => toml_edit::Value::from(*b),
+        TomlValue::Datetime(d) => d
+            .to_string()
+            .parse::<toml_edit::Datetime>()
+            .map(toml_edit::Value::from)
+            .unwrap_or_else(|_| toml_edit::Value::from(d.to_string())),
+        TomlValue::Array(a) => {
+            let mut arr = toml_edit::Array::new();
+            for e in a {
+                arr.push(build_value(e));
+            }
+            toml_edit::Value::Array(arr)
+        }
+        TomlValue::Table(t) => {
+            let mut it = toml_edit::InlineTable::new();
+            for (k, iv) in t {
+                it.insert(k, build_value(iv));
+            }
+            toml_edit::Value::InlineTable(it)
+        }
+    }
+}
+
+/// Semantic equality between an existing `toml_edit::Item` and a desired `toml::Value`, so an
+/// unchanged value is recognised and its original text (and comments) left alone.
+fn item_matches_value(item: &toml_edit::Item, v: &TomlValue) -> bool {
+    edit_item_to_toml(item).as_ref() == Some(v)
+}
+
+/// Convert a `toml_edit::Item` back into a `toml::Value` for comparison (formatting discarded).
+fn edit_item_to_toml(item: &toml_edit::Item) -> Option<TomlValue> {
+    match item {
+        toml_edit::Item::Value(val) => edit_value_to_toml(val),
+        toml_edit::Item::Table(t) => {
+            let mut m = toml::map::Map::new();
+            for (k, i) in t.iter() {
+                m.insert(k.to_string(), edit_item_to_toml(i)?);
+            }
+            Some(TomlValue::Table(m))
+        }
+        toml_edit::Item::ArrayOfTables(aot) => {
+            let mut out = Vec::new();
+            for t in aot.iter() {
+                let mut m = toml::map::Map::new();
+                for (k, i) in t.iter() {
+                    m.insert(k.to_string(), edit_item_to_toml(i)?);
+                }
+                out.push(TomlValue::Table(m));
+            }
+            Some(TomlValue::Array(out))
+        }
+        toml_edit::Item::None => None,
+    }
+}
+
+fn edit_value_to_toml(val: &toml_edit::Value) -> Option<TomlValue> {
+    match val {
+        toml_edit::Value::String(s) => Some(TomlValue::String(s.value().clone())),
+        toml_edit::Value::Integer(i) => Some(TomlValue::Integer(*i.value())),
+        toml_edit::Value::Float(f) => Some(TomlValue::Float(*f.value())),
+        toml_edit::Value::Boolean(b) => Some(TomlValue::Boolean(*b.value())),
+        toml_edit::Value::Datetime(d) => d.value().to_string().parse().ok().map(TomlValue::Datetime),
+        toml_edit::Value::Array(a) => {
+            let mut out = Vec::new();
+            for e in a.iter() {
+                out.push(edit_value_to_toml(e)?);
+            }
+            Some(TomlValue::Array(out))
+        }
+        toml_edit::Value::InlineTable(t) => {
+            let mut m = toml::map::Map::new();
+            for (k, iv) in t.iter() {
+                m.insert(k.to_string(), edit_value_to_toml(iv)?);
+            }
+            Some(TomlValue::Table(m))
+        }
+    }
 }
 
 /// When Dual Carrier is on, ensure `sample_rate` + midway TX/RX centers exist so validate()
@@ -1042,6 +1211,70 @@ pub fn auto_main_carrier_rx(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Comment-preserving config write (the "editor eats my comments" fix) ──────────────
+    #[test]
+    fn comment_preserving_write_keeps_comments_and_commented_out_lines() {
+        let original = r#"# Station config — hand-tuned, DO NOT let the editor mangle this
+stack_mode = "Bs"
+
+[phy_io.soapysdr]
+tx_freq = 438025000.0   # calibrated 2026-11
+# rx_gain = 40          # commented out on purpose — spare LNA
+rx_freq = 433025000.0
+"#;
+        // Desired = parse of original with one value changed.
+        let mut table: toml::Table = toml::from_str(original).unwrap();
+        if let Some(TomlValue::Table(soapy)) = table
+            .get_mut("phy_io")
+            .and_then(|p| p.as_table_mut())
+            .and_then(|p| p.get_mut("soapysdr"))
+        {
+            soapy.insert("rx_freq".into(), TomlValue::Float(433_500_000.0));
+        }
+        let out = render_preserving_comments(original, &table).unwrap();
+
+        assert!(out.contains("# Station config — hand-tuned"), "header comment lost:\n{out}");
+        assert!(out.contains("# rx_gain = 40"), "commented-out line lost:\n{out}");
+        assert!(out.contains("# calibrated 2026-11"), "trailing comment lost:\n{out}");
+        assert!(out.contains("433500000"), "edited value not applied:\n{out}");
+        assert!(!out.contains("433025000"), "old value still present:\n{out}");
+        // tx_freq was not touched → its original spelling survives verbatim.
+        assert!(out.contains("tx_freq = 438025000.0"), "untouched value reformatted:\n{out}");
+    }
+
+    #[test]
+    fn comment_preserving_write_adds_and_removes_keys() {
+        let original = r#"stack_mode = "Bs"
+
+[brew]
+# backhaul to the core
+host = "core.example"
+port = 9000
+"#;
+        let mut table: toml::Table = toml::from_str(original).unwrap();
+        // Add a new top-level key and drop the whole [brew] section.
+        table.insert("config_version".into(), TomlValue::String("0.6".into()));
+        table.remove("brew");
+        let out = render_preserving_comments(original, &table).unwrap();
+
+        assert!(out.contains(r#"config_version = "0.6""#), "new key not added:\n{out}");
+        assert!(!out.contains("[brew]"), "removed section still present:\n{out}");
+        assert!(!out.contains("backhaul to the core"), "removed section comment lingered:\n{out}");
+        assert!(out.contains(r#"stack_mode = "Bs""#), "kept key lost:\n{out}");
+    }
+
+    #[test]
+    fn comment_preserving_write_is_noop_when_nothing_changed() {
+        let original = r#"stack_mode = "Bs"  # trailing
+[cell_info]
+main_carrier = 1_521   # underscore style kept
+"#;
+        let table: toml::Table = toml::from_str(original).unwrap();
+        let out = render_preserving_comments(original, &table).unwrap();
+        // Identical desired config → byte-for-byte identical output (formatting fully preserved).
+        assert_eq!(out, original, "re-render changed an unmodified file");
+    }
 
     fn minimal_toml() -> String {
         r#"

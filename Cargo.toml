@@ -119,6 +119,7 @@ num = "0.4.3"
 num-complex = "0.4.6"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
+toml_edit = "0.22"
 rustfft = "6.4.0"
 soapysdr = "0.5.0"
 rand = "0.9.2"

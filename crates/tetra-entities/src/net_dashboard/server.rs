@@ -15,7 +15,7 @@ use crate::net_dashboard::conn_stream::{
 };
 use crate::net_dashboard::dashboard_ports::{LEGACY_HTTP_PORT, LEGACY_HTTPS_PORT};
 use crate::net_dashboard::html::DASHBOARD_HTML;
-use crate::net_dashboard::state::{CallEntry, DashboardState, DashboardStateInner, MsEntry, MsGroupState};
+use crate::net_dashboard::state::{CallEntry, DashboardState, DashboardStateInner, MsEntry, MsGroupState, MsHome};
 use crate::net_telemetry::TelemetryEvent;
 use crate::net_telemetry::events::CellRfEvent;
 use crate::tpg2200::build_tpg2200_callout_payload;
@@ -232,38 +232,89 @@ fn login_html_body() -> &'static str {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq)]
-enum UpdatePhase {
+pub(crate) enum UpdatePhase {
     Idle,
     Running,
     Done { success: bool },
 }
 
-struct UpdateState {
-    phase: UpdatePhase,
-    log: String,
+pub(crate) struct UpdateState {
+    pub(crate) phase: UpdatePhase,
+    pub(crate) log: String,
+    /// Step of the run, for Fleet Control progress reports (`ota_remote`).
+    pub(crate) stage: crate::net_dashboard::ota_remote::OtaStage,
+    /// `Compiling …` lines seen in the build step.
+    pub(crate) compiled: u32,
+    /// Expected number of compiled units (last successful build, else the packages in `Cargo.lock`).
+    pub(crate) units_expected: u32,
+    /// When the run started (Fleet Control reports the elapsed time).
+    pub(crate) started: Option<std::time::Instant>,
+    /// Live update (installer run): the stage follows the installer's log lines.
+    pub(crate) live: bool,
 }
 
 impl UpdateState {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         UpdateState {
             phase: UpdatePhase::Idle,
             log: String::new(),
+            stage: crate::net_dashboard::ota_remote::OtaStage::Download,
+            compiled: 0,
+            units_expected: 0,
+            started: None,
+            live: false,
         }
     }
     fn append(&mut self, line: &str) {
+        if self.live {
+            use crate::net_dashboard::ota_remote::OtaStage;
+            if line.starts_with("==> Building bluestation-bs") {
+                self.stage = OtaStage::Build;
+            } else if line.starts_with("==> Installed ") && self.stage == OtaStage::Build {
+                self.stage = OtaStage::Install;
+            }
+        }
+        // The installer's cargo writes to stderr, read on another thread than its own log lines,
+        // so in a live update every `Compiling` line counts, whatever the stage.
+        if (self.live || self.stage == crate::net_dashboard::ota_remote::OtaStage::Build) && line.trim_start().starts_with("Compiling ") {
+            self.compiled += 1;
+        }
         self.log.push_str(line);
         self.log.push('\n');
     }
-    fn start(&mut self) {
+    pub(crate) fn start(&mut self) {
         self.phase = UpdatePhase::Running;
         self.log.clear();
+        self.stage = crate::net_dashboard::ota_remote::OtaStage::Download;
+        self.compiled = 0;
+        self.units_expected = 0;
+        self.started = Some(std::time::Instant::now());
+        self.live = false;
     }
     fn finish(&mut self, success: bool) {
         self.phase = UpdatePhase::Done { success };
+        if !success {
+            self.stage = crate::net_dashboard::ota_remote::OtaStage::Failed;
+        }
+    }
+    fn set_stage(&mut self, stage: crate::net_dashboard::ota_remote::OtaStage) {
+        self.stage = stage;
+    }
+    #[cfg(test)]
+    pub(crate) fn set_stage_for_test(&mut self, stage: crate::net_dashboard::ota_remote::OtaStage) {
+        self.set_stage(stage);
+    }
+    #[cfg(test)]
+    pub(crate) fn finish_for_test(&mut self, success: bool) {
+        self.finish(success);
+    }
+    #[cfg(test)]
+    pub(crate) fn append_for_test(&mut self, line: &str) {
+        self.append(line);
     }
 }
 
-type SharedUpdateState = Arc<Mutex<UpdateState>>;
+pub(crate) type SharedUpdateState = Arc<Mutex<UpdateState>>;
 
 /// In-memory session store for cookie-based authentication.
 ///
@@ -1463,7 +1514,7 @@ impl<F: FnOnce()> Drop for OtaRfRecoveryGuard<F> {
 ///   5. Skip rebuild/install/restart when the running binary already matches HEAD
 ///   6. cargo build --release (incremental; never `cargo clean`)
 ///   7. install binary (+ future `ptbs` name) + systemctl restart
-fn run_update(update: SharedUpdateState, config_path: String, source_dir_override: Option<String>) {
+pub(crate) fn run_update(update: SharedUpdateState, config_path: String, source_dir_override: Option<String>) {
     macro_rules! log {
         ($update:expr, $($arg:tt)*) => {{
             let line = format!($($arg)*);
@@ -1502,6 +1553,9 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         tracing::info!("UPDATE: {}", label);
         let mut cmd = std::process::Command::new(program);
         cmd.args(args).current_dir(dir);
+        if program == "git" {
+            crate::net_dashboard::source_auth::git_env(&mut cmd);
+        }
         stream_cmd(update, label, cmd)
     }
 
@@ -1808,7 +1862,11 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
                 " (no libtetra-codec — signalling only)"
             }
         );
-        update.lock().unwrap().finish(true);
+        {
+            let mut u = update.lock().unwrap();
+            u.set_stage(crate::net_dashboard::ota_remote::OtaStage::UpToDate);
+            u.finish(true);
+        }
         return;
     }
 
@@ -1838,6 +1896,11 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
     // root-owned target/ stalls and OOM on Pi (compiling tetra-entities html.rs is heavy).
     // Output is streamed live so a long compile shows progress instead of looking hung (FH-BUG-035).
     // Never run `cargo clean` — incremental `target/` is intentional.
+    {
+        let mut u = update.lock().unwrap();
+        u.set_stage(crate::net_dashboard::ota_remote::OtaStage::Build);
+        u.units_expected = crate::net_dashboard::ota_remote::expected_units(&src_dir);
+    }
     log!(update, "--- cargo build --release ---");
     let cargo = find_cargo(&src_dir);
     if cargo == std::path::Path::new("cargo") {
@@ -1902,7 +1965,11 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         return;
     }
 
+    // Remember how many units this build compiled: the next run estimates its progress from it.
+    crate::net_dashboard::ota_remote::remember_units(&src_dir, update.lock().unwrap().compiled);
+
     // Step 7: install the new binary where systemd actually runs it.
+    update.lock().unwrap().set_stage(crate::net_dashboard::ota_remote::OtaStage::Install);
     log!(update, "--- Installing release binary ---");
     if !install_built_binary(&src_dir, &update) {
         return;
@@ -1925,13 +1992,114 @@ fn run_update(update: SharedUpdateState, config_path: String, source_dir_overrid
         update,
         "Dashboard will disconnect briefly — wait for automatic reload (do not power-cycle yet)."
     );
-    update.lock().unwrap().finish(true);
+    {
+        let mut u = update.lock().unwrap();
+        u.set_stage(crate::net_dashboard::ota_remote::OtaStage::Restart);
+        u.finish(true);
+    }
 
     crate::service_control::schedule_service_action(
         crate::service_control::ServiceAction::Restart,
         std::time::Duration::from_secs(5),
     );
     rf_recovery.disarm();
+}
+
+/// Fleet Control live update (`update-live-v1`): run the installer with `repo` and `branch`, the
+/// same as `sudo BOST_REPO=… BOST_BRANCH=… bash contrib/install/install-bost.sh` in a terminal,
+/// with the radio kept on (no `request_ota_rf_off`). The installer fetches, builds as the service
+/// user, installs the binary and sets the OTA source to `repo`/`branch`; it does not restart a
+/// running service, so this schedules the restart afterwards. A failed run leaves the old binary
+/// running and the radio on.
+pub(crate) fn run_live_update(update: SharedUpdateState, source_dir_override: Option<String>, repo: String, branch: String) {
+    macro_rules! log {
+        ($update:expr, $($arg:tt)*) => {{
+            let line = format!($($arg)*);
+            tracing::info!("UPDATE: {}", line);
+            $update.lock().unwrap().append(&line);
+        }};
+    }
+    update.lock().unwrap().live = true;
+    log!(update, "=== {} live update (RF on) ===", tetra_core::PRODUCT_NAME);
+    let src_dir = match resolve_source_dir(source_dir_override.as_deref()) {
+        Ok(p) => p,
+        Err(e) => {
+            log!(update, "ERROR: {}", e);
+            update.lock().unwrap().finish(false);
+            return;
+        }
+    };
+    // Same trust rule as the OTA: the installer runs as root from this tree.
+    if let Err(e) = source_tree_is_trusted(&src_dir) {
+        log!(update, "ERROR: {}", e);
+        update.lock().unwrap().finish(false);
+        return;
+    }
+    let script = src_dir.join("contrib/install/install-bost.sh");
+    if !script.is_file() {
+        log!(update, "ERROR: installer not found at {}", script.display());
+        update.lock().unwrap().finish(false);
+        return;
+    }
+    log!(update, "Source dir: {}", src_dir.display());
+    log!(update, "Repository {} branch {}; the radio stays on until the service restart", repo, branch);
+    if !run_installer(&update, &src_dir, &script, &repo, &branch) {
+        log!(update, "Live update failed: the running version stays, the radio stayed on.");
+        return;
+    }
+    let _ = std::process::Command::new("sync").status();
+    log!(update, "--- Installed. Restarting service in 5s… ---");
+    {
+        let mut u = update.lock().unwrap();
+        u.set_stage(crate::net_dashboard::ota_remote::OtaStage::Restart);
+        u.finish(true);
+    }
+    crate::service_control::schedule_service_action(
+        crate::service_control::ServiceAction::Restart,
+        std::time::Duration::from_secs(5),
+    );
+}
+
+/// Run the installer `script` for a live update and stream its output; true when it succeeded.
+fn run_installer(update: &SharedUpdateState, src_dir: &std::path::Path, script: &std::path::Path, repo: &str, branch: &str) -> bool {
+    update.lock().unwrap().units_expected = crate::net_dashboard::ota_remote::expected_units(src_dir);
+
+    let mut cmd = std::process::Command::new("bash");
+    cmd.arg(script)
+        .env("BOST_REPO", repo)
+        .env("BOST_BRANCH", branch)
+        .env("BOST_SRC", src_dir)
+        .stdin(std::process::Stdio::null())
+        .current_dir(src_dir);
+    // git in the installer runs as root and inherits this environment (the build does not).
+    crate::net_dashboard::source_auth::git_env(&mut cmd);
+    // The service runs with real-time scheduling (unit: CPUSchedulingPolicy=fifo) and children
+    // inherit it: a build at that priority would starve the radio. Run the installer as a normal
+    // task with lower priority (nice 10), like a terminal session.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: only async-signal-safe libc calls between fork and exec.
+        unsafe {
+            cmd.pre_exec(|| {
+                let param = libc::sched_param { sched_priority: 0 };
+                libc::sched_setscheduler(0, libc::SCHED_OTHER, &param);
+                libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+                Ok(())
+            });
+        }
+    }
+    let label = format!("$ BOST_REPO={repo} BOST_BRANCH={branch} bash {}", script.display());
+    if stream_cmd(update, label, cmd).is_none() {
+        return false;
+    }
+    crate::net_dashboard::ota_remote::remember_units(src_dir, update.lock().unwrap().compiled);
+    true
+}
+
+#[cfg(test)]
+pub(crate) fn run_installer_for_test(update: &SharedUpdateState, src_dir: &std::path::Path, script: &std::path::Path, repo: &str, branch: &str) -> bool {
+    run_installer(update, src_dir, script, repo, branch)
 }
 
 pub struct DashboardServer {
@@ -1981,7 +2149,8 @@ impl DashboardServer {
             shared_config: None,
             cmd_tx: None,
             mm_cmd_tx: None,
-            update_state: Arc::new(Mutex::new(UpdateState::new())),
+            // One OTA state per process, shared with Fleet Control (`ota_remote`).
+            update_state: crate::net_dashboard::ota_remote::shared_update_state(),
             source_dir_override: None,
             auth: Arc::new(RwLock::new(None)),
             public_overview: false,
@@ -2043,6 +2212,12 @@ impl DashboardServer {
     }
 
     pub fn start(&mut self, bind: &str, http_port: u16, https_port: u16) {
+        // Fleet Control may start the same OTA as the Update button (`ota_remote`).
+        crate::net_dashboard::ota_remote::register(
+            self.config_path.clone(),
+            self.source_dir_override.clone(),
+            Arc::clone(&self.state),
+        );
         let state = Arc::clone(&self.state);
         let clients = Arc::clone(&self.clients);
         let config_path = self.config_path.clone();
@@ -2352,6 +2527,12 @@ impl DashboardServer {
                     let level = if status == "accepted" || status == "sent" { "INFO" } else { "WARN" };
                     s.push_log(level, format!("OTAR SCK {} v{} to ISSI {}: {}", sckn, sck_vn, issi, status));
                 }
+                TelemetryEvent::MsVisitor { issi, mcc, mnc, home_issi, network } => {
+                    let home = MsHome { issi: *home_issi, mcc: *mcc, mnc: *mnc, network: network.clone() };
+                    if s.ms_home.insert(*issi, home).is_none() {
+                        s.push_log("INFO", format!("MS {} is visitor {}/{}:{}", issi, mcc, mnc, home_issi));
+                    }
+                }
                 TelemetryEvent::MsMovedAway { issi, cell } => {
                     // Moved to a sibling cell: its MsCell already put the row on the new cell, so
                     // it stays listed. A row still on the cell it left means the radio went to
@@ -2359,6 +2540,7 @@ impl DashboardServer {
                     if s.ms_map.get(issi).is_some_and(|e| e.cell.unwrap_or(0) == *cell) {
                         s.ms_map.remove(issi);
                         s.ms_security.remove(issi);
+                        s.ms_home.remove(issi);
                         s.push_log("INFO", format!("MS {} moved to another station", issi));
                     } else {
                         s.push_log("INFO", format!("MS {} moved to another cell", issi));
@@ -2367,6 +2549,7 @@ impl DashboardServer {
                 TelemetryEvent::MsDeregistration { issi } => {
                     s.ms_map.remove(issi);
                     s.ms_security.remove(issi);
+                    s.ms_home.remove(issi);
                     s.push_log("INFO", format!("MS {} deregistered", issi));
                 }
                 TelemetryEvent::MsTimeoutDrop { issi } => {
@@ -2374,6 +2557,7 @@ impl DashboardServer {
                     // distinct event only matters to alert consumers that report the reason.
                     s.ms_map.remove(issi);
                     s.ms_security.remove(issi);
+                    s.ms_home.remove(issi);
                     s.push_log("WARN", format!("MS {} dropped (no response to T351)", issi));
                 }
                 TelemetryEvent::MsGroupAttach { issi, gssis } => {
@@ -2953,6 +3137,9 @@ fn event_to_ws_msg(event: &TelemetryEvent) -> Option<String> {
             serde_json::json!({"type":"otar_sck","issi":issi,"sckn":sckn,"sck_vn":sck_vn,"status":status})
         }
         TelemetryEvent::MsMovedAway { issi, cell } => serde_json::json!({"type":"ms_moved_away","issi":issi,"cell":cell}),
+        TelemetryEvent::MsVisitor { issi, mcc, mnc, home_issi, network } => serde_json::json!({
+            "type":"ms_visitor","issi":issi,"home":{"issi":home_issi,"mcc":mcc,"mnc":mnc,"network":network}
+        }),
         TelemetryEvent::GroupCallStarted {
             call_id,
             gssi,
@@ -3495,6 +3682,13 @@ fn handle_connection(
                 return;
             }
 
+            // The red maintenance banner must also show on the login page and the public
+            // overview, so its narrow status (no addresses, no logins) is open without a session.
+            if !require_http_auth && is_fleet_banner_request(&req_line) {
+                http_json_response(inner, 200, &crate::net_dashboard::fleet::banner_json(shared_config.as_ref()).to_string());
+                return;
+            }
+
             // For GET / (the dashboard SPA): redirect to /login so the browser navigates.
             // For API requests: 401 so JS code can detect and refresh.
             if is_root {
@@ -3872,6 +4066,20 @@ fn handle_connection(
                 http_response(buf.into_inner(), code, &msg)
             }
         }
+    } else if req_line.contains("POST /api/config/validate") {
+        // Dry-run: parse + validate the posted config.toml WITHOUT writing it, so the editor can
+        // flag errors before the operator commits a change that could brick the station on restart.
+        let (inner, body_str) = read_post_body(stream);
+        let result = validate_config_body(&config_path, &body_str);
+        let json = match &result {
+            Ok(()) => serde_json::json!({ "ok": true }).to_string(),
+            Err((_, msg)) => {
+                serde_json::json!({ "ok": false, "error": msg, "line": config_error_line(msg) })
+                    .to_string()
+            }
+        };
+        // Always 200 — the validation verdict is in the body, not the HTTP status.
+        http_json_response(inner, 200, &json)
     } else if req_line.contains("POST /api/config") {
         let mut buf = BufReader::new(stream);
         let mut content_length = 0usize;
@@ -4288,6 +4496,20 @@ fn handle_connection(
     } else if req_line.contains("POST /api/roaming") {
         let (inner, body_str) = read_post_body(stream);
         serve_roaming_save(inner, &config_path, &body_str);
+    } else if is_fleet_banner_request(&req_line) {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        http_json_response(s, 200, &crate::net_dashboard::fleet::banner_json(shared_config.as_ref()).to_string());
+    } else if req_line.contains("GET /api/fleet-control") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match crate::net_dashboard::fleet::status_from_file(&config_path, shared_config.as_ref()) {
+            Ok(v) => http_json_response(s, 200, &v.to_string()),
+            Err(e) => http_response(s, 500, &e),
+        }
+    } else if req_line.contains("POST /api/fleet-control") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_fleet_control(inner, &config_path, shared_config.as_ref(), &body_str);
     } else if req_line.contains("GET /api/rf/calibration") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -5659,6 +5881,18 @@ fn radio_names_json(radioid: &crate::net_dashboard::radioid::RadioIdCache) -> St
 /// Query: `?refresh=1` bypasses success cache; `?notes=1` also fetches changelog text
 /// (OTA modal). Boot/badge should omit notes to keep the Pi responsive.
 fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool, with_notes: bool) {
+    let body = update_check_json(config_path, refresh, with_notes);
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.write_all(body.as_bytes());
+}
+
+/// The update check as JSON (see [`serve_update_check`]); blocking (GitHub). Also used by Fleet
+/// Control (`ota_remote::check`).
+pub(crate) fn update_check_json(config_path: &str, refresh: bool, with_notes: bool) -> String {
     let source = crate::net_dashboard::ota_channel::resolve_ota_source(config_path);
     // Cache/coalescing key: the same source and branch give the same answer.
     let channel = format!("{}|{}|{}", source.channel, source.git_url, source.branch);
@@ -5788,14 +6022,7 @@ fn serve_update_check(mut stream: PrefixedConn, config_path: &str, refresh: bool
 
     // Even when git HEAD matches, keep "update available" if this binary has no ACELP link —
     // so the GUI can install libtetra-codec without SSH.
-    let body = enrich_update_check_for_voice(body);
-
-    let header = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    let _ = stream.write_all(header.as_bytes());
-    let _ = stream.write_all(body.as_bytes());
+    enrich_update_check_for_voice(body)
 }
 
 fn enrich_update_check_for_voice(body: String) -> String {
@@ -5913,6 +6140,41 @@ fn apply_cells_config(stream: PrefixedConn, config_path: &str, text: &str, what:
     http_response(stream, 200, &format!("{what}; the base station is restarting to apply it."));
 }
 
+/// POST /api/fleet-control — the Fleet Control switch (see `fleet::apply`). Applied to the running
+/// station at once; only a newly configured control channel needs a restart.
+fn serve_fleet_control(stream: PrefixedConn, config_path: &str, shared: Option<&tetra_config::bluestation::SharedConfig>, body: &str) {
+    use crate::net_dashboard::fleet::{FleetChange, apply};
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    let brew_password = shared.and_then(|s| s.config().brew.as_ref().and_then(|b| b.password.as_ref().map(|p| p.val.clone())));
+    match apply(&original, &req, brew_password.as_deref()) {
+        Ok(FleetChange::NeedCommand) => http_json_response(stream, 200, r#"{"ok":false,"need_command":true}"#),
+        Ok(FleetChange::Write { text, enabled, restart }) => {
+            if let Err(e) = atomic_write(config_path, &text) {
+                return http_response(stream, 500, &format!("failed to write config: {e}"));
+            }
+            tracing::info!("Dashboard: Fleet Control switched {}", if enabled { "on" } else { "off" });
+            if restart {
+                tracing::info!("Dashboard: control channel configured for Fleet Control; scheduling restart");
+                crate::service_control::schedule_service_action(
+                    crate::service_control::ServiceAction::Restart,
+                    std::time::Duration::from_secs(2),
+                );
+            } else if let Some(s) = shared {
+                s.state_write().fleet_control.enabled = enabled;
+            }
+            http_json_response(stream, 200, &serde_json::json!({"ok": true, "enabled": enabled, "restart": restart}).to_string());
+        }
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
 /// POST /api/roaming — see `roaming::apply_roaming`; writes the config and restarts.
 fn serve_roaming_save(stream: PrefixedConn, config_path: &str, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
@@ -5924,7 +6186,7 @@ fn serve_roaming_save(stream: PrefixedConn, config_path: &str, body: &str) {
         Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
     };
     match crate::net_dashboard::roaming::apply_roaming(&original, &req) {
-        Ok(text) => apply_cells_config(stream, config_path, &text, "roaming settings saved".to_string()),
+        Ok(text) => apply_cells_config(stream, config_path, &text, "Infrastructure settings saved".to_string()),
         Err(e) => http_response(stream, 400, &e),
     }
 }
@@ -7869,6 +8131,31 @@ fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, Str
     atomic_write(config_path, body).map_err(|e| (500, e.to_string()))
 }
 
+/// Dry-run validation of a posted `config.toml`: unmask any still-masked secrets against the live
+/// file (so an untouched password doesn't read as invalid), then parse + `validate()` — WITHOUT
+/// writing anything. Used by `POST /api/config/validate` so the editor can flag errors before save.
+fn validate_config_body(config_path: &str, body: &str) -> Result<(), (u16, String)> {
+    let body = match std::fs::read_to_string(config_path) {
+        Ok(current) => unmask_config_secrets(body, &current),
+        Err(_) => body.to_string(),
+    };
+    match tetra_config::bluestation::parsing::from_toml_str(&body) {
+        Ok(cfg) => cfg
+            .validate()
+            .map_err(|e| (400, format!("config is invalid: {e}"))),
+        Err(e) => Err((400, format!("config does not parse: {e}"))),
+    }
+}
+
+/// Best-effort extraction of a 1-based line number from a TOML/validation error message, so the
+/// editor can jump to and highlight the offending line. TOML parse errors read
+/// "TOML parse error at line 42, column 3"; returns `None` when no line is mentioned.
+fn config_error_line(msg: &str) -> Option<usize> {
+    let idx = msg.find("line ")? + "line ".len();
+    let digits: String = msg[idx..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
 fn serve_config_get(mut stream: PrefixedConn, config_path: &str) {
     match std::fs::read_to_string(config_path) {
         Ok(content) => {
@@ -8461,6 +8748,11 @@ fn serve_dapnet_log_clear(stream: PrefixedConn, state: &DashboardState) {
 
 fn request_path(req_line: &str) -> Option<&str> {
     req_line.split_whitespace().nth(1)
+}
+
+/// GET /api/fleet-banner (with or without a query string).
+fn is_fleet_banner_request(req_line: &str) -> bool {
+    req_line.starts_with("GET /api/fleet-banner ") || req_line.starts_with("GET /api/fleet-banner?")
 }
 
 fn is_tpg2200_action_request(req_line: &str) -> bool {
@@ -9743,12 +10035,12 @@ fn serve_dapnet_send(
 mod tests {
 
     use super::{
-        DashboardServer, LoginThrottle, MAX_TETRA_SSI, UpdateState, activate_config_profile, binary_built_from,
+        DashboardServer, LoginThrottle, MAX_TETRA_SSI, event_to_ws_msg, UpdateState, activate_config_profile, binary_built_from,
         handle_ws_command, is_masked_secret_key, mask_config_secrets, normalize_mojibake_html,
         restore_config_from_backup, save_config_profile, timing_safe_eq, write_config_validated,
     };
     use crate::net_control::commands::ControlCommand;
-    use crate::net_dashboard::state::DashboardStateInner;
+    use crate::net_dashboard::state::{DashboardStateInner, MsHome};
     use crate::net_telemetry::TelemetryEvent;
     use std::sync::{Arc, Mutex, RwLock};
 
@@ -9763,6 +10055,9 @@ mod tests {
         struct Fixture {
             server: DashboardServer,
             commands: crossbeam_channel::Receiver<ControlCommand>,
+            /// true: the private-HTTP listener (`require_http_auth`); false: the normal dashboard
+            /// listener with its cookie login.
+            private: bool,
         }
 
         impl Fixture {
@@ -9782,7 +10077,15 @@ mod tests {
                 server.set_public_overview(true);
                 let (sender, commands) = crossbeam_channel::unbounded();
                 server.set_cmd_sender(sender);
-                Self { server, commands }
+                Self { server, commands, private: true }
+            }
+
+            /// The normal dashboard listener (login page, cookie session); `public_overview` as given.
+            fn dashboard(public_overview: bool) -> Self {
+                let mut fixture = Self::new(&[]);
+                fixture.server.set_public_overview(public_overview);
+                fixture.private = false;
+                fixture
             }
 
             fn connect(&self) -> (TcpStream, std::thread::JoinHandle<()>) {
@@ -9799,16 +10102,18 @@ mod tests {
                 let sessions = Arc::clone(&self.server.sessions);
                 let throttle = Arc::clone(&self.server.login_throttle);
                 let radioid = self.server.radioid.clone();
+                let private = self.private;
+                let public_overview = self.server.public_overview;
                 let (admitted, ready) = std::sync::mpsc::channel();
                 let thread = std::thread::spawn(move || {
                     let (stream, peer) = listener.accept().unwrap();
-                    let admission = primary_http_admission(true, &shared_config, &auth, Some(peer.ip()));
+                    let admission = if private { primary_http_admission(true, &shared_config, &auth, Some(peer.ip())) } else { Some(false) };
                     admitted.send(()).unwrap();
                     let Some(require_http_auth) = admission else {
                         serve_https_redirect_plain(stream, 443);
                         return;
                     };
-                    assert!(require_http_auth);
+                    assert_eq!(require_http_auth, private);
                     handle_connection(
                         ConnStream::plain(stream),
                         state,
@@ -9823,7 +10128,7 @@ mod tests {
                         sessions,
                         throttle,
                         radioid,
-                        true,
+                        public_overview,
                         None,
                         require_http_auth,
                         None,
@@ -9932,6 +10237,27 @@ mod tests {
             websocket.close(None).unwrap();
             drop(websocket);
             thread.join().unwrap();
+        }
+
+        #[test]
+        fn fleet_banner_is_open_without_a_session_and_narrow() {
+            // Login page and public overview show the maintenance banner, so its status is open
+            // to visitors with or without the public overview, and carries only the banner fields.
+            for public_overview in [false, true] {
+                let fixture = Fixture::dashboard(public_overview);
+                let response = fixture.request("GET", "/api/fleet-banner", "", "");
+                assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+                let body: serde_json::Value = serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+                let keys: Vec<&str> = body.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+                assert_eq!(keys, ["live_update", "maintenance"], "nothing but the banner status");
+                let control = fixture.request("GET", "/api/fleet-control", "", "");
+                assert!(control.starts_with("HTTP/1.1 401"), "the full Fleet Control status stays behind the login");
+            }
+            // The private HTTP listener stays fully gated.
+            let response = Fixture::new(&["127.0.0.1"]).request("GET", "/api/fleet-banner", "", "");
+            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+            assert!(is_fleet_banner_request("GET /api/fleet-banner?t=1 HTTP/1.1"));
+            assert!(!is_fleet_banner_request("GET /api/fleet-bannerx HTTP/1.1"));
         }
 
         #[test]
@@ -10367,6 +10693,58 @@ dest_issi = 2632585
         server.handle_telemetry(TelemetryEvent::MsDeregistration { issi: 2358245 });
         server.handle_telemetry(TelemetryEvent::MsRegistration { issi: 2358245 });
         assert_eq!(snap(2358245), Some((false, false)), "flags are per registration");
+    }
+
+    /// Multi Network: a visitor is listed on its (V)ASSI with its home identity (field question
+    /// 2026-11-14: the list showed only 15728641); it goes with the row, other radios have none.
+    #[test]
+    fn a_visitor_is_listed_with_its_home_identity() {
+        let server = DashboardServer::new("/tmp/fs_visitor_home_test_config.toml".to_string());
+        let home = |issi: u32| server.state.read().unwrap().snapshot_ms().into_iter().find(|m| m.issi == issi).map(|m| m.home);
+
+        // MM reports the visitor with the accept, before the registration creates the row.
+        server.handle_telemetry(TelemetryEvent::MsVisitor {
+            issi: 0xF0_0001,
+            mcc: 901,
+            mnc: 9999,
+            home_issi: 2_320_972,
+            network: String::new(),
+        });
+        server.handle_telemetry(TelemetryEvent::MsRegistration { issi: 0xF0_0001 });
+        server.handle_telemetry(TelemetryEvent::MsRegistration { issi: 2_320_973 });
+        assert_eq!(
+            home(0xF0_0001),
+            Some(Some(MsHome { issi: 2_320_972, mcc: 901, mnc: 9999, network: String::new() }))
+        );
+        assert_eq!(home(2_320_973), Some(None), "a radio of this network has no home entry");
+
+        // Gone with the row: a later radio on the same (V)ASSI is not taken for it.
+        server.handle_telemetry(TelemetryEvent::MsDeregistration { issi: 0xF0_0001 });
+        server.handle_telemetry(TelemetryEvent::MsRegistration { issi: 0xF0_0001 });
+        assert_eq!(home(0xF0_0001), Some(None));
+
+        // The name of a linked network, when the server gave one.
+        server.handle_telemetry(TelemetryEvent::MsVisitor {
+            issi: 0xF0_0009,
+            mcc: 901,
+            mnc: 1638,
+            home_issi: 2_089_258,
+            network: "TetraPack".into(),
+        });
+        server.handle_telemetry(TelemetryEvent::MsRegistration { issi: 0xF0_0009 });
+        assert_eq!(home(0xF0_0009).flatten().map(|h| h.network), Some("TetraPack".to_string()));
+        let msg = event_to_ws_msg(&TelemetryEvent::MsVisitor {
+            issi: 1,
+            mcc: 901,
+            mnc: 1638,
+            home_issi: 2,
+            network: "TP".into(),
+        })
+        .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&msg).unwrap();
+        assert_eq!(v["type"], "ms_visitor");
+        assert_eq!(v["home"]["issi"], 2);
+        assert_eq!(v["home"]["network"], "TP");
     }
 
     /// Field case (M5a, H): the radio went to another station, the stack here dropped it (a kick

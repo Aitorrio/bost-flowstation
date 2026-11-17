@@ -1259,9 +1259,9 @@ input[type="radio"]{accent-color:var(--accent);}
 #page-asterisk .card-body .config-msg:not(:empty){
   border-top:none;padding:8px 0 0;min-height:0;
 }
-.cfg-adv-body #config-editor{
+.cfg-adv-body .cfg-code{
   min-height:320px;width:100%;box-sizing:border-box;
-  margin:0 0 4px;border-radius:8px;
+  margin:0 0 4px;
 }
 .cfg-adv-body .config-msg:not(:empty){border-top:none;padding-left:0;padding-right:0;}
 
@@ -1418,6 +1418,11 @@ td code{
 .roam-feat i{width:7px;height:7px;border-radius:50%;flex:none;}
 .roam-feat i.on{background:var(--accent);}
 .roam-feat i.off{background:var(--danger);}
+.roam-fleet{display:flex;align-items:center;gap:12px;margin:10px 0 4px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;}
+.roam-fleet .rf-text{flex:1;min-width:0;line-height:1.35;}
+.roam-fleet .rf-sub{display:block;font-size:11.5px;color:var(--muted);}
+.hw-row--fleet{cursor:pointer;}
+.hw-row--fleet .hw-glyph{color:var(--accent2);background:color-mix(in srgb,var(--accent2) 12%,transparent);}
 .badge-red{background:rgba(255,77,109,0.1);color:var(--danger);border-color:rgba(255,77,109,0.3);}
 /* Emergency call (ETSI call priority 15): solid danger fill + pulsing halo for high visibility. */
 .badge-emergency{background:var(--danger);color:#fff;border-color:var(--danger);font-weight:700;letter-spacing:0.06em;animation:badge-emergency-pulse 1s ease-in-out infinite;}
@@ -1439,6 +1444,7 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 .btn-primary:hover{background:rgba(0,212,168,0.18);border-color:var(--accent);}
 .btn-danger{color:var(--text2);}
 .btn-danger:hover{border-color:var(--danger);color:var(--danger);background:rgba(255,77,109,0.06);}
+.btn-danger-solid,.btn-danger-solid:hover{background:var(--danger);border-color:var(--danger);color:#fff;}
 .btn-warn:hover{border-color:var(--warn);color:var(--warn);}
 .btn-sm{padding:3px 8px;font-size:10px;}
 
@@ -1633,12 +1639,41 @@ tr.row-emergency td:first-child{box-shadow:inset 3px 0 0 var(--danger);}
 }
 
 /* ── Config editor ── */
-#config-editor{
-  width:100%;height:480px;resize:vertical;
-  background:var(--bg);border:none;outline:none;
-  font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--text);
-  padding:16px;tab-size:2;
+/* ── TOML code editor: textarea (editable, transparent text) overlaid on a syntax-
+   highlighted <pre>, with a line-number gutter and current/error line bands. All three
+   layers share font/size/line-height/padding so the caret lines up with the highlight. */
+.cfg-code{
+  display:flex;position:relative;height:480px;min-height:160px;resize:vertical;overflow:hidden;
+  background:var(--bg);border:1px solid var(--border);border-radius:8px;
 }
+.cfg-gutter{
+  flex:0 0 auto;min-width:3.2em;box-sizing:border-box;padding:12px 0;overflow:hidden;
+  font-family:var(--mono);font-size:12px;line-height:20px;color:var(--text3);
+  text-align:right;user-select:none;background:var(--bg2);border-right:1px solid var(--border);
+  white-space:pre;
+}
+.cfg-gutter .gl{display:block;padding:0 9px 0 10px;}
+.cfg-gutter .gl.cur{color:var(--text);font-weight:600;}
+.cfg-gutter .gl.err{color:var(--danger);font-weight:700;}
+.cfg-main{position:relative;flex:1 1 auto;overflow:hidden;}
+.cfg-hl,#config-editor{
+  position:absolute;inset:0;margin:0;box-sizing:border-box;padding:12px;border:0;
+  font-family:var(--mono);font-size:12px;line-height:20px;tab-size:2;
+  white-space:pre;overflow:auto;
+}
+.cfg-hl{z-index:1;pointer-events:none;color:var(--text);background:transparent;overflow:hidden;}
+.cfg-hl code{font:inherit;color:inherit;}
+#config-editor{z-index:2;background:transparent;color:transparent;caret-color:var(--text);outline:none;resize:none;}
+#config-editor::selection{background:rgba(120,160,255,.35);color:transparent;}
+.cfg-band{position:absolute;left:0;right:0;height:20px;pointer-events:none;z-index:0;display:none;}
+.cfg-band-cur{background:rgba(127,127,127,.10);}
+.cfg-band-err{background:rgba(255,80,80,.16);box-shadow:inset 3px 0 0 var(--danger);}
+.cfg-hl .tk-comment{color:var(--text3);font-style:italic;}
+.cfg-hl .tk-section{color:var(--accent);font-weight:600;}
+.cfg-hl .tk-eq{color:var(--text3);}
+.cfg-hl .tk-str{color:var(--ok);}
+.cfg-hl .tk-num{color:var(--warn);}
+.cfg-hl .tk-bool{color:var(--accent);}
 /* Feedback line under forms — hide when idle (empty) so it doesn't leave a
    dead separator + white gap before Save/Apply or the next card. */
 .config-msg{
@@ -2773,6 +2808,17 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   animation:fs-breathe 2.5s ease-in-out infinite;
 }
 @keyframes fs-breathe{0%,100%{opacity:1;}50%{opacity:.45;}}
+/* Fleet Control maintenance / live update: loud, solid red, on every page under the topbar. */
+.maint-banner{
+  display:flex;align-items:center;gap:14px;flex-shrink:0;
+  padding:14px 20px;background:#c62828;color:#fff;
+  border-bottom:3px solid #8e0000;
+  background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.07) 0 14px,transparent 14px 28px);
+}
+.maint-banner .maint-ico{width:26px;height:26px;flex-shrink:0;color:#fff;}
+.maint-banner .maint-title{font-size:16px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;}
+.maint-banner .maint-sub{font-size:13px;font-weight:500;opacity:.95;margin-top:3px;}
+@media (max-width:640px){.maint-banner{padding:10px 12px;gap:10px;}.maint-banner .maint-title{font-size:14px;}.maint-banner .maint-sub{font-size:12px;}}
 
 /* ── Empty state (one component for the duplicated stubs) ──
    v3 flex layout; keeps the legacy .empty-icon/.empty-text children working
@@ -2954,12 +3000,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
   }
   .cfg-live-body,.cfg-adv-body{padding:12px 14px;}
   #page-config .card-body{padding:12px 14px;}
-  /* Advanced TOML: tall editor + sticky Save/Apply (keyboard-friendly) */
-  .cfg-adv-body #config-editor{
+  /* Advanced TOML: tall editor + sticky Save/Apply (keyboard-friendly). Bump the font on all
+     three layers together (gutter/highlight/textarea) so the caret stays aligned; keep the
+     20px line-height so the gutter rows and current/error bands still line up. */
+  .cfg-adv-body .cfg-code{
     min-height:min(52vh,420px);max-height:min(70vh,560px);
-    font-size:16px;line-height:1.45;padding:12px;border-radius:8px;
-    border:1px solid var(--border);box-sizing:border-box;resize:vertical;
-    -webkit-text-size-adjust:100%;
+  }
+  .cfg-adv-body .cfg-code .cfg-hl,
+  .cfg-adv-body .cfg-code #config-editor,
+  .cfg-adv-body .cfg-code .cfg-gutter{
+    font-size:15px;-webkit-text-size-adjust:100%;
   }
   .cfg-adv-actions{
     flex-direction:column;align-items:stretch;gap:8px;
@@ -4071,6 +4121,19 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <span class="hw-val" id="health-badge-label">—</span>
         </span>
       </div>
+      <div id="fleet-badge" class="hw-row hw-row--fleet" style="display:none" title="Fleet Control" onclick="showPage('roaming',document.getElementById('nav-roaming'))">
+        <span class="hw-glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/>
+          </svg>
+        </span>
+        <span class="hw-meta">
+          <span class="hw-key" data-i18n="fleet_key">FLEET CONTROL</span>
+          <span class="hw-val" id="fleet-badge-label">—</span>
+        </span>
+      </div>
       <div id="pwr-badge" class="hw-row hw-row--pwr" style="display:none" title="Host system power draw" data-i18n-title="ui_host_system_power_draw">
         <span class="hw-glyph" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -4371,6 +4434,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
       </div>
       <!-- Login: shown only in anonymous public-overview mode (FH-FEAT-033). -->
       <button class="logout-btn" id="login-btn" onclick="window.location='/login'" title="Log in" aria-label="Log in" style="display:none"><span class="ico18" data-icon="login"></span></button>
+    </div>
+  </div>
+
+  <!-- Fleet Control: maintenance by the server / live update with RF on (Docs/fleet-control.md).
+       Shown on every page while the server's flag is on or a live update runs. -->
+  <div id="maint-banner" class="maint-banner" role="alert" style="display:none">
+    <span class="maint-ico" data-icon="alert"></span>
+    <div class="banner-body">
+      <div class="maint-title" id="maint-title"></div>
+      <div class="maint-sub" id="maint-sub"></div>
     </div>
   </div>
 
@@ -4788,7 +4861,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <th data-i18n="th_type">Type</th>
                 <th data-i18n="th_caller">Caller</th>
                 <th data-i18n="th_dest">Destination</th>
-                <th class="col-mobile-hide" data-i18n="th_speaker">Speaker</th>
+                <th data-i18n="th_speaker">Speaker</th>
                 <th data-i18n="th_duration">Duration</th>
               </tr></thead>
               <tbody id="calls-tbody"></tbody>
@@ -6217,9 +6290,18 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </summary>
         <div class="cfg-adv-body">
           <div class="cfg-adv-warn" data-i18n="cfg_advanced_warn">Advanced users only</div>
-          <textarea id="config-editor" spellcheck="false" placeholder="Loading..." data-i18n-placeholder="ui_loading"></textarea>
+          <div class="cfg-code" id="cfg-code">
+            <div class="cfg-gutter" id="cfg-gutter" aria-hidden="true"></div>
+            <div class="cfg-main" id="cfg-main">
+              <div class="cfg-band cfg-band-cur" id="cfg-band-cur"></div>
+              <div class="cfg-band cfg-band-err" id="cfg-band-err"></div>
+              <pre class="cfg-hl" id="cfg-hl" aria-hidden="true"><code></code></pre>
+              <textarea id="config-editor" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" wrap="off" placeholder="Loading..." data-i18n-placeholder="ui_loading"></textarea>
+            </div>
+          </div>
           <div class="cfg-adv-actions">
             <button type="button" class="btn btn-primary" onclick="saveConfig()"><span class="btn-icon" data-icon="save"></span><span data-i18n="save">Save</span></button>
+            <button type="button" class="btn" onclick="checkConfig()"><span class="btn-icon" data-icon="check"></span><span data-i18n="cfg_check">Check</span></button>
             <button type="button" class="btn btn-warn" onclick="applyRawConfigAndRestart()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="cfg_apply_restart">Apply &amp; Restart</span></button>
           </div>
           <div class="config-msg" id="config-msg"></div>
@@ -6411,6 +6493,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <th>ID</th>
                 <th data-i18n="cells_carrier">Carrier</th>
                 <th>LA</th>
+                <th>MCC/MNC</th>
                 <th data-i18n="roam_th_server">On the server</th>
                 <th data-i18n="roam_th_types">Reselection</th>
                 <th data-i18n="roam_th_services">Services</th>
@@ -6432,7 +6515,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
               <label class="field" style="cursor:pointer"><input type="checkbox" id="rm-n-sync"> <span><span data-i18n="roam_n_sync">Synchronised with this cell</span></span></label>
               <label class="field"><span data-i18n="roam_n_load">Cell load</span><select id="rm-n-load" class="form-input"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
               <label class="field"><span data-i18n="roam_n_la">Location area (optional)</span><input type="number" id="rm-n-la" class="form-input" min="0" max="16383"></label>
-              <label class="field"><span>MCC / MNC</span><span style="display:flex;gap:6px"><input type="number" id="rm-n-mcc" class="form-input" min="0" max="1023" style="width:90px"><input type="number" id="rm-n-mnc" class="form-input" min="0" max="16383" style="width:90px"></span></label>
+              <label class="field"><span>MCC / MNC</span><span style="display:flex;flex-direction:column;gap:4px"><span style="display:flex;gap:6px"><input type="number" id="rm-n-mcc" class="form-input" min="0" max="1023" style="width:90px"><input type="number" id="rm-n-mnc" class="form-input" min="0" max="16383" style="width:90px"></span><span class="help-text" id="rm-n-mm-hint"></span></span></label>
               <label class="field"><span data-i18n="roam_n_rxlev">Min. RX access level (optional)</span><select id="rm-n-rxlev" class="form-input"></select></label>
               <label class="field"><span data-i18n="roam_n_txpwr">Max. MS TX power (optional)</span><select id="rm-n-txpwr" class="form-input"></select></label>
             </div>
@@ -6458,6 +6541,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <th data-i18n="roam_th_state">State</th>
                 <th data-i18n="cells_carrier">Carrier</th>
                 <th>LA</th>
+                <th>MCC/MNC</th>
                 <th data-i18n="roam_th_levels">Access / MS power</th>
                 <th data-i18n="roam_th_listed_here">Neighbour of</th>
                 <th data-i18n="roam_th_lists_us">Lists this station</th>
@@ -6503,7 +6587,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="help-text" style="margin-bottom:8px" data-i18n="roam_command_help"></div>
           <label class="sw-row">
             <span class="sw-text" data-i18n="roam_link_on">Connect</span>
-            <span class="sw"><input type="checkbox" id="rm-cmd-on" onchange="roamLinkState('cmd')"><i></i></span>
+            <span class="sw"><input type="checkbox" id="rm-cmd-on" onchange="roamCmdToggle(this)"><i></i></span>
           </label>
           <div class="group-list">
             <label class="field"><span data-i18n="roam_link_host">Server (host)</span><input type="text" id="rm-cmd-host" class="form-input" autocomplete="off" spellcheck="false"></label>
@@ -6964,6 +7048,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           <div class="info-row"><div class="info-key" data-i18n="sys_source">Installed from</div><div class="info-val" id="sysSource" style="overflow-wrap:anywhere">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="sys_os">OS</div><div class="info-val" id="sysOs">—</div></div>
           <div class="info-row"><div class="info-key" data-i18n="sys_config">Active Config</div><div class="info-val" id="sysConfigPath">—</div></div>
+          <div class="info-row"><div class="info-key" data-i18n="sys_lang">Default language</div><div class="info-val"><select id="sys-lang" class="form-input" style="width:auto;min-width:170px" onchange="sysLangChange(this)"></select></div></div>
           <div class="info-row"><div class="info-key" data-i18n="sys_cpu">CPU</div><div class="info-val" id="sysCpu">—</div></div>
           <div class="info-row">
             <div class="info-key" data-i18n="sys_cpu_load">CPU Load</div>
@@ -7194,6 +7279,25 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 </div>
 
 <!-- ── SDS Modal ── -->
+<div class="modal-overlay" id="fleet-cmd-modal">
+  <div class="modal" style="width:min(460px,95vw)">
+    <div class="modal-title" data-i18n="fleet_cmd_title">Fleet Control: control channel</div>
+    <div class="help-text" style="margin-bottom:10px" data-i18n="fleet_cmd_help">Fleet Control runs over the control channel to the Brew server, which is not configured yet.</div>
+    <div class="group-list">
+      <label class="field"><span data-i18n="fleet_cmd_server">Server (IP address or DNS name)</span><input type="text" id="fc-host" class="form-input" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span data-i18n="roam_net_port">Port</span><input type="number" id="fc-port" class="form-input" min="1" max="65535" value="443"></label>
+      <label class="field" style="cursor:pointer;justify-content:space-between"><span data-i18n="roam_link_tls">TLS (wss://)</span><span class="sw"><input type="checkbox" id="fc-tls" checked><i></i></span></label>
+      <label class="field"><span data-i18n="roam_link_user">Username</span><input type="text" id="fc-user" class="form-input" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span data-i18n="roam_net_pass">Password</span><input type="password" id="fc-pass" class="form-input" autocomplete="new-password" placeholder="empty = Brew password" data-i18n-placeholder="fleet_cmd_pass_ph"></label>
+    </div>
+    <div class="help-text" id="fc-msg" style="margin-top:8px;color:var(--danger)"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="fleetCmdClose()" data-i18n="cancel">Cancel</button>
+      <button class="btn btn-primary" id="fc-save" onclick="fleetCmdSave()" data-i18n="fleet_cmd_save">Save and restart</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="sds-modal">
   <div class="modal">
     <div class="modal-title" data-i18n="sds_title">⬡ Send SDS Message</div>
@@ -7639,6 +7743,7 @@ const ICONS = {
   infrastructure:'<path d="M9.4 15 12 6.6 14.6 15"/><path d="M10.6 11.8h2.8"/><circle cx="12" cy="4.6" r="1"/><path d="M8.8 2.6a3.4 3.4 0 0 0 0 4M15.2 2.6a3.4 3.4 0 0 1 0 4"/><path d="M5 17.5h14M12 15v4M5 17.5V19M19 17.5V19"/><rect x="3" y="19" width="4" height="3" rx=".8"/><rect x="10" y="19" width="4" height="3" rx=".8"/><rect x="17" y="19" width="4" height="3" rx=".8"/>',
   roaming:'<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>',
   save:'<path d="M5 12.5 10 17.5 19 7"/>',
+  check:'<circle cx="12" cy="12" r="9"/><path d="M8 12.5 11 15.5 16 9"/>',
   restart:'<path d="M19 12a7 7 0 1 1-2.1-5"/><path d="M17 4v3.5h-3.5"/>',
   shutdown:'<path d="M12 4v7"/><path d="M7.5 7.2a7 7 0 1 0 9 0"/>',
   update:'<path d="M12 19V6M7 11l5-5 5 5"/><path d="M6 4h12"/>',
@@ -7686,6 +7791,8 @@ function paintIcons(root){
 // ── i18n ─────────────────────────────────────────────────────────────────
 const LANGS={
   en:{
+    sys_lang:'Default language',sys_lang_browser:'Browser language (not set)',sys_lang_confirm:'Set {lang} as the station default language? The FlowStation service restarts (about 20 s off the air).',
+    fleet_off_title:'Switch off Fleet Control?',fleet_off_body1:'Fleet Control will be switched off. The remote management of this base station from the Brew server (updates, restart, maintenance, config changes) is disabled until Fleet Control is switched on again here.',fleet_off_body2:'Are you really sure? The system admin and the fleet managers are notified (entry in the change log of the Brew server).',fleet_off_understood:'I understand',fleet_off_yes:'Yes, switch off',cmd_off_title:'Switch off remote command / control?',cmd_off_body1:'The control channel to the server is switched off when you save. Remote commands (kick, DGNA, SDS, restart) and Fleet Control, the remote management of this base station, stop working until it is switched on again here.',cmd_off_body2:'Are you really sure? The system admin and the fleet managers are notified: Fleet Control is switched off first, which the Brew server logs in its change log.',roam_n_mm_hint:"Empty = this cell's network ({mm})",
     secp_class_locked:"This service requires SC3. To select SC1/SC2, remove --require-sc3 from its start command and restart first.",
     secp_aie_title_v109:"Air-interface encryption",
     secp_class_label:"Security class",
@@ -8157,7 +8264,12 @@ const LANGS={
     roam_types_0:'no forward registration',roam_types_1:'no forward registration, expedited recommended',roam_types_2:'forward registration',roam_types_3:'forward registration, expedited recommended',
     roam_svc_registration:'registration',roam_svc_deregistration:'deregistration',roam_svc_system_wide_services:'system wide services',roam_svc_voice_service:'voice',roam_svc_circuit_mode_data_service:'circuit data',roam_svc_sndcp_service:'packet data',roam_svc_aie_service:'air encryption',roam_svc_advanced_link:'advanced link',roam_svc_priority_cell:'priority cell',roam_svc_no_minimum_mode:'no minimum mode',roam_svc_migration:'migration',
     roam_services_none:'none (radios may not use it)',roam_th_server:'On the server',roam_pick:'Fill in from the server\'s cell list',roam_dir_title:'Cells on the Brew server',roam_dir_help:'The cells of the other stations on the Brew server, with what they broadcast (brew-server extension cell-directory). A neighbour entry is matched by network, downlink frequency and location area. A radio uses its serving cell\'s list to choose which cells to scan (clause 18.3.4.1), so both cells should list each other.',roam_th_state:'State',roam_th_levels:'Access / MS power',roam_th_listed_here:'Neighbour of',roam_th_lists_us:'Lists this station',roam_dir_add:'Add as neighbour',roam_dir_none:'none',roam_dir_empty:'No other cells on the server.',roam_dir_count:'{n} cells of other stations on the server.',roam_dir_off:'The Brew server does not send its cell list (needs a brew-server with the cell-directory extension).',roam_dir_wait:'The server offers its cell list, it has not arrived yet (it comes right after connecting).',roam_dir_unknown:'not known to the server',roam_online:'online',roam_offline:'offline',roam_not_mutual:'{id} does not list this cell: radios there are not told to scan for it',roam_diff_rxlev:'min. access level: listed {list} dBm, the cell broadcasts {cell} dBm',roam_diff_txpwr:'max. MS power: listed {list} dBm, the cell broadcasts {cell} dBm',roam_diff_services:'services differ: {list}',roam_auto_sibling:'Cell of this station (automatic)',roam_nb_none:'No neighbours.',roam_nb_count:'{n} of 7 neighbour entries',roam_need_id_carrier:'Cell identifier and carrier are required.',roam_need_la:'The primary cell needs a location area.',roam_unsaved:'Changed, not saved yet.',roam_confirm_save:'Save the roaming settings and restart the station?',
-    roam_brew_off:'Brew is not configured: roaming between stations is off, cells of this station still work.',roam_link_up:'connected',roam_link_down:'not connected',roam_ext:'Server features',roam_feat_roam:'Roaming',roam_feat_calls:'Calls',roam_feat_cells:'Cells',roam_feat_groups:'Groups',roam_feat_net:'Multi Network',roam_feat_other:'Other',
+    roam_brew_off:'Brew is not configured: roaming between stations is off, cells of this station still work.',roam_link_up:'connected',roam_link_down:'not connected',roam_ext:'Server features',roam_feat_roam:'Roaming',roam_feat_calls:'Calls',roam_feat_cells:'Cells',roam_feat_groups:'Groups',roam_feat_net:'Multi Network',roam_feat_other:'Other',roam_feat_fleet:'Fleet Control',
+    maint_title:'Maintenance: work on this base station in progress',maint_sub:'Set by {by} from the Brew server · ends in {min} min',maint_sub_noby:'Set from the Brew server · ends in {min} min',maint_live_title:'Live system update: RF on!',maint_live_sub:'The station is building a new version and stays on the air; the service restarts when it is done. Do not change settings now.',
+    fleet_desc:'Station management by SwMI (BrewServer)',fleet_key:'Fleet Control',fleet_on:'on',fleet_off:'off',fleet_not_connected:'control channel not connected',
+    fleet_cmd_title:'Fleet Control: control channel',fleet_cmd_help:'Fleet Control runs over the control channel to the Brew server, which is not configured yet. Enter the server; the user is your Brew login, an empty password takes the Brew password. Saving restarts the service.',
+    fleet_cmd_server:'Server (IP address or DNS name)',fleet_cmd_pass_ph:'empty = Brew password',fleet_cmd_save:'Save and restart',fleet_need_host:'Please enter the server.',
+    fleet_restarting:'Control channel saved: the station restarts and connects with Fleet Control on.',
     roam_dbm_hint:'At the radio (MS power term 0): no access below {fail} dBm, relinquishable below {fast} dBm, improvable below {slow} dBm (clause 18.3.4.5; Docs/cell-reselection.md).',
     roam_help_fast_th:'FAST_RESELECT_THRESHOLD (clause 18.5.4): below it (C1 in dB above the access level) the serving cell is "relinquishable" and the radio moves to a neighbour better by the fast hysteresis, also during a call. 0-30 dB in 2 dB steps; default 10.',
     roam_help_slow_th:'SLOW_RESELECT_THRESHOLD_ABOVE_FAST (clause 18.5.4): added to the fast threshold. Below the sum the serving cell is "improvable" and an idle radio moves to a neighbour better by the slow hysteresis. Default 20 (= 30 dB with fast 10). Large values make the radio look around almost always.',
@@ -8176,7 +8288,7 @@ const LANGS={
     roam_help_n_rxlev:'Minimum RX access level of the neighbour (clause 18.5.12). Empty: radios assume the same as this cell (table 18.64, note 2).',
     roam_help_n_txpwr:'Maximum MS transmit power in the neighbour (table 18.57), used by the radio for C2. Empty: same as this cell.',
     cells_title:'Cells',cells_help:"Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.",
-    cells_carrier:'Carrier',cells_cc:'Colour code',cells_la_help:'Location area of the new cell. Empty = same as the primary cell. With its own location area a radio registers on every change of cell (TS 100 392-2 clause 18.3.4.7.1a).',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',cells_radios:'{n} radio(s)',
+    cells_carrier:'Carrier',cells_cc:'Colour code',cells_la_help:'Location area of the new cell. Empty = same as the primary cell. With its own location area a radio registers on every change of cell (TS 100 392-2 clause 18.3.4.7.1a).',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',ms_visitor:'Guest · {net}',ms_vassi:'(V)ASSI here',ms_visitor_title:'Radio of network {net} (migration, TS 100 392-2 clause 16.4.1.1 b)). It has a (V)ASSI on this cell; calls and SDS to its own ISSI reach it here.',cells_radios:'{n} radio(s)',
     cells_net_local:'local',cells_net_up:'core up',cells_net_down:'core down',
     cells_single:'Single cell',rf_cells_note:'Pick a cell to show its SDR on this page.',cells_linked:'Cells linked',cells_independent:'Independent cells',
     cells_need_fields:'Device and carrier are required.',cells_confirm_add:'Add this cell? The station restarts.',cells_confirm_remove:'Remove cell {n}? The station restarts.',
@@ -8300,6 +8412,7 @@ const LANGS={
     cfg_profiles_import_confirm:'Replace Cell/Brew profiles on this station with the .ptbs file? Live config.toml is not changed and the service will not restart.',
     cfg_profiles_import_ok:'Profiles imported',cfg_profiles_import_err:'Could not import profiles',
     cfg_cell_profile:'TMO Cell',cfg_brew_profile:'Core Net (Brew)',cfg_apply_restart:'Apply & Restart',
+    cfg_check:'Check',cfg_checking:'Checking…',cfg_valid:'Config is valid',cfg_invalid:'Invalid config',
     cfg_add:'Add',cfg_edit:'Edit',cfg_profile_name:'Profile name',
     cfg_cell_sheet_add:'Add TMO Cell',cfg_cell_sheet_edit:'Edit TMO Cell',
     cfg_brew_sheet_add:'Add Core Net (Brew)',cfg_brew_sheet_edit:'Edit Core Net (Brew)',
@@ -8641,6 +8754,9 @@ const LANGS={
     tg_cat_backhaul:'Backhaul Brew up/down',tg_cat_logs:'Log critic (avertismente/erori)',
   },
   de:{
+    sys_lang:'Standardsprache',sys_lang_browser:'Browser-Sprache (nicht gesetzt)',sys_lang_confirm:'{lang} als Standardsprache der Station setzen? Der FlowStation-Dienst startet neu (ca. 20 s nicht auf Sendung).',
+    fleet_off_title:'Flottenkontrolle ausschalten?',fleet_off_body1:'Die Flottenkontrolle wird deaktiviert. Das Remote-Management dieser Basisstation vom Brew-Server aus (Updates, Neustart, Wartung, Konfigurationsänderungen) ist abgeschaltet, bis die Flottenkontrolle hier wieder eingeschaltet wird.',fleet_off_body2:'Bist du wirklich sicher? Der Systemadmin und die Flottenmanager werden verständigt (Eintrag im Change-Log des Brew-Servers).',fleet_off_understood:'Ich habe verstanden',fleet_off_yes:'Ja, ausschalten',cmd_off_title:'Remote Command / Control ausschalten?',cmd_off_body1:'Beim Speichern wird der Steuerkanal zum Server abgeschaltet. Remote-Befehle (Kick, DGNA, SDS, Neustart) und die Flottenkontrolle, also das Remote-Management dieser Basisstation, funktionieren dann nicht mehr, bis er hier wieder eingeschaltet wird.',cmd_off_body2:'Bist du wirklich sicher? Der Systemadmin und die Flottenmanager werden verständigt: Zuerst wird die Flottenkontrolle ausgeschaltet, das trägt der Brew-Server in sein Change-Log ein.',roam_n_mm_hint:'Leer = Netz dieser Zelle ({mm})',
+    maint_title:'Wartung: Es wird an der Basisstation gearbeitet',maint_sub:'Gesetzt von {by} am Brew-Server · endet in {min} min',maint_sub_noby:'Gesetzt am Brew-Server · endet in {min} min',maint_live_title:'Live-Systemupdate: RF an!',maint_live_sub:'Die Station baut eine neue Version und bleibt auf Sendung; danach startet der Dienst neu. Jetzt keine Einstellungen ändern.',
     secp_class_locked:"Dieser Dienst verlangt SC3. Für SC1/SC2 zuerst --require-sc3 aus der Startzeile entfernen und neu starten.",
     secp_aie_title_v109:"Luftschnittstellen-Verschlüsselung",
     secp_class_label:"Sicherheitsklasse",
@@ -8715,7 +8831,7 @@ const LANGS={
     dapnet_title:'DAPNET',dapnet_log:'DAPNET-Log',dapnet_routing:'Routing',dapnet_send:'DAPNET-Nachricht senden',dapnet_saved:'✓ Gespeichert',
     terminals:'Radios',registered:'registriert',
     active_calls:'Aktive Anrufe',circuits:'Schaltkreise aktiv',
-    registered_terminals:'Registrierte Radios',
+    registered_terminals:'Registrierte Radios',ms_visitor:'Gast · {net}',ms_vassi:'(V)ASSI hier',ms_visitor_title:'Funkgerät aus Netz {net} (Migration, TS 100 392-2 Abschnitt 16.4.1.1 b)). Es hat auf dieser Zelle eine (V)ASSI; Rufe und SDS an seine eigene ISSI erreichen es hier.',
     no_terminals:'Keine Radios registriert',no_calls:'Keine aktiven Anrufe',
     live_log:'Live-Log',autoscroll:'Auto-Scroll',filter_all:'Alle',
     clear:'Löschen',export:'Exportieren',restart:'Neustart',shutdown:'Herunterfahren',save:'Speichern',
@@ -8805,6 +8921,8 @@ const LANGS={
     sys_bts:'BTS-Verbindung',
   },
   es:{
+    sys_lang:'Idioma predeterminado',sys_lang_browser:'Idioma del navegador (sin fijar)',sys_lang_confirm:'¿Fijar {lang} como idioma predeterminado de la estación? El servicio FlowStation se reinicia (unos 20 s fuera del aire).',
+    fleet_off_title:'¿Desactivar el control de flota?',fleet_off_body1:'Se desactiva el control de flota. La gestión remota de esta estación base desde el servidor Brew (actualizaciones, reinicio, mantenimiento, cambios de configuración) queda desactivada hasta que se vuelva a activar aquí.',fleet_off_body2:'¿Seguro? Se avisa al administrador del sistema y a los gestores de flota (entrada en el registro de cambios del servidor Brew).',fleet_off_understood:'Lo he entendido',fleet_off_yes:'Sí, desactivar',cmd_off_title:'¿Desactivar el comando / control remoto?',cmd_off_body1:'Al guardar se desactiva el canal de control hacia el servidor. Los comandos remotos (kick, DGNA, SDS, reinicio) y el control de flota, la gestión remota de esta estación base, dejan de funcionar hasta que se vuelva a activar aquí.',cmd_off_body2:'¿Seguro? Se avisa al administrador del sistema y a los gestores de flota: primero se desactiva el control de flota, y el servidor Brew lo anota en su registro de cambios.',roam_n_mm_hint:'Vacío = la red de esta celda ({mm})',
     "ui_language":"Idioma",
     roaming:'Infraestructura',roam_title:'Celdas, redes, vecinas y roaming',roam_reload:'Recargar',roam_help:'Todo lo que decide cuándo y cómo pasan las radios de una celda a otra: las celdas de esta estación y sus áreas de localización, las celdas vecinas que anuncia cada celda, los valores de reselección y la comprobación de presencia. Al guardar se comprueba toda la configuración y la estación se reinicia.',
     roam_cells_title:'Áreas de localización',roam_cells_help:'Misma área de localización en todas las celdas: las radios cambian de celda sin registrarse, así que las llamadas de grupo y los establecimientos de llamada individual se emiten en todas las celdas del área. Área propia por celda: las radios se registran en cada cambio y la estación y el servidor siempre conocen la celda exacta (TS 100 392-2 cláusula 18.3.4.7.1a). Vacío = el área de la primaria. Las celdas nuevas se añaden en la tarjeta Celdas de arriba.',
@@ -8815,7 +8933,12 @@ const LANGS={
     roam_types_0:'sin registro anticipado',roam_types_1:'sin registro anticipado, reselección acelerada recomendada',roam_types_2:'registro anticipado',roam_types_3:'registro anticipado, reselección acelerada recomendada',
     roam_svc_registration:'registro',roam_svc_deregistration:'baja',roam_svc_system_wide_services:'servicios de todo el sistema',roam_svc_voice_service:'voz',roam_svc_circuit_mode_data_service:'datos en circuito',roam_svc_sndcp_service:'datos en paquetes',roam_svc_aie_service:'cifrado de aire',roam_svc_advanced_link:'enlace avanzado',roam_svc_priority_cell:'celda prioritaria',roam_svc_no_minimum_mode:'sin modo mínimo',roam_svc_migration:'migración',
     roam_services_none:'ninguno (las radios no pueden usarla)',roam_th_server:'En el servidor',roam_pick:'Rellenar desde la lista de celdas del servidor',roam_dir_title:'Celdas en el servidor Brew',roam_dir_help:'Las celdas de las otras estaciones del servidor Brew, con lo que anuncian (extensión cell-directory de brew-server). Una vecina se identifica por red, frecuencia de bajada y área de localización. Una radio usa la lista de su celda servidora para elegir qué celdas explorar (cláusula 18.3.4.1), así que ambas celdas deberían anunciarse mutuamente.',roam_th_state:'Estado',roam_th_levels:'Acceso / potencia MS',roam_th_listed_here:'Vecina de',roam_th_lists_us:'Anuncia esta estación',roam_dir_add:'Añadir como vecina',roam_dir_none:'ninguna',roam_dir_empty:'No hay otras celdas en el servidor.',roam_dir_count:'{n} celdas de otras estaciones en el servidor.',roam_dir_off:'El servidor Brew no envía su lista de celdas (requiere un brew-server con la extensión cell-directory).',roam_dir_wait:'El servidor ofrece su lista de celdas, aún no ha llegado (llega justo después de conectar).',roam_dir_unknown:'desconocida en el servidor',roam_online:'en línea',roam_offline:'fuera de línea',roam_not_mutual:'{id} no anuncia esta celda: a las radios allí no se les indica que la busquen',roam_diff_rxlev:'nivel mín. de acceso: anunciado {list} dBm, la celda emite {cell} dBm',roam_diff_txpwr:'potencia máx. MS: anunciada {list} dBm, la celda emite {cell} dBm',roam_diff_services:'servicios distintos: {list}',roam_auto_sibling:'Celda de esta estación (automática)',roam_nb_none:'Sin vecinas.',roam_nb_count:'{n} de 7 entradas de vecina',roam_need_id_carrier:'Faltan el identificador de celda y la portadora.',roam_need_la:'La celda primaria necesita un área de localización.',roam_unsaved:'Cambiado, aún sin guardar.',roam_confirm_save:'¿Guardar los ajustes de roaming y reiniciar la estación?',
-    roam_brew_off:'Brew no está configurado: el roaming entre estaciones está apagado, las celdas de esta estación siguen funcionando.',roam_link_up:'conectado',roam_link_down:'sin conexión',roam_ext:'Funciones del servidor',roam_feat_roam:'Roaming',roam_feat_calls:'Llamadas',roam_feat_cells:'Celdas',roam_feat_groups:'Grupos',roam_feat_net:'Multi Network',roam_feat_other:'Otras',
+    roam_brew_off:'Brew no está configurado: el roaming entre estaciones está apagado, las celdas de esta estación siguen funcionando.',roam_link_up:'conectado',roam_link_down:'sin conexión',roam_ext:'Funciones del servidor',roam_feat_roam:'Roaming',roam_feat_calls:'Llamadas',roam_feat_cells:'Celdas',roam_feat_groups:'Grupos',roam_feat_net:'Multi Network',roam_feat_other:'Otras',roam_feat_fleet:'Fleet Control',
+    maint_title:'Mantenimiento: se está trabajando en esta estación base',maint_sub:'Activado por {by} desde el servidor Brew · termina en {min} min',maint_sub_noby:'Activado desde el servidor Brew · termina en {min} min',maint_live_title:'Actualización en vivo: ¡RF activa!',maint_live_sub:'La estación compila una nueva versión y sigue en el aire; el servicio se reinicia al terminar. No cambie la configuración ahora.',
+    fleet_desc:'Gestión de la estación por la SwMI (BrewServer)',fleet_key:'Fleet Control',fleet_on:'activado',fleet_off:'desactivado',fleet_not_connected:'canal de control sin conexión',
+    fleet_cmd_title:'Fleet Control: canal de control',fleet_cmd_help:'Fleet Control funciona por el canal de control al servidor Brew, que aún no está configurado. Introduce el servidor; el usuario es tu login de Brew, una contraseña vacía usa la contraseña de Brew. Al guardar se reinicia el servicio.',
+    fleet_cmd_server:'Servidor (dirección IP o nombre DNS)',fleet_cmd_pass_ph:'vacía = contraseña de Brew',fleet_cmd_save:'Guardar y reiniciar',fleet_need_host:'Introduce el servidor.',
+    fleet_restarting:'Canal de control guardado: la estación se reinicia y se conecta con Fleet Control activado.',
     roam_dbm_hint:'En la radio (término de potencia 0): sin acceso por debajo de {fail} dBm, celda abandonable por debajo de {fast} dBm, mejorable por debajo de {slow} dBm (cláusula 18.3.4.5; Docs/cell-reselection.md).',
     roam_help_fast_th:'FAST_RESELECT_THRESHOLD (cláusula 18.5.4): por debajo (C1 en dB sobre el nivel de acceso) la celda servidora es «abandonable» y la radio pasa a una vecina mejor en la histéresis rápida, también durante una llamada. 0-30 dB en pasos de 2; por defecto 10.',
     roam_help_slow_th:'SLOW_RESELECT_THRESHOLD_ABOVE_FAST (cláusula 18.5.4): se suma al umbral rápido. Por debajo de la suma la celda servidora es «mejorable» y una radio en reposo pasa a una vecina mejor en la histéresis lenta. Por defecto 20 (= 30 dB con rápido 10). Valores altos hacen que la radio busque casi siempre.',
@@ -8834,7 +8957,7 @@ const LANGS={
     roam_help_n_rxlev:'Nivel mínimo de acceso RX de la vecina (cláusula 18.5.12). Vacío: las radios suponen el mismo que esta celda (tabla 18.64, nota 2).',
     roam_help_n_txpwr:'Potencia de transmisión máxima de la radio en la vecina (tabla 18.57), la usa la radio para C2. Vacío: igual que esta celda.',
     cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
-    cells_carrier:'Portadora',cells_cc:'Código de color',cells_la_help:'Área de localización de la nueva celda. Vacío = la misma que la celda principal. Con un área propia la radio se registra en cada cambio de celda (TS 100 392-2 cláusula 18.3.4.7.1a).',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',cells_radios:'{n} radio(s)',
+    cells_carrier:'Portadora',cells_cc:'Código de color',cells_la_help:'Área de localización de la nueva celda. Vacío = la misma que la celda principal. Con un área propia la radio se registra en cada cambio de celda (TS 100 392-2 cláusula 18.3.4.7.1a).',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',ms_visitor:'Invitado · {net}',ms_vassi:'(V)ASSI aquí',ms_visitor_title:'Radio de la red {net} (migración, TS 100 392-2 cláusula 16.4.1.1 b)). Tiene una (V)ASSI en esta celda; las llamadas y SDS a su propia ISSI le llegan aquí.',cells_radios:'{n} radio(s)',
     cells_net_local:'local',cells_net_up:'núcleo conectado',cells_net_down:'núcleo desconectado',
     cells_single:'Celda única',rf_cells_note:'Elige una celda para ver su SDR en esta página.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
     cells_need_fields:'Hacen falta el dispositivo y la portadora.',cells_confirm_add:'¿Añadir esta celda? La estación se reinicia.',cells_confirm_remove:'¿Quitar la celda {n}? La estación se reinicia.',
@@ -8866,6 +8989,7 @@ const LANGS={
     tg_enabled:'Activar alertas Telegram',
     tg_test:'Enviar prueba',tg_testing:'Enviando prueba…',tg_test_ok:'✓ Prueba enviada a {n} chat(s)',
     cfg_sec_profiles:'Perfiles',cfg_profiles_title:'Perfiles de TMO',cfg_apply_restart:'Aplicar y reiniciar',
+    cfg_check:'Comprobar',cfg_checking:'Comprobando…',cfg_valid:'La configuración es válida',cfg_invalid:'Configuración no válida',
     cfg_profiles_help:'Utiliza los perfiles para guardar tus configuraciones preferidas de TMO y Servidor Brew y poder alternar rápidamente entre ellas.',
     cfg_profiles_pack_help:'Exporta o importa solo perfiles Cell/Brew (.ptbs). No cambia el config.toml vivo ni reinicia — usa Aplicar y reiniciar tras importar si quieres ponerlos al aire.',
     cfg_profiles_export:'Exportar .ptbs',cfg_profiles_import:'Importar .ptbs',
@@ -14043,7 +14167,7 @@ function lstRenderActivity(){
   }
   const liveRows=live.map(e=>`<tr>
       <td><span class="num">${escHtml(String(e.ts))}</span></td>
-      <td>${typeof idCell==='function'?idCell(e.issi):('<code>'+e.issi+'</code>')}</td>
+      <td>${msIdCell({issi:e.issi,home:state.homeByIssi&&state.homeByIssi[e.issi]},'')}</td>
       <td>${e.activityHtml}</td>
       <td><code>${escHtml(String(e.dest))}</code> · <span class="num accent">${e.dur}</span></td>
     </tr>`).join('');
@@ -14051,7 +14175,7 @@ function lstRenderActivity(){
     const destStr=e.dest?`<code>${e.dest}</code>`:'<span class="muted">—</span>';
     return`<tr>
       <td><span class="num">${escHtml(e.ts||'')}</span></td>
-      <td>${typeof idCell==='function'?idCell(e.issi):('<code>'+e.issi+'</code>')}</td>
+      <td>${msIdCell({issi:e.issi,home:lastHeardHome(e)},'')}</td>
       <td>${typeof activityBadge==='function'?activityBadge(e.activity):escHtml(e.activity||'')}</td>
       <td>${destStr}</td>
     </tr>`;
@@ -14431,7 +14555,7 @@ async function wifiCall(url, body){
 function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
 
 // ── State + WS ────────────────────────────────────────────────────────────
-let ws=null,state={ms:{},calls:{},emergencies:{},secByIssi:{},cellSec:null,lastHeard:[],sdsLog:[],dapnetLog:[],geoalarmEvents:[],brewOnline:false,brewVer:0,dgnaDefaultAttachmentMode:0,dgnaAttachmentModePickerEnabled:false},sdsDest=0,lstSdsSource=0;
+let ws=null,state={ms:{},calls:{},emergencies:{},secByIssi:{},homeByIssi:{},cellSec:null,lastHeard:[],sdsLog:[],dapnetLog:[],geoalarmEvents:[],brewOnline:false,brewVer:0,dgnaDefaultAttachmentMode:0,dgnaAttachmentModePickerEnabled:false},sdsDest=0,lstSdsSource=0;
 let dgnaUi={selectedGssi:0,targetChecks:{},statusLog:[],lastByIssi:{}};
 
 // ── RadioID callsigns (indicativ) ──────────────────────────────────────────────
@@ -14468,9 +14592,9 @@ function refreshCallsigns(){
   if(_csInflight||document.hidden)return;
   if(typeof dashLinkState!=='undefined'&&dashLinkState!=='online')return;
   const ids=new Set();
-  Object.values(state.ms).forEach(m=>ids.add(m.issi));
+  Object.values(state.ms).forEach(m=>{ids.add(m.issi);if(m.home&&m.home.issi)ids.add(m.home.issi);});
   Object.values(state.calls).forEach(c=>{if(c.caller_issi)ids.add(c.caller_issi);if(c.called_issi&&c.call_type!=='group')ids.add(c.called_issi);if(c.active_speaker)ids.add(c.active_speaker);});
-  state.lastHeard.forEach(e=>{if(e.issi)ids.add(e.issi);});
+  state.lastHeard.forEach(e=>{if(e.issi)ids.add(e.issi);const h=lastHeardHome(e);if(h&&h.issi)ids.add(h.issi);});
   (state.sdsLog||[]).forEach(e=>{if(e.source_issi)ids.add(e.source_issi);if(e.dest_issi&&!e.is_group)ids.add(e.dest_issi);});
   Object.values(state.emergencies||{}).forEach(e=>{if(e.issi)ids.add(e.issi);});
   const unknown=[...ids].filter(id=>id&&callsigns[id]===undefined).slice(0,256);
@@ -14730,6 +14854,7 @@ function handleMsg(msg){
       if(msg.log&&msg.log.length){document.getElementById('log-container').innerHTML='';msg.log.forEach(e=>appendLog(e));}
       setBrewStatus(!!msg.brew_online,Math.max(1,msg.brew_version||0));
       state.secByIssi={};(msg.ms||[]).forEach(m=>{state.secByIssi[m.issi]={authenticated:!!m.authenticated,encrypting:!!m.encrypting};});
+      state.homeByIssi={};(msg.ms||[]).forEach(m=>{if(m.home)state.homeByIssi[m.issi]=m.home;});
       setCellSecurity(msg.cell_security||null);
       if(msg.fallback_config_active){showFallbackBanner(msg.fallback_config_reason||'');}
       // If the server already has recent RF snapshots, paint them instantly
@@ -14751,10 +14876,10 @@ function handleMsg(msg){
       // registered entries must have a defined-but-null selected_group so the equality
       // comparison `g === sel` in renderStations behaves consistently with the server-side
       // None initialiser in server.rs.
-      state.ms[msg.issi]=Object.assign({issi:msg.issi,groups:[],group_catalog:[],selected_group:null,rssi_dbfs:null,energy_saving_mode:0,authenticated:false,encrypting:false},state.ms[msg.issi]||{},state.secByIssi[msg.issi]||{},{issi:msg.issi,_last_seen_ts:Date.now()});
+      state.ms[msg.issi]=Object.assign({issi:msg.issi,groups:[],group_catalog:[],selected_group:null,rssi_dbfs:null,energy_saving_mode:0,authenticated:false,encrypting:false},state.ms[msg.issi]||{},state.secByIssi[msg.issi]||{},{home:state.homeByIssi[msg.issi]||null},{issi:msg.issi,_last_seen_ts:Date.now()});
       renderStations();renderDgnaPage();break;
     case 'ms_deregistered':
-      delete state.ms[msg.issi];delete state.secByIssi[msg.issi];renderStations();renderDgnaPage();break;
+      delete state.ms[msg.issi];delete state.secByIssi[msg.issi];delete state.homeByIssi[msg.issi];renderStations();renderDgnaPage();break;
     case 'otar_sck':
       secpOtar[msg.issi]=msg.status;if(document.getElementById('page-security').classList.contains('active'))secpRenderSubs();break;
     case 'ms_security':{
@@ -14765,12 +14890,17 @@ function handleMsg(msg){
       if(msg.encrypting!=null)f.encrypting=!!msg.encrypting;
       if(state.ms[msg.issi])Object.assign(state.ms[msg.issi],f);
       renderStations();break;}
+    case 'ms_visitor':
+      // Multi Network visitor: the row is its (V)ASSI; show its own ISSI and network too.
+      state.homeByIssi[msg.issi]=msg.home;
+      if(state.ms[msg.issi]){state.ms[msg.issi].home=msg.home;renderStations();}
+      refreshCallsigns();break;
     case 'ms_cell':
       if(state.ms[msg.issi]){state.ms[msg.issi].cell=msg.cell;renderStations();}
       break;
     case 'ms_moved_away':
       // Still on the cell it left: it went to another station (a sibling cell's ms_cell moves the row).
-      if(state.ms[msg.issi]&&(state.ms[msg.issi].cell??0)===msg.cell){delete state.ms[msg.issi];delete state.secByIssi[msg.issi];renderStations();renderDgnaPage();}
+      if(state.ms[msg.issi]&&(state.ms[msg.issi].cell??0)===msg.cell){delete state.ms[msg.issi];delete state.secByIssi[msg.issi];delete state.homeByIssi[msg.issi];renderStations();renderDgnaPage();}
       break;
     case 'ms_rssi':
       if(state.ms[msg.issi]){state.ms[msg.issi].rssi_dbfs=msg.rssi_dbfs;state.ms[msg.issi]._last_seen_ts=Date.now();}
@@ -14838,7 +14968,14 @@ function handleMsg(msg){
       tsClearCallCarrier(msg.call_id);updateTsBlocksCarrier();
       delete state.calls[msg.call_id];renderCalls();break;
     case 'ts_voice':
-      if(msg.carrier_num!=null)tsVoiceCarrier(msg.carrier_num,msg.ts,msg.speaker_issi);break;
+      if(msg.carrier_num!=null)tsVoiceCarrier(msg.carrier_num,msg.ts,msg.speaker_issi);
+      // The Calls page follows the talker like the Home time slots do: a voice burst names the
+      // speaker even when no speaker_changed came for it.
+      if(msg.speaker_issi){
+        const vc=Object.values(state.calls).find(c=>(c.carrier_num===msg.carrier_num&&c.ts===msg.ts)||(c.peer_carrier_num===msg.carrier_num&&c.peer_ts===msg.ts));
+        if(vc&&vc.active_speaker!==msg.speaker_issi){vc.active_speaker=msg.speaker_issi;renderCalls();}
+      }
+      break;
     case 'speaker_changed':
       if(state.calls[msg.call_id])state.calls[msg.call_id].active_speaker=msg.speaker_issi;
       if(msg.carrier_num!=null)tsEnsureCarrierInfo(msg.carrier_num);
@@ -14919,9 +15056,14 @@ function pushLastHeard(entry){
   // call_started often embeds last_heard and the server also emits a last_heard event.
   const dup=(state.lastHeard||[]).some(e=>e&&e.issi===issi&&e.activity===activity&&(e.dest||0)===dest&&e.ts===ts);
   if(dup)return;
-  state.lastHeard.unshift({ts,issi,activity,dest});
+  // Keep a Multi Network guest's home identity with the entry: it stays readable after the
+  // radio has left and its (V)ASSI is gone from homeByIssi.
+  const home=entry.home||(state.homeByIssi&&state.homeByIssi[issi])||null;
+  state.lastHeard.unshift({ts,issi,activity,dest,home});
   if(state.lastHeard.length>50)state.lastHeard.length=50;
 }
+// Home identity of a Last Heard entry: stored with it, else the radio's current one.
+function lastHeardHome(e){return (e&&e.home)||(state.homeByIssi&&state.homeByIssi[e.issi])||null;}
 function activityBadge(activity){
   if(activity==='call_group')return`<span class="pill pill-info">${t('act_call_group')}</span>`;
   if(activity==='call_individual')return`<span class="pill pill-warn">${t('act_call_individual')}</span>`;
@@ -15447,6 +15589,14 @@ function scheduleStationsRender(){
   },250);
 }
 
+// A Multi Network visitor is listed under its own ISSI (with its callsign), its (V)ASSI on this
+// cell below and a chip with its home network; every other radio as before.
+function msIdCell(m,cellChip){
+  const h=m.home;
+  if(!h||!h.issi)return idCell(m.issi)+cellChip;
+  const net=h.network?h.network:`${h.mcc}/${h.mnc}`;
+  return `${idCell(h.issi)} <span class="badge badge-blue" title="${escHtmlAttr(t('ms_visitor_title',{net:`${h.mcc}/${h.mnc}`}))}">${escHtml(t('ms_visitor',{net}))}</span>${cellChip}<div style="font-size:11px;color:var(--text2);margin-top:2px">${t('ms_vassi')} <code>${m.issi}</code></div>`;
+}
 function renderStations(){
   const ms=Object.values(state.ms);
   const msCount=ms.length,callCount=Object.keys(state.calls).length;
@@ -15469,7 +15619,7 @@ function renderStations(){
     const ls=m._last_seen_ts?Math.floor((Date.now()-m._last_seen_ts)/1000):m.last_seen_secs_ago;
     const emg=!!state.emergencies[m.issi];
     return`<tr${emg?' class="row-emergency"':''} data-ms-issi="${m.issi}">
-      <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${idCell(m.issi)}${m.cell!=null?' <span class="badge badge-dim" title="'+escHtmlAttr(t('cells_cell',{n:m.cell}))+'">C'+m.cell+'</span>':''}</td><td>${grps}</td>
+      <td>${emg?'<span class="badge badge-emergency">'+t('call_emergency')+'</span> ':''}${msIdCell(m,m.cell!=null?' <span class="badge badge-dim" title="'+escHtmlAttr(t('cells_cell',{n:m.cell}))+'">C'+m.cell+'</span>':'')}</td><td>${grps}</td>
       <td class="col-mobile-hide">${eeLabel(m.energy_saving_mode||0)}</td>
       <td><div class="gauge ${gcls}"><div class="gauge-track"><div class="gauge-fill" style="width:${pct}%"></div></div><span class="gauge-value">${rL}</span></div></td>
       <td>${secCell(m)}</td>
@@ -15504,7 +15654,7 @@ function renderCalls(){
     // Emergency call = ETSI call priority 15 (terminal emergency button). Flag it prominently.
     const emg=(c.priority||0)>=15;
     const emgBadge=emg?`<span class="pill pill-danger"><span class="pill-icon">${svgIcon('emergency')}</span>${t('call_emergency')}</span> `:'';
-    return`<tr${emg?' class="row-emergency"':''}><td class="col-mobile-hide"><code>${c.call_id}</code></td><td>${emgBadge}<span class="pill ${pillv}">${label}</span></td><td>${c.caller_issi?idCell(c.caller_issi):'<span class="muted">—</span>'}</td><td>${to}</td><td class="col-mobile-hide">${spk}</td><td><span class="num accent">${mm}:${ss}</span></td></tr>`;
+    return`<tr${emg?' class="row-emergency"':''}><td class="col-mobile-hide"><code>${c.call_id}</code></td><td>${emgBadge}<span class="pill ${pillv}">${label}</span></td><td>${c.caller_issi?idCell(c.caller_issi):'<span class="muted">—</span>'}</td><td>${to}</td><td>${spk}</td><td><span class="num accent">${mm}:${ss}</span></td></tr>`;
   }).join('');
   applyTableStackLabels(tb);
   }
@@ -15519,7 +15669,8 @@ function renderLastHeard(){
   tb.innerHTML=state.lastHeard.map(e=>{
     const destStr=e.dest?`<code>${e.dest}</code>`:'<span class="muted">—</span>';
     const isOnline=!!state.ms[e.issi];
-    const issiHtml=`${idCell(e.issi)}${isOnline?` <span class="pill pill-ok">${t('online_badge')}</span>`:''}`;
+    const online=isOnline?` <span class="pill pill-ok">${t('online_badge')}</span>`:'';
+    const issiHtml=msIdCell({issi:e.issi,home:lastHeardHome(e)},online);
     return`<tr>
       <td><span class="num">${e.ts}</span></td>
       <td>${issiHtml}</td><td>${activityBadge(e.activity)}</td><td>${destStr}</td>
@@ -16226,12 +16377,123 @@ async function saveSnomNotify(){
 }
 
 // ── Config ────────────────────────────────────────────────────────────────
+// ── TOML code editor engine ─────────────────────────────────────────────────
+// A plain <textarea> with transparent text sits on top of a syntax-highlighted <pre>;
+// a gutter numbers the lines and two bands mark the current line and any error line.
+const CFG_LH=20, CFG_PAD=12;   // must match .cfg-hl / #config-editor line-height & padding (px)
+let cfgErrLine=null, cfgWired=false;
+function cfgEsc(s){return s.replace(/[&<>]/g,c=>c==='&'?'&amp;':c==='<'?'&lt;':'&gt;');}
+// Highlight one TOML line → HTML. Comments (incl. whole commented-out lines) are styled so they
+// stay clearly visible; section headers, strings, numbers and booleans each get their own colour.
+function cfgTokLine(line){
+  // Split off a trailing/standalone comment (a '#' that is not inside a quoted string).
+  let inS=false,q='',cut=-1;
+  for(let i=0;i<line.length;i++){const c=line[i];
+    if(inS){if(c===q)inS=false;}
+    else if(c==='"'||c==="'"){inS=true;q=c;}
+    else if(c==='#'){cut=i;break;}
+  }
+  let code=cut<0?line:line.slice(0,cut), com=cut<0?'':line.slice(cut);
+  let html='';
+  const tl=code.trimStart();
+  if(tl.startsWith('[')){
+    html='<span class="tk-section">'+cfgEsc(code)+'</span>';
+  }else{
+    const eq=code.indexOf('=');
+    if(eq>=0){
+      const key=code.slice(0,eq), val=code.slice(eq+1);
+      html='<span class="tk-key">'+cfgEsc(key)+'</span><span class="tk-eq">=</span>'+cfgTokVal(val);
+    }else{
+      html=cfgEsc(code);
+    }
+  }
+  if(com)html+='<span class="tk-comment">'+cfgEsc(com)+'</span>';
+  return html||'&nbsp;';
+}
+function cfgTokVal(v){
+  const lead=v.length-v.trimStart().length, body=v.slice(lead), pre=v.slice(0,lead);
+  let cls='';
+  if(/^["']/.test(body))cls='tk-str';
+  else if(/^(true|false)\b/.test(body.trim()))cls='tk-bool';
+  else if(/^[+-]?[\d.]/.test(body.trim()))cls='tk-num';
+  const inner=cls?'<span class="'+cls+'">'+cfgEsc(body)+'</span>':cfgEsc(body);
+  return cfgEsc(pre)+inner;
+}
+function cfgRender(){
+  const ta=document.getElementById('config-editor');if(!ta)return;
+  const hl=document.querySelector('#cfg-hl code'), gut=document.getElementById('cfg-gutter');
+  const lines=ta.value.split('\n');
+  if(hl)hl.innerHTML=lines.map(cfgTokLine).join('\n');
+  if(gut){let g='';for(let i=0;i<lines.length;i++){
+    const cls=(i+1===cfgErrLine)?'gl err':'gl';
+    g+='<span class="'+cls+'" data-ln="'+(i+1)+'">'+(i+1)+'</span>';
+  }gut.innerHTML=g;}
+  cfgSyncScroll();cfgBands();
+}
+function cfgSyncScroll(){
+  const ta=document.getElementById('config-editor');if(!ta)return;
+  const hl=document.getElementById('cfg-hl'), gut=document.getElementById('cfg-gutter');
+  if(hl){hl.scrollTop=ta.scrollTop;hl.scrollLeft=ta.scrollLeft;}
+  if(gut)gut.scrollTop=ta.scrollTop;
+}
+function cfgCurLine(){
+  const ta=document.getElementById('config-editor');if(!ta)return 0;
+  return ta.value.slice(0,ta.selectionStart).split('\n').length; // 1-based
+}
+function cfgBands(){
+  const ta=document.getElementById('config-editor');if(!ta)return;
+  const cur=document.getElementById('cfg-band-cur'), err=document.getElementById('cfg-band-err');
+  const place=(el,ln1)=>{
+    if(!el)return;
+    if(!ln1){el.style.display='none';return;}
+    const top=CFG_PAD+(ln1-1)*CFG_LH-ta.scrollTop;
+    if(top<0||top>ta.clientHeight){el.style.display='none';return;}
+    el.style.top=top+'px';el.style.display='block';
+  };
+  place(cur,cfgCurLine());
+  place(err,cfgErrLine);
+}
+function cfgSetErr(ln){cfgErrLine=(ln&&ln>0)?ln:null;cfgRender();
+  if(cfgErrLine){const ta=document.getElementById('config-editor');
+    if(ta){const want=CFG_PAD+(cfgErrLine-1)*CFG_LH-ta.clientHeight/2;ta.scrollTop=Math.max(0,want);cfgSyncScroll();cfgBands();}}
+}
+function cfgParseErrLine(msg){const m=/line\s+(\d+)/i.exec(msg||'');return m?parseInt(m[1],10):null;}
+function cfgEditorInit(){
+  if(cfgWired)return;const ta=document.getElementById('config-editor');if(!ta)return;cfgWired=true;
+  const upd=()=>cfgRender();
+  ta.addEventListener('input',()=>{cfgErrLine=null;upd();});
+  ta.addEventListener('scroll',()=>{cfgSyncScroll();cfgBands();});
+  ta.addEventListener('keyup',cfgBands);
+  ta.addEventListener('click',cfgBands);
+  ta.addEventListener('keydown',e=>{
+    if(e.key==='Tab'){e.preventDefault();
+      const s=ta.selectionStart,en=ta.selectionEnd;
+      ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(en);
+      ta.selectionStart=ta.selectionEnd=s+2;cfgRender();
+    }
+  });
+}
 async function loadConfig(){
-  try{const r=await fetch('/api/config');if(r.ok)document.getElementById('config-editor').value=await r.text();else setConfigMsg(t('conn_error'),false);}
+  cfgEditorInit();cfgErrLine=null;
+  try{const r=await fetch('/api/config');
+    if(r.ok){document.getElementById('config-editor').value=await r.text();cfgRender();}
+    else setConfigMsg(t('conn_error'),false);}
   catch{setConfigMsg(t('conn_error'),false);}
 }
 async function saveConfig(){
-  try{const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});if(r.ok)setConfigMsg(t('saved'),true);else setConfigMsg(t('save_fail')+': '+await r.text(),false);}
+  try{const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});
+    if(r.ok){setConfigMsg(t('saved'),true);cfgSetErr(null);}
+    else{const txt=await r.text();setConfigMsg(t('save_fail')+': '+txt,false);cfgSetErr(cfgParseErrLine(txt));}}
+  catch(e){setConfigMsg(t('conn_error'),false);}
+}
+// Dry-run: validate the editor contents WITHOUT writing, so errors are flagged before they can
+// brick the station. Flags the offending line in the gutter and jumps to it.
+async function checkConfig(){
+  setConfigMsg(t('cfg_checking'),true);
+  try{const r=await fetch('/api/config/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:document.getElementById('config-editor').value});
+    const j=await r.json();
+    if(j.ok){setConfigMsg(t('cfg_valid'),true);cfgSetErr(null);}
+    else{setConfigMsg(t('cfg_invalid')+': '+(j.error||''),false);cfgSetErr(j.line||cfgParseErrLine(j.error));}}
   catch(e){setConfigMsg(t('conn_error'),false);}
 }
 function setConfigMsg(txt,ok){const el=document.getElementById('config-msg');el.textContent=txt;el.style.color=ok?'var(--accent)':'var(--danger)';}
@@ -16892,8 +17154,8 @@ async function applyRawConfigAndRestart(){
   if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
   try{
     const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});
-    if(!r.ok){setConfigMsg(t('save_fail')+': '+await r.text(),false);return;}
-    setConfigMsg(t('cfg_applied'),true);
+    if(!r.ok){const txt=await r.text();setConfigMsg(t('save_fail')+': '+txt,false);cfgSetErr(cfgParseErrLine(txt));return;}
+    setConfigMsg(t('cfg_applied'),true);cfgSetErr(null);
     try{
       const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
       if(!rr.ok)wsSend({type:'restart'});
@@ -17679,6 +17941,28 @@ function setTgRecipMsg(txt,ok){const el=document.getElementById('tg-recipients-m
 
 
 function wsSend(msg){if(ws&&ws.readyState===WebSocket.OPEN){ws.send(JSON.stringify(msg));return true;}return false;}
+// Station default language ([dashboard] language, also set in the Setup wizard). A change restarts
+// the service (Sebastian 2026-11-12), so every page and the login come back in it.
+function sysLangRender(){
+  const el=document.getElementById('sys-lang');if(!el)return;
+  el.innerHTML=(STATION_LANG?'':'<option value="" selected disabled>'+escHtml(t('sys_lang_browser'))+'</option>')+
+    Object.keys(LANGUAGE_NAMES).map(l=>'<option value="'+l+'"'+(l===STATION_LANG?' selected':'')+'>'+escHtml(LANGUAGE_NAMES[l])+'</option>').join('');
+}
+async function sysLangChange(el){
+  const l=el.value;if(!l||l===STATION_LANG)return;
+  const ok=await openSvcConfirm({title:t('sys_lang'),body:t('sys_lang_confirm',{lang:LANGUAGE_NAMES[l]||l}),confirmLabel:t('restart')});
+  if(!ok){sysLangRender();return;}
+  try{
+    const r=await fetch('/api/setup/language',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:l})});
+    if(!r.ok){await dashAlert(t('notice'),await r.text());sysLangRender();return;}
+    // The station default wins over a language this browser picked before.
+    try{localStorage.removeItem('fs_lang');}catch{}
+    const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
+    if(!rr.ok)wsSend({type:'restart'});
+  }catch{wsSend({type:'restart'});}
+  beginServiceRestartWait();
+}
+document.addEventListener('DOMContentLoaded',sysLangRender);
 async function restartService(){
   const ok=await openSvcConfirm({
     title:t('restart'),
@@ -17703,10 +17987,17 @@ function openSvcConfirm(opts){
   const cancel=document.getElementById('svc-confirm-cancel');
   if(title)title.textContent=opts.title||'';
   if(body)body.textContent=opts.body||'';
-  if(cancel)cancel.style.display=opts.alertOnly?'none':'';
+  if(cancel){
+    cancel.style.display=opts.alertOnly?'none':'';
+    cancel.textContent=opts.cancelLabel||t('cancel');
+    cancel.className='btn'+(opts.cancelClass?' '+opts.cancelClass:'');
+    // okFirst: the confirm button on the left, Cancel on the right.
+    cancel.style.order=opts.okFirst?'2':'';
+  }
   if(ok){
     ok.textContent=opts.confirmLabel||(opts.alertOnly?t('ok'):t('confirm'));
-    ok.className='btn '+(opts.danger?'btn-danger':'btn-primary');
+    ok.className='btn '+(opts.okClass||(opts.danger?'btn-danger':'btn-primary'));
+    ok.style.order=opts.okFirst?'1':'';
   }
   return new Promise(resolve=>{
     _svcConfirmResolve=resolve;
@@ -19303,18 +19594,114 @@ async function loadRoaming(){
 }
 function roamRenderBrew(){
   const b=roamData.brew,el=document.getElementById('roam-brew');if(!el)return;
-  if(!b.configured){el.textContent=t('roam_brew_off');return;}
+  if(!b.configured){el.innerHTML=escHtml(t('roam_brew_off'))+fleetRow();return;}
   const wasOpen=!!el.querySelector('details[open]');
   const on=b.extensions.filter(x=>x.offered).length;
-  const cat={'bts-info':'roam_feat_roam','handover-v1':'roam_feat_roam','ms-cell':'roam_feat_roam','ms-moved':'roam_feat_roam','ms-reselection':'roam_feat_roam','call-restore':'roam_feat_calls','call-handoff':'roam_feat_calls','cell-directory':'roam_feat_cells','group-access':'roam_feat_groups','issi-check':'roam_feat_net','mni':'roam_feat_net'};
-  const order=['roam_feat_roam','roam_feat_calls','roam_feat_cells','roam_feat_groups','roam_feat_net','roam_feat_other'];
+  const cat={'fleet-control':'roam_feat_fleet','bts-info':'roam_feat_roam','handover-v1':'roam_feat_roam','ms-cell':'roam_feat_roam','ms-moved':'roam_feat_roam','ms-reselection':'roam_feat_roam','call-restore':'roam_feat_calls','call-handoff':'roam_feat_calls','cell-directory':'roam_feat_cells','group-access':'roam_feat_groups','issi-check':'roam_feat_net','mni':'roam_feat_net'};
+  const order=['roam_feat_fleet','roam_feat_roam','roam_feat_calls','roam_feat_cells','roam_feat_groups','roam_feat_net','roam_feat_other'];
   const ext=order.map(k=>{
     const xs=b.extensions.filter(x=>(cat[x.name]||'roam_feat_other')===k);
     return xs.length?'<div class="roam-feat-cat">'+escHtml(t(k))+'</div><div class="roam-feat-row">'+xs.map(x=>'<span class="roam-feat"><i class="'+(x.offered?'on':'off')+'"></i>'+escHtml(x.name)+'</span>').join('')+'</div>':'';
   }).join('');
   el.innerHTML='<b>Brew</b> '+escHtml(b.login||'')+' · '+escHtml(t(b.link_up?'roam_link_up':'roam_link_down'))+
+    // Fleet Control: the switch sits outside the collapsed list so it is always visible.
+    fleetRow()+
     '<details class="roam-feats"'+(wasOpen?' open':'')+'><summary>'+escHtml(t('roam_ext'))+' <span style="color:var(--muted)">'+on+'/'+b.extensions.length+'</span></summary><div>'+ext+'</div></details>';
 }
+/* ── Fleet Control (Docs/fleet-control.md): switch, control channel dialog, sidebar field ── */
+let fleetState=null;
+function fleetRow(){
+  const f=(roamData&&roamData.fleet_control)||fleetState;if(!f||!f.offered)return '';
+  return '<label class="roam-fleet"><span class="rf-text"><b>Fleet Control</b><span class="rf-sub">'+escHtml(t('fleet_desc'))+'</span></span>'+
+    '<span class="sw"><input type="checkbox" id="rm-fleet-on"'+(f.enabled?' checked':'')+' onchange="fleetToggle(this.checked)"><i></i></span></label>';
+}
+async function fleetPost(body){
+  const r=await fetch('/api/fleet-control',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const txt=await r.text();if(!r.ok)throw new Error(txt||String(r.status));return JSON.parse(txt);
+}
+// Switching remote management off asks twice (Sebastian 2026-11-12), with the buttons and their
+// colours swapped between the two dialogs so a double tap on one spot cannot get through:
+// 1) explanation, "I understand" left, red Cancel right; 2) "are you sure", Cancel left, red Yes right.
+async function confirmTwice(title,body1,body2){
+  if(!await openSvcConfirm({title:title,body:body1,confirmLabel:t('fleet_off_understood'),okFirst:true,okClass:'btn-primary',cancelClass:'btn-danger-solid'}))return false;
+  return openSvcConfirm({title:title,body:body2,confirmLabel:t('fleet_off_yes'),okClass:'btn-danger-solid'});
+}
+async function fleetToggle(on){
+  const box=document.getElementById('rm-fleet-on');
+  if(!on&&!await confirmTwice(t('fleet_off_title'),t('fleet_off_body1'),t('fleet_off_body2'))){if(box)box.checked=true;return;}
+  try{
+    const j=await fleetPost({enabled:on});
+    if(j.need_command){if(box)box.checked=false;fleetCmdOpen();return;}
+    if(j.restart)setText('roam-msg',t('fleet_restarting'));
+  }catch(e){if(box)box.checked=!on;setText('roam-msg',String(e.message||e));return;}
+  await refreshFleetControl();
+  if(roamData&&fleetState)roamData.fleet_control=fleetState;
+}
+function fleetCmdOpen(){
+  const f=(roamData&&roamData.fleet_control)||fleetState||{};
+  // The server address is never pre-filled (Sebastian); the user is the Brew login.
+  document.getElementById('fc-host').value='';
+  document.getElementById('fc-port').value='443';
+  document.getElementById('fc-tls').checked=true;
+  document.getElementById('fc-user').value=f.brew_login||'';
+  document.getElementById('fc-pass').value='';
+  setText('fc-msg','');
+  document.getElementById('fleet-cmd-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('fc-host').focus(),30);
+}
+function fleetCmdClose(){document.getElementById('fleet-cmd-modal').classList.remove('open');}
+async function fleetCmdSave(){
+  const v=id=>document.getElementById(id).value.trim();
+  if(!v('fc-host')){setText('fc-msg',t('fleet_need_host'));return;}
+  const port=parseInt(v('fc-port')||'443',10);
+  const body={enabled:true,command:{host:v('fc-host'),port:port,use_tls:document.getElementById('fc-tls').checked,username:v('fc-user'),password:document.getElementById('fc-pass').value}};
+  const btn=document.getElementById('fc-save');btn.disabled=true;
+  try{
+    await fleetPost(body);
+    fleetCmdClose();setText('roam-msg',t('fleet_restarting'));
+  }catch(e){setText('fc-msg',String(e.message||e));}
+  finally{btn.disabled=false;}
+}
+async function refreshFleetControl(){
+  if(document.hidden)return;
+  try{
+    const r=await fetch('/api/fleet-control',{credentials:'same-origin',cache:'no-store'});
+    if(r.ok)fleetState=await r.json();
+    else if(r.status===401){
+      // Public overview without a session: only the banner status is open to visitors.
+      const p=await fetch('/api/fleet-banner',{credentials:'same-origin',cache:'no-store'});if(!p.ok)return;
+      fleetState=await p.json();
+    }else return;
+  }catch{return;}
+  renderFleetBadge();
+  renderMaintBanner();
+}
+function renderMaintBanner(){
+  const b=document.getElementById('maint-banner');if(!b)return;
+  const f=fleetState||{};const live=f.live_update,m=f.maintenance;
+  if(!live&&!m){b.style.display='none';return;}
+  const title=document.getElementById('maint-title'),sub=document.getElementById('maint-sub');
+  if(live){
+    title.textContent=t('maint_live_title');
+    sub.textContent=t('maint_live_sub')+(live.percent!=null?' · '+live.percent+' %':'');
+  }else{
+    title.textContent=t('maint_title');
+    const min=Math.max(1,Math.ceil((m.left_secs||0)/60));
+    sub.textContent=(m.by?t('maint_sub',{by:m.by,min:min}):t('maint_sub_noby',{min:min}))+(m.reason?' · '+m.reason:'');
+  }
+  b.style.display='flex';
+}
+function renderFleetBadge(){
+  // Sidebar under Health: only when the server supports Fleet Control; green on, red off.
+  const b=document.getElementById('fleet-badge'),l=document.getElementById('fleet-badge-label');if(!b||!l)return;
+  const f=fleetState;if(!f||!f.offered){b.style.display='none';return;}
+  l.textContent=t(f.enabled?'fleet_on':'fleet_off');
+  l.style.color=f.enabled?'#3fb950':'var(--danger)';
+  b.style.display='flex';
+  b.title='Fleet Control: '+t(f.enabled?'fleet_on':'fleet_off')+(f.connected?'':'\n'+t('fleet_not_connected'));
+}
+setInterval(refreshFleetControl,5000);
+setTimeout(refreshFleetControl,1500);
 function roamRenderCells(){
   const tb=document.getElementById('roam-cells-tbody');if(!tb)return;
   const primaryLa=roamData.cells[0].location_area;
@@ -19466,6 +19853,10 @@ function roamServicesText(d){
   const on=ROAM_SERVICES.filter(k=>d[k]);
   return on.length?on.map(k=>t('roam_svc_'+k)).join(', '):t('roam_services_none');
 }
+// MCC/MNC a cell broadcasts: its network (Multi Network), else the station's. A neighbour entry
+// without MCC/MNC means the serving cell's own (TS 100 392-2 table 18.64, notes 1 and 2).
+function roamCellMm(c){const n=c&&(roamData.networks||[]).find(x=>x.name===c.network);return n?[n.mcc,n.mnc]:[roamData.mcc,roamData.mnc];}
+function roamMmText(mcc,mnc,c){const d=roamCellMm(c);return (mcc!=null?mcc:d[0])+'/'+(mnc!=null?mnc:d[1]);}
 function roamRenderNeighbours(){
   if(!roamData)return;
   const c=roamCell();
@@ -19476,6 +19867,7 @@ function roamRenderNeighbours(){
   const rows=(editable?c.neighbours:[]).map((n,i)=>'<tr><td data-label="ID">'+n.cell_identifier_ca+'</td>'+
     '<td data-label="'+escHtmlAttr(t('cells_carrier'))+'">'+roamCarrier(n.main_carrier_number,n.main_carrier_number_extension!=null?n.main_carrier_number_extension:c.carrier_ext)+'</td>'+
     '<td data-label="LA">'+(n.location_area!=null?n.location_area:'—')+'</td>'+
+    '<td data-label="MCC/MNC">'+roamMmText(n.mcc,n.mnc,c)+'</td>'+
     '<td data-label="'+escHtmlAttr(t('roam_th_server'))+'">'+roamServerCell(n,c)+'</td>'+
     '<td data-label="'+escHtmlAttr(t('roam_th_types'))+'">'+n.cell_reselection_types_supported+' — '+escHtml(t('roam_types_'+n.cell_reselection_types_supported))+'</td>'+
     '<td data-label="'+escHtmlAttr(t('roam_th_services'))+'">'+escHtml(roamServicesText(n.bs_service_details))+'</td>'+
@@ -19484,9 +19876,10 @@ function roamRenderNeighbours(){
   const auto=(c.siblings||[]).map(s=>'<tr style="color:var(--muted)"><td data-label="ID">'+s.cell_identifier_ca+'</td>'+
     '<td data-label="'+escHtmlAttr(t('cells_carrier'))+'">'+roamCarrier(s.main_carrier_number,(roamData.cells.find(x=>x.main_carrier===s.main_carrier_number)||c).carrier_ext)+'</td>'+
     '<td data-label="LA">'+(s.location_area!=null?s.location_area:'—')+'</td>'+
+    '<td data-label="MCC/MNC">'+roamMmText(s.mcc,s.mnc,roamData.cells.find(x=>x.main_carrier===s.main_carrier_number)||c)+'</td>'+
     '<td colspan="4">'+escHtml(t('roam_auto_sibling'))+'</td></tr>');
   const tb=document.getElementById('roam-nb-tbody');
-  if(tb)tb.innerHTML=rows.concat(auto).join('')||'<tr><td colspan="7" style="color:var(--muted)">'+escHtml(t('roam_nb_none'))+'</td></tr>';
+  if(tb)tb.innerHTML=rows.concat(auto).join('')||'<tr><td colspan="8" style="color:var(--muted)">'+escHtml(t('roam_nb_none'))+'</td></tr>';
   const count=(editable?c.neighbours.length:0)+(c.siblings||[]).length;
   setText('roam-nb-count',t('roam_nb_count',{n:count}));
   roamRenderDirectory();
@@ -19500,7 +19893,7 @@ function roamSameBand(a,b){return a!=null&&b!=null&&(a&0x3f0)===(b&0x3f0);}
 function roamMatch(n,c){
   const dir=roamData&&roamData.directory;if(!dir)return null;
   const ext=n.main_carrier_number_extension!=null?n.main_carrier_number_extension:c.carrier_ext;
-  const mcc=n.mcc!=null?n.mcc:roamData.mcc,mnc=n.mnc!=null?n.mnc:roamData.mnc;
+  const d=roamCellMm(c),mcc=n.mcc!=null?n.mcc:d[0],mnc=n.mnc!=null?n.mnc:d[1];
   const la=n.location_area!=null?n.location_area:c.location_area;
   return dir.find(e=>e.mcc===mcc&&e.mnc===mnc&&e.carrier===n.main_carrier_number&&roamSameBand(e.carrier_ext,ext)&&e.location_area===la)||null;
 }
@@ -19508,7 +19901,8 @@ function roamMatch(n,c){
 // absent LA in its entry is e's own.
 function roamListsCell(e,c){
   if(!e.neighbours)return null;
-  return e.neighbours.some(x=>x.mcc===roamData.mcc&&x.mnc===roamData.mnc&&x.carrier===c.main_carrier&&roamSameBand(x.carrier_ext,c.carrier_ext)&&(x.location_area!=null?x.location_area:e.location_area)===c.location_area);
+  const d=roamCellMm(c);
+  return e.neighbours.some(x=>x.mcc===d[0]&&x.mnc===d[1]&&x.carrier===c.main_carrier&&roamSameBand(x.carrier_ext,c.carrier_ext)&&(x.location_area!=null?x.location_area:e.location_area)===c.location_area);
 }
 // Where neighbour entry n of cell c differs from what the cell e broadcasts. An absent element means
 // "same as the serving cell" (table 18.64 note 2), so the serving cell's own value is compared then.
@@ -19543,12 +19937,14 @@ function roamServerCell(n,c){
   if(!roamData.directory)return '<span style="color:var(--muted)">—</span>';
   const e=roamMatch(n,c);
   if(!e)return '<span style="color:var(--muted)">'+escHtml(t('roam_dir_unknown'))+'</span>';
-  let h=roamDot(e.online)+escHtml(e.id)+(e.online?'':' <span style="color:var(--muted)">'+escHtml(t('roam_offline'))+'</span>');
+  // One block: the cell id on its own line (never broken), the warnings below it (phones stack the
+  // cell's children side by side otherwise).
+  let h='<div class="roam-srv"><span style="white-space:nowrap">'+roamDot(e.online)+escHtml(e.id)+(e.online?'':' <span style="color:var(--muted)">'+escHtml(t('roam_offline'))+'</span>')+'</span>';
   const warn=[];
   if(roamListsCell(e,c)===false)warn.push(t('roam_not_mutual',{id:e.id}));
   roamDiffs(n,c,e).forEach(x=>warn.push(x));
-  warn.forEach(w=>{h+='<div style="color:var(--warn,#c98a00);font-size:12px">⚠ '+escHtml(w)+'</div>';});
-  return h;
+  warn.forEach(w=>{h+='<div style="color:var(--warn,#c98a00);font-size:12px;margin-top:4px">⚠ '+escHtml(w)+'</div>';});
+  return h+'</div>';
 }
 function roamRenderDirectory(){
   const tb=document.getElementById('roam-dir-tbody');if(!tb||!roamData)return;
@@ -19556,7 +19952,7 @@ function roamRenderDirectory(){
   const offered=((roamData.brew||{}).extensions||[]).some(x=>x.name==='cell-directory'&&x.offered);
   const pick=document.getElementById('rm-n-pick'),pickRow=document.getElementById('rm-n-pick-row');
   if(pickRow)pickRow.style.display=dir&&dir.length?'':'none';
-  if(pick&&dir)pick.innerHTML='<option value="">—</option>'+dir.map((e,i)=>'<option value="'+i+'">'+escHtml(e.id+' · '+e.carrier+' · '+roamMhz(e.carrier,e.carrier_ext)+' · LA '+e.location_area+(e.online?'':' · '+t('roam_offline')))+'</option>').join('');
+  if(pick&&dir)pick.innerHTML='<option value="">—</option>'+dir.map((e,i)=>'<option value="'+i+'">'+escHtml(e.id+' · '+e.carrier+' · '+roamMhz(e.carrier,e.carrier_ext)+' · LA '+e.location_area+' · '+e.mcc+'/'+e.mnc+(e.online?'':' · '+t('roam_offline')))+'</option>').join('');
   if(!dir){tb.innerHTML='';setText('roam-dir-note',t(offered?'roam_dir_wait':'roam_dir_off'));return;}
   setText('roam-dir-note',t('roam_dir_count',{n:dir.length}));
   const own=c=>c.primary||c.own_list?c.neighbours:[];
@@ -19570,18 +19966,19 @@ function roamRenderDirectory(){
       '<td data-label="'+escHtmlAttr(t('roam_th_state'))+'"><span style="white-space:nowrap">'+roamDot(e.online)+escHtml(t(e.online?'roam_online':'roam_offline'))+'</span></td>'+
       '<td data-label="'+escHtmlAttr(t('cells_carrier'))+'">'+roamCarrier(e.carrier,e.carrier_ext)+'</td>'+
       '<td data-label="LA">'+e.location_area+'</td>'+
+      '<td data-label="MCC/MNC">'+e.mcc+'/'+e.mnc+'</td>'+
       '<td data-label="'+escHtmlAttr(t('roam_th_levels'))+'">'+escHtml(lv)+'</td>'+
       '<td data-label="'+escHtmlAttr(t('roam_th_listed_here'))+'">'+escHtml(by.length?by.join(', '):t('roam_dir_none'))+'</td>'+
       '<td data-label="'+escHtmlAttr(t('roam_th_lists_us'))+'">'+escHtml(e.neighbours?(back.length?back.join(', '):t('roam_dir_none')):'—')+'</td>'+
       '<td data-label="'+escHtmlAttr(t('th_actions'))+'">'+(listed>=0?'<button class="btn btn-sm" onclick="roamEditListed('+listed+')">'+escHtml(t('roam_edit'))+'</button>':'<button class="btn btn-sm" onclick="roamAddFromDir('+i+')">'+escHtml(t('roam_dir_add'))+'</button>')+'</td></tr>';
-  }).join('')||'<tr><td colspan="8" style="color:var(--muted)">'+escHtml(t('roam_dir_empty'))+'</td></tr>';
+  }).join('')||'<tr><td colspan="9" style="color:var(--muted)">'+escHtml(t('roam_dir_empty'))+'</td></tr>';
 }
 // Fill the open editor from directory cell i: carrier, band plan, LA, network when foreign, the
 // levels and services the cell broadcasts.
 function roamPick(i){
   const e=roamData&&roamData.directory&&roamData.directory[parseInt(i,10)];if(!e)return;
   vcSet('rm-n-carrier',String(e.carrier));vcSet('rm-n-ext',String(e.carrier_ext));vcSet('rm-n-la',String(e.location_area));
-  const foreign=e.mcc!==roamData.mcc||e.mnc!==roamData.mnc;
+  const own=roamCellMm(roamCell()),foreign=e.mcc!==own[0]||e.mnc!==own[1];
   vcSet('rm-n-mcc',foreign?String(e.mcc):'');vcSet('rm-n-mnc',foreign?String(e.mnc):'');
   vcSet('rm-n-rxlev',e.rxlev_access_min_dbm!=null?String((e.rxlev_access_min_dbm+125)/5):'');
   vcSet('rm-n-txpwr',e.ms_txpwr_max_dbm!=null?String((e.ms_txpwr_max_dbm-10)/5):'');
@@ -19620,6 +20017,8 @@ function roamNew(){
   roamRenderNeighbours();
 }
 function roamFillEditor(n){
+  // Empty MCC/MNC = the serving cell's network (table 18.64): shown as the placeholder.
+  {const d=roamCellMm(roamCell());const a=document.getElementById('rm-n-mcc'),b=document.getElementById('rm-n-mnc');if(a)a.placeholder=String(d[0]);if(b)b.placeholder=String(d[1]);setText('rm-n-mm-hint',t('roam_n_mm_hint',{mm:d[0]+'/'+d[1]}));}
   const v=x=>x==null?'':String(x);
   vcSet('rm-n-id',v(n.cell_identifier_ca));vcSet('rm-n-carrier',v(n.main_carrier_number));vcSet('rm-n-ext',v(n.main_carrier_number_extension));
   vcSet('rm-n-types',v(n.cell_reselection_types_supported));vcSet('rm-n-load',v(n.cell_load_ca));vcSet('rm-n-la',v(n.location_area));
@@ -19711,6 +20110,12 @@ function roamRenderLinks(){
   vcSet('rm-tel-lat',l?l.latitude:ROAM_DEFAULT_POS.lat);
   vcSet('rm-tel-lon',l?l.longitude:ROAM_DEFAULT_POS.lon);
 }
+// Remote command / control off: same double confirmation as Fleet Control (it runs over this channel).
+async function roamCmdToggle(box){
+  const was=!!(roamData&&roamData.command&&roamData.command.enabled);
+  if(!box.checked&&was&&!await confirmTwice(t('cmd_off_title'),t('cmd_off_body1'),t('cmd_off_body2')))box.checked=true;
+  roamLinkState('cmd');
+}
 function roamLinkState(p){
   const on=!!(document.getElementById('rm-'+p+'-on')||{}).checked;
   setText('rm-'+p+'-state',t(on?'roam_mn_on':'roam_mn_off'));
@@ -19758,6 +20163,10 @@ async function roamSave(extra){
   if(extra&&typeof extra==='object'&&!(extra instanceof Event))Object.assign(body,extra);
   if(body.cells[0].location_area==null){setText('roam-msg',t('roam_need_la'));return false;}
   if(!confirm(t('roam_confirm_save')))return false;
+  // Command channel switched off while Fleet Control is on: switch Fleet Control off first, so the
+  // server logs it (admins and fleet managers see it) before the channel goes away.
+  {const f=(roamData&&roamData.fleet_control)||fleetState;
+   if(roamData.command&&roamData.command.enabled&&!body.command.enabled&&f&&f.enabled){try{await fleetPost({enabled:false});await new Promise(r=>setTimeout(r,1500));}catch(e){}}}
   try{
     const r=await fetch('/api/roaming',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     setText('roam-msg',await r.text());
@@ -22225,9 +22634,22 @@ input:focus{border-color:var(--accent2);background:var(--bg4);}
   input[type="text"],input[type="password"]{font-size:16px;padding:14px 14px;}
   .btn-login{font-size:15px;padding:14px 16px;min-height:48px;}
 }
+/* Fleet Control maintenance / live-update banner (same look as in the dashboard). */
+.maint-banner{position:fixed;top:0;left:0;right:0;z-index:50;display:none;align-items:center;gap:12px;
+  padding:12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  background:repeating-linear-gradient(135deg,#c62828 0 18px,#b71c1c 18px 36px);color:#fff;
+  box-shadow:0 4px 14px rgba(0,0,0,.25);}
+.maint-banner svg{width:26px;height:26px;flex-shrink:0;}
+.maint-title{font-size:16px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;}
+.maint-sub{font-size:13px;font-weight:500;opacity:.95;margin-top:3px;}
+@media (max-width:640px){.maint-title{font-size:14px;}.maint-sub{font-size:12px;}}
 </style>
 </head>
 <body>
+<div id="maint-banner" class="maint-banner" role="alert">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <div><div class="maint-title" id="maint-title"></div><div class="maint-sub" id="maint-sub"></div></div>
+</div>
 <div class="login-card">
   <div class="logo-wrap">
     <div class="logo-mark">
@@ -22341,7 +22763,87 @@ form.addEventListener('submit', async (e) => {
 if (window.innerWidth > 600) {
   document.getElementById('username').focus();
 }
+// Fleet Control banner: the server's maintenance flag or a live update (RF on) must be visible
+// before login too. /api/fleet-banner is open without a session and carries only this status.
+const MAINT_I18N={
+  en:{t:'Maintenance: work on this base station in progress',by:'Set by {by} from the Brew server · ends in {min} min',noby:'Set from the Brew server · ends in {min} min',lt:'Live system update: RF on!',ls:'The station is building a new version and stays on the air; the service restarts when it is done.'},
+  es:{t:'Mantenimiento: se está trabajando en esta estación base',by:'Activado por {by} desde el servidor Brew · termina en {min} min',noby:'Activado desde el servidor Brew · termina en {min} min',lt:'Actualización en vivo: ¡RF activa!',ls:'La estación compila una nueva versión y sigue en el aire; el servicio se reinicia al terminar.'},
+  de:{t:'Wartung: Es wird an der Basisstation gearbeitet',by:'Gesetzt von {by} am Brew-Server · endet in {min} min',noby:'Gesetzt am Brew-Server · endet in {min} min',lt:'Live-Systemupdate: RF an!',ls:'Die Station baut eine neue Version und bleibt auf Sendung; danach startet der Dienst neu.'},
+};
+const M=MAINT_I18N[_lang]||MAINT_I18N.en;
+async function refreshMaintBanner(){
+  if(document.hidden)return;
+  let f;
+  try{const r=await fetch('/api/fleet-banner',{credentials:'same-origin',cache:'no-store'});if(!r.ok)return;f=await r.json();}catch(e){return;}
+  const b=document.getElementById('maint-banner');
+  const live=f.live_update,m=f.maintenance;
+  if(!live&&!m){b.style.display='none';document.body.style.paddingTop='';return;}
+  const title=document.getElementById('maint-title'),sub=document.getElementById('maint-sub');
+  if(live){
+    title.textContent=M.lt;
+    sub.textContent=M.ls+(live.percent!=null?' · '+live.percent+' %':'');
+  }else{
+    const min=String(Math.max(1,Math.ceil((m.left_secs||0)/60)));
+    title.textContent=M.t;
+    sub.textContent=(m.by?M.by.replace('{by}',m.by):M.noby).replace('{min}',min)+(m.reason?' · '+m.reason:'');
+  }
+  b.style.display='flex';
+  document.body.style.paddingTop=(b.offsetHeight+20)+'px';
+}
+refreshMaintBanner();
+setInterval(refreshMaintBanner,5000);
 </script>
 </body>
 </html>
 "##;
+
+#[cfg(test)]
+mod tests {
+    use super::DASHBOARD_HTML as H;
+
+    #[test]
+    fn switching_remote_management_off_asks_twice_with_swapped_buttons() {
+        // Sebastian 2026-11-12: "I understand" left + red Cancel right, then Cancel left + red Yes.
+        assert!(H.contains("okFirst:true,okClass:'btn-primary',cancelClass:'btn-danger-solid'"));
+        assert!(H.contains("confirmLabel:t('fleet_off_yes'),okClass:'btn-danger-solid'"));
+        assert!(H.contains("if(!on&&!await confirmTwice(t('fleet_off_title')"));
+        assert!(H.contains(r#"id="rm-cmd-on" onchange="roamCmdToggle(this)""#));
+        assert!(H.contains("await confirmTwice(t('cmd_off_title')"));
+        for k in ["fleet_off_body2:", "cmd_off_body2:", "fleet_off_understood:"] {
+            assert_eq!(H.matches(k).count(), 3, "{k} in en, de and es");
+        }
+    }
+
+    #[test]
+    fn last_heard_shows_a_guest_with_its_home_issi() {
+        // Sebastian 2026-11-15: Last Heard still showed only the (V)ASSI of a Multi Network guest.
+        assert!(H.contains("state.lastHeard.unshift({ts,issi,activity,dest,home});"));
+        assert!(H.contains("const issiHtml=msIdCell({issi:e.issi,home:lastHeardHome(e)},online);"));
+        assert!(H.contains("<td>${msIdCell({issi:e.issi,home:lastHeardHome(e)},'')}</td>"));
+        assert!(!H.contains("<td>${typeof idCell==='function'?idCell(e.issi)"), "LST activity rows too");
+    }
+
+    #[test]
+    fn neighbour_tables_always_show_mcc_mnc() {
+        assert!(H.contains(r#"'<td data-label="MCC/MNC">'+roamMmText(n.mcc,n.mnc,c)+'</td>'"#));
+        assert!(H.contains(r#"'<td data-label="MCC/MNC">'+e.mcc+'/'+e.mnc+'</td>'"#));
+        assert_eq!(H.matches("<th>MCC/MNC</th>").count(), 2, "neighbour table and server cell list");
+        assert!(H.contains("setText('rm-n-mm-hint'"));
+    }
+
+    #[test]
+    fn server_cell_warning_sits_under_the_cell_id() {
+        // Sebastian 2026-11-13 (phone): the warning beside the id broke "1000001/0" into pieces.
+        assert!(H.contains(r#"let h='<div class="roam-srv"><span style="white-space:nowrap">'+roamDot(e.online)"#));
+        assert!(H.contains("return h+'</div>';"));
+    }
+
+    #[test]
+    fn system_page_sets_the_default_language_and_restarts() {
+        assert!(H.contains(r#"<select id="sys-lang" class="form-input" style="width:auto;min-width:170px" onchange="sysLangChange(this)">"#));
+        let f = &H[H.find("async function sysLangChange").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        assert!(f.contains("'/api/setup/language'") && f.contains("'/api/service/restart'"), "stores, then restarts");
+        assert_eq!(H.matches("sys_lang_confirm:").count(), 3, "en, de, es");
+    }
+}

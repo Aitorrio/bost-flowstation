@@ -190,6 +190,12 @@ pub enum DlSchedElem {
     /// A received MAC-ACCESS PDU still has to be acknowledged
     RandomAccessAck(TetraAddress),
 
+    /// Acknowledgement of a random access on an assigned channel that is answered by a grant
+    /// (TS 100 392-2 clause 23.5.1.4.8). It goes out in the MAC-RESOURCE that carries the grant;
+    /// when the grant is dropped (downlink back in traffic mode) it is dropped with it, so it can
+    /// never end up on a later, unrelated PDU to the same radio.
+    GrantRandomAccessAck(TetraAddress),
+
     /// A slotgrant response, which has to be transmitted with high priority or the delay numbers will be off.
     /// ssi, BasicSlotgrant, and an optional usage_marker are provided. When the grant covers >1 slot the
     /// scheduler allocates a usage marker so AACH and the MacResource ACK can identify the reservation
@@ -972,6 +978,22 @@ impl BsChannelScheduler {
         self.dltx_queues[ts as usize - 1].push(elem);
     }
 
+    /// Acknowledges a random access on an assigned channel together with the grant that answers
+    /// it. Enqueue it after `dl_enqueue_grant` for the same address and timeslot.
+    pub fn dl_enqueue_grant_random_access_ack(&mut self, ts: u8, addr: TetraAddress) {
+        tracing::debug!(
+            "dl_enqueue_grant_random_access_ack: ts {} acknowledging random access of {} with its grant",
+            ts,
+            addr
+        );
+        self.dltx_queues[ts as usize - 1].push(DlSchedElem::GrantRandomAccessAck(addr));
+    }
+
+    /// True when the uplink slot at `ts` is reserved for a radio (granted signalling).
+    pub fn ul_slot_is_reserved(&self, ts: TdmaTime) -> bool {
+        self.ulsched[ts.t as usize - 1][self.ul_ts_to_sched_index(&ts)].ul1.is_some()
+    }
+
     fn identify_timeslots_for_ssi(&self, addr: Option<TetraAddress>, link_id: LinkId) -> [u8; NUM_TIMESLOTS] {
         let Some(addr) = addr else {
             tracing::warn!("identify_timeslots_for_ssi: MAC-RESOURCE has no address, dropping");
@@ -1369,7 +1391,10 @@ impl BsChannelScheduler {
 
         let mut i = 0;
         while i < queue.len() {
-            if matches!(queue[i], DlSchedElem::Grant(..) | DlSchedElem::RandomAccessAck(_)) {
+            if matches!(
+                queue[i],
+                DlSchedElem::Grant(..) | DlSchedElem::RandomAccessAck(_) | DlSchedElem::GrantRandomAccessAck(_)
+            ) {
                 let elem = queue.remove(i);
                 taken.push(elem);
             } else {
@@ -1418,8 +1443,9 @@ impl BsChannelScheduler {
                         self.pending_ra_acks[timeslot as usize - 1].push(addr.ssi);
                     }
 
-                    DlSchedElem::Grant(..) | DlSchedElem::Broadcast(_) => {
-                        // Silently dropped as internal or not equipped with a tx_reporter
+                    DlSchedElem::Grant(..) | DlSchedElem::Broadcast(_) | DlSchedElem::GrantRandomAccessAck(_) => {
+                        // Silently dropped as internal or not equipped with a tx_reporter. A grant's
+                        // random access acknowledgement goes with its grant.
                     }
                     _ => unreachable!(),
                 }
@@ -1438,7 +1464,7 @@ impl BsChannelScheduler {
             // Try to find existing resource for this address
             let addr = match &elem {
                 DlSchedElem::Grant(addr, _, _) => addr,
-                DlSchedElem::RandomAccessAck(addr) => addr,
+                DlSchedElem::RandomAccessAck(addr) | DlSchedElem::GrantRandomAccessAck(addr) => addr,
                 _ => unreachable!("BUG: unhandled match variant -- should never be reached"),
             };
             let mac_resource = self.dl_get_scheduled_resource_for_ssi(ts, addr);
@@ -1463,7 +1489,7 @@ impl BsChannelScheduler {
                                 pdu.usage_marker = *usage_marker;
                             }
                         }
-                        DlSchedElem::RandomAccessAck(_) => {
+                        DlSchedElem::RandomAccessAck(_) | DlSchedElem::GrantRandomAccessAck(_) => {
                             tracing::debug!(
                                 "dl_integrate_sched_elems_for_timeslot: Integrating ack into resource for addr {}",
                                 addr
@@ -1488,7 +1514,7 @@ impl BsChannelScheduler {
                             pdu.usage_marker = *usage_marker;
                             pdu
                         }
-                        DlSchedElem::RandomAccessAck(_) => {
+                        DlSchedElem::RandomAccessAck(_) | DlSchedElem::GrantRandomAccessAck(_) => {
                             tracing::debug!(
                                 "dl_integrate_sched_elems_for_timeslot: Creating new resource for addr {} with ack",
                                 addr
@@ -1814,8 +1840,11 @@ impl BsChannelScheduler {
 
         let dl_is_traffic = dl_circuit_active && !hang_effective;
         // Preempt UL-watch: keep decoding UL voice while DL hangtime holds AssignedControl.
-        let ul_is_traffic =
-            ul_circuit_active && (!hang_effective || self.force_ul_traffic_decode(ts.t));
+        // A slot granted to a radio carries its signalling (SCH/F, clause 23.5.2), never speech:
+        // decoding it as TCH would swallow the radio's MAC-END and count it as uplink voice.
+        let ul_is_traffic = ul_circuit_active
+            && (!hang_effective || self.force_ul_traffic_decode(ts.t))
+            && !self.ul_slot_is_reserved(ts);
 
         // Build the block for this timeslot with anything scheduled (traffic or signalling)
         // For traffic timeslots, also check for FACCH/stealing (STCH half-slot)

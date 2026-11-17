@@ -115,7 +115,7 @@ fn used_ids(toml_text: &str) -> Result<Vec<u8>, String> {
 }
 
 /// DL/UL frequency of `main_carrier` with the primary cell's band plan.
-fn carrier_freqs(primary: &CfgCellInfo, main_carrier: u16) -> Result<(u32, u32), String> {
+pub(crate) fn carrier_freqs(primary: &CfgCellInfo, main_carrier: u16) -> Result<(u32, u32), String> {
     let mut cell = primary.clone();
     cell.main_carrier = main_carrier;
     cell.secondary_carrier = None;
@@ -126,7 +126,7 @@ fn carrier_freqs(primary: &CfgCellInfo, main_carrier: u16) -> Result<(u32, u32),
         .ok_or_else(|| "carrier has no frequency".to_string())
 }
 
-fn validated(toml_text: &str) -> Result<(), String> {
+pub(crate) fn validated(toml_text: &str) -> Result<(), String> {
     let cfg = parsing::from_toml_str(toml_text).map_err(|e| format!("resulting config does not parse: {e}"))?;
     cfg.validate().map_err(|e| format!("resulting config is invalid: {e}"))?;
     let soapies = std::iter::once(cfg.phy_io.soapysdr.as_ref()).chain(cfg.extra_cells.iter().map(|c| c.soapysdr.as_ref()));
