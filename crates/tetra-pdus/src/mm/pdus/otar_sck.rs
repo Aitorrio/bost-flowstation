@@ -93,7 +93,7 @@ fn write_tail(buffer: &mut BitBuffer, address_extension: Option<u64>) {
 /// One "SCK key and identifier" element (clause A.8.69), 143 bits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SckKeyAndIdentifier {
-    /// SCK number, 5 bits (1 … 32 on air as 0 … 31)
+    /// SCK number, 5 bits (0 … 31)
     pub sckn: u8,
     /// SCK version number, 16 bits
     pub sck_vn: u16,
@@ -362,7 +362,7 @@ impl fmt::Display for DOtarSckProvide {
             f,
             "DOtarSckProvide {{ {} key(s) [{}], ksg {}, {} }}",
             self.keys.len(),
-            self.keys.iter().map(|k| format!("SCK{} v{}", k.sckn + 1, k.sck_vn)).collect::<Vec<_>>().join(", "),
+            self.keys.iter().map(|k| format!("SCK{} v{}", k.sckn, k.sck_vn)).collect::<Vec<_>>().join(", "),
             self.ksg_number,
             match self.session_key {
                 OtarSessionKey::Individual { .. } => "individual (KSO)",

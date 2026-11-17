@@ -49,7 +49,7 @@ and TEA1 are ETSI-confidential and are not in this specification.
 ## 1. What class 2 is
 
 - One **static cipher key (SCK)**, 80 bits, shared by the infrastructure and every radio. Up to 32
-  SCKs are numbered by **SCKN** (1–32, sent as 5 bits); the network says which one is in use.
+  SCKs are numbered by **SCKN** (0–31, sent as 5 bits); the network says which one is in use.
 - No authentication. Anyone with the SCK can join; class 2 protects against passive listening only.
 - Signalling and traffic (voice) on the air are encrypted; the backhaul (site switch, Brew,
   Asterisk, LST) stays in clear, because each cell decrypts at its own MAC.
@@ -87,11 +87,11 @@ into `config.toml`.
 [security.aie]
 class = 2                 # 1 = clear (default), 2 = SCK
 ksg = 1                   # TEA1
-sckn = 1                  # 1..32
+sckn = 0                  # 0..31 (the number the radios show)
 sck = "0123456789ABCDEF0123"   # 80 bits hex — never shown in dashboard/telemetry/logs
 sck_vn = 0                # SCK version number loaded with the key (16 bits)
 ```
-Validation: sck exactly 20 hex digits, sckn 1–32, ksg 1–4. Extra cells inherit it. The key is
+Validation: sck exactly 20 hex digits, sckn 0–31, ksg 1–4. Extra cells inherit it. The key is
 redacted from every serialisation path (dashboard config view, telemetry, profiles export).
 
 ### Broadcast (UMAC SYSINFO / MLE)
@@ -199,7 +199,7 @@ encrypted radio says is ever sent in clear.
   `sysinfo_security()` (unchanged broadcast without AIE), `registration_decision()`,
   `may_communicate()`, `may_use_group()`.
 - Ciphering parameters decoded by `tetra_pdus::mm::fields::ciphering_parameters`. KSG number is
-  sent as TEA*n* − 1 and SCK number as SCKN − 1 (confirmed, §0).
+  sent as TEA*n* − 1; the SCK number field carries the SCK number itself (0–31, no offset).
 - MM: decision at U-LOCATION UPDATE DEMAND (reject causes 13–16 for a wrong KSG / key type /
   SCKN); per-radio mode in the client registry and in `SubscriberRegistry::encrypted`; attach
   requests for other-mode groups dropped (registration and U-ATTACH).

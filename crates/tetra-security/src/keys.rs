@@ -94,7 +94,7 @@ impl std::str::FromStr for CipherKey {
 #[derive(Default)]
 pub struct KeyStore {
     k: HashMap<Ssi, AuthKey>,
-    /// Static cipher keys by SCK number (1 … 32) for security class 2.
+    /// Static cipher keys by SCK number (0 … 31) for security class 2.
     sck: HashMap<u8, CipherKey>,
 }
 
@@ -124,9 +124,9 @@ impl KeyStore {
         self.k.keys().copied()
     }
 
-    /// Set a static cipher key. `sckn` is the SCK number, 1 … 32.
+    /// Set a static cipher key. `sckn` is the SCK number, 0 … 31.
     pub fn insert_sck(&mut self, sckn: u8, key: CipherKey) {
-        debug_assert!((1..=32).contains(&sckn));
+        debug_assert!(sckn <= 31);
         self.sck.insert(sckn, key);
     }
 

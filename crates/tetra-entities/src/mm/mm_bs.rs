@@ -4178,8 +4178,8 @@ impl MmBs {
         }
         let rso = random_nonce();
         let kso = ta41(&k.0, &rso);
-        // SCKN is 0-based on air (clause A.8.70: value 0 = SCK number 1).
-        let sckn_air = aie.sckn.saturating_sub(1) & 0x1f;
+        // SCKN on air is the SCK number itself, 0-31 (clause A.8.70).
+        let sckn_air = aie.sckn & 0x1f;
         let ssck = ta51(&aie.sck.0, aie.sck_vn, &kso, sckn_air);
         let pdu = DOtarSckProvide {
             ack_required: true,
@@ -4297,11 +4297,11 @@ impl MmBs {
     /// them, otherwise reject each requested number.
     fn rx_u_otar_sck_demand(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, pdu: UOtarSckDemand) {
         let cfg = self.config.config();
-        let ours = cfg.security.aie.as_ref().filter(|a| a.class3.is_none()).map(|a| (a.sckn.saturating_sub(1) & 0x1f, a.ksg.saturating_sub(1)));
+        let ours = cfg.security.aie.as_ref().filter(|a| a.class3.is_none()).map(|a| (a.sckn & 0x1f, a.ksg.saturating_sub(1)));
         tracing::info!(
             "MM: ISSI {} requests SCK(s) {:?} for KSG {}",
             issi,
-            pdu.sckns.iter().map(|n| n + 1).collect::<Vec<_>>(),
+            pdu.sckns.iter().copied().collect::<Vec<_>>(),
             pdu.ksg_number
         );
         match ours {
@@ -4343,7 +4343,7 @@ impl MmBs {
             );
             return;
         };
-        let sckn = result.sckn + 1; // SCKN on air is zero-based.
+        let sckn = result.sckn; // SCKN on air is the SCK number itself (0-31).
         if sckn != pending.sckn {
             tracing::warn!(
                 "MM: ignoring U-OTAR SCK RESULT from ISSI {} for SCK {} (pending SCK {})",
@@ -4706,9 +4706,9 @@ mod presence_tests {
             started: Instant::now(),
         });
         // SCK 23 must not consume a pending provision of SCK 24.
-        mm.rx_u_otar_sck_result(100, make_result(22));
-        assert!(mm.otar_pending.contains_key(&100));
         mm.rx_u_otar_sck_result(100, make_result(23));
+        assert!(mm.otar_pending.contains_key(&100));
+        mm.rx_u_otar_sck_result(100, make_result(24));
         assert!(!mm.otar_pending.contains_key(&100));
     }
 

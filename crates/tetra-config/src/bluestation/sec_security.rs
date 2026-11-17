@@ -173,7 +173,8 @@ pub struct CfgAie {
     pub enabled: bool,
     /// Key stream generator: 1 = TEA1 … 4 = TEA4.
     pub ksg: u8,
-    /// Static cipher key number advertised in SYSINFO, 1..=32.
+    /// Static cipher key number advertised in SYSINFO, 0..=31 (EN 300 392-7 Table A.96 — the same
+    /// number the radios and key-fill devices show).
     pub sckn: u8,
     pub sck: CipherKey,
     /// SCK version number (16 bits, EN 300 392-7 Table A.102). Broadcast in SYSINFO in turn with
@@ -419,7 +420,7 @@ fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
         let cck_id = dto.cck_id.ok_or("security.aie.cck_id is required for class 3")?;
         return Ok(Some(CfgAie {
             class3: Some(CfgClass3 { cck, cck_id }), enabled: true, ksg,
-            sckn: 1, sck: CipherKey([0; 10]), sck_vn: 0, clear_groups: Vec::new(),
+            sckn: 0, sck: CipherKey([0; 10]), sck_vn: 0, clear_groups: Vec::new(),
         }));
     }
     if dto.cck.is_some() || dto.cck_id.is_some() {
@@ -436,9 +437,9 @@ fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
     if !(1..=4).contains(&ksg) {
         return Err("security.aie.ksg must be 1-4 (TEA1-TEA4)".into());
     }
-    let sckn = dto.sckn.unwrap_or(1);
-    if !(1..=32).contains(&sckn) {
-        return Err("security.aie.sckn must be 1-32".into());
+    let sckn = dto.sckn.unwrap_or(0);
+    if sckn > 31 {
+        return Err("security.aie.sckn must be 0-31".into());
     }
     let Some(sck) = dto.sck.as_deref() else {
         return Err("security.aie.sck is required for class 2".into());
@@ -623,7 +624,7 @@ mod tests {
     fn aie_class2_parses_key_and_defaults() {
         let a = aie(2, Some("01 23 45 67 89 AB CD EF 01 23")).unwrap().unwrap();
         assert_eq!(a.sck.0, [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01, 0x23]);
-        assert_eq!((a.ksg, a.sckn), (1, 1));
+        assert_eq!((a.ksg, a.sckn), (1, 0));
         assert!(!format!("{a:?}").contains("23"), "key must not appear in Debug output");
     }
 
