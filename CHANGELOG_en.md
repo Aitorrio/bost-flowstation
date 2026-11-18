@@ -2,6 +2,13 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.5.15 — Class-2 SCK: broadcast the security element + SwMI-initiated ciphering
+
+- **The cell now broadcasts its security information element.** SYSINFO alternated its two variants by *timeslot* parity, but the control channel (and thus almost every SYSINFO on a single-carrier cell) is always timeslot 1 — so the variant carrying the Security Information Element (security class + SCK number) was never sent. Radios that require that element to confirm a class-2 cell (e.g. Hytera) could not engage SCK encryption. The variants now alternate by frame number, so the security element is broadcast regularly on the MCCH.
+- **Advertise security class 2 only when there are no clear groups.** A cell with no `clear_groups` no longer advertises class 1 (clear registration), so a key-holding radio registers encrypted instead of falling back to clear.
+- **SwMI-initiated SCK ciphering.** A class-2 cell now ciphers an SCK-capable radio that attaches without requesting ciphering itself (`cipher_control = 0`), and the D-LOCATION-UPDATE-ACCEPT carries the Security-downlink element (ciphering parameters) so the radio switches to encrypted. Keyless radios are left clear.
+- **Advertise authentication required** in the class-2 SYSINFO security element.
+
 ## v0.5.14 — Per-ISSI home mode text and resend time in seconds
 
 - **Per-ISSI text.** `[[cell_info.home_mode_display.per_issi]]` (and `sds_broadcast`) sends an individual text to each listed radio while it is registered (right after it registers, then every interval, with an optional own `interval_seconds`), in addition to the group broadcast. Live SDS (`POST /api/live-sds`) accepts `dest_issi` for a single radio.
