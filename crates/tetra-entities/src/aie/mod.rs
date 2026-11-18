@@ -86,8 +86,8 @@ pub fn posture(cfg: &StackConfig) -> String {
 }
 
 /// The security part of the broadcast: the BS service details "AIE service" bit (D-MLE-SYSINFO)
-/// and the SYSINFO extended services element. Without AIE these are exactly what the cell has
-/// always sent.
+/// and the SYSINFO extended services element. Without AIE the security classes and the SCKN are
+/// zero (EN 300 392-7 Table A.104 note 1).
 pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices) {
     let mut ext = SysinfoExtendedServices {
         auth_required: false,
@@ -105,6 +105,11 @@ pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices)
         section_data: 0,
     };
     let Some(aie) = aie else {
+        // No air interface encryption on this cell: the security classes and the SCKN "have no
+        // meaning and shall be set to zero" (EN 300 392-7 Table A.104 note 1).
+        ext.class1_supported = false;
+        ext.class2_supported = false;
+        ext.sck_n = None;
         return (false, ext);
     };
     // Mixed cell: class 1 stays advertised so radios without AIE still register in clear.
@@ -238,10 +243,16 @@ mod tests {
     }
 
     #[test]
-    fn no_aie_broadcast_is_unchanged() {
+    fn no_aie_broadcast_has_zero_security_classes() {
         let (aie_service, ext) = sysinfo_security(None);
         assert!(!aie_service);
-        assert_eq!(ext.sck_n, Some(0));
+        // Table A.104 note 1: no meaning without AIE, set to zero.
+        assert!(!ext.auth_required && !ext.class1_supported && !ext.class2_supported && !ext.class3_supported);
+        assert_eq!(ext.sck_n, None);
+        let mut b = tetra_core::BitBuffer::new_autoexpand(20);
+        ext.to_bitbuf(&mut b);
+        b.seek(0);
+        assert_eq!(b.read_field(8, "security information").unwrap(), 0, "all 8 bits of the security element are zero");
         let (aie_service, ext) = sysinfo_security(Some(&aie()));
         assert!(aie_service);
         assert_eq!(ext.sck_n, Some(3));
