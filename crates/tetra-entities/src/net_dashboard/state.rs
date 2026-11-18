@@ -198,6 +198,10 @@ pub struct DashboardStateInner {
     pub cell_rf: BTreeMap<(u8, &'static str), serde_json::Value>,
     /// Most recent host system health snapshot (temps, voltages, power).
     pub last_sys_health: Option<SysHealthSnapshot>,
+    /// Rolling history of host sensor values (one sample per telemetry tick, ~2 s) keyed by sensor
+    /// name, plus [`SYS_HISTORY_TOTAL`] for total power. Sent on init so the System-tab graphs are
+    /// filled on connect / page reload.
+    pub sys_history: std::collections::HashMap<String, std::collections::VecDeque<f32>>,
     /// Most recent lite stack-health roll-up (Service/Backhaul/Radios/Congestion). Sent on init
     /// so the System Health tile paints immediately on connect.
     pub last_health: Option<crate::health::HealthSnapshot>,
@@ -250,6 +254,37 @@ pub struct SdrHealthSnapshot {
     pub temperature_c: Option<f32>,
     pub tx_gains: Vec<(String, f32)>,
     pub rx_gains: Vec<(String, f32)>,
+}
+
+/// Samples kept per host sensor (~2 s apart, so about 20 minutes).
+pub const SYS_HISTORY_MAX: usize = 600;
+/// History key for the total power draw.
+pub const SYS_HISTORY_TOTAL: &str = "__total_power";
+
+impl DashboardStateInner {
+    /// Append one sensor sample set to the rolling history; sensors that disappeared are dropped.
+    pub fn push_sys_history(&mut self, total_power_w: Option<f32>, sensors: &[crate::net_telemetry::events::SysSensor]) {
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let push = |hist: &mut std::collections::HashMap<String, std::collections::VecDeque<f32>>, key: &str, v: f32| {
+            if !v.is_finite() {
+                return;
+            }
+            let q = hist.entry(key.to_string()).or_default();
+            if q.len() >= SYS_HISTORY_MAX {
+                q.pop_front();
+            }
+            q.push_back(v);
+        };
+        if let Some(w) = total_power_w {
+            push(&mut self.sys_history, SYS_HISTORY_TOTAL, w);
+            seen.insert(SYS_HISTORY_TOTAL);
+        }
+        for sn in sensors {
+            push(&mut self.sys_history, &sn.name, sn.value);
+            seen.insert(sn.name.as_str());
+        }
+        self.sys_history.retain(|k, _| seen.contains(k.as_str()));
+    }
 }
 
 pub const LAST_HEARD_MAX: usize = 50;
@@ -357,6 +392,7 @@ impl DashboardStateInner {
             last_sdr_health: None,
             cell_rf: BTreeMap::new(),
             last_sys_health: None,
+            sys_history: std::collections::HashMap::new(),
             last_health: None,
             boot_id: uuid::Uuid::new_v4().to_string(),
             started_at: Instant::now(),

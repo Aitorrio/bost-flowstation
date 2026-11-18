@@ -463,6 +463,18 @@ body{
   font-family:var(--mono);font-size:13px;font-weight:600;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.wg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.wg-field{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--text3)}
+.wg-field input{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px;min-width:0}
+.wg-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin:8px 0}
+.wg-peer{border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.wg-peer .wg-grid{width:100%}
+.sys-spark{width:100%;height:22px;display:block;margin-top:2px}
+.sys-spark polyline{fill:none;stroke:var(--accent2);stroke-width:1.4;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.sys-spark.temperature polyline{stroke:var(--warn)}
+.sys-bigspark{width:100%;height:70px;display:block;background:var(--bg);border:1px solid var(--border);border-radius:6px}
+.sys-bigspark polyline{fill:none;stroke:var(--accent2);stroke-width:1.6;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.sys-bigspark-cap{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:3px}
 .sys-sensor-unit{
   font-size:10px;font-weight:500;color:var(--text3);margin-left:2px;
 }
@@ -6863,6 +6875,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <!-- WireGuard tunnel (wg-quick config file, managed by the station) -->
+      <div class="card" id="wg-card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="wg_title">WireGuard</div>
+          <div class="card-actions">
+            <span id="wg-state" class="card-sub"></span>
+            <button class="btn btn-sm" id="wg-toggle-btn" onclick="wgToggleUp()" style="display:none"></button>
+            <button class="btn btn-sm" onclick="wgLoad()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="wifi_refresh">Refresh</span></button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div class="banner banner-warn">
+            <span class="banner-ico" data-icon="alert"></span>
+            <div class="banner-body" data-i18n="wg_warn_lose_access">If you reach this dashboard through the tunnel, changing or stopping it will cut your session.</div>
+          </div>
+          <div id="wg-body" style="padding:14px 18px 16px">
+            <div class="wifi-list-empty" data-i18n="wifi_loading">Loading…</div>
+          </div>
+        </div>
+      </div>
+
       <!-- WiFi: status + saved + scan in one card with section separators -->
       <div class="card">
         <div class="card-head">
@@ -7100,6 +7133,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
         </div>
         <div class="card-body" style="padding:14px 18px">
+          <div id="sys-power-graph" style="display:none;margin-bottom:12px"></div>
           <div id="sys-sensors-empty" style="font-size:12px;color:var(--text3);font-style:italic;display:none" data-i18n="sys_sensors_empty">No sensors detected on this host.</div>
           <div id="sys-sensors-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));gap:8px"></div>
         </div>
@@ -7847,6 +7881,20 @@ const LANGS={
     "ui_language":"Language",
     "sys_power_reporting": "{n} sensor(s) reporting",
     "sys_power_total": "{value} W total",
+    "wg_title": "WireGuard",
+    "wg_warn_lose_access": "If you reach this dashboard through the tunnel, changing or stopping it will cut your session.",
+    "wg_not_installed": "WireGuard tools are not installed on this host (apt install wireguard-tools).",
+    "wg_up": "UP", "wg_down": "DOWN", "wg_start": "Start tunnel", "wg_stop": "Stop tunnel",
+    "wg_live": "Live status", "wg_handshake": "Last handshake", "wg_never": "never",
+    "wg_interface": "Interface", "wg_address": "Address(es)", "wg_listen_port": "Listen port", "wg_mtu": "MTU", "wg_dns": "DNS",
+    "wg_private_key": "Private key", "wg_key_stored": "stored — leave empty to keep", "wg_generate": "Generate a new private key",
+    "wg_public_key": "This station's public key (give it to the peer)", "wg_copy": "Copy",
+    "wg_peers": "Peers", "wg_add_peer": "Add peer", "wg_remove_peer": "Remove peer",
+    "wg_peer_key": "Peer public key", "wg_endpoint": "Endpoint (host:port)", "wg_allowed_ips": "Allowed IPs / networks",
+    "wg_keepalive": "Persistent keepalive (s)", "wg_psk": "Preshared key", "wg_remove_psk": "Remove preshared key",
+    "wg_save": "Save", "wg_saved": "Saved.", "wg_apply": "Restart the tunnel after saving (if it is up)", "wg_boot": "Start at boot",
+    "wg_unmanaged": "The config has directives this editor does not manage; saving drops them:", "wg_overwrite": "Overwrite anyway",
+    "sys_history_hint": "Last {min} min · min {lo} · avg {avg} · max {hi}",
     "dapnet_no_messages": "No DAPNET messages yet",
     "geo_no_events": "No GeoAlarm events yet",
     "geo_alarm_status": "ALARM",
@@ -8924,6 +8972,20 @@ const LANGS={
     sys_bts:'BTS-Verbindung',
   },
   es:{
+    wg_title:'WireGuard',
+    wg_warn_lose_access:'Si accedes a este panel a través del túnel, cambiarlo o pararlo cortará tu sesión.',
+    wg_not_installed:'Las herramientas de WireGuard no están instaladas en este equipo (apt install wireguard-tools).',
+    wg_up:'ACTIVO', wg_down:'PARADO', wg_start:'Iniciar túnel', wg_stop:'Parar túnel',
+    wg_live:'Estado en vivo', wg_handshake:'Último handshake', wg_never:'nunca',
+    wg_interface:'Interfaz', wg_address:'Dirección(es)', wg_listen_port:'Puerto de escucha', wg_mtu:'MTU', wg_dns:'DNS',
+    wg_private_key:'Clave privada', wg_key_stored:'guardada — déjalo vacío para conservarla', wg_generate:'Generar una clave privada nueva',
+    wg_public_key:'Clave pública de esta estación (dásela al peer)', wg_copy:'Copiar',
+    wg_peers:'Peers', wg_add_peer:'Añadir peer', wg_remove_peer:'Quitar peer',
+    wg_peer_key:'Clave pública del peer', wg_endpoint:'Endpoint (host:puerto)', wg_allowed_ips:'IPs / redes permitidas',
+    wg_keepalive:'Keepalive persistente (s)', wg_psk:'Clave precompartida', wg_remove_psk:'Quitar la clave precompartida',
+    wg_save:'Guardar', wg_saved:'Guardado.', wg_apply:'Reiniciar el túnel al guardar (si está activo)', wg_boot:'Iniciar con el sistema',
+    wg_unmanaged:'La configuración tiene directivas que este editor no gestiona; al guardar se pierden:', wg_overwrite:'Sobrescribir igualmente',
+    sys_history_hint:'Últimos {min} min · mín {lo} · media {avg} · máx {hi}',
     sys_lang:'Idioma predeterminado',sys_lang_browser:'Idioma del navegador (sin fijar)',sys_lang_confirm:'¿Fijar {lang} como idioma predeterminado de la estación? El servicio FlowStation se reinicia (unos 20 s fuera del aire).',
     fleet_off_title:'¿Desactivar el control de flota?',fleet_off_body1:'Se desactiva el control de flota. La gestión remota de esta estación base desde el servidor Brew (actualizaciones, reinicio, mantenimiento, cambios de configuración) queda desactivada hasta que se vuelva a activar aquí.',fleet_off_body2:'¿Seguro? Se avisa al administrador del sistema y a los gestores de flota (entrada en el registro de cambios del servidor Brew).',fleet_off_understood:'Lo he entendido',fleet_off_yes:'Sí, desactivar',cmd_off_title:'¿Desactivar el comando / control remoto?',cmd_off_body1:'Al guardar se desactiva el canal de control hacia el servidor. Los comandos remotos (kick, DGNA, SDS, reinicio) y el control de flota, la gestión remota de esta estación base, dejan de funcionar hasta que se vuelva a activar aquí.',cmd_off_body2:'¿Seguro? Se avisa al administrador del sistema y a los gestores de flota: primero se desactiva el control de flota, y el servidor Brew lo anota en su registro de cambios.',roam_n_mm_hint:'Vacío = la red de esta celda ({mm})',
     "ui_language":"Idioma",
@@ -12562,7 +12624,7 @@ async function networkProbeAvailable(){
 }
 
 async function networkRefresh(){
-  await Promise.all([networkLoadStatus(), networkLoadEthernetSaved(), wifiRefresh()]);
+  await Promise.all([networkLoadStatus(), networkLoadEthernetSaved(), wifiRefresh(), wgLoad()]);
 }
 
 function renderNetworkError(el,error){
@@ -12700,6 +12762,139 @@ function networkRenderEthernetSaved(){
     row.appendChild(actions);
     el.appendChild(row);
   });
+}
+
+// ── WireGuard ─────────────────────────────────────────────────────────────
+let wgState={data:null,peers:[],error:null};
+async function wgLoad(){
+  try{
+    const r=await fetch('/api/network/wireguard');
+    const j=await r.json();
+    if(!j.ok){wgState.error=(j.error&&j.error.msg)||'Error';wgState.data=null;}
+    else{
+      wgState.error=null;wgState.data=j.wireguard;
+      const c=j.wireguard.config;
+      wgState.peers=c&&c.peers?c.peers.map(function(p){return Object.assign({},p);}):[];
+      if(!wgState.peers.length)wgState.peers=[wgBlankPeer()];
+    }
+  }catch(e){wgState.error=String(e);wgState.data=null;}
+  wgRender();
+}
+function wgBlankPeer(){return {public_key:'',has_preshared_key:false,endpoint:'',allowed_ips:[],persistent_keepalive:25};}
+function wgFmtBytes(n){
+  if(n<1024)return n+' B';
+  if(n<1048576)return (n/1024).toFixed(1)+' KiB';
+  if(n<1073741824)return (n/1048576).toFixed(1)+' MiB';
+  return (n/1073741824).toFixed(2)+' GiB';
+}
+function wgFmtAge(s){
+  if(s==null)return t('wg_never')||'never';
+  if(s<90)return s+' s';
+  if(s<5400)return Math.round(s/60)+' min';
+  return Math.round(s/3600)+' h';
+}
+function wgInput(id,label,val,ph,type){
+  return '<label class="wg-field"><span>'+escHtml(label)+'</span><input id="'+id+'" type="'+(type||'text')+'" value="'+escAttr(val==null?'':val)+'" placeholder="'+escAttr(ph||'')+'" autocomplete="off" spellcheck="false"></label>';
+}
+function wgRender(){
+  const body=document.getElementById('wg-body');
+  const st=document.getElementById('wg-state');
+  const tb=document.getElementById('wg-toggle-btn');
+  if(!body)return;
+  const d=wgState.data;
+  if(wgState.error){body.innerHTML='<div class="wifi-list-empty" style="color:var(--danger)">'+escHtml(wgState.error)+'</div>';if(st)st.textContent='';if(tb)tb.style.display='none';return;}
+  if(!d){return;}
+  if(!d.installed){
+    body.innerHTML='<div class="wifi-list-empty">'+escHtml(t('wg_not_installed')||'WireGuard tools are not installed on this host (apt install wireguard-tools).')+'</div>';
+    if(st)st.textContent='';if(tb)tb.style.display='none';return;
+  }
+  const up=d.status&&d.status.up;
+  if(st){st.textContent=up?(t('wg_up')||'UP'):(t('wg_down')||'DOWN');st.style.color=up?'var(--ok)':'var(--text3)';}
+  if(tb){tb.style.display=d.exists?'':'none';tb.textContent=up?(t('wg_stop')||'Stop tunnel'):(t('wg_start')||'Start tunnel');tb.className='btn btn-sm'+(up?' btn-warn':'');}
+  const c=d.config||{addresses:[],dns:[]};
+  let h='';
+  if(d.unmanaged&&d.unmanaged.length){
+    h+='<div class="banner banner-warn" style="margin:0 0 12px"><span class="banner-ico" data-icon="alert"></span><div class="banner-body">'+escHtml(t('wg_unmanaged')||'The config has directives this editor does not manage; saving drops them:')+' <code>'+escHtml(d.unmanaged.join('; '))+'</code> <label style="display:block;margin-top:6px"><input type="checkbox" id="wg-overwrite"> '+escHtml(t('wg_overwrite')||'Overwrite anyway')+'</label></div></div>';
+  }
+  if(up&&d.status.peers&&d.status.peers.length){
+    h+='<div class="net-wifi-sec-head"><span>'+escHtml(t('wg_live')||'Live status')+'</span></div><div style="margin-bottom:12px">';
+    d.status.peers.forEach(function(p){
+      h+='<div class="wifi-row"><div class="wifi-row-main"><div class="wifi-row-ssid"><code>'+escHtml(p.public_key.slice(0,8))+'…</code> '+escHtml(p.endpoint||'')+'</div>'
+        +'<div class="wifi-row-meta">'+escHtml((t('wg_handshake')||'Handshake')+': '+wgFmtAge(p.handshake_age_s)+' · ↓ '+wgFmtBytes(p.rx_bytes)+' · ↑ '+wgFmtBytes(p.tx_bytes))+'</div></div></div>';
+    });
+    h+='</div>';
+  }
+  h+='<div class="net-wifi-sec-head"><span>'+escHtml(t('wg_interface')||'Interface')+' '+escHtml(d.iface)+'</span></div>';
+  h+='<div class="wg-grid">';
+  h+=wgInput('wg-addr',t('wg_address')||'Address(es)',(c.addresses||[]).join(', '),'10.8.0.2/24');
+  h+=wgInput('wg-port',t('wg_listen_port')||'Listen port',c.listen_port,'51820','number');
+  h+=wgInput('wg-mtu',t('wg_mtu')||'MTU',c.mtu,'1420','number');
+  h+=wgInput('wg-dns',t('wg_dns')||'DNS',(c.dns||[]).join(', '),'1.1.1.1');
+  h+=wgInput('wg-priv',t('wg_private_key')||'Private key',  '', d.has_private_key?(t('wg_key_stored')||'stored — leave empty to keep'):'paste key or generate','password');
+  h+='</div>';
+  h+='<label class="wg-check"><input type="checkbox" id="wg-gen"> '+escHtml(t('wg_generate')||'Generate a new private key')+'</label>';
+  if(d.public_key){h+='<div class="wifi-row-meta" style="margin:6px 0 0">'+escHtml(t('wg_public_key')||'This station\'s public key (give it to the peer)')+': <code id="wg-pub">'+escHtml(d.public_key)+'</code> <button class="btn btn-sm" onclick="wgCopyPub()">'+escHtml(t('wg_copy')||'Copy')+'</button></div>';}
+  h+='<div class="net-wifi-sec-head" style="margin-top:14px"><span>'+escHtml(t('wg_peers')||'Peers')+'</span><button class="btn btn-sm" onclick="wgAddPeer()">+ '+escHtml(t('wg_add_peer')||'Add peer')+'</button></div>';
+  wgState.peers.forEach(function(p,i){
+    h+='<div class="wg-peer" data-i="'+i+'"><div class="wg-grid">';
+    h+=wgInput('wg-pk-'+i,t('wg_peer_key')||'Peer public key',p.public_key,'');
+    h+=wgInput('wg-ep-'+i,t('wg_endpoint')||'Endpoint (host:port)',p.endpoint,'vpn.example.org:51820');
+    h+=wgInput('wg-ips-'+i,t('wg_allowed_ips')||'Allowed IPs / networks',(p.allowed_ips||[]).join(', '),'10.8.0.0/24, 192.168.50.0/24');
+    h+=wgInput('wg-ka-'+i,t('wg_keepalive')||'Persistent keepalive (s)',p.persistent_keepalive,'25','number');
+    h+=wgInput('wg-psk-'+i,t('wg_psk')||'Preshared key',  '', p.has_preshared_key?(t('wg_key_stored')||'stored — leave empty to keep'):'optional','password');
+    h+='</div>';
+    if(p.has_preshared_key)h+='<label class="wg-check"><input type="checkbox" id="wg-rmpsk-'+i+'"> '+escHtml(t('wg_remove_psk')||'Remove preshared key')+'</label>';
+    h+='<button class="btn btn-sm btn-danger" onclick="wgRemovePeer('+i+')">'+escHtml(t('wg_remove_peer')||'Remove peer')+'</button></div>';
+  });
+  h+='<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">';
+  h+='<button class="btn btn-primary" onclick="wgSave()">'+escHtml(t('wg_save')||'Save')+'</button>';
+  h+='<label class="wg-check" style="margin:0"><input type="checkbox" id="wg-apply" checked> '+escHtml(t('wg_apply')||'Restart the tunnel after saving (if it is up)')+'</label>';
+  h+='<label class="wg-check" style="margin:0"><input type="checkbox" id="wg-boot" '+(d.boot?'checked':'')+' onchange="wgBoot(this.checked)"> '+escHtml(t('wg_boot')||'Start at boot')+'</label>';
+  h+='</div><div id="wg-msg" class="wifi-row-meta" style="margin-top:8px"></div>';
+  body.innerHTML=h;
+}
+function wgList(v){return String(v||'').split(/[\s,]+/).map(function(x){return x.trim();}).filter(Boolean);}
+function wgMsg(txt,bad){const m=document.getElementById('wg-msg');if(m){m.textContent=txt;m.style.color=bad?'var(--danger)':'var(--ok)';}}
+function wgReadPeers(){
+  return wgState.peers.map(function(p,i){
+    const g=function(id){const e=document.getElementById(id);return e?e.value.trim():'';};
+    const ka=g('wg-ka-'+i);
+    const psk=g('wg-psk-'+i);
+    const rm=document.getElementById('wg-rmpsk-'+i);
+    const o={public_key:g('wg-pk-'+i),endpoint:g('wg-ep-'+i)||null,allowed_ips:wgList(g('wg-ips-'+i)),persistent_keepalive:ka===''?null:parseInt(ka,10)};
+    if(psk)o.preshared_key=psk;else if(rm&&rm.checked)o.preshared_key='';
+    return o;
+  });
+}
+function wgAddPeer(){wgState.peers=wgReadPeers().map(function(p,i){return Object.assign({has_preshared_key:(wgState.peers[i]||{}).has_preshared_key},p);});wgState.peers.push(wgBlankPeer());wgRender();}
+function wgRemovePeer(i){wgState.peers=wgReadPeers();wgState.peers.splice(i,1);if(!wgState.peers.length)wgState.peers=[wgBlankPeer()];wgRender();}
+async function wgSave(){
+  const g=function(id){const e=document.getElementById(id);return e?e.value.trim():'';};
+  const num=function(id){const v=g(id);return v===''?null:parseInt(v,10);};
+  const body={
+    config:{addresses:wgList(g('wg-addr')),listen_port:num('wg-port'),mtu:num('wg-mtu'),dns:wgList(g('wg-dns')),peers:wgReadPeers()},
+    apply:!!(document.getElementById('wg-apply')||{}).checked,
+    generate_private_key:!!(document.getElementById('wg-gen')||{}).checked,
+    overwrite_unmanaged:!!(document.getElementById('wg-overwrite')||{}).checked
+  };
+  const pk=g('wg-priv');if(pk)body.private_key=pk;
+  const j=await wifiCall('/api/network/wireguard/save',body);
+  if(j.ok){await wgLoad();wgMsg(t('wg_saved')||'Saved.',false);}
+  else wgMsg((j.error&&j.error.msg)||'Error',true);
+}
+async function wgToggleUp(){
+  const up=wgState.data&&wgState.data.status&&wgState.data.status.up;
+  const j=await wifiCall('/api/network/wireguard/'+(up?'down':'up'),{});
+  if(!j.ok){wgMsg((j.error&&j.error.msg)||'Error',true);return;}
+  await wgLoad();
+}
+async function wgBoot(en){
+  const j=await wifiCall('/api/network/wireguard/boot',{enable:!!en});
+  if(!j.ok){wgMsg((j.error&&j.error.msg)||'Error',true);await wgLoad();}
+}
+function wgCopyPub(){
+  const e=document.getElementById('wg-pub');
+  if(e&&navigator.clipboard)navigator.clipboard.writeText(e.textContent).catch(function(){});
 }
 
 async function networkEthUp(uuid){
@@ -14866,7 +15061,8 @@ function handleMsg(msg){
       if(msg.last_tx_quality){rfIngest('tx_quality',msg.last_tx_quality);}
       if(msg.last_sdr_health){rfIngest('sdr_health',msg.last_sdr_health);}
       (msg.cell_rf||[]).forEach(m=>rfIngest(m.type,m));
-      if(msg.last_sys_health){handleSysHealth(msg.last_sys_health);}
+      if(msg.sys_history){sysHist=msg.sys_history;}
+      if(msg.last_sys_health){handleSysHealth(msg.last_sys_health,true);}
       if(msg.health){handleHealth(msg.health);}
       syncDgnaAttachmentModePicker();
       renderAll();renderEmergencyBanner();refreshCallsigns();break;
@@ -21502,8 +21698,57 @@ function renderStationHealth(h){
   renderHealthTab(h);
 }
 
-function handleSysHealth(msg){
+// Rolling per-sensor history (name -> [values], ~2 s apart). Seeded from the server on connect
+// (`sys_history`), then appended to with every live sys_health message.
+let sysHist={};
+const SYS_HIST_MAX=600;
+const SYS_TOTAL_KEY='__total_power';
+function sysHistPush(key,v){
+  if(typeof v!=='number'||!isFinite(v))return;
+  const a=sysHist[key]||(sysHist[key]=[]);
+  a.push(v);
+  if(a.length>SYS_HIST_MAX)a.shift();
+}
+// Polyline points for a series scaled to a w x h box (flat series draw mid-height).
+function sysSparkPoints(a,w,h){
+  if(!a||a.length<2)return '';
+  let lo=Infinity,hi=-Infinity;
+  for(const v of a){if(v<lo)lo=v;if(v>hi)hi=v;}
+  const span=hi-lo;const pad=2;
+  return a.map(function(v,i){
+    const x=(i/(a.length-1))*w;
+    const y=span<1e-9?h/2:pad+(1-(v-lo)/span)*(h-2*pad);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+}
+function sysSparkSvg(a,cls){
+  const pts=sysSparkPoints(a,120,22);
+  if(!pts)return '';
+  return '<svg class="sys-spark '+cls+'" viewBox="0 0 120 22" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+pts+'"/></svg>';
+}
+function sysHistStats(a){
+  let lo=Infinity,hi=-Infinity,sum=0;
+  for(const v of a){if(v<lo)lo=v;if(v>hi)hi=v;sum+=v;}
+  return {lo:lo,hi:hi,avg:sum/a.length};
+}
+function renderSysPowerGraph(){
+  const box=document.getElementById('sys-power-graph');
+  if(!box)return;
+  const a=sysHist[SYS_TOTAL_KEY];
+  if(!a||a.length<2){box.style.display='none';return;}
+  const st=sysHistStats(a);
+  const f=function(v){return v.toFixed(2)+' W';};
+  const mins=Math.max(1,Math.round(a.length*2/60));
+  box.style.display='';
+  box.innerHTML='<svg class="sys-bigspark" viewBox="0 0 300 70" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+sysSparkPoints(a,300,70)+'"/></svg>'
+    +'<div class="sys-bigspark-cap">'+escHtml(t('sys_history_hint',{min:mins,lo:f(st.lo),avg:f(st.avg),hi:f(st.hi)}))+'</div>';
+}
+function handleSysHealth(msg,seeded){
   systemHealthCache=msg;
+  if(!seeded){
+    sysHistPush(SYS_TOTAL_KEY,msg&&msg.total_power_w);
+    ((msg&&msg.sensors)||[]).forEach(function(s){sysHistPush(s.name,s.value);});
+  }
   renderSystemHealth(msg);
 }
 function renderSystemHealth(msg){
@@ -21555,8 +21800,11 @@ function renderSystemHealth(msg){
     return `<div class="sys-sensor-tile">
       <div class="sys-sensor-label" title="${escHtmlAttr(s.name)}">${escHtml(s.name)}</div>
       <div class="sys-sensor-value" style="color:${valColor}">${s.value.toFixed(dp)} <span class="sys-sensor-unit">${unit}</span></div>
+      ${sysSparkSvg(sysHist[s.name],s.kind)}
     </div>`;
   }).join('');
+
+  renderSysPowerGraph();
 
   // Power total in card header
   if(totEl){
