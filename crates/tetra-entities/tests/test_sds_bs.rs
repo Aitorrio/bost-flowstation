@@ -206,6 +206,7 @@ fn test_sds_brew_forward() {
         whitelisted_ssis: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
 
@@ -267,6 +268,7 @@ fn brew_lip_test(dest_ssi: u32) -> Vec<u32> {
         whitelisted_ssis: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
     test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
@@ -476,6 +478,7 @@ fn test_brew_inbound_allowed_bypasses_whitelist_but_honors_local_ranges() {
         whitelisted_ssis: Some(vec![91]), // only GSSI 91 is whitelisted for OUTBOUND forwarding
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     let test = ComponentTest::from_config(config, None);
 
@@ -584,6 +587,7 @@ fn test_u_status_brew_forward() {
         whitelisted_ssis: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
 
@@ -1241,6 +1245,7 @@ fn brew_test_config() -> tetra_config::bluestation::StackConfig {
         whitelisted_ssis: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     config
 }

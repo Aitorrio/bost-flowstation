@@ -42,7 +42,15 @@ pub struct CfgBrew {
     /// (`system_wide_services=false`). Short 4G/5G blips do not flip the cell announcement.
     /// Active Brew calls are still released immediately on transport loss. Clamped 0..=60; default 3.
     pub backhaul_hysteresis_secs: u64,
+    /// Send the registrations and group affiliations of every radio to this Brew server again
+    /// every this many minutes (REREGISTER + AFFILIATE, as for a radio registering again), only
+    /// while no call runs over the link. 0 = off (default). Range when on: 10..=600.
+    pub reregister_minutes: u32,
 }
+
+/// Shortest and longest interval for [`CfgBrew::reregister_minutes`].
+pub const REREGISTER_MINUTES_MIN: u32 = 10;
+pub const REREGISTER_MINUTES_MAX: u32 = 600;
 
 #[derive(Default, Deserialize)]
 pub struct CfgBrewDto {
@@ -92,6 +100,10 @@ pub struct CfgBrewDto {
     #[serde(default = "default_brew_backhaul_hysteresis_secs")]
     pub backhaul_hysteresis_secs: u64,
 
+    /// Registrations sent to the server again every N minutes; 0 = off. Default: 0.
+    #[serde(default)]
+    pub reregister_minutes: u32,
+
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -129,6 +141,10 @@ pub fn apply_brew_patch(src: CfgBrewDto) -> CfgBrew {
         whitelisted_ssis: src.whitelisted_ssis,
         pbx_gateway_issis: src.pbx_gateway_issis,
         backhaul_hysteresis_secs: src.backhaul_hysteresis_secs.clamp(0, 60),
+        reregister_minutes: match src.reregister_minutes {
+            0 => 0,
+            m => m.clamp(REREGISTER_MINUTES_MIN, REREGISTER_MINUTES_MAX),
+        },
     }
 }
 
@@ -161,5 +177,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(apply_brew_patch(dto).backhaul_hysteresis_secs, 60);
+    }
+
+    #[test]
+    fn reregister_is_off_by_default_and_kept_in_range() {
+        let parse = |extra: &str| {
+            let dto: CfgBrewDto = toml::from_str(&format!("host = \"x\"\ntls = false\nusername = 1\npassword = \"p\"\n{extra}")).unwrap();
+            apply_brew_patch(dto).reregister_minutes
+        };
+        assert_eq!(parse(""), 0);
+        assert_eq!(parse("reregister_minutes = 0"), 0);
+        assert_eq!(parse("reregister_minutes = 3"), 10);
+        assert_eq!(parse("reregister_minutes = 60"), 60);
+        assert_eq!(parse("reregister_minutes = 9999"), 600);
     }
 }

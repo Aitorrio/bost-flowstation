@@ -196,6 +196,39 @@ fn apply_networks(table: &mut Table, list: &JsonValue) -> Result<(), String> {
     Ok(())
 }
 
+/// `"reregister": [{"network": s, "minutes": N}]`: re-registration per network with its own Brew
+/// server (`reregister_minutes` in `[networks.<name>.brew]`, or `[brew]` for the classic single
+/// network). 0 switches it off (key removed), otherwise 10..=600 minutes.
+fn apply_reregister(table: &mut Table, list: &JsonValue) -> Result<(), String> {
+    use tetra_config::bluestation::{REREGISTER_MINUTES_MAX, REREGISTER_MINUTES_MIN};
+    let list = list.as_array().ok_or_else(|| "reregister must be a list".to_string())?;
+    for (i, r) in list.iter().enumerate() {
+        let what = format!("reregister[{i}]");
+        let name = r.get("network").and_then(|v| v.as_str()).unwrap_or_default();
+        let minutes = int_in(r.get("minutes").unwrap_or(&JsonValue::Null), &format!("{what}.minutes"), 0, REREGISTER_MINUTES_MAX as i64)?;
+        if minutes != 0 && minutes < REREGISTER_MINUTES_MIN as i64 {
+            return Err(format!("{what}.minutes: {REREGISTER_MINUTES_MIN} to {REREGISTER_MINUTES_MAX} minutes, or 0 for off"));
+        }
+        let in_networks = table
+            .get("networks")
+            .and_then(|n| n.get(name))
+            .is_some_and(|e| e.get("brew").is_some_and(|b| b.is_table()));
+        let brew = if in_networks {
+            table_mut(table_mut(table_mut(table, "networks")?, name)?, "brew")?
+        } else if name == tetra_config::bluestation::DEFAULT_NETWORK && !table.contains_key("networks") && table.get("brew").is_some_and(|b| b.is_table()) {
+            table_mut(table, "brew")?
+        } else {
+            return Err(format!("{what}: network {name:?} has no Brew server of its own"));
+        };
+        if minutes == 0 {
+            brew.remove("reregister_minutes");
+        } else {
+            brew.insert("reregister_minutes".into(), TomlValue::Integer(minutes));
+        }
+    }
+    Ok(())
+}
+
 /// A network's own Brew server from the page (`"brew": {"host", "port", "tls", "username",
 /// "password"}`) as `[networks.<name>.brew]`. Keys the page does not edit stay as they are; an
 /// empty password keeps the saved one.
@@ -338,6 +371,8 @@ pub fn roaming_json(config_path: &str, shared: Option<&SharedConfig>) -> Result<
             // core: own Brew link; via: through another network's Brew server (mni); local: none.
             "mode": if n.via.is_some() { "via" } else if n.brew.is_some() { "core" } else { "local" },
             "host": n.brew.as_ref().map(|b| b.host.clone()),
+            // Registrations sent to its own Brew server again every N minutes (0 = off).
+            "reregister_minutes": if n.via.is_none() { n.brew.as_ref().map(|b| b.reregister_minutes) } else { None },
             "server_check": server_check(&cfg, n, server_networks.as_ref()),
         })).collect::<Vec<_>>(),
         // What the primary network's Brew server says it is and reaches (`SERVICE_NETWORKS`,
@@ -654,6 +689,10 @@ pub fn apply_roaming(original: &str, body: &JsonValue) -> Result<String, String>
 
     if let Some(list) = obj.get("networks") {
         apply_networks(&mut table, list)?;
+    }
+
+    if let Some(list) = obj.get("reregister") {
+        apply_reregister(&mut table, list)?;
     }
 
     for key in ["telemetry", "command"] {
@@ -1051,6 +1090,42 @@ main_carrier = 1525
             json!({"networks": [{"name": "lab", "mcc": 901, "mnc": 1234, "brew": {"host": "h", "password": "x"}}]}),
         ] {
             assert!(apply_roaming(&mn_base(), &bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn reregistration_is_set_per_network_with_its_own_brew_server() {
+        // Classic station: the one network's [brew].
+        let text = apply_roaming(BASE, &json!({"reregister": [{"network": "default", "minutes": 30}]})).unwrap();
+        assert_eq!(parsing::from_toml_str(&text).unwrap().brew.as_ref().unwrap().reregister_minutes, 30);
+        let f = write(&text);
+        let v = roaming_json(f.str(), None).unwrap();
+        assert_eq!(v["networks"][0]["reregister_minutes"], 30);
+        let off = apply_roaming(&text, &json!({"reregister": [{"network": "default", "minutes": 0}]})).unwrap();
+        assert!(!off.contains("reregister_minutes"), "{off}");
+
+        // Several networks: each its own.
+        let brew = json!({"host": "core.example.org", "port": 443, "tls": true, "username": 1000002, "password": "pw"});
+        let body = json!({
+            "networks": [{"name": "lab", "mcc": 901, "mnc": 1234, "via": null, "brew": brew}],
+            "cells": [{"id": 0, "network": "default"}, {"id": 1, "network": "lab"}],
+            "reregister": [{"network": "home", "minutes": 10}, {"network": "lab", "minutes": 600}],
+        });
+        let text = apply_roaming(&mn_base(), &body).unwrap();
+        let cfg = parsing::from_toml_str(&text).unwrap();
+        assert_eq!(cfg.network("home").unwrap().brew.as_ref().unwrap().reregister_minutes, 10);
+        assert_eq!(cfg.network("lab").unwrap().brew.as_ref().unwrap().reregister_minutes, 600);
+        let f = write(&text);
+        let v = roaming_json(f.str(), None).unwrap();
+        let net = |name: &str| v["networks"].as_array().unwrap().iter().find(|n| n["name"] == name).unwrap()["reregister_minutes"].clone();
+        assert_eq!((net("home"), net("lab")), (json!(10), json!(600)));
+
+        for bad in [
+            json!({"reregister": [{"network": "home", "minutes": 5}]}),
+            json!({"reregister": [{"network": "home", "minutes": 601}]}),
+            json!({"reregister": [{"network": "nowhere", "minutes": 30}]}),
+        ] {
+            assert!(apply_roaming(&text, &bad).is_err(), "{bad}");
         }
     }
 

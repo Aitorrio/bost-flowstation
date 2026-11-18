@@ -580,6 +580,7 @@ fn relay_brew() -> CfgBrew {
         lip_forward_issi: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     }
 }
 

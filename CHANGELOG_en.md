@@ -2,6 +2,11 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.5.16 — Periodic re-registration at the Brew server
+
+- **Periodic re-registration per network.** A station tells its Brew server about a radio once, when it registers; after that (periodic registration, answers to the presence check) it sends nothing more, so a quiet station can go for hours without telling the server about its radios. Some servers stop delivering a group's calls after a while like that (seen with TetraPack). New `reregister_minutes` in each network's `[brew]` (or `[networks.<name>.brew]`): every N minutes (10 to 600, 0 = off, off by default) the station sends every registered radio again with REREGISTER and AFFILIATE with its groups, as when a radio registers again. Nothing is deregistered first, so no group is ever empty at the server, and it waits while a call crosses the link. A Multi Network visitor goes under its home identities. On the Infrastructure page the Networks card has, for every network with its own Brew server (also the single network of a classic station), a **Re-registration** switch and a minutes field; saving restarts the station. Also on the Config page under Brew → **Advanced Brew** (**Re-registration** checkbox and minutes). See `Docs/networks.md`.
+- **Docs: the presence check also deregisters at Brew.** An unanswered check sends DEAFFILIATE and DEREGISTER to the Brew server; the radio is registered there again with its groups as soon as it answers the next check (new simulation in the tests). See `Docs/radio-presence.md`.
+
 ## v0.5.15 — Class-2 SCK: broadcast the security element + SwMI-initiated ciphering
 
 - **The cell now broadcasts its security information element.** SYSINFO alternated its two variants by *timeslot* parity, but the control channel (and thus almost every SYSINFO on a single-carrier cell) is always timeslot 1 — so the variant carrying the Security Information Element (security class + SCK number) was never sent. Radios that require that element to confirm a class-2 cell (e.g. Hytera) could not engage SCK encryption. The variants now alternate by frame number, so the security element is broadcast regularly on the MCCH.
