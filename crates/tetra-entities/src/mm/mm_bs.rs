@@ -1025,7 +1025,12 @@ impl MmBs {
             let cfg = self.config.config();
             let aie = crate::aie::effective(&cfg);
             (
-                crate::aie::registration_decision(aie, pdu.cipher_control, pdu.ciphering_parameters),
+                crate::aie::registration_decision(
+                    aie,
+                    pdu.cipher_control,
+                    pdu.ciphering_parameters,
+                    pdu.class_of_ms.as_ref().is_some_and(|c| c.sck_encryption),
+                ),
                 aie.map(crate::aie::preferred_parameters),
             )
         };
@@ -1364,6 +1369,16 @@ impl MmBs {
             self.sc3_cck(issi, "registration_sent");
             Some(AuthenticationDownlink { r1: true, tei_request: false, cck: Some(cck) })
         } else { None };
+        // Security downlink IE (EN 300 392-7): tell the MS which ciphering to apply as the
+        // 10-bit Ciphering parameters (KSG + security class + SCK number). Without this a radio
+        // that attached clear and is being ciphered by the infra never switches its traffic to
+        // SCK, so it stays clear and is refused on encrypted groups. Sent only when a cipher is
+        // negotiated (class 2 SCK); None leaves the accept clear exactly as before.
+        let security_downlink = ciphering.map(|params| tetra_core::typed_pdu_fields::Type3FieldGeneric {
+            field_id: 3, // MmType34ElemIdDl::SecurityDownlink
+            len: 10,
+            data: params.to_bits() as u128,
+        });
         // Build D-LOCATION UPDATE ACCEPT pdu
         let pdu_response = DLocationUpdateAccept {
             location_update_accept_type: accept_type,
@@ -1373,7 +1388,7 @@ impl MmBs {
             energy_saving_information: esi,
             scch_information_and_distribution_on_18th_frame: scch_info,
             new_registered_area: None,
-            security_downlink: None,
+            security_downlink,
             group_identity_location_accept: gila,
             default_group_attachment_lifetime: None,
             authentication_downlink,
@@ -4301,7 +4316,7 @@ impl MmBs {
         tracing::info!(
             "MM: ISSI {} requests SCK(s) {:?} for KSG {}",
             issi,
-            pdu.sckns.iter().copied().collect::<Vec<_>>(),
+            pdu.sckns.to_vec(),
             pdu.ksg_number
         );
         match ours {

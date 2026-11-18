@@ -4,6 +4,14 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## v0.5.15 — SCK clase 2: difusión del elemento de seguridad + cifrado iniciado por la red
+
+- **La celda ahora difunde su elemento de información de seguridad.** El SYSINFO alternaba sus dos variantes según la paridad del *intervalo* (timeslot), pero el canal de control (y por tanto casi todo SYSINFO en una celda de portadora única) va siempre en el intervalo 1, de modo que la variante que lleva el Elemento de Información de Seguridad (clase de seguridad + número de SCK) no se enviaba nunca. Las radios que necesitan ese elemento para confirmar una celda de clase 2 (p. ej. Hytera) no podían activar el cifrado SCK. Ahora las variantes alternan por número de trama, así que el elemento de seguridad se difunde con regularidad en el MCCH.
+- **Anunciar clase de seguridad 2 únicamente cuando no hay grupos en claro.** Una celda sin `clear_groups` deja de anunciar la clase 1 (registro en claro), de modo que una radio con clave se registra cifrada en lugar de caer a claro.
+- **Cifrado SCK iniciado por la red (SwMI).** Una celda de clase 2 cifra ahora una radio con capacidad SCK que se registra sin solicitar cifrado ella misma (`cipher_control = 0`), y el D-LOCATION-UPDATE-ACCEPT incluye el elemento Security downlink (parámetros de cifrado) para que la radio conmute a cifrado. Las radios sin clave permanecen en claro.
+- **Anunciar autenticación requerida** en el elemento de seguridad del SYSINFO de clase 2.
+- **Mantener el modo de cifrado a través de la re-registración.** Una radio de clase 2 se re-registra periódicamente (y el propio U-LOCATION-UPDATE-DEMAND llega en claro), pero permanece cifrada todo el tiempo. `subscribers.register()` reiniciaba el indicador `encrypted` de la radio a false en cada re-registración, de modo que entre la re-registración y la activación del cifrado por el LLC-ACK del nuevo accept la radio se veía momentáneamente en claro: sus llamadas a grupos cifrados se rechazaban ("group belongs to the other encryption mode") y su enlace descendente dirigido pasaba brevemente a claro. Ahora se conserva el modo confirmado a través de la re-registración (las radios en escaneo se re-registran constantemente, lo que hacía que esto oscilara sin parar).
+
 ## v0.5.14 — Texto de inicio por ISSI y tiempo de reenvío en segundos
 
 - **Texto por ISSI.** `[[cell_info.home_mode_display.per_issi]]` (y `sds_broadcast`) envía un texto individual a cada radio listada mientras está registrada (nada más registrarse y luego cada intervalo, con `interval_seconds` propio opcional), además de la difusión de grupo. El SDS en vivo (`POST /api/live-sds`) acepta `dest_issi` para un solo radio.

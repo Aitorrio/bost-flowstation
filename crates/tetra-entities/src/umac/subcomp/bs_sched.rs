@@ -2001,8 +2001,14 @@ impl BsChannelScheduler {
 
             let mut buf = BitBuffer::new(124);
 
-            // Write MAC-SYSINFO (alternating sysinfo1/sysinfo2), followed by MLE-SYSINFO
-            if ts.t % 2 == 1 {
+            // Write MAC-SYSINFO (alternating sysinfo1/sysinfo2), followed by MLE-SYSINFO.
+            // Alternate by FRAME number, not timeslot: the MCCH (and thus almost every BNCH on a
+            // single-carrier cell) is always timeslot 1, so a `ts.t % 2` rotation only ever emitted
+            // sysinfo1 (default-definition) and NEVER sysinfo2 — the extended-services broadcast that
+            // carries the Security Information Element (security class + SCK number). Radios that
+            // require that element to confirm a class-2 cell (e.g. Hytera) then never engage SCK
+            // encryption. Keying on `ts.f` broadcasts the security element on ~half of all BNCH slots.
+            if ts.f % 2 == 1 {
                 self.precomps.mac_sysinfo1.to_bitbuf(&mut buf);
             } else {
                 self.precomps.mac_sysinfo2.to_bitbuf(&mut buf);
