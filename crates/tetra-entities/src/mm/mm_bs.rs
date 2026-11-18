@@ -4457,7 +4457,10 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
+                // The registration challenge always goes in clear: radios cannot read an
+                // SCK-encrypted challenge during attach and would never answer it.
                 encryption_override: if what == "DOtarCckProvide" { Some(true) }
+                    else if what == "DAuthenticationDemand" { Some(false) }
                     else { self.registration_encryption.get(&issi).copied() },
                 is_null_pdu: false,
                 tx_reporter: reporter,
