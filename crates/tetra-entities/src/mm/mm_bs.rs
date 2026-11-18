@@ -3934,8 +3934,10 @@ impl MmBs {
         if r1 {
             tracing::info!("MM: ISSI {} authenticated{}", issi, if res2.is_some() { " (mutual)" } else { "" });
             let dck = derive_dck(dck1.as_ref(), dck2.as_ref());
-            if res2.is_some() && self.is_class3() {
-                // Wait for the MS's R2 verdict before publishing a mutually derived key.
+            if res2.is_some() {
+                // Wait for the MS's R2 verdict (EN 300 392-7 4.1.4) before accepting the registration:
+                // a radio still finishing mutual authentication discards an earlier accept.
+                // Class 3 also uses it before publishing a mutually derived key.
                 self.auth_result_pending.insert(issi, PendingAuthResult { uplink_ack: false, dck, held: pending.held, started: Instant::now() });
                 self.sc3_phase(issi, "awaiting_r2");
             } else if let Some(receipt) = result_receipt {
@@ -3994,6 +3996,12 @@ impl MmBs {
     fn rx_u_authentication_result(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, rx_ack: Option<tetra_core::tx_receipt::RxAck>, pdu: UAuthenticationResult) {
         if let Some(mut pending) = self.auth_result_pending.remove(&issi) {
             if pdu.r2 && pdu.res1.is_none() && pending.started.elapsed() < T354 {
+                if !self.is_class3() {
+                    // Class 2: R2 is the last step; release the held registration.
+                    let PendingAuthResult { dck, held, .. } = pending;
+                    self.complete_authentication(queue, issi, dck, held);
+                    return;
+                }
                 let Some(ack) = rx_ack else {
                     self.sc3_phase(issi, "failed");
                     tracing::warn!("MM: SC3 final R2 from ISSI {} lacks acknowledged transport", issi);
