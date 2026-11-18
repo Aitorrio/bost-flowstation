@@ -8,6 +8,7 @@ Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), whi
 - **Advertise security class 2 only when there are no clear groups.** A cell with no `clear_groups` no longer advertises class 1 (clear registration), so a key-holding radio registers encrypted instead of falling back to clear.
 - **SwMI-initiated SCK ciphering.** A class-2 cell now ciphers an SCK-capable radio that attaches without requesting ciphering itself (`cipher_control = 0`), and the D-LOCATION-UPDATE-ACCEPT carries the Security-downlink element (ciphering parameters) so the radio switches to encrypted. Keyless radios are left clear.
 - **Advertise authentication required** in the class-2 SYSINFO security element.
+- **Keep the ciphering mode across re-registration.** A class-2 radio re-registers periodically (and the U-LOCATION-UPDATE-DEMAND itself arrives in clear), yet stays ciphered throughout. `subscribers.register()` reset the radio's `encrypted` flag to false on every re-registration, so between the re-registration and the new accept's LLC-ACK ciphering activation the radio was momentarily seen as clear: its calls to encrypted groups were rejected ("group belongs to the other encryption mode") and its individually-addressed downlink briefly went clear. The committed mode is now preserved across re-registration (scanning radios re-register constantly, which made this flap continuously).
 
 ## v0.5.14 — Per-ISSI home mode text and resend time in seconds
 
