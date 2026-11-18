@@ -981,19 +981,6 @@ impl MmBs {
         // While an authentication challenge already holds this ISSI's registration, newer
         // location updates only replace the held message. They are not new registration attempts
         // and must not exhaust the per-minute budget while the radio answers the challenge.
-        // The radio answered an unanswered challenge by retrying in a different transport mode
-        // (encrypted -> clear): it could not read the challenge. Drop it so the gate re-challenges
-        // in the mode the radio is using now.
-        if self.auth_pending.contains_key(&issi)
-            && !self.auth_result_pending.contains_key(&issi)
-            && !self.auth_ack_pending.contains_key(&issi)
-            && self.registration_encryption.get(&issi).is_some_and(|&e| e != prim.encrypted)
-        {
-            tracing::info!("MM: ISSI {} retried its registration in {} mode while the challenge was unanswered — re-challenging",
-                issi, if prim.encrypted { "encrypted" } else { "clear" });
-            self.auth_pending.remove(&issi);
-            self.registration_encryption.remove(&issi);
-        }
         let registration_auth_pending = self.auth_pending.get(&issi).is_some_and(|pending| {
             pending.held.is_some() && pending.started.elapsed() < T354
         }) || self.auth_result_pending.get(&issi).is_some_and(|p| p.started.elapsed() < T354)
@@ -1024,11 +1011,9 @@ impl MmBs {
             return;
         }
 
-        // A successfully authenticated new ITSI attach supersedes a recovery command issued
-        // to the previous session: the attach carries the groups itself, so do not wait for
-        // a group report that will never come (it would stall the ciphering switch for 30 s
-        // and leave the BS in clear while the radio transmits encrypted).
-        if pdu.location_update_type == LocationUpdateType::ItsiAttach {
+        // A successfully authenticated new SC3 ITSI attach supersedes a recovery
+        // command issued to the previous session. Do not wait for its group report.
+        if self.is_class3() && pdu.location_update_type == LocationUpdateType::ItsiAttach {
             self.group_report_in_flight.remove(&issi);
             self.group_report_requested_at.remove(&issi);
             self.attach_overflow_remainder.remove(&issi);
@@ -3936,10 +3921,8 @@ impl MmBs {
         if r1 {
             tracing::info!("MM: ISSI {} authenticated{}", issi, if res2.is_some() { " (mutual)" } else { "" });
             let dck = derive_dck(dck1.as_ref(), dck2.as_ref());
-            if res2.is_some() {
-                // Wait for the MS's R2 verdict (EN 300 392-7 4.1.4) before accepting the registration:
-                // a radio still finishing mutual authentication discards an earlier accept.
-                // Class 3 also uses it before publishing a mutually derived key.
+            if res2.is_some() && self.is_class3() {
+                // Wait for the MS's R2 verdict before publishing a mutually derived key.
                 self.auth_result_pending.insert(issi, PendingAuthResult { uplink_ack: false, dck, held: pending.held, started: Instant::now() });
                 self.sc3_phase(issi, "awaiting_r2");
             } else if let Some(receipt) = result_receipt {
@@ -3998,12 +3981,6 @@ impl MmBs {
     fn rx_u_authentication_result(&mut self, queue: &mut MessageQueue, issi: u32, handle: u32, rx_ack: Option<tetra_core::tx_receipt::RxAck>, pdu: UAuthenticationResult) {
         if let Some(mut pending) = self.auth_result_pending.remove(&issi) {
             if pdu.r2 && pdu.res1.is_none() && pending.started.elapsed() < T354 {
-                if !self.is_class3() {
-                    // Class 2: R2 is the last step; release the held registration.
-                    let PendingAuthResult { dck, held, .. } = pending;
-                    self.complete_authentication(queue, issi, dck, held);
-                    return;
-                }
                 let Some(ack) = rx_ack else {
                     self.sc3_phase(issi, "failed");
                     tracing::warn!("MM: SC3 final R2 from ISSI {} lacks acknowledged transport", issi);
@@ -4467,10 +4444,7 @@ impl MmBs {
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
-                // The registration challenge always goes in clear: radios cannot read an
-                // SCK-encrypted challenge during attach and would never answer it.
                 encryption_override: if what == "DOtarCckProvide" { Some(true) }
-                    else if what == "DAuthenticationDemand" { Some(false) }
                     else { self.registration_encryption.get(&issi).copied() },
                 is_null_pdu: false,
                 tx_reporter: reporter,
