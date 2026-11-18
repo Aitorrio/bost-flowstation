@@ -20,7 +20,7 @@ fn r2_returning_radio_pins_registration_transport_and_replaces_dck_after_ack() {
         if let SapMsgInner::LmmMleUnitdataInd(p) = &mut request.msg { p.encrypted = encrypted; }
         mm.rx_u_location_update_demand(&mut q, request);
         let SapMsgInner::LmmMleUnitdataReq(challenge) = q.pop_front().unwrap().msg else { panic!("challenge") };
-        assert_eq!(challenge.encryption_override, Some(encrypted));
+        assert_eq!(challenge.encryption_override, Some(false), "registration challenge always in clear");
         obsolete.mark_transmitted();
         obsolete.mark_acknowledged();
         mm.process_pending_ciphering();
