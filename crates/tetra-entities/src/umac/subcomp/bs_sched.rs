@@ -92,6 +92,17 @@ impl CarrierDownlinkMode {
     }
 }
 
+/// Whether this BNCH carries the SYSINFO variant with the extended services broadcast (security
+/// information element, EN 300 392-7 clause 6.2.0 and Table A.104) instead of the default
+/// definition for access code A. With air interface encryption the two alternate by frame, so the
+/// MCCH (timeslot 1) carries the security element regularly (clause 6.2.0.0: "should ensure regular
+/// broadcast"). Without it the cell keeps the rotation by timeslot it had up to v0.5.13: on the MCCH
+/// only the default definition, as Motorola radios (MTP6650, MXP600) registered with; the security
+/// element has no meaning on such a cell (Table A.104 note 1).
+pub(crate) fn sysinfo_with_ext_services(ts: TdmaTime, aie_service: bool) -> bool {
+    if aie_service { ts.f % 2 == 0 } else { ts.t % 2 == 0 }
+}
+
 #[derive(Clone, Debug)]
 pub struct PrecomputedUmacPdus {
     pub mac_sysinfo1: MacSysinfo,
@@ -2008,7 +2019,9 @@ impl BsChannelScheduler {
             // carries the Security Information Element (security class + SCK number). Radios that
             // require that element to confirm a class-2 cell (e.g. Hytera) then never engage SCK
             // encryption. Keying on `ts.f` broadcasts the security element on ~half of all BNCH slots.
-            if ts.f % 2 == 1 {
+            // A cell without air interface encryption keeps the rotation it always had (see
+            // `sysinfo_with_ext_services`).
+            if !sysinfo_with_ext_services(ts, self.precomps.mle_sysinfo.bs_service_details.aie_service) {
                 self.precomps.mac_sysinfo1.to_bitbuf(&mut buf);
             } else {
                 self.precomps.mac_sysinfo2.to_bitbuf(&mut buf);
@@ -3254,5 +3267,18 @@ mod tests {
         assert!(!sched.pdch_available(4), "and no MS is sent there while the call lasts");
         let aach = aach_for_ts(&mut sched, 4);
         assert_eq!(aach.dl_usage, AccessAssignDlUsage::Traffic(4));
+    }
+
+    /// A cell without air interface encryption keeps the SYSINFO rotation by timeslot it had up to
+    /// v0.5.13 (on the MCCH, timeslot 1, only the default definition for access code A); with AIE
+    /// the extended services (security element) alternate by frame on every timeslot.
+    #[test]
+    fn sysinfo_rotation_keeps_the_mcch_unchanged_without_aie() {
+        for f in 1..=18u8 {
+            let mcch = TdmaTime { t: 1, f, m: 5, h: 0 };
+            assert!(!sysinfo_with_ext_services(mcch, false), "clear cell, frame {f}: default definition only");
+            assert_eq!(sysinfo_with_ext_services(mcch, true), f % 2 == 0, "AIE cell, frame {f}");
+            assert!(sysinfo_with_ext_services(TdmaTime { t: 2, f, m: 5, h: 0 }, false), "timeslot 2 as before");
+        }
     }
 }
