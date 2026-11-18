@@ -88,13 +88,23 @@ impl SubscriberRegistry {
 
     /// Tolerant registration; if ISSI already registered, we overwrite it with a fresh Subscriber struct
     pub fn register(&mut self, issi: u32) {
+        // Preserve the air-interface-encryption mode across a re-registration. A class-2 radio
+        // periodically re-registers (and the U-LOCATION-UPDATE-DEMAND itself arrives in clear),
+        // yet it stays ciphered throughout. Wiping `encrypted` to false here opened a window —
+        // between this re-registration and the new accept's LLC-ACK ciphering activation — in
+        // which the radio was seen as clear: its calls to encrypted groups were rejected
+        // ("group belongs to the other encryption mode") and its individually-addressed downlink
+        // briefly went clear, so it never followed the call ("Attaching…"/no voice). Keep the
+        // last committed mode; the pending-ciphering transition re-confirms or changes it when the
+        // new accept is acknowledged. (mm_bs registration path documents this same intent.)
+        let was_encrypted = self.subscribers.get(&issi).map(|s| s.encrypted).unwrap_or(false);
         self.deregister(issi); // Clean up any existing registration to prevent stale affiliations
         self.subscribers.insert(
             issi,
             Subscriber {
                 issi,
                 attached_groups: HashSet::new(),
-                encrypted: false,
+                encrypted: was_encrypted,
             },
         );
     }

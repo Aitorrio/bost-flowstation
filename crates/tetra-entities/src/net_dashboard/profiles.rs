@@ -580,6 +580,14 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
                 brew_toml.remove("lip_forward_issi");
             }
             rehydrate_brew_password(&mut brew_toml, table.get("brew"));
+            // Also set on the Infrastructure page: a form without the field keeps it, 0 = off
+            // removes it.
+            if let Some(v) = table.get("brew").and_then(|b| b.get("reregister_minutes")).cloned() {
+                brew_toml.entry("reregister_minutes").or_insert(v);
+            }
+            if brew_toml.get("reregister_minutes").and_then(|v| v.as_integer()) == Some(0) {
+                brew_toml.remove("reregister_minutes");
+            }
             table.insert("brew".into(), TomlValue::Table(brew_toml));
         } else {
             table.remove("brew");
@@ -958,6 +966,10 @@ pub fn apply_profiles(config_path: &str, cell_name: &str, brew_name: Option<&str
             let mut brew_toml = json_to_toml(&brew)?.as_table().cloned().unwrap_or_default();
             brew_toml.remove("enabled");
             brew_toml.remove("password_set");
+            // Set on the Infrastructure page, not in a profile: keep it.
+            if let Some(v) = table.get("brew").and_then(|b| b.get("reregister_minutes")).cloned() {
+                brew_toml.entry("reregister_minutes").or_insert(v);
+            }
             table.insert("brew".into(), TomlValue::Table(brew_toml));
             table.remove("lst_dispatch");
         }
@@ -1481,6 +1493,32 @@ password = "secret"
             !txt.contains("tx_gain_pad"),
             "apply must drop omitted pad: {txt}"
         );
+    }
+
+    #[test]
+    fn write_visual_keeps_the_reregistration_set_on_the_infrastructure_page() {
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        fs::write(&cfg, minimal_toml().replace("password = \"secret\"\n", "password = \"secret\"\nreregister_minutes = 30\n")).unwrap();
+        let visual = serde_json::json!({
+            "net_info": { "mcc": 204, "mnc": 1337 },
+            "brew": { "enabled": true, "host": "core.example", "port": 3003, "tls": true, "username": 12345, "password": "••••••••", "reconnect_delay_secs": 15 }
+        });
+        write_visual_config(cfg.to_str().unwrap(), &visual).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(txt.contains("reregister_minutes = 30"), "{txt}");
+
+        // Set in this form too (Brew, Advanced): a value, and 0 = off.
+        let mut set = visual.clone();
+        set["brew"]["reregister_minutes"] = serde_json::json!(45);
+        write_visual_config(cfg.to_str().unwrap(), &set).unwrap();
+        assert!(fs::read_to_string(&cfg).unwrap().contains("reregister_minutes = 45"));
+        let v = visual_config_from_toml(cfg.to_str().unwrap()).unwrap();
+        assert_eq!(v["brew"]["reregister_minutes"], 45, "shown in the form");
+        set["brew"]["reregister_minutes"] = serde_json::json!(0);
+        write_visual_config(cfg.to_str().unwrap(), &set).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(!txt.contains("reregister_minutes"), "{txt}");
     }
 
     #[test]

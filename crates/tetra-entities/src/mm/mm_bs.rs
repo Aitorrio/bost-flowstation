@@ -1025,7 +1025,12 @@ impl MmBs {
             let cfg = self.config.config();
             let aie = crate::aie::effective(&cfg);
             (
-                crate::aie::registration_decision(aie, pdu.cipher_control, pdu.ciphering_parameters),
+                crate::aie::registration_decision(
+                    aie,
+                    pdu.cipher_control,
+                    pdu.ciphering_parameters,
+                    pdu.class_of_ms.as_ref().is_some_and(|c| c.sck_encryption),
+                ),
                 aie.map(crate::aie::preferred_parameters),
             )
         };
@@ -1364,6 +1369,16 @@ impl MmBs {
             self.sc3_cck(issi, "registration_sent");
             Some(AuthenticationDownlink { r1: true, tei_request: false, cck: Some(cck) })
         } else { None };
+        // Security downlink IE (EN 300 392-7): tell the MS which ciphering to apply as the
+        // 10-bit Ciphering parameters (KSG + security class + SCK number). Without this a radio
+        // that attached clear and is being ciphered by the infra never switches its traffic to
+        // SCK, so it stays clear and is refused on encrypted groups. Sent only when a cipher is
+        // negotiated (class 2 SCK); None leaves the accept clear exactly as before.
+        let security_downlink = ciphering.map(|params| tetra_core::typed_pdu_fields::Type3FieldGeneric {
+            field_id: 3, // MmType34ElemIdDl::SecurityDownlink
+            len: 10,
+            data: params.to_bits() as u128,
+        });
         // Build D-LOCATION UPDATE ACCEPT pdu
         let pdu_response = DLocationUpdateAccept {
             location_update_accept_type: accept_type,
@@ -1373,7 +1388,7 @@ impl MmBs {
             energy_saving_information: esi,
             scch_information_and_distribution_on_18th_frame: scch_info,
             new_registered_area: None,
-            security_downlink: None,
+            security_downlink,
             group_identity_location_accept: gila,
             default_group_attachment_lifetime: None,
             authentication_downlink,
@@ -4301,7 +4316,7 @@ impl MmBs {
         tracing::info!(
             "MM: ISSI {} requests SCK(s) {:?} for KSG {}",
             issi,
-            pdu.sckns.iter().copied().collect::<Vec<_>>(),
+            pdu.sckns.to_vec(),
             pdu.ksg_number
         );
         match ours {
@@ -4595,6 +4610,93 @@ mod presence_tests {
         mm.drive_registration_checks(&mut queue, TdmaTime::default(), Instant::now(), true);
         assert!(actions(&mut queue).is_empty());
         assert!(events.try_recv().is_none());
+    }
+
+    /// Simulation (field question 2026-11-18): an idle radio that misses one presence check.
+    /// Step the clock second by second, let every probe go out over the air, record what
+    /// reaches Brew, then let the radio answer a later probe with a demand location update.
+    #[test]
+    fn sim_missed_presence_check_drops_the_radio_at_brew_until_it_answers_again() {
+        let (mut mm, _events) = station();
+        radio(&mut mm, 100);
+        mm.config.state_write().subscribers.affiliate(100, 268);
+        let start = Instant::now();
+        mm.client_mgr.reset_registration_timer_at(100, start);
+        mm.registration_check_last_tick = Some(start);
+        let mut probes = Vec::new();
+        let mut brew = Vec::new();
+        let mut answered_at = None;
+        for sec in 1..=240u64 {
+            let now = start + Duration::from_secs(sec);
+            let ts = TdmaTime { t: 1, f: ((sec % 18) + 1) as u8, m: ((sec / 18) % 60 + 1) as u8, h: 0 };
+            let mut queue = MessageQueue::new();
+            mm.drive_registration_checks(&mut queue, ts, now, true);
+            for r in mm.registration_probe_receipts.values() {
+                if !r.has_been_transmitted() {
+                    r.mark_transmitted();
+                }
+            }
+            while let Some(m) = queue.pop_front() {
+                match m.msg {
+                    SapMsgInner::LmmMleUnitdataReq(_) => probes.push(sec),
+                    SapMsgInner::MmSubscriberUpdate(u) => brew.push((sec, u.action, u.groups)),
+                    _ => {}
+                }
+            }
+            // The radio stays quiet until the first probe after it was dropped, then answers it.
+            if answered_at.is_none() && !brew.is_empty() && probes.last().is_some_and(|p| *p == sec) {
+                let pdu = ULocationUpdateDemand {
+                    location_update_type: LocationUpdateType::DemandLocationUpdating,
+                    request_to_append_la: false,
+                    cipher_control: false,
+                    ciphering_parameters: None,
+                    class_of_ms: None,
+                    energy_saving_mode: None,
+                    la_information: None,
+                    ssi: Some(100),
+                    address_extension: None,
+                    group_identity_location_demand: None,
+                    group_report_response: None,
+                    authentication_uplink: None,
+                    extended_capabilities: None,
+                    proprietary: None,
+                };
+                let mut sdu = BitBuffer::new_autoexpand(512);
+                pdu.to_bitbuf(&mut sdu).unwrap();
+                sdu.seek(0);
+                let msg = SapMsg {
+                    sap: Sap::LmmSap,
+                    src: TetraEntity::Mle,
+                    dest: TetraEntity::Mm,
+                    msg: SapMsgInner::LmmMleUnitdataInd(tetra_saps::lmm::LmmMleUnitdataInd {
+                        rx_ack: None,
+                        encrypted: false,
+                        sdu,
+                        handle: 0,
+                        received_address: TetraAddress::issi(100),
+                    }),
+                };
+                let mut q = MessageQueue::new();
+                mm.rx_u_location_update_demand(&mut q, msg);
+                while let Some(m) = q.pop_front() {
+                    if let SapMsgInner::MmSubscriberUpdate(u) = m.msg {
+                        brew.push((sec, u.action, u.groups));
+                    }
+                }
+                // The handler stamps the registration with the real clock; move it onto the
+                // simulated one.
+                mm.client_mgr.reset_registration_timer_at(100, now);
+                answered_at = Some(sec);
+            }
+        }
+        eprintln!("probes at {:?}", probes);
+        eprintln!("brew: {:?}", brew);
+        eprintln!("answered at {:?}", answered_at);
+        let dropped = brew.iter().find(|(_, a, _)| *a == BrewSubscriberAction::Deregister).map(|(s, _, _)| *s);
+        assert!(dropped.is_some(), "a missed check deregisters the radio at Brew");
+        let back = answered_at.expect("a dropped radio is probed again");
+        assert!(brew.iter().any(|(s, a, _)| *s == back && *a == BrewSubscriberAction::Register));
+        assert!(brew.iter().any(|(s, a, g)| *s >= back && *a == BrewSubscriberAction::Affiliate && g.contains(&268)));
     }
 
     #[test]

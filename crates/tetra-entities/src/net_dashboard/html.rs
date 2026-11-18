@@ -463,6 +463,18 @@ body{
   font-family:var(--mono);font-size:13px;font-weight:600;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.wg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.wg-field{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--text3)}
+.wg-field input{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:12px;min-width:0}
+.wg-check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin:8px 0}
+.wg-peer{border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.wg-peer .wg-grid{width:100%}
+.sys-spark{width:100%;height:22px;display:block;margin-top:2px}
+.sys-spark polyline{fill:none;stroke:var(--accent2);stroke-width:1.4;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.sys-spark.temperature polyline{stroke:var(--warn)}
+.sys-bigspark{width:100%;height:70px;display:block;background:var(--bg);border:1px solid var(--border);border-radius:6px}
+.sys-bigspark polyline{fill:none;stroke:var(--accent2);stroke-width:1.6;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.sys-bigspark-cap{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:3px}
 .sys-sensor-unit{
   font-size:10px;font-weight:500;color:var(--text3);margin-left:2px;
 }
@@ -6097,6 +6109,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-rssi"> <span data-i18n="cfg_brew_rssi">RSSI export</span></label>
                       <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-lip" onchange="toggleBrewLipFields()"> <span data-i18n="cfg_brew_lip">LIP forwarding</span></label>
                       <label class="field"><span data-i18n="cfg_brew_lip_issi">LIP destination ISSI (via Brew)</span><input type="number" id="vc-brew-lip-issi" class="form-input" min="1" max="16777215" placeholder="e.g. 2144485" data-i18n-placeholder="ui_e_g_2144485"></label>
+                      <label class="field" style="cursor:pointer"><input type="checkbox" id="vc-brew-rereg" onchange="toggleBrewReregFields()"> <span data-i18n="cfg_brew_rereg">Re-registration</span></label>
+                      <label class="field"><span data-i18n="cfg_brew_rereg_min">Re-registration every (min, 10–600)</span><input type="number" id="vc-brew-rereg-min" class="form-input" min="10" max="600" value="30"></label>
                     </div>
                   </details>
                   <div class="config-msg" id="vc-brew-msg"></div>
@@ -6429,6 +6443,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                 <th>MNC</th>
                 <th data-i18n="roam_net_reached">Reached</th>
                 <th data-i18n="roam_net_server">Brew server</th>
+                <th data-i18n="roam_rereg" data-i18n-title="roam_rereg_help" title="Send all registrations to the network's own Brew server again every N minutes (10 to 600), only while no call runs. Off = only when a radio registers.">Re-registration</th>
                 <th></th>
               </tr></thead>
               <tbody id="roam-nets-tbody"></tbody>
@@ -6860,6 +6875,27 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
       </div>
 
+      <!-- WireGuard tunnel (wg-quick config file, managed by the station) -->
+      <div class="card" id="wg-card">
+        <div class="card-head">
+          <div class="card-title" data-i18n="wg_title">WireGuard</div>
+          <div class="card-actions">
+            <span id="wg-state" class="card-sub"></span>
+            <button class="btn btn-sm" id="wg-toggle-btn" onclick="wgToggleUp()" style="display:none"></button>
+            <button class="btn btn-sm" onclick="wgLoad()"><span class="btn-icon" data-icon="restart"></span><span data-i18n="wifi_refresh">Refresh</span></button>
+          </div>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div class="banner banner-warn">
+            <span class="banner-ico" data-icon="alert"></span>
+            <div class="banner-body" data-i18n="wg_warn_lose_access">If you reach this dashboard through the tunnel, changing or stopping it will cut your session.</div>
+          </div>
+          <div id="wg-body" style="padding:14px 18px 16px">
+            <div class="wifi-list-empty" data-i18n="wifi_loading">Loading…</div>
+          </div>
+        </div>
+      </div>
+
       <!-- WiFi: status + saved + scan in one card with section separators -->
       <div class="card">
         <div class="card-head">
@@ -7097,6 +7133,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
           </div>
         </div>
         <div class="card-body" style="padding:14px 18px">
+          <div id="sys-power-graph" style="display:none;margin-bottom:12px"></div>
           <div id="sys-sensors-empty" style="font-size:12px;color:var(--text3);font-style:italic;display:none" data-i18n="sys_sensors_empty">No sensors detected on this host.</div>
           <div id="sys-sensors-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));gap:8px"></div>
         </div>
@@ -7844,6 +7881,20 @@ const LANGS={
     "ui_language":"Language",
     "sys_power_reporting": "{n} sensor(s) reporting",
     "sys_power_total": "{value} W total",
+    "wg_title": "WireGuard",
+    "wg_warn_lose_access": "If you reach this dashboard through the tunnel, changing or stopping it will cut your session.",
+    "wg_not_installed": "WireGuard tools are not installed on this host (apt install wireguard-tools).",
+    "wg_up": "UP", "wg_down": "DOWN", "wg_start": "Start tunnel", "wg_stop": "Stop tunnel",
+    "wg_live": "Live status", "wg_handshake": "Last handshake", "wg_never": "never",
+    "wg_interface": "Interface", "wg_address": "Address(es)", "wg_listen_port": "Listen port", "wg_mtu": "MTU", "wg_dns": "DNS",
+    "wg_private_key": "Private key", "wg_key_stored": "stored — leave empty to keep", "wg_generate": "Generate a new private key",
+    "wg_public_key": "This station's public key (give it to the peer)", "wg_copy": "Copy",
+    "wg_peers": "Peers", "wg_add_peer": "Add peer", "wg_remove_peer": "Remove peer",
+    "wg_peer_key": "Peer public key", "wg_endpoint": "Endpoint (host:port)", "wg_allowed_ips": "Allowed IPs / networks",
+    "wg_keepalive": "Persistent keepalive (s)", "wg_psk": "Preshared key", "wg_remove_psk": "Remove preshared key",
+    "wg_save": "Save", "wg_saved": "Saved.", "wg_apply": "Restart the tunnel after saving (if it is up)", "wg_boot": "Start at boot",
+    "wg_unmanaged": "The config has directives this editor does not manage; saving drops them:", "wg_overwrite": "Overwrite anyway",
+    "sys_history_hint": "Last {min} min · min {lo} · avg {avg} · max {hi}",
     "dapnet_no_messages": "No DAPNET messages yet",
     "geo_no_events": "No GeoAlarm events yet",
     "geo_alarm_status": "ALARM",
@@ -8257,7 +8308,7 @@ const LANGS={
     registered_terminals:'Registered Radios',
     roaming:'Infrastructure',roam_title:'Cells, networks, neighbours and roaming',roam_reload:'Reload',roam_help:'Everything that decides when and how radios move between cells: the cells of this station and their location areas, the neighbour cells each cell broadcasts, the reselection values and the presence check. Saving checks the whole config first and restarts the station.',
     roam_cells_title:'Location areas',roam_cells_help:'Same location area on all cells: radios change cell without registering, so group calls and individual call setups run on every cell of the area. Own location area per cell: radios register on every change and station and server always know the exact cell (TS 100 392-2 clause 18.3.4.7.1a). Empty = the primary\'s location area. New cells are added in the Cells card above.',
-    roam_th_cell:'Cell',roam_th_network:'Network',roam_nets_title:'Networks (Multi Network)',roam_mn_on:'On',roam_net_server:'Brew server',roam_net_chk_ok:'routable',roam_net_chk_down:'link down',roam_net_chk_unknown:'Routing with this MCC/MNC not possible: the Brew server does not reach it',roam_net_chk_own:'The Brew server\'s own network is {mni}',roam_srvnets_title:'Networks of the Brew server',roam_srvnets_help:'The Brew server is network {mni} and reaches these networks (extension mni). "Add network" takes its MCC/MNC so every station uses the same values.',roam_srvnets_none:'No list from the Brew server yet: it needs Multi Network on and a brew-server that offers mni.',roam_srvnets_empty:'The Brew server reaches no other network.',roam_srvnets_up:'up',roam_srvnets_down:'down',roam_srvnets_have:'configured as {net}',roam_mn_off:'Off',roam_mn_need_on:'Switch Multi Network on to add networks.',roam_mn_off_confirm:'Switch Multi Network off? The networks are removed from the config: the primary network goes back to [net_info] and [brew], the other networks and the cell bindings are deleted (a backup is kept).',roam_mn_switch_help:'Multi Network on / off ([multi_network] enabled): radios of other networks may register here by migration (TS 100 392-2 16.4.1.1 b), and every cell announces migration. Saves and restarts the station.',roam_nets_help:'A cell broadcasts exactly one network (MCC / MNC, TS 100 392-2 table 18.17); pick it per cell in the Network column above. A radio that selects a network on the terminal uses the cells of that network. Reached: own server = the network\'s own [brew] link (credentials on this station); via = through another network\'s Brew server, which must offer the mni extension and reach that network (Infrastructure, no credentials here); local = switched inside this station. The first network added turns [net_info] and [brew] into the network "home"; switching Multi Network off turns it back.',roam_net_name:'Name',roam_net_reached:'Reached',roam_net_add:'Add network',roam_net_core:'own server',roam_net_host:'Brew server (host)',roam_net_port:'Port',roam_net_user:'Login',roam_net_pass:'Password',roam_net_need_brew:'Own server: host, port (1-65535), login (a number) and password are required.',roam_net_via:'via {net}',roam_net_local:'local (no server)',roam_net_pending:'(not saved)',roam_net_confirm_core:'Remove network {net}? Its own Brew login in the config is removed too.',roam_net_need:'Network: name (letters, digits, _ or -), MCC and MNC are required.',roam_th_global:'Global cell id',roam_resel_title:'Cell reselection (advanced, all cells)',roam_resel_toggle:'Show / hide',roam_fast_th:'Fast threshold (dB)',roam_slow_th:'Slow threshold above fast (dB)',roam_fast_hy:'Fast hysteresis (dB)',roam_slow_hy:'Slow hysteresis (dB)',roam_presence:'Presence check after silence (s)',
+    roam_th_cell:'Cell',roam_th_network:'Network',roam_nets_title:'Networks (Multi Network)',roam_mn_on:'On',roam_net_server:'Brew server',roam_net_chk_ok:'routable',roam_net_chk_down:'link down',roam_net_chk_unknown:'Routing with this MCC/MNC not possible: the Brew server does not reach it',roam_net_chk_own:'The Brew server\'s own network is {mni}',roam_srvnets_title:'Networks of the Brew server',roam_srvnets_help:'The Brew server is network {mni} and reaches these networks (extension mni). "Add network" takes its MCC/MNC so every station uses the same values.',roam_srvnets_none:'No list from the Brew server yet: it needs Multi Network on and a brew-server that offers mni.',roam_srvnets_empty:'The Brew server reaches no other network.',roam_srvnets_up:'up',roam_srvnets_down:'down',roam_srvnets_have:'configured as {net}',roam_mn_off:'Off',roam_mn_need_on:'Switch Multi Network on to add networks.',roam_mn_off_confirm:'Switch Multi Network off? The networks are removed from the config: the primary network goes back to [net_info] and [brew], the other networks and the cell bindings are deleted (a backup is kept).',roam_mn_switch_help:'Multi Network on / off ([multi_network] enabled): radios of other networks may register here by migration (TS 100 392-2 16.4.1.1 b), and every cell announces migration. Saves and restarts the station.',roam_nets_help:'A cell broadcasts exactly one network (MCC / MNC, TS 100 392-2 table 18.17); pick it per cell in the Network column above. A radio that selects a network on the terminal uses the cells of that network. Reached: own server = the network\'s own [brew] link (credentials on this station); via = through another network\'s Brew server, which must offer the mni extension and reach that network (Infrastructure, no credentials here); local = switched inside this station. The first network added turns [net_info] and [brew] into the network "home"; switching Multi Network off turns it back.',roam_net_name:'Name',roam_net_reached:'Reached',roam_rereg:'Re-registration',roam_rereg_min:'min',roam_rereg_help:'Send all registrations to the network\'s own Brew server again every N minutes (10 to 600), only while no call runs. Off = only when a radio registers. Saves and restarts the station.',roam_rereg_range:'Re-registration for {net}: 10 to 600 minutes.',roam_net_add:'Add network',roam_net_core:'own server',roam_net_host:'Brew server (host)',roam_net_port:'Port',roam_net_user:'Login',roam_net_pass:'Password',roam_net_need_brew:'Own server: host, port (1-65535), login (a number) and password are required.',roam_net_via:'via {net}',roam_net_local:'local (no server)',roam_net_pending:'(not saved)',roam_net_confirm_core:'Remove network {net}? Its own Brew login in the config is removed too.',roam_net_need:'Network: name (letters, digits, _ or -), MCC and MNC are required.',roam_th_global:'Global cell id',roam_resel_title:'Cell reselection (advanced, all cells)',roam_resel_toggle:'Show / hide',roam_fast_th:'Fast threshold (dB)',roam_slow_th:'Slow threshold above fast (dB)',roam_fast_hy:'Fast hysteresis (dB)',roam_slow_hy:'Slow hysteresis (dB)',roam_presence:'Presence check after silence (s)',
     roam_nb_title:'Neighbour cells',roam_nb_add:'Add neighbour',roam_nb_help:'What the selected cell broadcasts in D-NWRK-BROADCAST (at most 7, clause 18.5.17). The station\'s other cells are added automatically. An extra cell without its own list broadcasts only the station\'s cells.',roam_own_list:'Own neighbour list for this cell',
     roam_th_types:'Reselection',roam_th_services:'Services',roam_n_id:'Cell identifier (0-31)',roam_n_carrier:'Main carrier (0-4095)',roam_n_ext:'Carrier extension (optional)',roam_n_types:'Reselection types',roam_n_sync:'Synchronised with this cell',roam_n_load:'Cell load',roam_n_la:'Location area (optional)',roam_n_rxlev:'Min. RX access level (optional)',roam_n_txpwr:'Max. MS TX power (optional)',
     roam_n_services_help:'BS service details of the neighbour (table 18.26). Missing flags are broadcast as "not supported", so a new entry starts with this cell\'s own services.',roam_apply:'Apply',roam_edit:'Edit',roam_edit_title:'Neighbour {n}',roam_new_title:'New neighbour',roam_same_as_cell:'Same as this cell',
@@ -8511,7 +8562,7 @@ const LANGS={
     cfg_help_brew_tls:'Use TLS for Brew. Match what the Brew server expects.',
     cfg_help_brew_user:'Brew username / SSID (numeric ISSI-style id for this BTS on the core).',
     cfg_help_brew_pass:'Brew password. Leave masked (••••) to keep the current secret when saving.',
-    cfg_help_brew_reconnect:'Seconds to wait before reconnecting after Brew drops. Default 15.',
+    cfg_help_brew_reconnect:'Seconds to wait before reconnecting after Brew drops. Default 15.',cfg_brew_rereg:'Re-registration',cfg_brew_rereg_min:'Re-registration every (min, 10–600)',cfg_help_brew_rereg:'Send every radio\'s registration and groups to the Brew server again every N minutes (10 to 600), only while no call runs. Helps when the server stops sending a group\'s calls after a long quiet time. Off = only when a radio registers. Same setting as on the Infrastructure page.',
     cfg_help_brew_sds:'Forward SDS between air and Brew when enabled.',
     cfg_help_brew_rssi:'Export RSSI telemetry toward Brew (extra traffic). Off unless you need it.',
     cfg_help_brew_lip:'Re-forward every UL LIP report to Brew at the ISSI below, whatever destination the radio used.',
@@ -8921,12 +8972,26 @@ const LANGS={
     sys_bts:'BTS-Verbindung',
   },
   es:{
+    wg_title:'WireGuard',
+    wg_warn_lose_access:'Si accedes a este panel a través del túnel, cambiarlo o pararlo cortará tu sesión.',
+    wg_not_installed:'Las herramientas de WireGuard no están instaladas en este equipo (apt install wireguard-tools).',
+    wg_up:'ACTIVO', wg_down:'PARADO', wg_start:'Iniciar túnel', wg_stop:'Parar túnel',
+    wg_live:'Estado en vivo', wg_handshake:'Último handshake', wg_never:'nunca',
+    wg_interface:'Interfaz', wg_address:'Dirección(es)', wg_listen_port:'Puerto de escucha', wg_mtu:'MTU', wg_dns:'DNS',
+    wg_private_key:'Clave privada', wg_key_stored:'guardada — déjalo vacío para conservarla', wg_generate:'Generar una clave privada nueva',
+    wg_public_key:'Clave pública de esta estación (dásela al peer)', wg_copy:'Copiar',
+    wg_peers:'Peers', wg_add_peer:'Añadir peer', wg_remove_peer:'Quitar peer',
+    wg_peer_key:'Clave pública del peer', wg_endpoint:'Endpoint (host:puerto)', wg_allowed_ips:'IPs / redes permitidas',
+    wg_keepalive:'Keepalive persistente (s)', wg_psk:'Clave precompartida', wg_remove_psk:'Quitar la clave precompartida',
+    wg_save:'Guardar', wg_saved:'Guardado.', wg_apply:'Reiniciar el túnel al guardar (si está activo)', wg_boot:'Iniciar con el sistema',
+    wg_unmanaged:'La configuración tiene directivas que este editor no gestiona; al guardar se pierden:', wg_overwrite:'Sobrescribir igualmente',
+    sys_history_hint:'Últimos {min} min · mín {lo} · media {avg} · máx {hi}',
     sys_lang:'Idioma predeterminado',sys_lang_browser:'Idioma del navegador (sin fijar)',sys_lang_confirm:'¿Fijar {lang} como idioma predeterminado de la estación? El servicio FlowStation se reinicia (unos 20 s fuera del aire).',
     fleet_off_title:'¿Desactivar el control de flota?',fleet_off_body1:'Se desactiva el control de flota. La gestión remota de esta estación base desde el servidor Brew (actualizaciones, reinicio, mantenimiento, cambios de configuración) queda desactivada hasta que se vuelva a activar aquí.',fleet_off_body2:'¿Seguro? Se avisa al administrador del sistema y a los gestores de flota (entrada en el registro de cambios del servidor Brew).',fleet_off_understood:'Lo he entendido',fleet_off_yes:'Sí, desactivar',cmd_off_title:'¿Desactivar el comando / control remoto?',cmd_off_body1:'Al guardar se desactiva el canal de control hacia el servidor. Los comandos remotos (kick, DGNA, SDS, reinicio) y el control de flota, la gestión remota de esta estación base, dejan de funcionar hasta que se vuelva a activar aquí.',cmd_off_body2:'¿Seguro? Se avisa al administrador del sistema y a los gestores de flota: primero se desactiva el control de flota, y el servidor Brew lo anota en su registro de cambios.',roam_n_mm_hint:'Vacío = la red de esta celda ({mm})',
     "ui_language":"Idioma",
     roaming:'Infraestructura',roam_title:'Celdas, redes, vecinas y roaming',roam_reload:'Recargar',roam_help:'Todo lo que decide cuándo y cómo pasan las radios de una celda a otra: las celdas de esta estación y sus áreas de localización, las celdas vecinas que anuncia cada celda, los valores de reselección y la comprobación de presencia. Al guardar se comprueba toda la configuración y la estación se reinicia.',
     roam_cells_title:'Áreas de localización',roam_cells_help:'Misma área de localización en todas las celdas: las radios cambian de celda sin registrarse, así que las llamadas de grupo y los establecimientos de llamada individual se emiten en todas las celdas del área. Área propia por celda: las radios se registran en cada cambio y la estación y el servidor siempre conocen la celda exacta (TS 100 392-2 cláusula 18.3.4.7.1a). Vacío = el área de la primaria. Las celdas nuevas se añaden en la tarjeta Celdas de arriba.',
-    roam_th_cell:'Celda',roam_th_network:'Red',roam_nets_title:'Redes (Multi Network)',roam_mn_on:'Activo',roam_net_server:'Servidor Brew',roam_net_chk_ok:'enrutable',roam_net_chk_down:'enlace caído',roam_net_chk_unknown:'No es posible enrutar con este MCC/MNC: el servidor Brew no llega a esa red',roam_net_chk_own:'La red propia del servidor Brew es {mni}',roam_srvnets_title:'Redes del servidor Brew',roam_srvnets_help:'El servidor Brew es la red {mni} y llega a estas redes (extensión mni). «Añadir red» toma su MCC/MNC para que todas las estaciones usen los mismos valores.',roam_srvnets_none:'Aún no hay lista del servidor Brew: hace falta Multi Network activo y un brew-server que ofrezca mni.',roam_srvnets_empty:'El servidor Brew no llega a ninguna otra red.',roam_srvnets_up:'activa',roam_srvnets_down:'caída',roam_srvnets_have:'configurada como {net}',roam_mn_off:'Apagado',roam_mn_need_on:'Activa Multi Network para añadir redes.',roam_mn_off_confirm:'¿Apagar Multi Network? Las redes se quitan de la configuración: la red principal vuelve a [net_info] y [brew], las demás redes y las asignaciones de celdas se borran (se guarda una copia).',roam_mn_switch_help:'Multi Network activo / apagado ([multi_network] enabled): las radios de otras redes pueden registrarse aquí por migración (TS 100 392-2 16.4.1.1 b), y todas las celdas anuncian migración. Guarda y reinicia la estación.',roam_nets_help:'Una celda emite exactamente una red (MCC / MNC, TS 100 392-2 tabla 18.17); elígela por celda en la columna Red de arriba. Una radio que selecciona una red en el terminal usa las celdas de esa red. Acceso: servidor propio = el enlace [brew] propio de la red (credenciales en esta estación); vía = a través del servidor Brew de otra red, que debe ofrecer la extensión mni y llegar a esa red (Infraestructura, sin credenciales aquí); local = conmutada dentro de esta estación. La primera red añadida convierte [net_info] y [brew] en la red "home"; apagar Multi Network lo deshace.',roam_net_name:'Nombre',roam_net_reached:'Acceso',roam_net_add:'Añadir red',roam_net_core:'servidor propio',roam_net_host:'Servidor Brew (host)',roam_net_port:'Puerto',roam_net_user:'Usuario',roam_net_pass:'Contraseña',roam_net_need_brew:'Servidor propio: hacen falta host, puerto (1-65535), usuario (un número) y contraseña.',roam_net_via:'vía {net}',roam_net_local:'local (sin servidor)',roam_net_pending:'(sin guardar)',roam_net_confirm_core:'¿Quitar la red {net}? También se borra su propio usuario Brew de la configuración.',roam_net_need:'Red: hacen falta nombre (letras, dígitos, _ o -), MCC y MNC.',roam_th_global:'Id. global de celda',roam_resel_title:'Reselección de celda (avanzado, todas las celdas)',roam_resel_toggle:'Mostrar / ocultar',roam_fast_th:'Umbral rápido (dB)',roam_slow_th:'Umbral lento sobre el rápido (dB)',roam_fast_hy:'Histéresis rápida (dB)',roam_slow_hy:'Histéresis lenta (dB)',roam_presence:'Comprobación de presencia tras silencio (s)',
+    roam_th_cell:'Celda',roam_th_network:'Red',roam_nets_title:'Redes (Multi Network)',roam_mn_on:'Activo',roam_net_server:'Servidor Brew',roam_net_chk_ok:'enrutable',roam_net_chk_down:'enlace caído',roam_net_chk_unknown:'No es posible enrutar con este MCC/MNC: el servidor Brew no llega a esa red',roam_net_chk_own:'La red propia del servidor Brew es {mni}',roam_srvnets_title:'Redes del servidor Brew',roam_srvnets_help:'El servidor Brew es la red {mni} y llega a estas redes (extensión mni). «Añadir red» toma su MCC/MNC para que todas las estaciones usen los mismos valores.',roam_srvnets_none:'Aún no hay lista del servidor Brew: hace falta Multi Network activo y un brew-server que ofrezca mni.',roam_srvnets_empty:'El servidor Brew no llega a ninguna otra red.',roam_srvnets_up:'activa',roam_srvnets_down:'caída',roam_srvnets_have:'configurada como {net}',roam_mn_off:'Apagado',roam_mn_need_on:'Activa Multi Network para añadir redes.',roam_mn_off_confirm:'¿Apagar Multi Network? Las redes se quitan de la configuración: la red principal vuelve a [net_info] y [brew], las demás redes y las asignaciones de celdas se borran (se guarda una copia).',roam_mn_switch_help:'Multi Network activo / apagado ([multi_network] enabled): las radios de otras redes pueden registrarse aquí por migración (TS 100 392-2 16.4.1.1 b), y todas las celdas anuncian migración. Guarda y reinicia la estación.',roam_nets_help:'Una celda emite exactamente una red (MCC / MNC, TS 100 392-2 tabla 18.17); elígela por celda en la columna Red de arriba. Una radio que selecciona una red en el terminal usa las celdas de esa red. Acceso: servidor propio = el enlace [brew] propio de la red (credenciales en esta estación); vía = a través del servidor Brew de otra red, que debe ofrecer la extensión mni y llegar a esa red (Infraestructura, sin credenciales aquí); local = conmutada dentro de esta estación. La primera red añadida convierte [net_info] y [brew] en la red "home"; apagar Multi Network lo deshace.',roam_net_name:'Nombre',roam_net_reached:'Acceso',roam_rereg:'Re-registro',roam_rereg_min:'min',roam_rereg_help:'Envía de nuevo todos los registros al servidor Brew propio de la red cada N minutos (10 a 600), solo mientras no haya ninguna llamada. Apagado = solo cuando una radio se registra. Guarda y reinicia la estación.',roam_rereg_range:'Re-registro de {net}: de 10 a 600 minutos.',roam_net_add:'Añadir red',roam_net_core:'servidor propio',roam_net_host:'Servidor Brew (host)',roam_net_port:'Puerto',roam_net_user:'Usuario',roam_net_pass:'Contraseña',roam_net_need_brew:'Servidor propio: hacen falta host, puerto (1-65535), usuario (un número) y contraseña.',roam_net_via:'vía {net}',roam_net_local:'local (sin servidor)',roam_net_pending:'(sin guardar)',roam_net_confirm_core:'¿Quitar la red {net}? También se borra su propio usuario Brew de la configuración.',roam_net_need:'Red: hacen falta nombre (letras, dígitos, _ o -), MCC y MNC.',roam_th_global:'Id. global de celda',roam_resel_title:'Reselección de celda (avanzado, todas las celdas)',roam_resel_toggle:'Mostrar / ocultar',roam_fast_th:'Umbral rápido (dB)',roam_slow_th:'Umbral lento sobre el rápido (dB)',roam_fast_hy:'Histéresis rápida (dB)',roam_slow_hy:'Histéresis lenta (dB)',roam_presence:'Comprobación de presencia tras silencio (s)',
     roam_nb_title:'Celdas vecinas',roam_nb_add:'Añadir vecina',roam_nb_help:'Lo que la celda seleccionada anuncia en D-NWRK-BROADCAST (máx. 7, cláusula 18.5.17). Las demás celdas de la estación se añaden solas. Una celda adicional sin lista propia anuncia solo las celdas de la estación.',roam_own_list:'Lista de vecinas propia para esta celda',
     roam_th_types:'Reselección',roam_th_services:'Servicios',roam_n_id:'Identificador de celda (0-31)',roam_n_carrier:'Portadora principal (0-4095)',roam_n_ext:'Extensión de portadora (opcional)',roam_n_types:'Tipos de reselección',roam_n_sync:'Sincronizada con esta celda',roam_n_load:'Carga de la celda',roam_n_la:'Área de localización (opcional)',roam_n_rxlev:'Nivel mín. de acceso RX (opcional)',roam_n_txpwr:'Potencia TX máx. de la radio (opcional)',
     roam_n_services_help:'Detalles de servicio de la vecina (tabla 18.26). Los que faltan se anuncian como «no admitido», por eso una entrada nueva empieza con los servicios de esta celda.',roam_apply:'Aplicar',roam_edit:'Editar',roam_edit_title:'Vecina {n}',roam_new_title:'Vecina nueva',roam_same_as_cell:'Igual que esta celda',
@@ -9228,7 +9293,7 @@ const LANGS={
     cfg_help_brew_tls:'Usar TLS con Brew. Debe coincidir con el servidor.',
     cfg_help_brew_user:'Usuario / SSID Brew (id numérico de esta BTS en el core).',
     cfg_help_brew_pass:'Contraseña Brew. Deja la máscara (••••) para no cambiar la actual al guardar.',
-    cfg_help_brew_reconnect:'Segundos de espera antes de reconectar tras una caída de Brew. Default 15.',
+    cfg_help_brew_reconnect:'Segundos de espera antes de reconectar tras una caída de Brew. Default 15.',cfg_brew_rereg:'Re-registro',cfg_brew_rereg_min:'Re-registro cada (min, 10–600)',cfg_help_brew_rereg:'Envía de nuevo el registro y los grupos de cada radio al servidor Brew cada N minutos (10 a 600), solo mientras no haya ninguna llamada. Ayuda cuando el servidor deja de enviar las llamadas de un grupo tras mucho tiempo en silencio. Apagado = solo cuando una radio se registra. Es el mismo ajuste que en la página Infrastructure.',
     cfg_help_brew_sds:'Reenvía SDS entre aire y Brew si está activo.',
     cfg_help_brew_rssi:'Exporta telemetría RSSI hacia Brew (más tráfico). Off salvo que lo necesites.',
     cfg_help_brew_lip:'Reenvía cada informe LIP UL a Brew hacia el ISSI de abajo, digan lo que digan las radios como destino.',
@@ -12559,7 +12624,7 @@ async function networkProbeAvailable(){
 }
 
 async function networkRefresh(){
-  await Promise.all([networkLoadStatus(), networkLoadEthernetSaved(), wifiRefresh()]);
+  await Promise.all([networkLoadStatus(), networkLoadEthernetSaved(), wifiRefresh(), wgLoad()]);
 }
 
 function renderNetworkError(el,error){
@@ -12697,6 +12762,139 @@ function networkRenderEthernetSaved(){
     row.appendChild(actions);
     el.appendChild(row);
   });
+}
+
+// ── WireGuard ─────────────────────────────────────────────────────────────
+let wgState={data:null,peers:[],error:null};
+async function wgLoad(){
+  try{
+    const r=await fetch('/api/network/wireguard');
+    const j=await r.json();
+    if(!j.ok){wgState.error=(j.error&&j.error.msg)||'Error';wgState.data=null;}
+    else{
+      wgState.error=null;wgState.data=j.wireguard;
+      const c=j.wireguard.config;
+      wgState.peers=c&&c.peers?c.peers.map(function(p){return Object.assign({},p);}):[];
+      if(!wgState.peers.length)wgState.peers=[wgBlankPeer()];
+    }
+  }catch(e){wgState.error=String(e);wgState.data=null;}
+  wgRender();
+}
+function wgBlankPeer(){return {public_key:'',has_preshared_key:false,endpoint:'',allowed_ips:[],persistent_keepalive:25};}
+function wgFmtBytes(n){
+  if(n<1024)return n+' B';
+  if(n<1048576)return (n/1024).toFixed(1)+' KiB';
+  if(n<1073741824)return (n/1048576).toFixed(1)+' MiB';
+  return (n/1073741824).toFixed(2)+' GiB';
+}
+function wgFmtAge(s){
+  if(s==null)return t('wg_never')||'never';
+  if(s<90)return s+' s';
+  if(s<5400)return Math.round(s/60)+' min';
+  return Math.round(s/3600)+' h';
+}
+function wgInput(id,label,val,ph,type){
+  return '<label class="wg-field"><span>'+escHtml(label)+'</span><input id="'+id+'" type="'+(type||'text')+'" value="'+escAttr(val==null?'':val)+'" placeholder="'+escAttr(ph||'')+'" autocomplete="off" spellcheck="false"></label>';
+}
+function wgRender(){
+  const body=document.getElementById('wg-body');
+  const st=document.getElementById('wg-state');
+  const tb=document.getElementById('wg-toggle-btn');
+  if(!body)return;
+  const d=wgState.data;
+  if(wgState.error){body.innerHTML='<div class="wifi-list-empty" style="color:var(--danger)">'+escHtml(wgState.error)+'</div>';if(st)st.textContent='';if(tb)tb.style.display='none';return;}
+  if(!d){return;}
+  if(!d.installed){
+    body.innerHTML='<div class="wifi-list-empty">'+escHtml(t('wg_not_installed')||'WireGuard tools are not installed on this host (apt install wireguard-tools).')+'</div>';
+    if(st)st.textContent='';if(tb)tb.style.display='none';return;
+  }
+  const up=d.status&&d.status.up;
+  if(st){st.textContent=up?(t('wg_up')||'UP'):(t('wg_down')||'DOWN');st.style.color=up?'var(--ok)':'var(--text3)';}
+  if(tb){tb.style.display=d.exists?'':'none';tb.textContent=up?(t('wg_stop')||'Stop tunnel'):(t('wg_start')||'Start tunnel');tb.className='btn btn-sm'+(up?' btn-warn':'');}
+  const c=d.config||{addresses:[],dns:[]};
+  let h='';
+  if(d.unmanaged&&d.unmanaged.length){
+    h+='<div class="banner banner-warn" style="margin:0 0 12px"><span class="banner-ico" data-icon="alert"></span><div class="banner-body">'+escHtml(t('wg_unmanaged')||'The config has directives this editor does not manage; saving drops them:')+' <code>'+escHtml(d.unmanaged.join('; '))+'</code> <label style="display:block;margin-top:6px"><input type="checkbox" id="wg-overwrite"> '+escHtml(t('wg_overwrite')||'Overwrite anyway')+'</label></div></div>';
+  }
+  if(up&&d.status.peers&&d.status.peers.length){
+    h+='<div class="net-wifi-sec-head"><span>'+escHtml(t('wg_live')||'Live status')+'</span></div><div style="margin-bottom:12px">';
+    d.status.peers.forEach(function(p){
+      h+='<div class="wifi-row"><div class="wifi-row-main"><div class="wifi-row-ssid"><code>'+escHtml(p.public_key.slice(0,8))+'…</code> '+escHtml(p.endpoint||'')+'</div>'
+        +'<div class="wifi-row-meta">'+escHtml((t('wg_handshake')||'Handshake')+': '+wgFmtAge(p.handshake_age_s)+' · ↓ '+wgFmtBytes(p.rx_bytes)+' · ↑ '+wgFmtBytes(p.tx_bytes))+'</div></div></div>';
+    });
+    h+='</div>';
+  }
+  h+='<div class="net-wifi-sec-head"><span>'+escHtml(t('wg_interface')||'Interface')+' '+escHtml(d.iface)+'</span></div>';
+  h+='<div class="wg-grid">';
+  h+=wgInput('wg-addr',t('wg_address')||'Address(es)',(c.addresses||[]).join(', '),'10.8.0.2/24');
+  h+=wgInput('wg-port',t('wg_listen_port')||'Listen port',c.listen_port,'51820','number');
+  h+=wgInput('wg-mtu',t('wg_mtu')||'MTU',c.mtu,'1420','number');
+  h+=wgInput('wg-dns',t('wg_dns')||'DNS',(c.dns||[]).join(', '),'1.1.1.1');
+  h+=wgInput('wg-priv',t('wg_private_key')||'Private key',  '', d.has_private_key?(t('wg_key_stored')||'stored — leave empty to keep'):'paste key or generate','password');
+  h+='</div>';
+  h+='<label class="wg-check"><input type="checkbox" id="wg-gen"> '+escHtml(t('wg_generate')||'Generate a new private key')+'</label>';
+  if(d.public_key){h+='<div class="wifi-row-meta" style="margin:6px 0 0">'+escHtml(t('wg_public_key')||'This station\'s public key (give it to the peer)')+': <code id="wg-pub">'+escHtml(d.public_key)+'</code> <button class="btn btn-sm" onclick="wgCopyPub()">'+escHtml(t('wg_copy')||'Copy')+'</button></div>';}
+  h+='<div class="net-wifi-sec-head" style="margin-top:14px"><span>'+escHtml(t('wg_peers')||'Peers')+'</span><button class="btn btn-sm" onclick="wgAddPeer()">+ '+escHtml(t('wg_add_peer')||'Add peer')+'</button></div>';
+  wgState.peers.forEach(function(p,i){
+    h+='<div class="wg-peer" data-i="'+i+'"><div class="wg-grid">';
+    h+=wgInput('wg-pk-'+i,t('wg_peer_key')||'Peer public key',p.public_key,'');
+    h+=wgInput('wg-ep-'+i,t('wg_endpoint')||'Endpoint (host:port)',p.endpoint,'vpn.example.org:51820');
+    h+=wgInput('wg-ips-'+i,t('wg_allowed_ips')||'Allowed IPs / networks',(p.allowed_ips||[]).join(', '),'10.8.0.0/24, 192.168.50.0/24');
+    h+=wgInput('wg-ka-'+i,t('wg_keepalive')||'Persistent keepalive (s)',p.persistent_keepalive,'25','number');
+    h+=wgInput('wg-psk-'+i,t('wg_psk')||'Preshared key',  '', p.has_preshared_key?(t('wg_key_stored')||'stored — leave empty to keep'):'optional','password');
+    h+='</div>';
+    if(p.has_preshared_key)h+='<label class="wg-check"><input type="checkbox" id="wg-rmpsk-'+i+'"> '+escHtml(t('wg_remove_psk')||'Remove preshared key')+'</label>';
+    h+='<button class="btn btn-sm btn-danger" onclick="wgRemovePeer('+i+')">'+escHtml(t('wg_remove_peer')||'Remove peer')+'</button></div>';
+  });
+  h+='<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">';
+  h+='<button class="btn btn-primary" onclick="wgSave()">'+escHtml(t('wg_save')||'Save')+'</button>';
+  h+='<label class="wg-check" style="margin:0"><input type="checkbox" id="wg-apply" checked> '+escHtml(t('wg_apply')||'Restart the tunnel after saving (if it is up)')+'</label>';
+  h+='<label class="wg-check" style="margin:0"><input type="checkbox" id="wg-boot" '+(d.boot?'checked':'')+' onchange="wgBoot(this.checked)"> '+escHtml(t('wg_boot')||'Start at boot')+'</label>';
+  h+='</div><div id="wg-msg" class="wifi-row-meta" style="margin-top:8px"></div>';
+  body.innerHTML=h;
+}
+function wgList(v){return String(v||'').split(/[\s,]+/).map(function(x){return x.trim();}).filter(Boolean);}
+function wgMsg(txt,bad){const m=document.getElementById('wg-msg');if(m){m.textContent=txt;m.style.color=bad?'var(--danger)':'var(--ok)';}}
+function wgReadPeers(){
+  return wgState.peers.map(function(p,i){
+    const g=function(id){const e=document.getElementById(id);return e?e.value.trim():'';};
+    const ka=g('wg-ka-'+i);
+    const psk=g('wg-psk-'+i);
+    const rm=document.getElementById('wg-rmpsk-'+i);
+    const o={public_key:g('wg-pk-'+i),endpoint:g('wg-ep-'+i)||null,allowed_ips:wgList(g('wg-ips-'+i)),persistent_keepalive:ka===''?null:parseInt(ka,10)};
+    if(psk)o.preshared_key=psk;else if(rm&&rm.checked)o.preshared_key='';
+    return o;
+  });
+}
+function wgAddPeer(){wgState.peers=wgReadPeers().map(function(p,i){return Object.assign({has_preshared_key:(wgState.peers[i]||{}).has_preshared_key},p);});wgState.peers.push(wgBlankPeer());wgRender();}
+function wgRemovePeer(i){wgState.peers=wgReadPeers();wgState.peers.splice(i,1);if(!wgState.peers.length)wgState.peers=[wgBlankPeer()];wgRender();}
+async function wgSave(){
+  const g=function(id){const e=document.getElementById(id);return e?e.value.trim():'';};
+  const num=function(id){const v=g(id);return v===''?null:parseInt(v,10);};
+  const body={
+    config:{addresses:wgList(g('wg-addr')),listen_port:num('wg-port'),mtu:num('wg-mtu'),dns:wgList(g('wg-dns')),peers:wgReadPeers()},
+    apply:!!(document.getElementById('wg-apply')||{}).checked,
+    generate_private_key:!!(document.getElementById('wg-gen')||{}).checked,
+    overwrite_unmanaged:!!(document.getElementById('wg-overwrite')||{}).checked
+  };
+  const pk=g('wg-priv');if(pk)body.private_key=pk;
+  const j=await wifiCall('/api/network/wireguard/save',body);
+  if(j.ok){await wgLoad();wgMsg(t('wg_saved')||'Saved.',false);}
+  else wgMsg((j.error&&j.error.msg)||'Error',true);
+}
+async function wgToggleUp(){
+  const up=wgState.data&&wgState.data.status&&wgState.data.status.up;
+  const j=await wifiCall('/api/network/wireguard/'+(up?'down':'up'),{});
+  if(!j.ok){wgMsg((j.error&&j.error.msg)||'Error',true);return;}
+  await wgLoad();
+}
+async function wgBoot(en){
+  const j=await wifiCall('/api/network/wireguard/boot',{enable:!!en});
+  if(!j.ok){wgMsg((j.error&&j.error.msg)||'Error',true);await wgLoad();}
+}
+function wgCopyPub(){
+  const e=document.getElementById('wg-pub');
+  if(e&&navigator.clipboard)navigator.clipboard.writeText(e.textContent).catch(function(){});
 }
 
 async function networkEthUp(uuid){
@@ -14863,7 +15061,8 @@ function handleMsg(msg){
       if(msg.last_tx_quality){rfIngest('tx_quality',msg.last_tx_quality);}
       if(msg.last_sdr_health){rfIngest('sdr_health',msg.last_sdr_health);}
       (msg.cell_rf||[]).forEach(m=>rfIngest(m.type,m));
-      if(msg.last_sys_health){handleSysHealth(msg.last_sys_health);}
+      if(msg.sys_history){sysHist=msg.sys_history;}
+      if(msg.last_sys_health){handleSysHealth(msg.last_sys_health,true);}
       if(msg.health){handleHealth(msg.health);}
       syncDgnaAttachmentModePicker();
       renderAll();renderEmergencyBanner();refreshCallsigns();break;
@@ -16611,10 +16810,17 @@ function mhzFieldToHz(id){
 }
 function toggleBrewFields(){
   const on=document.getElementById('vc-brew-enabled')?.checked;
-  ['vc-brew-host','vc-brew-port','vc-brew-tls','vc-brew-user','vc-brew-pass','vc-brew-reconnect','vc-brew-sds','vc-brew-rssi','vc-brew-lip'].forEach(id=>{
+  ['vc-brew-host','vc-brew-port','vc-brew-tls','vc-brew-user','vc-brew-pass','vc-brew-reconnect','vc-brew-sds','vc-brew-rssi','vc-brew-lip','vc-brew-rereg'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.disabled=!on;
   });
   toggleBrewLipFields();
+  toggleBrewReregFields();
+}
+function toggleBrewReregFields(){
+  const brewOn=!!document.getElementById('vc-brew-enabled')?.checked;
+  const on=!!document.getElementById('vc-brew-rereg')?.checked;
+  const el=document.getElementById('vc-brew-rereg-min');
+  if(el)el.disabled=!brewOn||!on;
 }
 function toggleBrewLipFields(){
   const brewOn=!!document.getElementById('vc-brew-enabled')?.checked;
@@ -16724,7 +16930,7 @@ const CFG_HELP_BY_ID={
   'vc-syswide':'cfg_help_syswide','vc-late-entry':'cfg_help_late_entry','vc-voice':'cfg_help_voice','vc-recovery':'cfg_help_recovery','vc-local-ssi':'cfg_help_local_ssi',
   'vc-brew-enabled':'cfg_help_brew_enable','vc-brew-host':'cfg_help_brew_host','vc-brew-port':'cfg_help_brew_port',
   'vc-brew-tls':'cfg_help_brew_tls','vc-brew-user':'cfg_help_brew_user','vc-brew-pass':'cfg_help_brew_pass',
-  'vc-brew-reconnect':'cfg_help_brew_reconnect','vc-brew-sds':'cfg_help_brew_sds','vc-brew-rssi':'cfg_help_brew_rssi',
+  'vc-brew-reconnect':'cfg_help_brew_reconnect','vc-brew-rereg':'cfg_help_brew_rereg','vc-brew-rereg-min':'cfg_help_brew_rereg','vc-brew-sds':'cfg_help_brew_sds','vc-brew-rssi':'cfg_help_brew_rssi',
   'vc-brew-lip':'cfg_help_brew_lip','vc-brew-lip-issi':'cfg_help_brew_lip_issi',
   'rm-fast-th':'roam_help_fast_th','rm-slow-th':'roam_help_slow_th','rm-fast-hy':'roam_help_fast_hy','rm-slow-hy':'roam_help_slow_hy',
   'rm-rxlev':'cfg_help_rxlev_min','rm-migration':'cfg_help_migration','rm-presence':'roam_help_presence',
@@ -16894,6 +17100,8 @@ function collectVisualConfig(){
     feature_sds_enabled:!!document.getElementById('vc-brew-sds')?.checked,
     feature_rssi_export:!!document.getElementById('vc-brew-rssi')?.checked,
     feature_lip_forward:!!document.getElementById('vc-brew-lip')?.checked,
+    // 0 = off; on: 10..600 minutes (same as the Infrastructure page).
+    reregister_minutes:document.getElementById('vc-brew-rereg')?.checked?Math.min(600,Math.max(10,vcNum('vc-brew-rereg-min')??30)):0,
   };
   const lipIssi=vcNum('vc-brew-lip-issi');
   if(lipIssi&&lipIssi>0)brew.lip_forward_issi=lipIssi;
@@ -16956,6 +17164,8 @@ function fillVisualConfig(d,opts){
   vcSet('vc-brew-sds',brew.feature_sds_enabled!==false); vcSet('vc-brew-rssi',!!brew.feature_rssi_export);
   vcSet('vc-brew-lip',!!brew.feature_lip_forward);
   vcSet('vc-brew-lip-issi',brew.lip_forward_issi||'');
+  vcSet('vc-brew-rereg',(brew.reregister_minutes||0)>0);
+  vcSet('vc-brew-rereg-min',(brew.reregister_minutes||0)>0?brew.reregister_minutes:30);
   toggleBrewFields();
   // Access control follows the payload:
   // - fromCell: always refresh (missing security = open list for that Cell)
@@ -19571,7 +19781,7 @@ async function loadRoaming(){
   try{
     const r=await fetch('/api/roaming',{credentials:'same-origin'});
     if(!r.ok){setText('roam-msg',await r.text());return;}
-    roamData=await r.json();
+    roamData=await r.json();roamReregEdits={};
   }catch(e){setText('roam-msg',String(e));return;}
   const d=roamData;
   vcSet('rm-fast-th',String(d.reselect.fast_threshold_db));
@@ -19745,6 +19955,7 @@ function roamRenderNetworks(){
       '<td data-label="MCC">'+n.mcc+'</td><td data-label="MNC">'+n.mnc+'</td>'+
       '<td data-label="'+escHtmlAttr(t('roam_net_reached'))+'">'+escHtml(roamNetReached(n))+'</td>'+
       '<td data-label="'+escHtmlAttr(t('roam_net_server'))+'">'+roamNetCheck(n)+'</td>'+
+      '<td data-label="'+escHtmlAttr(t('roam_rereg'))+'">'+roamReregCell(n)+'</td>'+
       '<td>'+(n.name===primaryNet||!roamData.networks_explicit&&!n.pending?'':'<button class="btn" onclick="roamNetRemove(\''+escHtmlAttr(n.name)+'\')">'+escHtml(t('cells_remove'))+'</button>')+'</td></tr>';
   }).join('');
   roamRenderServerNets(list);
@@ -19763,6 +19974,39 @@ function roamRenderNetworks(){
     const fallback=(document.getElementById('rm-cnet-0')||{}).value||roamData.cells[0].network;
     sel.value=list.some(n=>n.name===keep)?keep:(keep==='default'&&list.some(n=>n.name==='home')?'home':(list.some(n=>n.name===fallback)?fallback:list[0].name));
   });
+}
+// Re-registration per network with its own Brew server (reregister_minutes): switch + minutes.
+let roamReregEdits={};
+function roamRereg(n){
+  const e=roamReregEdits[n.name];if(e)return e;
+  const m=n.reregister_minutes||0;
+  return {on:m>0,min:m>0?m:30};
+}
+function roamReregCell(n){
+  if(n.mode!=='core'||n.pending||n.reregister_minutes==null)return '<span style="color:var(--muted)">–</span>';
+  const r=roamRereg(n),id=escHtmlAttr(n.name);
+  return '<span style="display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+    '<label class="mn-switch" title="'+escHtmlAttr(t('roam_rereg_help'))+'"><input type="checkbox" role="switch" id="rm-rereg-on-'+id+'"'+(r.on?' checked':'')+' onchange="roamReregChanged(\''+id+'\')"><span class="mn-slider"></span></label>'+
+    '<input type="number" class="form-input" style="width:90px" min="10" max="600" step="1" id="rm-rereg-min-'+id+'" value="'+r.min+'"'+(r.on?'':' disabled')+' oninput="roamReregChanged(\''+id+'\')">'+
+    '<span>'+escHtml(t('roam_rereg_min'))+'</span></span>';
+}
+function roamReregChanged(name){
+  const on=!!(document.getElementById('rm-rereg-on-'+name)||{}).checked;
+  const minEl=document.getElementById('rm-rereg-min-'+name);
+  if(minEl)minEl.disabled=!on;
+  roamReregEdits[name]={on:on,min:minEl?parseInt(minEl.value,10):30};
+}
+// What the page sends: the networks whose setting changed; null and a message when invalid.
+function roamReregBody(){
+  const out=[];
+  for(const n of (roamData.networks||[])){
+    const e=roamReregEdits[n.name];
+    if(!e||n.mode!=='core'||n.reregister_minutes==null)continue;
+    if(e.on&&!(isFinite(e.min)&&e.min>=10&&e.min<=600))return {error:t('roam_rereg_range',{net:n.name})};
+    const m=e.on?e.min:0;
+    if(m!==(n.reregister_minutes||0))out.push({network:n.name,minutes:m});
+  }
+  return {list:out};
 }
 // What the primary network's Brew server says about a network (SERVICE_NETWORKS, extension mni).
 function roamNetCheck(n){
@@ -20158,6 +20402,7 @@ async function roamSave(extra){
     }),
   };
   if(roamNetEdits.length)body.networks=roamNetEdits;
+  {const rr=roamReregBody();if(rr.error){setText('roam-msg',rr.error);alert(rr.error);return false;}if(rr.list.length)body.reregister=rr.list;}
   body.telemetry=roamLinkBody('tel',true);body.command=roamLinkBody('cmd',false);
   {const e=roamLinkCheck(body.telemetry,t('roam_tel_title'))||roamLinkCheck(body.command,t('roam_cmd_title'));if(e){setText('roam-msg',e);alert(e);return false;}}
   if(extra&&typeof extra==='object'&&!(extra instanceof Event))Object.assign(body,extra);
@@ -21453,8 +21698,57 @@ function renderStationHealth(h){
   renderHealthTab(h);
 }
 
-function handleSysHealth(msg){
+// Rolling per-sensor history (name -> [values], ~2 s apart). Seeded from the server on connect
+// (`sys_history`), then appended to with every live sys_health message.
+let sysHist={};
+const SYS_HIST_MAX=600;
+const SYS_TOTAL_KEY='__total_power';
+function sysHistPush(key,v){
+  if(typeof v!=='number'||!isFinite(v))return;
+  const a=sysHist[key]||(sysHist[key]=[]);
+  a.push(v);
+  if(a.length>SYS_HIST_MAX)a.shift();
+}
+// Polyline points for a series scaled to a w x h box (flat series draw mid-height).
+function sysSparkPoints(a,w,h){
+  if(!a||a.length<2)return '';
+  let lo=Infinity,hi=-Infinity;
+  for(const v of a){if(v<lo)lo=v;if(v>hi)hi=v;}
+  const span=hi-lo;const pad=2;
+  return a.map(function(v,i){
+    const x=(i/(a.length-1))*w;
+    const y=span<1e-9?h/2:pad+(1-(v-lo)/span)*(h-2*pad);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+}
+function sysSparkSvg(a,cls){
+  const pts=sysSparkPoints(a,120,22);
+  if(!pts)return '';
+  return '<svg class="sys-spark '+cls+'" viewBox="0 0 120 22" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+pts+'"/></svg>';
+}
+function sysHistStats(a){
+  let lo=Infinity,hi=-Infinity,sum=0;
+  for(const v of a){if(v<lo)lo=v;if(v>hi)hi=v;sum+=v;}
+  return {lo:lo,hi:hi,avg:sum/a.length};
+}
+function renderSysPowerGraph(){
+  const box=document.getElementById('sys-power-graph');
+  if(!box)return;
+  const a=sysHist[SYS_TOTAL_KEY];
+  if(!a||a.length<2){box.style.display='none';return;}
+  const st=sysHistStats(a);
+  const f=function(v){return v.toFixed(2)+' W';};
+  const mins=Math.max(1,Math.round(a.length*2/60));
+  box.style.display='';
+  box.innerHTML='<svg class="sys-bigspark" viewBox="0 0 300 70" preserveAspectRatio="none" aria-hidden="true"><polyline points="'+sysSparkPoints(a,300,70)+'"/></svg>'
+    +'<div class="sys-bigspark-cap">'+escHtml(t('sys_history_hint',{min:mins,lo:f(st.lo),avg:f(st.avg),hi:f(st.hi)}))+'</div>';
+}
+function handleSysHealth(msg,seeded){
   systemHealthCache=msg;
+  if(!seeded){
+    sysHistPush(SYS_TOTAL_KEY,msg&&msg.total_power_w);
+    ((msg&&msg.sensors)||[]).forEach(function(s){sysHistPush(s.name,s.value);});
+  }
   renderSystemHealth(msg);
 }
 function renderSystemHealth(msg){
@@ -21506,8 +21800,11 @@ function renderSystemHealth(msg){
     return `<div class="sys-sensor-tile">
       <div class="sys-sensor-label" title="${escHtmlAttr(s.name)}">${escHtml(s.name)}</div>
       <div class="sys-sensor-value" style="color:${valColor}">${s.value.toFixed(dp)} <span class="sys-sensor-unit">${unit}</span></div>
+      ${sysSparkSvg(sysHist[s.name],s.kind)}
     </div>`;
   }).join('');
+
+  renderSysPowerGraph();
 
   // Power total in card header
   if(totEl){

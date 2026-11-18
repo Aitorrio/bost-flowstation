@@ -75,6 +75,31 @@ network, called `default`, and cells are linked only when Brew or LST is configu
 - The Asterisk bridge, LST dispatch, the DAPNET/Telegram/geo-alarm services and the dashboard run
   beside the primary stack and serve the primary cell's network.
 
+## Re-registration at the Brew server (`reregister_minutes`)
+
+A station tells its Brew server about a radio once, when the radio registers (REGISTER, then
+AFFILIATE with its groups). A periodic location update or the answer to a presence check sends
+nothing more, so a quiet station may not talk to its server about its radios for hours. Some
+servers stop delivering a group's calls after a while without that (seen with TetraPack, where a
+re-registration brought the calls back).
+
+`reregister_minutes` in a network's own `[brew]` (or `[networks.<name>.brew]`) sends every
+registered radio to that server again every N minutes: REREGISTER, then AFFILIATE with its
+groups, exactly as when a radio registers again. Nothing is deregistered or left first, so no
+group is ever empty at the server. It waits while call signalling or voice crosses the link (5 s
+quiet, retried every 2 s). A Multi Network visitor goes again under its home identities.
+
+```toml
+[brew]
+reregister_minutes = 30     # 0 or missing = off (default); 10 to 600 minutes
+```
+
+On the Infrastructure page the Networks card has a *Re-registration* switch and a minutes field
+for each network with its own Brew server (also the single network of a classic station).
+Saving restarts the station. A classic station also has it on the Config page under Brew →
+*Advanced Brew* (*Re-registration* checkbox and minutes). A network reached `via` another one uses that network's link and
+its setting.
+
 ## What the dashboard shows
 
 - The **backhaul** indicator (dashboard sidebar, health tile, Telegram alerts, and the

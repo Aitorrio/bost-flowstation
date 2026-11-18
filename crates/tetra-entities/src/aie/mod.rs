@@ -86,8 +86,8 @@ pub fn posture(cfg: &StackConfig) -> String {
 }
 
 /// The security part of the broadcast: the BS service details "AIE service" bit (D-MLE-SYSINFO)
-/// and the SYSINFO extended services element. Without AIE these are exactly what the cell has
-/// always sent.
+/// and the SYSINFO extended services element. Without AIE the security classes and the SCKN are
+/// zero (EN 300 392-7 Table A.104 note 1).
 pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices) {
     let mut ext = SysinfoExtendedServices {
         auth_required: false,
@@ -105,6 +105,11 @@ pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices)
         section_data: 0,
     };
     let Some(aie) = aie else {
+        // No air interface encryption on this cell: the security classes and the SCKN "have no
+        // meaning and shall be set to zero" (EN 300 392-7 Table A.104 note 1).
+        ext.class1_supported = false;
+        ext.class2_supported = false;
+        ext.sck_n = None;
         return (false, ext);
     };
     // Mixed cell: class 1 stays advertised so radios without AIE still register in clear.
@@ -121,6 +126,16 @@ pub fn sysinfo_security(aie: Option<&CfgAie>) -> (bool, SysinfoExtendedServices)
         ext.short_gck_vn = Some(0);
     } else {
         ext.sck_n = Some(aie.sckn & 0x1f);
+        // Advertise that the cell authenticates. A radio configured to authenticate (observed on
+        // Hytera) only performs an *encrypted* registration when the SYSINFO security element says
+        // authentication is required; with this False it attaches in clear even on a class-2 cell.
+        ext.auth_required = true;
+        // Only advertise security class 1 (clear registration) when the cell actually keeps
+        // clear groups for keyless radios. On an all-encrypted cell (no clear groups) we
+        // advertise class 2 only, so a key-holding radio registers encrypted instead of
+        // seeing "class 1 is allowed" and falling back to a clear registration (observed on
+        // Hytera; Motorola ignores the class-1 offer and uses class 2 regardless).
+        ext.class1_supported = !aie.clear_groups.is_empty();
     }
     (true, ext)
 }
@@ -148,10 +163,26 @@ pub enum CipherDecision {
 /// Decide how a registering radio is ciphered from what it asked for (EN 300 392-7 clause
 /// 6.6.2.1: in a class 2 cell the radio proposes KSG and SCKN; unacceptable ones are rejected).
 /// `aie` is the cell's effective setting ([`effective`]).
-pub fn registration_decision(aie: Option<&CfgAie>, cipher_control: bool, params: Option<u64>) -> CipherDecision {
+pub fn registration_decision(
+    aie: Option<&CfgAie>,
+    cipher_control: bool,
+    params: Option<u64>,
+    ms_sck_capable: bool,
+) -> CipherDecision {
     if !cipher_control {
         if aie.is_some_and(|a| a.class3.is_some()) {
             return CipherDecision::Reject(RejectCause::RequestedCipherKeyTypeNotAvailable);
+        }
+        // Infra-initiated ciphering: a class 2 cell ciphers an SCK-capable MS even when it
+        // registers without requesting ciphering itself (cipher_control = 0). Some radios
+        // (observed on Hytera) attach clear and rely on the SwMI to turn SCK on; without this
+        // they stay clear and are then refused on encrypted groups ("group belongs to the other
+        // encryption mode"). Radios that advertise no SCK capability (sck_encryption = 0, e.g.
+        // keyless clear radios on a mixed cell) are left clear.
+        if let Some(a) = aie {
+            if a.class3.is_none() && ms_sck_capable {
+                return CipherDecision::Encrypted(CipheringParameters::class2(a.ksg, a.sckn));
+            }
         }
         return CipherDecision::Clear;
     }
@@ -212,33 +243,41 @@ mod tests {
     }
 
     #[test]
-    fn no_aie_broadcast_is_unchanged() {
+    fn no_aie_broadcast_has_zero_security_classes() {
         let (aie_service, ext) = sysinfo_security(None);
         assert!(!aie_service);
-        assert_eq!(ext.sck_n, Some(0));
+        // Table A.104 note 1: no meaning without AIE, set to zero.
+        assert!(!ext.auth_required && !ext.class1_supported && !ext.class2_supported && !ext.class3_supported);
+        assert_eq!(ext.sck_n, None);
+        let mut b = tetra_core::BitBuffer::new_autoexpand(20);
+        ext.to_bitbuf(&mut b);
+        b.seek(0);
+        assert_eq!(b.read_field(8, "security information").unwrap(), 0, "all 8 bits of the security element are zero");
         let (aie_service, ext) = sysinfo_security(Some(&aie()));
         assert!(aie_service);
         assert_eq!(ext.sck_n, Some(3));
-        assert!(ext.class1_supported && ext.class2_supported && !ext.auth_required);
+        assert!(ext.class1_supported && ext.class2_supported && ext.auth_required);
     }
 
     #[test]
     fn registration_follows_the_configured_key() {
         let a = aie();
         let ok = CipheringParameters::class2(1, 3);
-        assert_eq!(registration_decision(Some(&a), false, None), CipherDecision::Clear);
-        assert_eq!(registration_decision(None, true, Some(ok.to_bits())), CipherDecision::Unsupported);
-        assert_eq!(registration_decision(Some(&a), true, Some(ok.to_bits())), CipherDecision::Encrypted(ok));
+        assert_eq!(registration_decision(Some(&a), false, None, false), CipherDecision::Clear);
+        // SCK-capable MS that attaches clear is ciphered by the infra (class 2 cell).
+        assert_eq!(registration_decision(Some(&a), false, None, true), CipherDecision::Encrypted(CipheringParameters::class2(a.ksg, a.sckn)));
+        assert_eq!(registration_decision(None, true, Some(ok.to_bits()), false), CipherDecision::Unsupported);
+        assert_eq!(registration_decision(Some(&a), true, Some(ok.to_bits()), false), CipherDecision::Encrypted(ok));
         assert_eq!(
-            registration_decision(Some(&a), true, Some(CipheringParameters::class2(2, 3).to_bits())),
+            registration_decision(Some(&a), true, Some(CipheringParameters::class2(2, 3).to_bits()), false),
             CipherDecision::Reject(RejectCause::IdentifiedCipherKsgNotSupported)
         );
         assert_eq!(
-            registration_decision(Some(&a), true, Some(CipheringParameters::class2(1, 4).to_bits())),
+            registration_decision(Some(&a), true, Some(CipheringParameters::class2(1, 4).to_bits()), false),
             CipherDecision::Reject(RejectCause::IdentifiedCipherKeyNotAvailable)
         );
         assert_eq!(
-            registration_decision(Some(&a), true, Some(0b0000_1_00000)),
+            registration_decision(Some(&a), true, Some(0b0000_1_00000), false),
             CipherDecision::Reject(RejectCause::RequestedCipherKeyTypeNotAvailable)
         );
     }

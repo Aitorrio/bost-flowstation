@@ -2887,6 +2887,7 @@ impl DashboardServer {
                     });
                 }
                 TelemetryEvent::SysHealth { total_power_w, sensors } => {
+                    s.push_sys_history(*total_power_w, sensors);
                     s.last_sys_health = Some(crate::net_dashboard::state::SysHealthSnapshot {
                         total_power_w: *total_power_w,
                         sensors: sensors.clone(),
@@ -5150,6 +5151,66 @@ fn handle_connection(
             Err(e) => serde_json::to_string(&serde_json::json!({"ok": false, "error": e})).unwrap_or_default(),
         };
         http_json_response(stream, 200, &body);
+    // ── WireGuard (Network tab) ────────────────────────────────────────
+    // Config file + wg-quick, see wireguard.rs. Secrets are write-only: never returned.
+    } else if req_line.contains("GET /api/network/wireguard") {
+        drain_http_headers(&mut stream);
+        let iface = req_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|u| u.split_once("iface="))
+            .map(|(_, v)| v.split('&').next().unwrap_or("").to_string())
+            .unwrap_or_else(|| crate::wireguard::DEFAULT_IFACE.to_string());
+        let body = match crate::wireguard::overview(&iface) {
+            Ok(v) => serde_json::json!({"ok": true, "wireguard": v}),
+            Err(e) => serde_json::json!({"ok": false, "error": {"msg": e}}),
+        };
+        http_json_response(stream, 200, &body.to_string());
+    } else if req_line.contains("POST /api/network/wireguard/") {
+        let raw = read_http_body(&mut stream);
+        let req: serde_json::Value = match serde_json::from_slice(&raw) {
+            Ok(v) => v,
+            Err(e) => {
+                http_response(stream, 400, &format!("invalid JSON: {}", e));
+                return;
+            }
+        };
+        let iface = req.get("iface").and_then(|v| v.as_str()).unwrap_or(crate::wireguard::DEFAULT_IFACE).to_string();
+        let flag = |k: &str| req.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+        let result: Result<(), String> = if req_line.contains("POST /api/network/wireguard/save") {
+            match serde_json::from_value::<crate::wireguard::Config>(req.get("config").cloned().unwrap_or_default()) {
+                Ok(cfg) => {
+                    tracing::info!("Dashboard: saving WireGuard config for {} ({} peer(s))", iface, cfg.peers.len());
+                    crate::wireguard::save(
+                        &iface,
+                        &cfg,
+                        &crate::wireguard::SaveOptions {
+                            private_key: req.get("private_key").and_then(|v| v.as_str()).map(|s| s.trim().to_string()),
+                            generate_private_key: flag("generate_private_key"),
+                            overwrite_unmanaged: flag("overwrite_unmanaged"),
+                            apply: flag("apply"),
+                        },
+                    )
+                }
+                Err(e) => Err(format!("invalid config: {e}")),
+            }
+        } else if req_line.contains("POST /api/network/wireguard/up") {
+            tracing::info!("Dashboard: WireGuard {} up", iface);
+            crate::wireguard::set_up(&iface, true)
+        } else if req_line.contains("POST /api/network/wireguard/down") {
+            tracing::info!("Dashboard: WireGuard {} down", iface);
+            crate::wireguard::set_up(&iface, false)
+        } else if req_line.contains("POST /api/network/wireguard/boot") {
+            crate::wireguard::set_boot(&iface, flag("enable"))
+        } else {
+            http_response(stream, 404, "not found");
+            return;
+        };
+        let body = match result {
+            Ok(()) => serde_json::json!({"ok": true}),
+            Err(e) => serde_json::json!({"ok": false, "error": {"msg": e}}),
+        };
+        http_json_response(stream, 200, &body.to_string());
     } else if req_line.contains("GET /api/wifi/available") {
         // Cheap probe used by the dashboard to decide whether to even show
         // the WiFi tab. Returns {"available": true|false}.
@@ -5237,6 +5298,7 @@ fn handle_ws(
         let last_sdr_health = s.last_sdr_health.clone();
         let cell_rf: Vec<serde_json::Value> = s.cell_rf.values().cloned().collect();
         let last_sys_health = s.last_sys_health.clone();
+        let sys_history = s.sys_history.clone();
         let last_health = s.last_health.clone();
         let dgna_log: Vec<_> = s.dgna_log.iter().rev().cloned().collect();
         let boot_id = s.boot_id.clone();
@@ -5266,6 +5328,7 @@ fn handle_ws(
             "last_sdr_health": last_sdr_health,
             "cell_rf": cell_rf,
             "last_sys_health": last_sys_health,
+            "sys_history": sys_history,
             "health": last_health,
             "dgna_log": dgna_log,
             "dgna_default_attachment_mode": dgna_default_attachment_mode,
