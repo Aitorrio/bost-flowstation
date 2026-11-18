@@ -4316,7 +4316,7 @@ impl MmBs {
         tracing::info!(
             "MM: ISSI {} requests SCK(s) {:?} for KSG {}",
             issi,
-            pdu.sckns.iter().copied().collect::<Vec<_>>(),
+            pdu.sckns.to_vec(),
             pdu.ksg_number
         );
         match ours {
