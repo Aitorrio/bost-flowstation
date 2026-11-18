@@ -981,6 +981,19 @@ impl MmBs {
         // While an authentication challenge already holds this ISSI's registration, newer
         // location updates only replace the held message. They are not new registration attempts
         // and must not exhaust the per-minute budget while the radio answers the challenge.
+        // The radio answered an unanswered challenge by retrying in a different transport mode
+        // (encrypted -> clear): it could not read the challenge. Drop it so the gate re-challenges
+        // in the mode the radio is using now.
+        if self.auth_pending.contains_key(&issi)
+            && !self.auth_result_pending.contains_key(&issi)
+            && !self.auth_ack_pending.contains_key(&issi)
+            && self.registration_encryption.get(&issi).is_some_and(|&e| e != prim.encrypted)
+        {
+            tracing::info!("MM: ISSI {} retried its registration in {} mode while the challenge was unanswered — re-challenging",
+                issi, if prim.encrypted { "encrypted" } else { "clear" });
+            self.auth_pending.remove(&issi);
+            self.registration_encryption.remove(&issi);
+        }
         let registration_auth_pending = self.auth_pending.get(&issi).is_some_and(|pending| {
             pending.held.is_some() && pending.started.elapsed() < T354
         }) || self.auth_result_pending.get(&issi).is_some_and(|p| p.started.elapsed() < T354)
