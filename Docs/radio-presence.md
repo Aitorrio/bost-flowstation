@@ -38,6 +38,15 @@ RF-loss detection. A clean detach remains immediate. Shorter checks increase con
 channel use and terminal battery consumption; validate the actual fleet before
 changing a larger deployment.
 
+An unanswered check also reaches the Brew server: the station sends DEAFFILIATE and
+DEREGISTER for the radio, so a network such as TetraPack takes it out of its groups. The radio
+is checked again after the next `presence_check_secs`; when it answers, it is registered there
+again with its groups (simulation `sim_missed_presence_check_drops_the_radio_at_brew_until_it_answers_again`
+in `mm_bs.rs`: one missed check = about 30 + 30 s until the drop, back at the next answered
+check). A radio the station keeps missing (for example one it can hear but whose uplink does not
+reach the station) stays deregistered at the server until it answers or transmits. Set
+`presence_check_secs = 0` to rule the check out while looking into missing network calls.
+
 Presence is tracked by ISSI. Multiple physical radios using the same ISSI cannot be
 distinguished by this registry; a response from either confirms that ISSI's presence.
 

@@ -1307,6 +1307,7 @@ fn test_plain_roaming_registration_is_reported_as_without_call() {
                 lip_forward_issi: None,
                 pbx_gateway_issis: None,
                 backhaul_hysteresis_secs: 0,
+                reregister_minutes: 0,
             });
         }
         let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));

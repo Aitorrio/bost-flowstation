@@ -1130,6 +1130,7 @@ fn test_network_group_speaker_change_uses_remote_floor_grant() {
         lip_forward_issi: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
     test.populate_entities(
@@ -1234,6 +1235,7 @@ fn test_network_group_speaker_change_reports_the_new_speaker() {
         lip_forward_issi: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
     test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew]);
@@ -1476,6 +1478,7 @@ fn test_brew_cfg() -> CfgBrew {
         lip_forward_issi: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     }
 }
 
@@ -2979,6 +2982,7 @@ fn brew_test_config() -> tetra_config::bluestation::StackConfig {
         lip_forward_issi: None,
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
     });
     config
 }

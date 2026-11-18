@@ -446,6 +446,35 @@ pub struct BrewWorker<T: NetworkTransport> {
     /// Calls of visitors that stay inside the station (server without `mni`): nothing of them
     /// goes to the network
     mni_local_calls: HashSet<Uuid>,
+    /// When the registrations are sent to the server again next (`reregister_minutes`).
+    reregister_due: Option<Instant>,
+    /// Last call signalling or voice over the link, either way.
+    last_call_activity: Option<Instant>,
+}
+
+/// A re-registration waits until no call signalling or voice crossed the link for this long,
+/// and is retried this often while it waits.
+const REREGISTER_QUIET: Duration = Duration::from_secs(5);
+const REREGISTER_RETRY: Duration = Duration::from_secs(2);
+
+impl BrewCommand {
+    /// Call signalling or voice (anything but registrations, reports, RSSI and SDS).
+    fn is_call_traffic(&self) -> bool {
+        !matches!(
+            self,
+            BrewCommand::RegisterSubscriber { .. }
+                | BrewCommand::DeregisterSubscriber { .. }
+                | BrewCommand::AffiliateGroups { .. }
+                | BrewCommand::DeaffiliateGroups { .. }
+                | BrewCommand::ReportMsCell { .. }
+                | BrewCommand::ReportReselection { .. }
+                | BrewCommand::ReportRegisteredWithoutCall { .. }
+                | BrewCommand::SendRssiUpdate { .. }
+                | BrewCommand::SendSds { .. }
+                | BrewCommand::SendSdsReport { .. }
+                | BrewCommand::Disconnect
+        )
+    }
 }
 
 /// How long a `SERVICE_CALL_NETWORK` waits for its call, and a group call of another network is
@@ -471,7 +500,70 @@ impl<T: NetworkTransport> BrewWorker<T> {
             mni_calls_in: HashMap::new(),
             mni_group_calls: HashMap::new(),
             mni_local_calls: HashSet::new(),
+            reregister_due: None,
+            last_call_activity: None,
         }
+    }
+
+    // ── Re-registration (`reregister_minutes`) ──
+
+    fn reregister_interval(&self) -> Option<Duration> {
+        match self.brew_config.reregister_minutes {
+            0 => None,
+            m => Some(Duration::from_secs(u64::from(m) * 60)),
+        }
+    }
+
+    /// Time for the periodic re-registration: send it when the link is quiet, else try again
+    /// shortly.
+    fn drive_reregistration(&mut self, now: Instant) {
+        let (Some(due), Some(every)) = (self.reregister_due, self.reregister_interval()) else { return };
+        if now < due {
+            return;
+        }
+        if self.last_call_activity.is_some_and(|t| now.saturating_duration_since(t) < REREGISTER_QUIET) {
+            self.reregister_due = Some(now + REREGISTER_RETRY);
+            return;
+        }
+        self.reregister_all();
+        self.reregister_due = Some(now + every);
+    }
+
+    /// Send every radio's registration and groups to the server again, as a station does when a
+    /// radio registers again: REREGISTER, then AFFILIATE with its groups. Nothing is left first,
+    /// so no group is ever empty at the server.
+    fn reregister_all(&mut self) {
+        let mut radios: Vec<(u32, Vec<u32>)> = self
+            .subscriber_groups
+            .iter()
+            .map(|(issi, groups)| {
+                let mut g: Vec<u32> = groups.iter().copied().collect();
+                g.sort_unstable();
+                (*issi, g)
+            })
+            .collect();
+        radios.sort_unstable();
+        let mut sent = 0;
+        for (local, groups) in radios {
+            let Some(issi) = self.mni_outbound_ssi(local) else { continue };
+            let groups = match self.mni_visitor(local) {
+                Some((mni, home)) => {
+                    self.send_logged(&build_service_ms_network(home, mni), "MS network");
+                    let (groups, foreign) = self.mni_groups(mni, &groups);
+                    if !foreign.is_empty() {
+                        self.send_logged(&build_service_group_network(home, &foreign), "group network");
+                    }
+                    groups
+                }
+                None => groups,
+            };
+            self.send_logged(&build_subscriber_reregister(issi), "re-registration");
+            if !groups.is_empty() {
+                self.send_logged(&build_subscriber_affiliate(issi, &groups), "affiliation");
+            }
+            sent += 1;
+        }
+        tracing::info!("BrewWorker: registrations of {} radios sent to the server again", sent);
     }
 
     // ── Multi Network (`mni`) ──
@@ -762,8 +854,11 @@ impl<T: NetworkTransport> BrewWorker<T> {
 
     /// Main message processing loop (transport-agnostic)
     fn message_loop(&mut self) -> Result<(), String> {
+        self.reregister_due = self.reregister_interval().map(|every| Instant::now() + every);
+        self.last_call_activity = None;
         loop {
             let now = Instant::now();
+            self.drive_reregistration(now);
 
             // Expire stale pending SDS entries (SHORT_TRANSFER without matching SDS_TRANSFER)
             self.pending_sds.retain(|uuid, pending| {
@@ -799,6 +894,9 @@ impl<T: NetworkTransport> BrewWorker<T> {
                         return Ok(());
                     }
                 };
+                if cmd.is_call_traffic() {
+                    self.last_call_activity = Some(Instant::now());
+                }
                 match cmd {
                     BrewCommand::RegisterSubscriber { issi } => {
                         let local = issi;
@@ -1448,6 +1546,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
 
     /// Handle a parsed call control message
     fn handle_call_control(&mut self, cc: BrewCallControlMessage) {
+        self.last_call_activity = Some(Instant::now());
         match cc.call_state {
             CALL_STATE_GROUP_TX => {
                 if let BrewCallPayload::GroupTransmission(gt) = cc.payload {
@@ -1644,6 +1743,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
 
     /// Handle a parsed voice/data frame
     fn handle_frame(&mut self, frame: BrewFrameMessage) {
+        self.last_call_activity = Some(Instant::now());
         match frame.frame_type {
             FRAME_TYPE_TRAFFIC_CHANNEL => {
                 // Forward ACELP voice frame to entity
@@ -2823,5 +2923,119 @@ password = "x"
             }),
             "answered locally, so MLE does not wait for its fallback"
         );
+    }
+
+    // ── Re-registration (`reregister_minutes`) ──
+
+    fn rereg_worker(extra: &str) -> BrewWorker<MockTransport> {
+        let (event_tx, _event_rx) = bounded(16);
+        let (_command_tx, command_rx) = bounded(16);
+        let mut w = BrewWorker::new(config(extra), event_tx, command_rx, MockTransport::new());
+        w.transport.connect().unwrap();
+        w
+    }
+
+    fn kinds(sent: &[Vec<u8>]) -> Vec<(u8, u32)> {
+        sent.iter()
+            .filter(|m| m.len() >= 6 && m[0] == BREW_CLASS_SUBSCRIBER)
+            .map(|m| (m[1], u32::from_le_bytes([m[2], m[3], m[4], m[5]])))
+            .collect()
+    }
+
+    #[test]
+    fn reregistration_is_off_unless_switched_on() {
+        let mut w = rereg_worker("");
+        w.subscriber_groups.insert(100, HashSet::from([91]));
+        w.reregister_due = w.reregister_interval().map(|d| Instant::now() + d);
+        w.drive_reregistration(Instant::now() + Duration::from_secs(86_400));
+        assert!(w.transport.sent_payloads().is_empty());
+    }
+
+    #[test]
+    fn reregistration_sends_every_radio_again_without_leaving_anything() {
+        let mut w = rereg_worker("reregister_minutes = 10\n");
+        w.subscriber_groups.insert(100, HashSet::from([91, 232]));
+        w.subscriber_groups.insert(101, HashSet::new());
+        let start = Instant::now();
+        w.reregister_due = Some(start + Duration::from_secs(600));
+        w.drive_reregistration(start + Duration::from_secs(599));
+        assert!(w.transport.sent_payloads().is_empty(), "not before the interval");
+        w.drive_reregistration(start + Duration::from_secs(600));
+        let sent = w.transport.sent_payloads().to_vec();
+        assert_eq!(
+            kinds(&sent),
+            vec![(BREW_SUBSCRIBER_REREGISTER, 100), (BREW_SUBSCRIBER_AFFILIATE, 100), (BREW_SUBSCRIBER_REREGISTER, 101)]
+        );
+        assert_eq!(&sent[1][18..], &build_subscriber_affiliate(100, &[91, 232])[18..], "its groups");
+        assert!(sent.iter().all(|m| m[6..18].iter().any(|b| *b != 0)), "with the time, like every message");
+        assert_eq!(w.reregister_due, Some(start + Duration::from_secs(1200)), "next one an interval later");
+    }
+
+    #[test]
+    fn reregistration_waits_while_a_call_crosses_the_link() {
+        let mut w = rereg_worker("reregister_minutes = 10\n");
+        w.subscriber_groups.insert(100, HashSet::from([91]));
+        let start = Instant::now();
+        w.reregister_due = Some(start);
+        w.last_call_activity = Some(start);
+        w.drive_reregistration(start + Duration::from_secs(1));
+        assert!(w.transport.sent_payloads().is_empty());
+        assert_eq!(w.reregister_due, Some(start + Duration::from_secs(3)), "tried again shortly");
+        w.drive_reregistration(start + Duration::from_secs(6));
+        assert_eq!(kinds(w.transport.sent_payloads()).len(), 2);
+    }
+
+    #[test]
+    fn call_traffic_but_not_registrations_holds_the_reregistration() {
+        assert!(BrewCommand::SendGroupIdle { uuid: Uuid::nil(), cause: 0 }.is_call_traffic());
+        assert!(!BrewCommand::RegisterSubscriber { issi: 1 }.is_call_traffic());
+        assert!(!BrewCommand::AffiliateGroups { issi: 1, groups: vec![91] }.is_call_traffic());
+    }
+
+    #[test]
+    fn a_visitor_is_registered_again_under_its_home_identities() {
+        let mut w = rereg_worker("reregister_minutes = 10\n\n[multi_network]\nenabled = true\nnetworks = [{ mcc = 901, mnc = 1234 }]\n");
+        w.config.state_write().multi_network.visitors.insert(VASSI, (HOME, HOME_ISSI));
+        w.config.state_write().multi_network.groups.insert(VGSSI, (HOME, 9));
+        w.transport = MockTransport::new().with_brew_extensions(&["mni"]);
+        w.transport.connect().unwrap();
+        w.subscriber_groups.insert(VASSI, HashSet::from([VGSSI]));
+        w.reregister_due = Some(Instant::now());
+        w.drive_reregistration(Instant::now());
+        let sent = w.transport.sent_payloads().to_vec();
+        assert_eq!(kinds(&sent), vec![(BREW_SUBSCRIBER_REREGISTER, HOME_ISSI), (BREW_SUBSCRIBER_AFFILIATE, HOME_ISSI)]);
+        let aff = sent.iter().find(|m| m[0] == BREW_CLASS_SUBSCRIBER && m[1] == BREW_SUBSCRIBER_AFFILIATE).unwrap();
+        assert_eq!(&aff[18..], &9u32.to_le_bytes(), "the home group");
+    }
+
+    /// Simulation: 10 stations with 25 radios between them, each radio in one or two groups.
+    /// Over an hour with a 10 minute interval every radio is sent again six times, with its
+    /// groups, and nothing ever deregisters or leaves a group.
+    #[test]
+    fn simulation_ten_stations_twenty_five_radios_are_registered_again_every_interval() {
+        let start = Instant::now();
+        let mut stations: Vec<BrewWorker<MockTransport>> = (0..10).map(|_| rereg_worker("reregister_minutes = 10\n")).collect();
+        for r in 0..25u32 {
+            let groups = if r % 3 == 0 { HashSet::from([91, 232]) } else { HashSet::from([91]) };
+            stations[(r % 10) as usize].subscriber_groups.insert(2_320_900 + r, groups);
+        }
+        for w in stations.iter_mut() {
+            w.reregister_due = Some(start + Duration::from_secs(600));
+        }
+        for sec in (0..=3600).step_by(10) {
+            for w in stations.iter_mut() {
+                w.drive_reregistration(start + Duration::from_secs(sec));
+            }
+        }
+        let mut per_radio: HashMap<u32, (usize, usize)> = HashMap::new();
+        for w in &stations {
+            for (kind, issi) in kinds(w.transport.sent_payloads()) {
+                assert!(kind == BREW_SUBSCRIBER_REREGISTER || kind == BREW_SUBSCRIBER_AFFILIATE, "never leaves: {kind}");
+                let e = per_radio.entry(issi).or_default();
+                if kind == BREW_SUBSCRIBER_REREGISTER { e.0 += 1 } else { e.1 += 1 }
+            }
+        }
+        assert_eq!(per_radio.len(), 25);
+        assert!(per_radio.values().all(|&(rereg, aff)| rereg == 6 && aff == 6), "{per_radio:?}");
     }
 }
