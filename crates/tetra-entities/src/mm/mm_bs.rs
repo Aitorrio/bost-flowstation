@@ -1024,9 +1024,11 @@ impl MmBs {
             return;
         }
 
-        // A successfully authenticated new SC3 ITSI attach supersedes a recovery
-        // command issued to the previous session. Do not wait for its group report.
-        if self.is_class3() && pdu.location_update_type == LocationUpdateType::ItsiAttach {
+        // A successfully authenticated new ITSI attach supersedes a recovery command issued
+        // to the previous session: the attach carries the groups itself, so do not wait for
+        // a group report that will never come (it would stall the ciphering switch for 30 s
+        // and leave the BS in clear while the radio transmits encrypted).
+        if pdu.location_update_type == LocationUpdateType::ItsiAttach {
             self.group_report_in_flight.remove(&issi);
             self.group_report_requested_at.remove(&issi);
             self.attach_overflow_remainder.remove(&issi);
