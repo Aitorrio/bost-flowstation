@@ -374,7 +374,7 @@ impl MmBs {
                 // SC3 switches DCK at the acknowledged authentication result, not
                 // at a later group-report exchange (EN 300 392-7, 4.5.5.1).
                 // Otherwise encrypted group reports need the very DCK they block.
-                awaiting_group_report: !ciphering.is_some_and(|c| c.class3)
+                awaiting_group_report: ciphering.is_none()
                     && self.group_report_in_flight.contains_key(&issi),
                 started: Instant::now(),
             },
@@ -2927,7 +2927,7 @@ impl MmBs {
     fn mark_group_report_pending(&mut self, issi: u32) {
         self.group_report_in_flight.insert(issi, Instant::now());
         if let Some(pending) = self.pending_ciphering.get_mut(&issi)
-            && !pending.ciphering.is_some_and(|c| c.class3)
+            && pending.ciphering.is_none()
         {
             pending.awaiting_group_report = true;
             pending.started = Instant::now();
@@ -4518,57 +4518,39 @@ mod presence_tests {
     }
 
     #[test]
-    fn ciphering_transition_waits_for_group_report_completion_and_final_attach_llc_ack() {
-        let (mut mm, _) = station();
-        radio(&mut mm, 100);
-        let cipher = CipheringParameters::class2(2, 3);
-        let accept_reporter = TxReporter::new();
+    fn sc2_sck_activates_on_accept_ack_without_group_report_completion() {
+        for report_before_accept in [false, true] {
+            let (mut mm, _) = station();
+            radio(&mut mm, 100);
+            let cipher = CipheringParameters::class2(2, 3);
+            let accept_reporter = TxReporter::new();
 
-        // D-LOCATION-UPDATE-ACCEPT is queued first; the subsequent
-        // D-LOCATION-UPDATE-COMMAND marks the group report as in flight.
-        mm.replace_pending_ciphering(100, Some(cipher), accept_reporter.clone());
-        mm.mark_group_report_pending(100);
+            if report_before_accept {
+                mm.mark_group_report_pending(100);
+            }
+            mm.replace_pending_ciphering(100, Some(cipher), accept_reporter.clone());
+            if !report_before_accept {
+                mm.mark_group_report_pending(100);
+            }
+            assert!(mm.group_report_in_flight.contains_key(&100));
+            assert!(!mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
 
-        // Even an ACK of D-LOCATION-UPDATE-ACCEPT must not switch ciphering
-        // while the radio's group report is incomplete (completion marker absent).
-        accept_reporter.mark_transmitted();
-        accept_reporter.mark_acknowledged();
-        mm.process_pending_ciphering();
-        assert!(mm.group_report_in_flight.contains_key(&100));
-        assert!(mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
-        assert!(
-            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
-            "ciphering must remain unchanged while the group report is incomplete"
-        );
-        assert!(!mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+            // LLC transmission alone does not prove acknowledgement.
+            accept_reporter.mark_transmitted();
+            mm.process_pending_ciphering();
+            assert!(!mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
 
-        // The final group_report_response=0 causes MM to attach a fresh receipt
-        // to its final D-ATTACH acknowledgement. Merely receiving that uplink
-        // completion marker is not enough to switch ciphering.
-        let final_attach_reporter = mm
-            .prepare_group_report_completion(100)
-            .expect("final group report must create an ACK receipt");
-        assert!(!mm.group_report_in_flight.contains_key(&100));
-        assert!(!mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
-
-        mm.process_pending_ciphering();
-        assert!(
-            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
-            "the completion marker alone must not activate ciphering"
-        );
-
-        final_attach_reporter.mark_transmitted();
-        mm.process_pending_ciphering();
-        assert!(
-            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
-            "the final acknowledgement must itself be LLC-ACKed"
-        );
-
-        final_attach_reporter.mark_acknowledged();
-        mm.process_pending_ciphering();
-        assert!(mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_some());
-        assert!(mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
-        assert!(!mm.pending_ciphering.contains_key(&100));
+            // SC2 SCK activation is independent of group-report completion.
+            accept_reporter.mark_acknowledged();
+            mm.process_pending_ciphering();
+            assert!(mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+            assert!(mm.client_mgr.get_client_by_issi(100)
+                .and_then(|client| client.ciphering).is_some());
+            assert!(!mm.pending_ciphering.contains_key(&100));
+            assert!(mm.group_report_in_flight.contains_key(&100));
+            assert!(mm.prepare_group_report_completion(100).is_none());
+            assert!(!mm.group_report_in_flight.contains_key(&100));
+        }
     }
 
     #[test]
