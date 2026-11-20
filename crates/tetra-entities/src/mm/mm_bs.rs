@@ -1208,6 +1208,7 @@ impl MmBs {
         // Store energy saving mode and monitoring window in client state
         let esm = esi.as_ref().map(|e| e.energy_saving_mode).unwrap_or(EnergySavingMode::StayAlive);
         let _ = self.client_mgr.set_client_energy_saving_mode(issi, esm);
+        self.mirror_ee_cycle_to_registry(issi, esm);
         let mf = esi.as_ref().and_then(|e| e.frame_number);
         let mmf = esi.as_ref().and_then(|e| e.multiframe_number);
         let _ = self.client_mgr.set_client_monitoring_window(issi, mf, mmf);
@@ -1601,6 +1602,15 @@ impl MmBs {
         }
     }
 
+    /// Mirror the granted energy-economy cycle (in TDMA frames, `None` = StayAlive/always awake)
+    /// into the shared subscriber registry, kept in lockstep with `set_client_energy_saving_mode`.
+    /// The LLC reads it to size its acknowledged-mode ACK grace window to a radio that only wakes
+    /// periodically, so a sleepy terminal's late BL-ACK is honoured instead of discarded.
+    fn mirror_ee_cycle_to_registry(&self, issi: u32, esm: EnergySavingMode) {
+        let cycle = crate::mm::components::client_state::ee_cycle_frames(esm);
+        self.config.state_write().subscribers.set_ee_cycle_frames(issi, cycle);
+    }
+
     fn rx_u_mm_status(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_mm_status");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
@@ -1654,6 +1664,7 @@ impl MmBs {
                 if let Err(e) = self.client_mgr.set_client_energy_saving_mode(issi, esi.energy_saving_mode) {
                     tracing::debug!("MM: mid-session ESM update on ISSI {} skipped: {:?}", issi, e);
                 }
+                self.mirror_ee_cycle_to_registry(issi, esi.energy_saving_mode);
                 if let Err(e) = self
                     .client_mgr
                     .set_client_monitoring_window(issi, esi.frame_number, esi.multiframe_number)
@@ -1681,6 +1692,7 @@ impl MmBs {
 
                 tracing::info!("MS {} energy saving mode change response: {:?}", issi, esm);
                 let _ = self.client_mgr.set_client_energy_saving_mode(issi, esm);
+                self.mirror_ee_cycle_to_registry(issi, esm);
                 self.recovery_mark_dirty();
                 handled = true;
             }

@@ -2,6 +2,11 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.6.1 — Basic-link ACK grace window (energy-economy and older terminals)
+
+- **Stable group audio and registration for energy-economy radios and older terminals (MTH800 / MTP850 / Hytera).** In acknowledged mode (basic link) the station retransmitted a PDU across the ETSI T.251/N.252 window (~0.9 s on a single carrier) and, once that was spent, discarded any BL-ACK arriving afterwards as an "unexpected ACK". Energy-economy radios (and some older terminals) ACK a frame or two later, so their ACK always arrived late and was dropped: MM's ciphering and registration transactions were left unconfirmed, forcing constant re-attach (ItsiAttach) that ended in an "undeclared cell reselection" and dropped group audio. Now, when the on-air retransmit budget is spent, the entry **lingers without further airtime** for a grace window (one multiframe ≈ 1.02 s, plus the radio's monitoring cycle if it sleeps) to still accept that late ACK before declaring the PDU lost. MTP3000/6000 radios, which ACK inside the window, are unaffected.
+- **The grace window scales with the granted energy-economy mode.** MM mirrors the granted energy-economy cycle (in frames; `None` = always awake) into the shared subscriber registry, and the LLC adds it to the base window, so a radio that only wakes periodically gets proportionally more time to ACK.
+
 ## v0.6.0 — WireGuard in the Network tab and time graphs for the system sensors
 
 - **WireGuard from the dashboard (Network tab).** A new card configures the tunnel without editing files: interface (address, listen port, **MTU**, DNS, private key) and peers (public key, endpoint, **allowed IPs / networks**, persistent keepalive, preshared key), with live status (last handshake, bytes in and out), start/stop, start at boot and an automatic restart on save. It uses `/etc/wireguard/wg0.conf` (mode 0600) and `wg-quick`; it needs `wireguard-tools` and root or passwordless `sudo`. Keys are write-only (the dashboard never returns them), every value is validated before it is written, and a config with directives the editor does not manage (`PostUp`, `Table`, …) is not overwritten without confirmation. One tunnel, `wg0`.
