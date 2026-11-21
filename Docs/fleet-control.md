@@ -265,6 +265,27 @@ No answer is expected. The server uses it for its graphs and alarms
 (brew-server `docs/Fleet-Control.md` section 12); it also pings the station
 with `FleetPing` for its ping graph.
 
+## DGNA groups to the server (`dgna-report`)
+
+Not part of Fleet Control and independent of its switch. Only on a control
+connection whose HTTP 101 names `dgna-report` (brew-server 1.21.9 or newer
+with `[control] enabled = true`):
+
+- `DgnaChanged {issi, gssi, mnemonic, attachment_mode, assigned}` for every
+  DGNA assign (`assigned: true`) or remove that goes into the station's DGNA
+  registry, whether it came from the server or from this dashboard
+  (`mnemonic` null and `attachment_mode` 0 for a remove). Sent by MM
+  (`do_dgna`); a report made while the channel is down goes out after the
+  reconnect.
+- `DgnaGroups {groups: [{issi, gssi, mnemonic, attachment_mode}]}` once after
+  each connect: every DGNA group the station remembers (the registry in
+  `state.subscribers`, also restored from the restart recovery cache).
+
+The server keeps the list across its restart and can take a group back
+later (brew-server `docs/Routing.md`, "Groups assigned by DGNA"). Nothing
+changes on the air interface. A server without `dgna-report` never sees
+these messages.
+
 ## HTTP API (dashboard)
 
 | Route | Body | Answer |
@@ -286,6 +307,9 @@ with `FleetPing` for its ping graph.
 - `crates/tetra-entities/src/net_control/metrics.rs`: `FleetMetrics` (CPU load,
   temperatures, RF state), sent by `worker.rs` `report_metrics`; SDR
   temperatures are fed from the telemetry fan-out in `bins/bluestation-bs`.
+- `crates/tetra-entities/src/net_control/dgna_report.rs`: `dgna-report` (DGNA
+  groups to the server); MM `do_dgna` sends `DgnaChanged`, `worker.rs`
+  `send_dgna_snapshot` the registry after each connect.
 - `crates/tetra-entities/src/net_control/fleet_config.rs`: config read, change,
   backup, watchdog, confirm / rollback (`config-v1`).
 - `crates/tetra-config/src/bluestation/sec_control.rs` (`fleet_control`),

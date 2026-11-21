@@ -215,6 +215,18 @@ impl SubscriberRegistry {
         self.dgna_groups.get(&issi).is_some_and(|groups| groups.contains_key(&gssi))
     }
 
+    /// Every remembered DGNA group, by ISSI then GSSI (reported to a Brew server with
+    /// `dgna-report` when the control channel connects).
+    pub fn all_dgna_groups(&self) -> Vec<(u32, DgnaGroup)> {
+        let mut out: Vec<(u32, DgnaGroup)> = self
+            .dgna_groups
+            .iter()
+            .flat_map(|(&issi, groups)| groups.values().map(move |g| (issi, g.clone())))
+            .collect();
+        out.sort_by_key(|(issi, g)| (*issi, g.gssi));
+        out
+    }
+
     pub fn dgna_groups_of(&self, issi: u32) -> Vec<DgnaGroup> {
         self.dgna_groups
             .get(&issi)

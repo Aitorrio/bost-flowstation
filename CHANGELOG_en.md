@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.5.19 — The Brew server knows which groups were given by DGNA
+
+- **DGNA groups to the Brew server.** With a server that offers it on the control channel (extension `dgna-report`, brew-server 1.21.9 or newer with `[control]`), the station reports every DGNA assign and remove over the control channel, also those made on its own dashboard, and after each connect it sends every DGNA group it knows. So the server keeps which groups each radio has (also across a restart) and can take them back later. Nothing changes on the air interface, and it does not depend on the Fleet Control switch. A server without `dgna-report` gets nothing new. Shown on the Infrastructure page, "Server features", under groups. See `Docs/fleet-control.md`.
+
 ## v0.5.17 — Motorola radios register again on cells without encryption
 
 - **Cells without encryption broadcast SYSINFO as before v0.5.15 again.** Users reported that Motorola MTP6650 and MXP600 no longer registered on v0.5.16 stations without air interface encryption. Why: v0.5.15 changed the SYSINFO rotation from timeslot to frame so the security element reaches the radios on encrypted cells. Since then every cell, also one without encryption, sent the extended-services variant on the control channel (timeslot 1) half of the time, where before only the default definition for access code A went out. On a cell without encryption that element said "security class 1 and 2 supported, SCKN 0", although EN 300 392-7 Table A.104 note 1 requires these fields to be zero when the cell has no air interface encryption. Motorola radios had never seen this element on such a cell. Now a cell without encryption keeps the rotation by timeslot (on the control channel only the default definition, as up to v0.5.14), and the security element's classes and SCKN are zero there. Encrypted cells keep the rotation by frame from v0.5.15. Thanks to DO5MF and DK7TD for testing the fix with their Motorola radios.

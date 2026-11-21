@@ -2718,6 +2718,11 @@ impl MmBs {
                 // Mirror into the shared subscriber state used for local call/SDS routing and notify
                 // CMCE. Done unconditionally on success so DGNA stays authoritative even if the BS
                 // believed the affiliation already matched (no desync window â€” FH-BUG-022/025).
+                // Tell a Brew server with `dgna-report` (control channel), so it knows the groups
+                // given by DGNA also when they were given on this station's dashboard.
+                if let Some(cep) = &self.control {
+                    cep.respond(crate::net_control::dgna_report::changed(issi, gssi, mnemonic.clone(), attachment_mode, attach));
+                }
                 if attach {
                     let mut state = self.config.state_write();
                     state.subscribers.remember_dgna_group(issi, gssi, mnemonic.clone(), attachment_mode);
@@ -5107,6 +5112,24 @@ mod presence_tests {
         mm.drive_registration_checks(&mut queue, TdmaTime::default(), deadline, true);
         assert!(!mm.config.state_read().subscribers.is_registered(100));
         assert!(matches!(events.try_recv(), Some(TelemetryEvent::MsTimeoutDrop { issi: 100 })));
+    }
+
+    #[test]
+    fn dgna_assign_and_remove_are_reported_on_the_control_channel() {
+        // `dgna-report`: the Brew server learns DGNA groups also when given on the dashboard.
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        let (dispatcher, endpoint) = crate::net_control::make_control_link();
+        let mut mm = MmBs::new(SharedConfig::from_parts(cfg, None), None, Some(endpoint));
+        radio(&mut mm, 100);
+        let mut queue = MessageQueue::new();
+        assert!(mm.do_dgna(&mut queue, 100, 91, Some("Ops".into()), 0, true));
+        assert!(mm.do_dgna(&mut queue, 100, 91, None, 0, false));
+        // Refused (out of range): nothing reported.
+        assert!(!mm.do_dgna(&mut queue, 100, 0x100_0000, None, 0, true));
+        let got = dispatcher.try_recv_responses();
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(matches!(&got[0], crate::net_control::ControlResponse::DgnaChanged { issi: 100, gssi: 91, mnemonic: Some(m), assigned: true, .. } if m == "Ops"));
+        assert!(matches!(&got[1], crate::net_control::ControlResponse::DgnaChanged { issi: 100, gssi: 91, mnemonic: None, assigned: false, .. }));
     }
 }
 
