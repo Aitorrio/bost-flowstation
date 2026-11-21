@@ -177,6 +177,7 @@ fn r3_each_return_authenticates_fresh_duplicates_keep_the_current_challenge() {
         assert!(mm.config.state_read().sc3_dcks.is_empty());
         mm.rx_u_authentication_result(&mut q, MS, 0, transmitted_ack(), UAuthenticationResult { r2: true, res1: None, proprietary: None });
         let (pdu, receipt) = accept(&mut q);
+        assert!(pdu.security_downlink.is_none(), "no Security downlink in the mutual SC3 accept");
         let dck = mm.pending_ciphering[&MS].dck.as_ref().unwrap().0;
         assert_ne!(Some(dck), previous_dck);
         let cck = pdu.authentication_downlink.unwrap().cck.unwrap();
@@ -306,6 +307,10 @@ fn sc3_registration_seals_cck_and_activates_dck_only_after_ack() {
         },
     );
     let (pdu, receipt) = accept(&mut q);
+    // EN 300 392-7 A.7.3: the Security downlink carries R1 and request flags, never the ciphering
+    // parameters; sent with them it told the radio R1 = 0 next to the Authentication downlink's
+    // R1 = 1. The accept carries the result in the Authentication downlink only.
+    assert!(pdu.security_downlink.is_none(), "no Security downlink in the SC3 accept");
     let cck = pdu.authentication_downlink.unwrap().cck.unwrap();
     assert_eq!(cck.cck_id, 42);
     assert_eq!(ta32(&cck.sealed, cck.cck_id, &dck), Ok(CCK));
@@ -669,4 +674,39 @@ fn r4_encrypted_periodic_registration_switches_dck_at_result_ack_before_lu_accep
             assert_eq!(mm.config.state_read().sc3_status[&MS].phase,"timeout");
         }
     }
+}
+
+/// Motorola radios follow an accepted demand location update at once with their own roaming update
+/// and ignore a second challenge; the held update was then never answered (field logs 2026-11-21).
+/// A follow-up encrypted under the agreed key within one T354, or in clear within AUTH_PASS_GRACE,
+/// is accepted without a new challenge; a later clear one is challenged again.
+#[test]
+fn follow_up_location_update_right_after_authentication_is_not_challenged_again() {
+    let mut mm = station();
+    let mut q = MessageQueue::new();
+    mm.rx_u_location_update_demand(&mut q, registration(MS, None));
+    let (res1, _) = answer(&mm, &K);
+    mm.rx_u_authentication_response(&mut q, MS, 0, UAuthenticationResponse { res1, rand2: None, proprietary: None });
+    let (_, receipt) = accept(&mut q);
+    receipt.mark_transmitted(); receipt.mark_acknowledged();
+    mm.process_pending_ciphering();
+    assert!(mm.config.state_read().subscribers.is_registered(MS));
+
+    for encrypted in [true, false] {
+        let mut follow_up = registration(MS, None);
+        if let SapMsgInner::LmmMleUnitdataInd(p) = &mut follow_up.msg { p.encrypted = encrypted; }
+        let mut q = MessageQueue::new();
+        mm.rx_u_location_update_demand(&mut q, follow_up);
+        assert!(!mm.auth_pending.contains_key(&MS), "no new challenge (encrypted = {encrypted})");
+        let (pdu, receipt) = accept(&mut q);
+        assert!(pdu.authentication_downlink.is_some());
+        receipt.mark_transmitted(); receipt.mark_acknowledged();
+        mm.process_pending_ciphering();
+    }
+
+    // A clear update after the grace period proves nothing: challenge again.
+    mm.registration_authenticated.insert(MS, Instant::now() - AUTH_PASS_GRACE - Duration::from_secs(1));
+    let mut q = MessageQueue::new();
+    mm.rx_u_location_update_demand(&mut q, registration(MS, None));
+    assert!(mm.auth_pending.contains_key(&MS), "a later clear update is challenged");
 }
