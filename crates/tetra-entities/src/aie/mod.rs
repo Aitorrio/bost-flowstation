@@ -163,26 +163,13 @@ pub enum CipherDecision {
 /// Decide how a registering radio is ciphered from what it asked for (EN 300 392-7 clause
 /// 6.6.2.1: in a class 2 cell the radio proposes KSG and SCKN; unacceptable ones are rejected).
 /// `aie` is the cell's effective setting ([`effective`]).
-pub fn registration_decision(
-    aie: Option<&CfgAie>,
-    cipher_control: bool,
-    params: Option<u64>,
-    ms_sck_capable: bool,
-) -> CipherDecision {
+pub fn registration_decision(aie: Option<&CfgAie>, cipher_control: bool, params: Option<u64>) -> CipherDecision {
     if !cipher_control {
+        // Cipher control false is a class 1 registration (clause 6.6.2.1.1): the radio stays clear.
+        // EN 300 392-7 has no SwMI-initiated ciphering of such a radio; it would not know the key
+        // stream is on and could not decode its own downlink.
         if aie.is_some_and(|a| a.class3.is_some()) {
             return CipherDecision::Reject(RejectCause::RequestedCipherKeyTypeNotAvailable);
-        }
-        // Infra-initiated ciphering: a class 2 cell ciphers an SCK-capable MS even when it
-        // registers without requesting ciphering itself (cipher_control = 0). Some radios
-        // (observed on Hytera) attach clear and rely on the SwMI to turn SCK on; without this
-        // they stay clear and are then refused on encrypted groups ("group belongs to the other
-        // encryption mode"). Radios that advertise no SCK capability (sck_encryption = 0, e.g.
-        // keyless clear radios on a mixed cell) are left clear.
-        if let Some(a) = aie {
-            if a.class3.is_none() && ms_sck_capable {
-                return CipherDecision::Encrypted(CipheringParameters::class2(a.ksg, a.sckn));
-            }
         }
         return CipherDecision::Clear;
     }
@@ -263,21 +250,21 @@ mod tests {
     fn registration_follows_the_configured_key() {
         let a = aie();
         let ok = CipheringParameters::class2(1, 3);
-        assert_eq!(registration_decision(Some(&a), false, None, false), CipherDecision::Clear);
-        // SCK-capable MS that attaches clear is ciphered by the infra (class 2 cell).
-        assert_eq!(registration_decision(Some(&a), false, None, true), CipherDecision::Encrypted(CipheringParameters::class2(a.ksg, a.sckn)));
-        assert_eq!(registration_decision(None, true, Some(ok.to_bits()), false), CipherDecision::Unsupported);
-        assert_eq!(registration_decision(Some(&a), true, Some(ok.to_bits()), false), CipherDecision::Encrypted(ok));
+        // A class 1 registration (cipher control false) stays clear on a class 2 cell, also for an
+        // SCK-capable radio: EN 300 392-7 has no SwMI-initiated ciphering (clause 6.6.2.1.1).
+        assert_eq!(registration_decision(Some(&a), false, None), CipherDecision::Clear);
+        assert_eq!(registration_decision(None, true, Some(ok.to_bits())), CipherDecision::Unsupported);
+        assert_eq!(registration_decision(Some(&a), true, Some(ok.to_bits())), CipherDecision::Encrypted(ok));
         assert_eq!(
-            registration_decision(Some(&a), true, Some(CipheringParameters::class2(2, 3).to_bits()), false),
+            registration_decision(Some(&a), true, Some(CipheringParameters::class2(2, 3).to_bits())),
             CipherDecision::Reject(RejectCause::IdentifiedCipherKsgNotSupported)
         );
         assert_eq!(
-            registration_decision(Some(&a), true, Some(CipheringParameters::class2(1, 4).to_bits()), false),
+            registration_decision(Some(&a), true, Some(CipheringParameters::class2(1, 4).to_bits())),
             CipherDecision::Reject(RejectCause::IdentifiedCipherKeyNotAvailable)
         );
         assert_eq!(
-            registration_decision(Some(&a), true, Some(0b0000_1_00000), false),
+            registration_decision(Some(&a), true, Some(0b0000_1_00000)),
             CipherDecision::Reject(RejectCause::RequestedCipherKeyTypeNotAvailable)
         );
     }

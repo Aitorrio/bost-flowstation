@@ -301,19 +301,19 @@ mod sc3_tests {
         assert!(!ext.gck_supported);
         use super::super::{CipherDecision, registration_decision};
         use tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters;
-        assert!(matches!(registration_decision(Some(&aie), false, None, false), CipherDecision::Reject(_)));
+        assert!(matches!(registration_decision(Some(&aie), false, None), CipherDecision::Reject(_)));
         assert!(matches!(
-            registration_decision(Some(&aie), true, Some(CipheringParameters::class2(2, 1).to_bits()), false),
+            registration_decision(Some(&aie), true, Some(CipheringParameters::class2(2, 1).to_bits())),
             CipherDecision::Reject(_)
         ));
         assert!(matches!(
-            registration_decision(Some(&aie), true, Some(CipheringParameters::class3(2).to_bits()), false),
+            registration_decision(Some(&aie), true, Some(CipheringParameters::class3(2).to_bits())),
             CipherDecision::Encrypted(_)
         ));
         // The MS can advertise capabilities in these five bits; the BS must
         // clear them in its downlink ciphering parameters (EN 300 392-7 A.8.12).
         assert_eq!(
-            registration_decision(Some(&aie), true, Some(CipheringParameters::class3(2).to_bits() | 0b11111), false),
+            registration_decision(Some(&aie), true, Some(CipheringParameters::class3(2).to_bits() | 0b11111)),
             CipherDecision::Encrypted(CipheringParameters::class3(2))
         );
     }

@@ -101,6 +101,11 @@ struct PendingCiphering {
 const T354: Duration = Duration::from_secs(30);
 /// How long a successful authentication stays valid for the held registration to go through.
 const AUTH_PASS_GRACE: Duration = Duration::from_secs(5);
+/// After a registration authenticated, a further location update that arrives encrypted under the
+/// key just agreed is accepted without a new challenge for this long (one T354). Radios (seen on
+/// Motorola) follow an accepted demand location update at once with their own roaming update and
+/// ignore a second challenge; the held update was then never answered.
+const REAUTH_HOLDOFF_ENCRYPTED: Duration = T354;
 /// How long to wait for U-OTAR SCK RESULT after an individually addressed provide.
 const T_OTAR_RESULT: Duration = Duration::from_secs(30);
 /// Maximum time to retain a location-update ciphering transition without an LLC ACK.
@@ -130,6 +135,8 @@ pub struct MmBs {
     auth_pending: HashMap<u32, PendingAuth>,
     /// Radios that just passed, so the replayed registration is not challenged again.
     auth_passed: HashMap<u32, Instant>,
+    /// When each radio last completed authentication as part of a registration.
+    registration_authenticated: HashMap<u32, Instant>,
     /// Newly authenticated DCKs; published to MAC only at the acknowledgement boundary.
     dck: HashMap<u32, SecCipherKey>,
     auth_result_pending: HashMap<u32, PendingAuthResult>,
@@ -228,6 +235,7 @@ impl MmBs {
             registration_probe_receipts: HashMap::new(),
             auth_pending: HashMap::new(),
             auth_passed: HashMap::new(),
+            registration_authenticated: HashMap::new(),
             dck: HashMap::new(),
             auth_result_pending: HashMap::new(),
             auth_ack_pending: HashMap::new(),
@@ -712,6 +720,7 @@ impl MmBs {
     fn clear_registration_transients(&mut self, issi: u32) {
         self.auth_pending.remove(&issi);
         self.auth_passed.remove(&issi);
+        self.registration_authenticated.remove(&issi);
         self.dck.remove(&issi);
         self.auth_result_pending.remove(&issi);
         self.auth_ack_pending.remove(&issi);
@@ -1025,12 +1034,7 @@ impl MmBs {
             let cfg = self.config.config();
             let aie = crate::aie::effective(&cfg);
             (
-                crate::aie::registration_decision(
-                    aie,
-                    pdu.cipher_control,
-                    pdu.ciphering_parameters,
-                    pdu.class_of_ms.as_ref().is_some_and(|c| c.sck_encryption),
-                ),
+                crate::aie::registration_decision(aie, pdu.cipher_control, pdu.ciphering_parameters),
                 aie.map(crate::aie::preferred_parameters),
             )
         };
@@ -1370,16 +1374,11 @@ impl MmBs {
             self.sc3_cck(issi, "registration_sent");
             Some(AuthenticationDownlink { r1: true, tei_request: false, cck: Some(cck) })
         } else { None };
-        // Security downlink IE (EN 300 392-7): tell the MS which ciphering to apply as the
-        // 10-bit Ciphering parameters (KSG + security class + SCK number). Without this a radio
-        // that attached clear and is being ciphered by the infra never switches its traffic to
-        // SCK, so it stays clear and is refused on encrypted groups. Sent only when a cipher is
-        // negotiated (class 2 SCK); None leaves the accept clear exactly as before.
-        let security_downlink = ciphering.map(|params| tetra_core::typed_pdu_fields::Type3FieldGeneric {
-            field_id: 3, // MmType34ElemIdDl::SecurityDownlink
-            len: 10,
-            data: params.to_bits() as u128,
-        });
+        // No Security downlink element (EN 300 392-7 clause A.7.3, Table A.35a). It carries the
+        // authentication result R1 and information request flags, not the ciphering parameters, and
+        // the SwMI "shall only send" it to an MS known to support it (clauses 4.4, 4.4a). Filled with
+        // the 10-bit ciphering parameters it told an SC3 radio R1 = 0 (authentication failed) next to
+        // the Authentication downlink's R1 = 1 (why Motorola radios stopped registering).
         // Build D-LOCATION UPDATE ACCEPT pdu
         let pdu_response = DLocationUpdateAccept {
             location_update_accept_type: accept_type,
@@ -1389,7 +1388,7 @@ impl MmBs {
             energy_saving_information: esi,
             scch_information_and_distribution_on_18th_frame: scch_info,
             new_registered_area: None,
-            security_downlink,
+            security_downlink: None,
             group_identity_location_accept: gila,
             default_group_attachment_lifetime: None,
             authentication_downlink,
@@ -3798,6 +3797,21 @@ mod ee_tests {
 
 // ─────────────────────── Air-interface authentication (EN 300 392-7) ───────────────────────
 impl MmBs {
+    /// A follow-up location update right after an authenticated registration needs no new challenge:
+    /// authentication at registration is SwMI-initiated (EN 300 392-7 clause 4.4.2) and nothing
+    /// requires it on every location update. Accepted only while the radio is registered with a key from that
+    /// authentication, and only with proof of the key: encrypted under it within one T354, or in
+    /// clear within the few seconds of `AUTH_PASS_GRACE` (a clear update proves nothing, but it can
+    /// only re-register the same ISSI here).
+    fn recently_authenticated(&self, issi: u32, held: &SapMsg) -> bool {
+        let Some(at) = self.registration_authenticated.get(&issi) else { return false };
+        if !self.dck.contains_key(&issi) || !self.config.state_read().subscribers.is_registered(issi) {
+            return false;
+        }
+        let encrypted = matches!(&held.msg, SapMsgInner::LmmMleUnitdataInd(p) if p.encrypted);
+        at.elapsed() < if encrypted { REAUTH_HOLDOFF_ENCRYPTED } else { AUTH_PASS_GRACE }
+    }
+
     /// Decide whether a registering radio must authenticate first. Returns true when the
     /// registration has been taken over (challenge sent and the message held, or rejected).
     fn authentication_gate(
@@ -3823,6 +3837,10 @@ impl MmBs {
         // Just authenticated: let the replayed registration through.
         if self.auth_passed.get(&issi).is_some_and(|t| t.elapsed() < AUTH_PASS_GRACE) {
             self.auth_passed.remove(&issi);
+            return false;
+        }
+        if self.recently_authenticated(issi, &held) {
+            tracing::info!("MM: ISSI {} authenticated moments ago — accepting its follow-up location update without a new challenge", issi);
             return false;
         }
         let Some(k) = k else {
@@ -4090,6 +4108,7 @@ impl MmBs {
             self.sc3_phase(issi, "timeout");
         }
         self.auth_passed.retain(|_, t| t.elapsed() < AUTH_PASS_GRACE);
+        self.registration_authenticated.retain(|_, t| t.elapsed() < REAUTH_HOLDOFF_ENCRYPTED);
         self.registration_encryption.retain(|issi, _| {
             self.auth_pending.contains_key(issi) || self.auth_result_pending.contains_key(issi)
                 || self.auth_ack_pending.contains_key(issi) || self.pending_ciphering.contains_key(issi)
@@ -4147,6 +4166,7 @@ impl MmBs {
             // One internal replay only; standalone authentication must not give
             // a subsequent, independent location update a five-second bypass.
             self.auth_passed.insert(issi, Instant::now());
+            self.registration_authenticated.insert(issi, Instant::now());
             self.rx_u_location_update_demand_replay(queue, held);
         } else if self.is_class3() {
             // Standalone authentication is completed only after final RESULT's LLC ACK.
