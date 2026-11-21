@@ -4,6 +4,10 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## v0.5.19 — El servidor Brew sabe qué grupos se dieron por DGNA
+
+- **Grupos DGNA al servidor Brew.** Con un servidor que lo ofrece en el canal de control (extensión `dgna-report`, brew-server 1.21.9 o posterior con `[control]`), la estación informa por el canal de control de cada asignación y retirada DGNA, también de las hechas en su propio dashboard, y tras cada conexión envía todos los grupos DGNA que conoce. Así el servidor guarda qué grupos tiene cada radio (también tras un reinicio) y puede retirarlos más tarde. No cambia nada en el interfaz aire y no depende del interruptor de Fleet Control. Un servidor sin `dgna-report` no recibe nada nuevo. Aparece en la página Infrastructure, "Server features", bajo grupos. Ver `Docs/fleet-control.md`.
+
 ## v0.5.17 — Las radios Motorola vuelven a registrarse en celdas sin cifrado
 
 - **Las celdas sin cifrado vuelven a emitir SYSINFO como antes de la v0.5.15.** Se informó de que las Motorola MTP6650 y MXP600 dejaron de registrarse en estaciones v0.5.16 sin cifrado del interfaz aire. El motivo: la v0.5.15 cambió la rotación de SYSINFO de ranura a trama para que el elemento de seguridad llegue a las radios en celdas cifradas. Desde entonces toda celda, también una sin cifrado, enviaba la mitad del tiempo la variante con servicios extendidos en el canal de control (ranura 1), donde antes solo salía la definición por defecto del código de acceso A. En una celda sin cifrado ese elemento decía "clase de seguridad 1 y 2 soportadas, SCKN 0", aunque EN 300 392-7 tabla A.104 nota 1 exige que esos campos sean cero cuando la celda no tiene cifrado del interfaz aire. Las radios Motorola nunca habían visto ese elemento en una celda así. Ahora una celda sin cifrado mantiene la rotación por ranura (en el canal de control solo la definición por defecto, como hasta la v0.5.14), y las clases y el SCKN del elemento de seguridad son cero. Las celdas cifradas mantienen la rotación por trama de la v0.5.15. Gracias a DO5MF y DK7TD por probar la corrección con sus radios Motorola.

@@ -363,6 +363,22 @@ pub enum ControlResponse {
         elapsed_secs: u64,
     },
 
+    /// `dgna-report`: a DGNA assign (`assigned`) or remove went into the station's DGNA registry,
+    /// from the server or from the station's own dashboard. Sent only to a server that offers
+    /// `dgna-report` on the control channel. See `net_control::dgna_report`.
+    DgnaChanged {
+        issi: u32,
+        gssi: u32,
+        mnemonic: Option<String>,
+        /// SS-DGNA attachment mode (TS 100 392-12-22 table 51); 0 for a remove.
+        attachment_mode: u8,
+        assigned: bool,
+    },
+
+    /// `dgna-report`: every DGNA group the station remembers, right after the control channel
+    /// connects (the server only adds from it: a station forgets radios over its own restart).
+    DgnaGroups { groups: Vec<DgnaReportEntry> },
+
     /// Fleet Control (`metrics-v1`): load and temperatures, sent every `interval_secs` while the
     /// server offers Fleet Control and the switch is on (graphs and alarms on the server).
     FleetMetrics {
@@ -381,6 +397,15 @@ pub enum ControlResponse {
         /// Stack health: `ok`, `degraded` or `critical`.
         health: String,
     },
+}
+
+/// One group in [`ControlResponse::DgnaGroups`].
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+pub struct DgnaReportEntry {
+    pub issi: u32,
+    pub gssi: u32,
+    pub mnemonic: Option<String>,
+    pub attachment_mode: u8,
 }
 
 /// One cell in [`ControlResponse::FleetMetrics`].

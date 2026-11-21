@@ -11,7 +11,7 @@ use tetra_core::CellId;
 use toml::{Table, Value as TomlValue};
 
 /// Brew extensions shown as server features: `fleet-control` (Fleet Control, offered on the Brew link or the control channel, with its switch), the ones this station uses (FlowStation ↔ brew-server, opt-in), plus `issi-check` (a brew-server answers it for another server's Multi Network link) and `mni` (Multi Network visitors; this station does not use it yet).
-const HANDOVER_EXTENSIONS: &[&str] = &["fleet-control", "bts-info", "handover-v1", "ms-cell", "ms-moved", "ms-reselection", "call-restore", "call-handoff", "cell-directory", "group-access", "issi-check", "mni"];
+const HANDOVER_EXTENSIONS: &[&str] = &["fleet-control", "bts-info", "handover-v1", "ms-cell", "ms-moved", "ms-reselection", "call-restore", "call-handoff", "cell-directory", "group-access", "dgna-report", "issi-check", "mni"];
 
 /// Integer neighbour keys with their maximum (field widths, TS 100 392-2 table 18.64).
 const NEIGHBOUR_INT_KEYS: &[(&str, i64)] = &[

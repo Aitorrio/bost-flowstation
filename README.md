@@ -396,7 +396,7 @@ What the server can do once it is on (each item is announced as a capability, so
 - **Station config** (`config-v1`) — the server reads the config and changes it in steps (cells, neighbours, reselection values, Brew, telemetry, update source, single values of the config file); never passwords or keys. Templates, bulk changes and neighbour suggestions are on the server side.
 - **Graphs and alarms** (`metrics-v1`) — once a minute CPU load, temperatures, RF state, radios and calls for the server's 24 h graphs and alarms.
 
-The existing control commands (kick, DGNA, SDS, emergency clear, ambience listening, service restart / shutdown) do not depend on the switch. Station side in [`Docs/fleet-control.md`](Docs/fleet-control.md); protocol and server side in brew-server `docs/Fleet-Control.md`.
+The existing control commands (kick, DGNA, SDS, emergency clear, ambience listening, service restart / shutdown) do not depend on the switch. Neither does `dgna-report`: with a server that offers it, the station reports every DGNA assign and remove (also those made on its own dashboard) over the control channel, so the server knows the groups and can take them back. Station side in [`Docs/fleet-control.md`](Docs/fleet-control.md); protocol and server side in brew-server `docs/Fleet-Control.md`.
 
 ## Stability and system robustness
 

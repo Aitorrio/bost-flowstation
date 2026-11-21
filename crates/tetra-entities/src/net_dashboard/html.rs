@@ -19611,7 +19611,7 @@ function roamRenderBrew(){
   if(!b.configured){el.innerHTML=escHtml(t('roam_brew_off'))+fleetRow();return;}
   const wasOpen=!!el.querySelector('details[open]');
   const on=b.extensions.filter(x=>x.offered).length;
-  const cat={'fleet-control':'roam_feat_fleet','bts-info':'roam_feat_roam','handover-v1':'roam_feat_roam','ms-cell':'roam_feat_roam','ms-moved':'roam_feat_roam','ms-reselection':'roam_feat_roam','call-restore':'roam_feat_calls','call-handoff':'roam_feat_calls','cell-directory':'roam_feat_cells','group-access':'roam_feat_groups','issi-check':'roam_feat_net','mni':'roam_feat_net'};
+  const cat={'fleet-control':'roam_feat_fleet','bts-info':'roam_feat_roam','handover-v1':'roam_feat_roam','ms-cell':'roam_feat_roam','ms-moved':'roam_feat_roam','ms-reselection':'roam_feat_roam','call-restore':'roam_feat_calls','call-handoff':'roam_feat_calls','cell-directory':'roam_feat_cells','group-access':'roam_feat_groups','dgna-report':'roam_feat_groups','issi-check':'roam_feat_net','mni':'roam_feat_net'};
   const order=['roam_feat_fleet','roam_feat_roam','roam_feat_calls','roam_feat_cells','roam_feat_groups','roam_feat_net','roam_feat_other'];
   const ext=order.map(k=>{
     const xs=b.extensions.filter(x=>(cat[x.name]||'roam_feat_other')===k);
