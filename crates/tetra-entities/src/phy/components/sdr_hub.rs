@@ -318,3 +318,9 @@ mod tests {
         assert_eq!(steps[0][1], (1522, None), "missing cell transmits silence");
     }
 }
+
+#[cfg(test)]
+fn _assert_soapy_dev_send() {
+    fn is_send<T: Send>() {}
+    is_send::<crate::phy::components::soapy_dev::RxTxDevSoapySdr>();
+}
