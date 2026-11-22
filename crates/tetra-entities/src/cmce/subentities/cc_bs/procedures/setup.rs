@@ -414,6 +414,12 @@ impl CcBsSubentity {
         // coming over from another station unannounced (see `take_over_moved_talker`). A
         // listener-only radio (`group-access`) joins to listen and never gets it.
         let grant_floor = may_talk && (!tx_active || call.take_over_moved_talker(calling_party.ssi));
+        // The radio that set this call up and holds its floor sends the same U-SETUP again: its
+        // first one arrived, but it missed the layer 2 acknowledgement and repeated it (the basic
+        // link does not suppress duplicates, TS 100 392-2 clause 22.3.2.3 NOTE 3). Answer it with
+        // the D-CONNECT of the original set-up (clause 14.5.2.1.2: transmit permission, call
+        // ownership) instead of telling the talker that another user has the floor.
+        let repeated_by_talker = call.local_floor && call.is_current_speaker(calling_party.ssi);
 
         let SapMsgInner::LcmcMleUnitdataInd(prim) = &message.msg else {
             panic!()
@@ -422,16 +428,25 @@ impl CcBsSubentity {
         let ul_link_id = prim.link_id;
         let ul_endpoint_id = prim.endpoint_id;
 
-        tracing::info!(
-            "CMCE: LATE ENTRY of ISSI {} into active call_id={} on GSSI {} ts={} (no second circuit, floor_granted={})",
-            calling_party.ssi,
-            call_id,
-            dest_gssi,
-            ts,
-            grant_floor
-        );
-
-        self.send_d_call_proceeding(queue, message, pdu, call_id, CallTimeoutSetupPhase::T10s, pdu.hook_method_selection);
+        if repeated_by_talker {
+            tracing::info!(
+                "CMCE: repeated U-SETUP from talker ISSI {} of call_id={} on GSSI {} ts={}, answering with D-CONNECT (granted) again",
+                calling_party.ssi,
+                call_id,
+                dest_gssi,
+                ts
+            );
+        } else {
+            tracing::info!(
+                "CMCE: LATE ENTRY of ISSI {} into active call_id={} on GSSI {} ts={} (no second circuit, floor_granted={})",
+                calling_party.ssi,
+                call_id,
+                dest_gssi,
+                ts,
+                grant_floor
+            );
+            self.send_d_call_proceeding(queue, message, pdu, call_id, CallTimeoutSetupPhase::T10s, pdu.hook_method_selection);
+        }
 
         let mut timeslots = [false; 4];
         timeslots[ts as usize - 1] = true;
@@ -443,7 +458,7 @@ impl CcBsSubentity {
             simplex_duplex_selection: pdu.simplex_duplex_selection,
             // A listener-only joiner in hangtime: not granted, the U-plane stays off until the
             // next talker's group D-TX GRANTED (clause 14.5.2.1, table 14.80).
-            transmission_grant: if grant_floor {
+            transmission_grant: if repeated_by_talker || grant_floor {
                 TransmissionGrant::Granted
             } else if tx_active {
                 TransmissionGrant::GrantedToOtherUser
@@ -453,8 +468,9 @@ impl CcBsSubentity {
             // Individually addressed, so it tells this radio alone: a listener-only radio is
             // "not allowed to request for transmission" (clause 14.8.43, table 14.81: 1).
             transmission_request_permission: !may_talk,
-            // The ongoing call keeps its owner; a late joiner never takes ownership.
-            call_ownership: false,
+            // The ongoing call keeps its owner; a late joiner never takes ownership. The owner's
+            // repeated set-up gets the ownership of its original D-CONNECT again.
+            call_ownership: repeated_by_talker,
             call_priority: None,
             basic_service_information: None,
             temporary_address: None,
@@ -496,7 +512,8 @@ impl CcBsSubentity {
             }),
         });
 
-        if !grant_floor {
+        // A repeated set-up changes nothing: the talker already holds the floor.
+        if repeated_by_talker || !grant_floor {
             return;
         }
 

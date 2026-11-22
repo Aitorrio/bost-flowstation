@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.6.5 — Group calls no longer drop when the radio repeats its U-SETUP
+
+- **The talker keeps the floor when its U-SETUP arrives twice.** A radio that misses the layer 2 acknowledgement of its U-SETUP sends it again (the basic link does not suppress duplicates, TS 100 392-2 clause 22.3.2.3 NOTE 3). The station took the repeat as a late entry into the call the radio had just set up and sent it a D-CONNECT saying "granted to another user": the radio stopped transmitting and every call ended after 3 s on uplink inactivity without a single voice frame (seen in a field log with two radios). The repeat now gets the D-CONNECT of the original set-up again (transmission granted, call ownership, clause 14.5.2.1.2), with no D-CALL PROCEEDING and no change of floor.
+
 ## v0.6.4 — DGNA groups to the Brew server on beta too
 
 - **Merged `main` into `beta`.** The DGNA report to the Brew server (v0.5.19, `main` only until now) is now on `beta` as well; see the v0.5.19 entry below. Nothing else changes.
