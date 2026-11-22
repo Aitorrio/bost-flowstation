@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.6.4 — DGNA groups to the Brew server on beta too
+
+- **Merged `main` into `beta`.** The DGNA report to the Brew server (v0.5.19, `main` only until now) is now on `beta` as well; see the v0.5.19 entry below. Nothing else changes.
+
 ## v0.6.3 — Registration with authentication and encryption works on Motorola again
 
 - **No Security downlink element in the location update accept.** Since v0.5.15 the D-LOCATION UPDATE ACCEPT of an encrypted registration carried a "Security downlink" element filled with the 10-bit ciphering parameters. EN 300 392-7 clause A.7.3 (Table A.35a) defines that element as the authentication result R1 plus information request flags, and the SwMI may only send it to a radio known to support it (clauses 4.4, 4.4a). On a class 3 cell with TEA2 its first bit said R1 = 0 ("authentication failed") next to R1 = 1 in the Authentication downlink. This is why Motorola radios no longer registered with authentication after v0.5.10; with the fix two Motorola radios register again in security classes 1, 2 and 3 (tested on air). The accept carries the result in the Authentication downlink only again, as up to v0.5.14.
@@ -22,6 +26,10 @@ Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), whi
 
 - **WireGuard from the dashboard (Network tab).** A new card configures the tunnel without editing files: interface (address, listen port, **MTU**, DNS, private key) and peers (public key, endpoint, **allowed IPs / networks**, persistent keepalive, preshared key), with live status (last handshake, bytes in and out), start/stop, start at boot and an automatic restart on save. It uses `/etc/wireguard/wg0.conf` (mode 0600) and `wg-quick`; it needs `wireguard-tools` and root or passwordless `sudo`. Keys are write-only (the dashboard never returns them), every value is validated before it is written, and a config with directives the editor does not manage (`PostUp`, `Table`, …) is not overwritten without confirmation. One tunnel, `wg0`.
 - **Time graphs for the host sensors.** The System tab now shows a total-power graph (with min/avg/max) and a small graph on every sensor tile (temperatures, voltages, currents, power) covering the last ~20 min. The history is kept on the station, so graphs are already filled after a page reload or when another browser connects.
+
+## v0.5.19 — The Brew server knows which groups were given by DGNA
+
+- **DGNA groups to the Brew server.** With a server that offers it on the control channel (extension `dgna-report`, brew-server 1.21.9 or newer with `[control]`), the station reports every DGNA assign and remove over the control channel, also those made on its own dashboard, and after each connect it sends every DGNA group it knows. So the server keeps which groups each radio has (also across a restart) and can take them back later. Nothing changes on the air interface, and it does not depend on the Fleet Control switch. A server without `dgna-report` gets nothing new. Shown on the Infrastructure page, "Server features", under groups. See `Docs/fleet-control.md`.
 
 ## v0.5.17 — Motorola radios register again on cells without encryption
 

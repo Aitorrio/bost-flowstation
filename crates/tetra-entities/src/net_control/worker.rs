@@ -17,7 +17,7 @@ use crate::{
         channel::CommandDispatcher,
         codec::ControlCodecJson,
         commands::{ControlCommand, ControlResponse},
-        fleet, fleet_config, metrics,
+        dgna_report, fleet, fleet_config, metrics,
     },
     network::transports::NetworkTransport,
 };
@@ -39,6 +39,10 @@ pub struct ControlWorker<T: NetworkTransport> {
     fleet_offered: bool,
     /// The switch value the last hello on this connection announced (`None`: none sent yet).
     hello_announced: Option<bool>,
+    /// The server asked for the DGNA reports on this connection (`dgna-report`).
+    dgna_offered: bool,
+    /// The DGNA registry went to the server on this connection.
+    dgna_snapshot_sent: bool,
     /// Whether that hello listed `update-v1` (an OTA was available).
     hello_ota: bool,
     /// Answers produced off the loop (update checks), sent by the loop.
@@ -69,6 +73,8 @@ impl<T: NetworkTransport> ControlWorker<T> {
             shared: None,
             fleet_offered: false,
             hello_announced: None,
+            dgna_offered: false,
+            dgna_snapshot_sent: false,
             hello_ota: false,
             async_tx,
             async_rx,
@@ -94,6 +100,7 @@ impl<T: NetworkTransport> ControlWorker<T> {
         loop {
             if self.connected {
                 self.poll_commands();
+                self.send_dgna_snapshot();
                 self.collect_responses();
                 self.announce_switch_change();
                 self.send_async_answers();
@@ -211,6 +218,10 @@ impl<T: NetworkTransport> ControlWorker<T> {
         let responses: Vec<ControlResponse> = self.dispatchers.values().flat_map(|d| d.try_recv_responses()).collect();
 
         for response in &responses {
+            // DGNA reports only to a server that asked for them (an older one would log each).
+            if matches!(response, ControlResponse::DgnaChanged { .. }) && !self.dgna_offered {
+                continue;
+            }
             tracing::debug!("response collected: {:?}", response);
             self.send_response(response);
         }
@@ -288,6 +299,21 @@ impl<T: NetworkTransport> ControlWorker<T> {
         self.send_response(&hello);
     }
 
+    /// Send every DGNA group the station remembers once after the connect, to a server that asked
+    /// for the DGNA reports (`dgna-report`), so it learns groups given while the channel was down.
+    fn send_dgna_snapshot(&mut self) {
+        if !self.connected || !self.dgna_offered || self.dgna_snapshot_sent {
+            return;
+        }
+        let Some(shared) = self.shared.clone() else { return };
+        self.dgna_snapshot_sent = true;
+        let snapshot = dgna_report::snapshot(&shared);
+        if let ControlResponse::DgnaGroups { groups } = &snapshot {
+            tracing::info!("Control server asks for DGNA reports, sending the {} DGNA group(s) this station knows", groups.len());
+        }
+        self.send_response(&snapshot);
+    }
+
     /// Send the answers of finished update checks.
     fn send_async_answers(&mut self) {
         while let Ok(response) = self.async_rx.try_recv() {
@@ -337,6 +363,8 @@ impl<T: NetworkTransport> ControlWorker<T> {
                 tracing::info!("Control transport connected");
                 self.connected = true;
                 self.fleet_offered = fleet::offered(self.transport.server_brew_extensions());
+                self.dgna_offered = dgna_report::offered(self.transport.server_brew_extensions());
+                self.dgna_snapshot_sent = false;
                 if self.fleet_offered {
                     tracing::info!("Control server offers Fleet Control");
                 }
@@ -531,6 +559,50 @@ mod tests {
             })
             .collect();
         assert_eq!(hellos, vec![(false, vec![]), (true, vec!["fleet-v1".to_string(), "maintenance-v1".to_string(), "restart-v1".to_string(), "metrics-v1".to_string()]), (false, vec![])]);
+    }
+
+    #[test]
+    fn dgna_reports_only_to_a_server_that_asks() {
+        let (dispatcher, endpoint) = make_control_link();
+        let mut dispatchers = HashMap::new();
+        dispatchers.insert(TetraEntity::Mm, dispatcher);
+        let shared = station(false);
+        shared.state_write().subscribers.remember_dgna_group(2001, 91, Some("Ops".into()), 0);
+
+        // An older server: neither the registry nor the changes.
+        let mut old = ControlWorker::new(dispatchers.clone(), MockTransport::new().with_brew_extensions(&[fleet::EXT_FLEET_CONTROL]))
+            .with_shared(shared.clone());
+        old.try_connect();
+        old.send_dgna_snapshot();
+        endpoint.respond(dgna_report::changed(2001, 92, None, 0, true));
+        old.collect_responses();
+        assert!(old.transport.sent_payloads().is_empty());
+
+        // A server with `dgna-report`: the registry once after the connect, then every change.
+        let mut worker = ControlWorker::new(
+            dispatchers,
+            MockTransport::new().with_brew_extensions(&[fleet::EXT_FLEET_CONTROL, dgna_report::EXT_DGNA_REPORT]),
+        )
+        .with_shared(shared.clone());
+        worker.try_connect();
+        worker.send_dgna_snapshot();
+        worker.send_dgna_snapshot();
+        endpoint.respond(dgna_report::changed(2001, 91, None, 0, false));
+        worker.collect_responses();
+        let got = sent(&worker);
+        assert_eq!(got.len(), 2, "{got:?}");
+        match &got[0] {
+            ControlResponse::DgnaGroups { groups } => {
+                assert_eq!(groups.iter().map(|g| (g.issi, g.gssi)).collect::<Vec<_>>(), vec![(2001, 91)])
+            }
+            other => panic!("expected the registry, got {other:?}"),
+        }
+        assert!(matches!(got[1], ControlResponse::DgnaChanged { issi: 2001, gssi: 91, assigned: false, .. }));
+
+        // A new connection sends the registry again.
+        worker.try_connect();
+        worker.send_dgna_snapshot();
+        assert_eq!(sent(&worker).len(), 3);
     }
 
     fn fake_metrics(_: &mut metrics::CpuSampler) -> ControlResponse {
