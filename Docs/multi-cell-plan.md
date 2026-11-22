@@ -256,6 +256,57 @@ exposed. Passband caps carrier distance. Hub back-pressure between cells needs t
 deadline. Not validated on hardware; the thread/pacing model of `soapy_dev.rs` must be re-read
 before coding (this proposal is based on a read of the structure, not a full audit).
 
+## Phase 8 (proposal) — Per-cell security settings
+
+**Goal:** an additional cell can have its own air-interface encryption and access control
+(class 1/2/3, KSG, SCK, `clear_groups`, ISSI whitelist, authentication posture), e.g. a clear cell
+next to an encrypted one, or two encrypted cells with different SCKs. Independent of Phase 7 (works
+with one SDR per cell or a shared SDR).
+
+**Today:** `StackConfig::for_extra_cell` clones the primary config, so every cell inherits the whole
+station-wide `[security]`. `[[cells]]` accepts only `id`, `enabled`, `network`, `cell_info`,
+`soapysdr`. Only the SC3 CCK differs per cell (per location area, `auc::apply_server_cck_cell`).
+Each cell's entities read their own `SharedConfig`, so UMAC/MM/MLE/AIE already follow whatever
+`cfg.security` the cell was built with; the work is config, key management and cross-cell rules.
+
+**Design**
+1. Config: optional `[cells.security]`, same keys as `[security]` minus the station-wide ones.
+   Overridable: `aie` (class, ksg, sckn, sck, sck_vn, clear_groups, cck, cck_id),
+   `issi_whitelist` + `whitelist_mode`, `authentication`, `mutual_authentication`. Not overridable
+   (rejected with "cannot be set per cell"): `key_source`, E2EE, rate limits and registry caps,
+   `[[security.subscribers]]` (one subscriber key database per station). Merged like
+   `[cells.cell_info]` (table deep-merge over the primary's, unknown keys refused).
+2. `for_extra_cell` applies the override to `cfg.security`; the CCK-per-LA step still runs after it.
+3. Validation: cells of different security class need `[networks]` separation or explicit
+   acknowledgement (`allow_mixed_security = true` at the root), because of rule 4. Same class with
+   different SCK/SCKN is allowed. Each cell's class-2/3 key material is validated as for the primary.
+4. Cross-cell behaviour (the hard part), decided per case:
+   - Registration: a radio changing to a cell of another class registers there anew (as with
+     another LA); announced reselection/forward registration to a cell of another class is refused
+     (D-PREPARE-FAIL) rather than carried over.
+   - Call restore (`restore_from_sibling`, U-RESTORE): refused with D-RESTORE-FAIL when the classes
+     differ; same class with another SCK works because the target cell encrypts with its own key.
+   - Group calls across cells (`SiteSwitch` copies voice as clear bursts, each cell re-encrypts):
+     a group is delivered to a cell only if the member's encryption mode there matches the group's
+     (`clear_groups` is per cell); otherwise that cell is skipped and logged once.
+   - Brew: the group encryption-mode checks use the receiving cell's `[security]`; the Brew rules
+     the switch re-applies stay station-wide.
+5. Key management: with `key_source = "server"` the server's SCK is per station today. Phase 8
+   keeps one server SCK for all class-2 cells that do not set their own `sck`; a cell with its own
+   SCK keeps it (server updates skip it). Per-cell server keys would need a protocol extension
+   (brew-server `sck-v1` per cell id) and are out of scope.
+6. Dashboard: the Cells card shows each cell's class; the Security page edits the primary's section
+   and lists per-cell overrides read-only (edit in the TOML) in a first version.
+
+**Steps:** (1) config parse/merge/validate with tests; (2) `for_extra_cell` + a test that a clear
+cell and a class 2 cell coexist; (3) cross-cell rules in `SiteSwitch` and MLE with tests;
+(4) key management and dashboard; (5) on-air test with a clear radio and an encrypted radio.
+
+**Risks:** cross-cell rules are where bugs will be (voice delivery to a cell whose members are in
+the other mode, silent failures on restore); radios of one fleet mixing classes between cells is
+unusual and terminal behaviour varies; the station-wide Fleet Control key updates must not
+overwrite a cell's own key. Not validated on air.
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).
