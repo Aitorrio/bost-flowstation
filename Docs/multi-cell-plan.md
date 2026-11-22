@@ -219,6 +219,43 @@ when the sibling's band plan differs, and its `ms_txpwr_max_cell` when it differ
 20/10/10/6 dB) instead of 0; the time-only broadcast keeps 0. Nibble order and defaults are from my
 reading of clause 18.5 — verify with a terminal's field-test display.
 
+## Phase 7 (proposal) — Several cells on one SDR
+
+**Goal:** a second carrier configured as its own cell (own colour code, LA, network, neighbour list)
+on the same SDR, instead of a secondary carrier of one cell. Brew sees two cells, as today.
+
+**Why it is not dual carrier:** `secondary_carrier` is one cell (one stack, shared identity). Here each
+cell keeps its own stack thread and `[[cells]]` entry; only the radio front-end is shared.
+
+**Blockers today:** `StackConfig::validate` (`config.rs`, "same SDR device") rejects two cells on one
+`device`; `RxTxDevSoapySdr` owns the device and channelizer for exactly one PHY.
+
+**Design**
+- `SdrHub`: one owner thread per physical SDR. Holds the device, the RX channelizer (one demodulator
+  per carrier of every cell in the group) and the TX FCFB (one modulator per carrier).
+- `HubCellDev`: per-cell `RxTxDev` view handed to that cell's `PhyBs`. RX: receives only its
+  carrier's uplink bursts. TX: submits its carrier's downlink block.
+- TX commit: the hub commits a block once every cell has submitted (reuses the existing
+  prepare-all / commit-once logic in `soapy_dev.rs`). A cell that misses a deadline is filled with
+  silence so it cannot stall the others.
+- Timing: one sample clock, so the cells' TDMA frames are locked. Auto neighbours may then advertise
+  `neighbor_cell_synchronized = true`.
+- Config: a `[[cells]]` entry reuses the primary's `soapysdr.device` or sets `share_sdr_with = "<cell id>"`.
+  Hardware keys (sample rate, centre, gains, ppm, antenna) come from the owning cell and must not be
+  set differently on the others. Validation: all carriers of a group fit one passband (centre midway,
+  `sample_rate` required, as for dual carrier); carriers unique and same band.
+- Single-cell and one-SDR-per-cell setups are unchanged (the hub is used only for shared devices).
+- Dashboard: Cells card shows the shared SDR; RF status is per device.
+
+**Steps:** (1) hub + `HubCellDev` with a fake device and unit tests; (2) config and validation;
+(3) wire `spawn_extra_cells` / `try_attach_phy`; (4) dashboard; (5) on-air test: two cells on one
+Pluto+/Lime, registration on each, group call across cells, reselection.
+
+**Limits / risks:** TX gain and RF path are common to both cells; per-carrier amplitude is not
+exposed. Passband caps carrier distance. Hub back-pressure between cells needs the silence-fill
+deadline. Not validated on hardware; the thread/pacing model of `soapy_dev.rs` must be re-read
+before coding (this proposal is based on a read of the structure, not a full audit).
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).
