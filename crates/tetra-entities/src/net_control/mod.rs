@@ -8,6 +8,7 @@
 pub mod channel;
 pub mod codec;
 pub mod commands;
+pub mod dgna_report;
 pub mod fleet;
 pub mod fleet_config;
 pub mod metrics;
