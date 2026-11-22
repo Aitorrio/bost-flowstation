@@ -2965,6 +2965,62 @@ fn test_second_group_setup_to_active_gssi_is_late_entry() {
     );
 }
 
+/// Regression (field log 2026-11-22): the talker's own U-SETUP arrives twice, because the radio
+/// missed the layer 2 acknowledgement and the basic link does not suppress duplicates
+/// (TS 100 392-2 clause 22.3.2.3 NOTE 3). The repeat must get the D-CONNECT of the original
+/// set-up (transmission granted, call ownership), not "granted to another user", which made
+/// the radio stop talking and every call end on UL inactivity.
+#[test]
+fn test_repeated_group_setup_from_talker_keeps_floor() {
+    debug::setup_logging_verbose();
+
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 1 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(
+        vec![TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+
+    let listener_issi = TEST_ISSI + 1;
+    register_subscriber(&mut test, TEST_ISSI, TEST_GSSI);
+    register_subscriber(&mut test, listener_issi, TEST_GSSI);
+
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let setup_msgs = test.dump_sinks();
+    let call_id = first_d_setup_call_id(&setup_msgs, TEST_GSSI);
+    let free_slots_after_first = test.config.state_read().timeslot_alloc.free_count();
+
+    // The same U-SETUP from the same radio again.
+    test.submit_message(build_u_setup_msg(TEST_ISSI, TEST_GSSI));
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+
+    assert_eq!(
+        test.config.state_read().timeslot_alloc.free_count(),
+        free_slots_after_first,
+        "a repeated set-up must not allocate another traffic timeslot"
+    );
+    assert!(
+        find_lcmc_req(&msgs, TEST_ISSI, CmcePduTypeDl::DCallProceeding).is_none(),
+        "a repeated set-up is answered with D-CONNECT only"
+    );
+    let (mut sdu, _) = find_lcmc_req(&msgs, TEST_ISSI, CmcePduTypeDl::DConnect).expect("Expected D-CONNECT to the talker");
+    let d_connect = DConnect::from_bitbuf(&mut sdu).expect("Failed to parse DConnect");
+    assert_eq!(d_connect.call_identifier, call_id);
+    assert_eq!(
+        d_connect.transmission_grant,
+        TransmissionGrant::Granted,
+        "the talker keeps its transmit permission"
+    );
+    assert!(d_connect.call_ownership, "the caller keeps call ownership");
+    assert!(
+        find_lcmc_req(&msgs, listener_issi, CmcePduTypeDl::DTxGranted).is_none()
+            && !msgs.iter().any(|m| matches!(&m.msg, SapMsgInner::CmceCallControl(CallControl::FloorGranted { .. }))),
+        "the floor does not change hands, so no new grant is announced"
+    );
+}
+
 fn brew_test_config() -> tetra_config::bluestation::StackConfig {
     let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
     config.brew = Some(CfgBrew {

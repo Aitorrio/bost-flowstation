@@ -4,6 +4,10 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## v0.6.5 — Las llamadas de grupo ya no se cortan si la radio repite su U-SETUP
+
+- **El que habla conserva la palabra cuando su U-SETUP llega dos veces.** Si la radio no recibe el acuse de capa 2 de su U-SETUP, lo repite (el basic link no suprime duplicados, TS 100 392-2 cláusula 22.3.2.3 NOTA 3). La estación trataba la repetición como entrada tardía en la llamada que la propia radio acababa de abrir y le enviaba un D-CONNECT con "concedido a otro usuario": la radio dejaba de transmitir y cada llamada terminaba a los 3 s por inactividad del enlace ascendente sin un solo frame de voz (visto en un registro de campo con dos radios). Ahora la repetición recibe otra vez el D-CONNECT de la llamada original (transmisión concedida, propiedad de la llamada, cláusula 14.5.2.1.2), sin D-CALL PROCEEDING y sin cambiar la palabra.
+
 ## v0.6.4 — Grupos DGNA al servidor Brew también en beta
 
 - **`main` fusionado en `beta`.** El informe DGNA al servidor Brew (v0.5.19, hasta ahora solo en `main`) está ahora también en `beta`; ver la entrada v0.5.19 más abajo. No cambia nada más.
