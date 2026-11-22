@@ -179,6 +179,52 @@ colour_code = 2
         assert_eq!(ids, vec![CellId(0), CellId(1)]);
     }
 
+    fn soapy(device: &str, fs: Option<f64>, center: f64) -> crate::bluestation::CfgSoapySdr {
+        crate::bluestation::CfgSoapySdr {
+            ul_freq: center,
+            dl_freq: center,
+            rx_center_freq: Some(center),
+            tx_center_freq: Some(center),
+            ppm_err: 0.0,
+            device: Some(device.to_string()),
+            rx_ant: None,
+            tx_ant: None,
+            rx_gains: Default::default(),
+            tx_gains: Default::default(),
+            fs,
+            rx_ch: None,
+            tx_ch: None,
+        }
+    }
+
+    #[test]
+    fn cells_may_share_one_sdr_when_carriers_fit_the_passband() {
+        use crate::bluestation::StackConfig;
+        let cfg = parse("[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1522\n").unwrap();
+        let cells = cfg.cells();
+        let (dl, ul): (Vec<u32>, Vec<u32>) = cells
+            .iter()
+            .flat_map(|(_, c, _)| StackConfig::cell_phase_mod_carriers(c).unwrap())
+            .map(|(_, d, u)| (d, u))
+            .unzip();
+        let center = |v: &[u32]| (v[0] as f64 + v[1] as f64) / 2.0;
+        let (tx_c, rx_c) = (center(&dl), center(&ul));
+        let mk = |dev: &str, fs: Option<f64>| {
+            let mut s = soapy(dev, fs, tx_c);
+            s.rx_center_freq = Some(rx_c);
+            s
+        };
+        let run = |a: &crate::bluestation::CfgSoapySdr, b: &crate::bluestation::CfgSoapySdr| {
+            let v = vec![(cells[0].0, cells[0].1, Some(a)), (cells[1].0, cells[1].1, Some(b))];
+            StackConfig::validate_shared_sdrs(&v)
+        };
+        assert!(run(&mk("d", Some(600e3)), &mk("d", Some(600e3))).is_ok());
+        assert!(run(&mk("d", Some(600e3)), &mk("e", Some(600e3))).is_ok(), "different devices are independent");
+        assert!(run(&mk("d", Some(600e3)), &mk("d", Some(1.0e6))).unwrap_err().contains("differ"));
+        assert!(run(&mk("d", None), &mk("d", None)).unwrap_err().contains("sample_rate"));
+        assert!(run(&mk("d", Some(20e3)), &mk("d", Some(20e3))).unwrap_err().contains("do not cover"));
+    }
+
     #[test]
     fn cells_without_network_link_are_not_site_linked() {
         let cfg = parse("[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\n").unwrap();
