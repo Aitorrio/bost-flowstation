@@ -8339,7 +8339,7 @@ const LANGS={
     roam_help_n_rxlev:'Minimum RX access level of the neighbour (clause 18.5.12). Empty: radios assume the same as this cell (table 18.64, note 2).',
     roam_help_n_txpwr:'Maximum MS transmit power in the neighbour (table 18.57), used by the radio for C2. Empty: same as this cell.',
     cells_title:'Cells',cells_help:"Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.",
-    cells_carrier:'Carrier',cells_cc:'Colour code',cells_la_help:'Location area of the new cell. Empty = same as the primary cell. With its own location area a radio registers on every change of cell (TS 100 392-2 clause 18.3.4.7.1a).',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',ms_visitor:'Guest · {net}',ms_vassi:'(V)ASSI here',ms_visitor_title:'Radio of network {net} (migration, TS 100 392-2 clause 16.4.1.1 b)). It has a (V)ASSI on this cell; calls and SDS to its own ISSI reach it here.',cells_radios:'{n} radio(s)',
+    cells_carrier:'Carrier',cells_cc:'Colour code',cells_la_help:'Location area of the new cell. Empty = same as the primary cell. With its own location area a radio registers on every change of cell (TS 100 392-2 clause 18.3.4.7.1a).',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',ms_visitor:'Guest · {net}',ms_vassi:'(V)ASSI here',ms_visitor_title:'Radio of network {net} (migration, TS 100 392-2 clause 16.4.1.1 b)). It has a (V)ASSI on this cell; calls and SDS to its own ISSI reach it here.',cells_radios:'{n} radio(s)',cells_sdr_shared:'shared with cell {cells}',
     cells_net_local:'local',cells_net_up:'core up',cells_net_down:'core down',
     cells_single:'Single cell',rf_cells_note:'Pick a cell to show its SDR on this page.',cells_linked:'Cells linked',cells_independent:'Independent cells',
     cells_need_fields:'Device and carrier are required.',cells_confirm_add:'Add this cell? The station restarts.',cells_confirm_remove:'Remove cell {n}? The station restarts.',
@@ -9022,7 +9022,7 @@ const LANGS={
     roam_help_n_rxlev:'Nivel mínimo de acceso RX de la vecina (cláusula 18.5.12). Vacío: las radios suponen el mismo que esta celda (tabla 18.64, nota 2).',
     roam_help_n_txpwr:'Potencia de transmisión máxima de la radio en la vecina (tabla 18.57), la usa la radio para C2. Vacío: igual que esta celda.',
     cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
-    cells_carrier:'Portadora',cells_cc:'Código de color',cells_la_help:'Área de localización de la nueva celda. Vacío = la misma que la celda principal. Con un área propia la radio se registra en cada cambio de celda (TS 100 392-2 cláusula 18.3.4.7.1a).',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',ms_visitor:'Invitado · {net}',ms_vassi:'(V)ASSI aquí',ms_visitor_title:'Radio de la red {net} (migración, TS 100 392-2 cláusula 16.4.1.1 b)). Tiene una (V)ASSI en esta celda; las llamadas y SDS a su propia ISSI le llegan aquí.',cells_radios:'{n} radio(s)',
+    cells_carrier:'Portadora',cells_cc:'Código de color',cells_la_help:'Área de localización de la nueva celda. Vacío = la misma que la celda principal. Con un área propia la radio se registra en cada cambio de celda (TS 100 392-2 cláusula 18.3.4.7.1a).',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',ms_visitor:'Invitado · {net}',ms_vassi:'(V)ASSI aquí',ms_visitor_title:'Radio de la red {net} (migración, TS 100 392-2 cláusula 16.4.1.1 b)). Tiene una (V)ASSI en esta celda; las llamadas y SDS a su propia ISSI le llegan aquí.',cells_radios:'{n} radio(s)',cells_sdr_shared:'compartido con la celda {cells}',
     cells_net_local:'local',cells_net_up:'núcleo conectado',cells_net_down:'núcleo desconectado',
     cells_single:'Celda única',rf_cells_note:'Elige una celda para ver su SDR en esta página.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
     cells_need_fields:'Hacen falta el dispositivo y la portadora.',cells_confirm_add:'¿Añadir esta celda? La estación se reinicia.',cells_confirm_remove:'¿Quitar la celda {n}? La estación se reinicia.',
@@ -15446,6 +15446,12 @@ const tsCarrierInfo={};
 function fmtMhz(hz,dp){return(hz!=null&&isFinite(hz))?(hz/1e6).toFixed(dp==null?4:dp)+' MHz':'-';}
 function tsCarrierKey(carrierNum,ts){return String(carrierNum)+':'+String(ts);}
 // Network a cell serves, for the Cells cards: empty on a classic single-network station, else
+// "SDR <device>" plus the other cells on it when the SDR is shared.
+function cellSdrLabel(c){
+  if(!c.device)return '';
+  const sh=c.sdr_shared_with||[];
+  return 'SDR '+c.device+(sh.length?' ('+t('cells_sdr_shared',{cells:sh.join(', ')})+')':'');
+}
 // "<name> MCC/MNC" plus the core link state when the network has one.
 function cellNetLabel(c){
   if(!c.network||c.network==='default')return '';
@@ -19688,7 +19694,7 @@ function renderCells(cells,siteLinked){
     const rf=c.rf_state||'starting';
     const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' '+mhz(k.tx_freq_hz)+'/'+mhz(k.rx_freq_hz)+' MHz').join(' · ');
     const meta=[carriers,cellNetLabel(c),'CC '+c.colour_code,'LA '+c.location_area,
-      t('cells_radios',{n:c.registered_radios}),c.device?('SDR '+c.device):''].filter(Boolean).join(' — ');
+      t('cells_radios',{n:c.registered_radios}),cellSdrLabel(c)].filter(Boolean).join(' — ');
     const rm=c.primary?'':'<button class="btn btn-sm btn-danger" onclick="cellsRemove('+c.id+')">'+escHtml(t('cells_remove'))+'</button>';
     return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
       '<span class="cell-rf '+escHtmlAttr(rf)+'" title="'+escHtmlAttr(c.rf_detail||'')+'">'+escHtml(rf)+'</span>'+
@@ -19721,7 +19727,7 @@ function renderRfCells(cells,siteLinked){
   const c=cells.find(c=>c.id===rfSelCell);
   const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' TX '+mhz(k.tx_freq_hz)+' / RX '+mhz(k.rx_freq_hz));
   const detail=[c.rf_state||'starting',cellNetLabel(c),'CC '+c.colour_code,'LA '+c.location_area,t('cells_radios',{n:c.registered_radios}),
-    c.device?('SDR '+c.device):''].concat(carriers).filter(Boolean).join(' · ');
+    cellSdrLabel(c)].concat(carriers).filter(Boolean).join(' · ');
   setText('rf-cell-detail',detail);
 }
 // Keep the per-cell grid, RF list and Cells card fresh (cell state, radio counts) while one of their pages is open.

@@ -38,11 +38,24 @@ fn cell_info(id: CellId, cfg: &SharedConfig, rf: Option<&crate::rf_status::RfSta
         location_area: c.cell.location_area,
         neighbours: c.cell.neighbor_cells_ca.len() as u16,
         device: c.phy_io.soapysdr.as_ref().and_then(|s| s.device.clone()),
+        sdr_shared_with: Vec::new(),
         registered_radios: issis.len() as u32,
         registered_issis: issis,
         rf_state: rf.and_then(|r| serde_json::to_value(r.state).ok()?.as_str().map(str::to_string)),
         rf_detail: rf.map(|r| r.detail.clone()),
     }
+}
+
+/// Ids of the other cells whose device string equals cell `id`'s (empty without a device).
+fn shared_with(devices: &[(u8, Option<String>)], id: u8) -> Vec<u8> {
+    let Some(Some(mine)) = devices.iter().find(|(i, _)| *i == id).map(|(_, d)| d) else {
+        return Vec::new();
+    };
+    devices
+        .iter()
+        .filter(|(i, d)| *i != id && d.as_deref().is_some_and(|d| !d.is_empty() && d == mine))
+        .map(|(i, _)| *i)
+        .collect()
 }
 
 /// Every running cell, primary first.
@@ -52,6 +65,11 @@ pub fn cell_infos(primary: &SharedConfig) -> Vec<CellInfo> {
     let mut cells = vec![cell_info(CellId::PRIMARY, primary, rf_of(CellId::PRIMARY))];
     for (id, cfg) in crate::net_site::extra_cells() {
         cells.push(cell_info(*id, cfg, rf_of(*id)));
+    }
+    // Cells naming the same SDR device share it.
+    let devices: Vec<(u8, Option<String>)> = cells.iter().map(|c| (c.id, c.device.as_ref().map(|d| d.trim().to_string()))).collect();
+    for c in &mut cells {
+        c.sdr_shared_with = shared_with(&devices, c.id);
     }
     cells
 }
@@ -241,6 +259,16 @@ pub fn remove_cell_toml(original: &str, id: u8) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cells_on_one_device_list_each_other() {
+        let d = |i: u8, x: &str| (i, Some(x.to_string()));
+        let devs = vec![d(0, "driver=lime"), d(1, "driver=lime"), d(2, "driver=pluto"), (3, None)];
+        assert_eq!(super::shared_with(&devs, 0), vec![1]);
+        assert_eq!(super::shared_with(&devs, 1), vec![0]);
+        assert!(super::shared_with(&devs, 2).is_empty());
+        assert!(super::shared_with(&devs, 3).is_empty());
+    }
+
     use super::*;
 
     const BASE: &str = r#"config_version = "0.6"

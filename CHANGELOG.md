@@ -4,6 +4,10 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## Not yet released — Varias celdas en un SDR
+
+- **Varias celdas en un SDR — provisional, sin validar en el aire.** Las celdas que nombran el mismo `soapysdr.device` ahora comparten ese SDR en lugar de ser rechazadas: cada una conserva su código de color, área de localización, red y lista de vecinas (a diferencia de `secondary_carrier`, que es una celda con dos portadoras), y Brew las ve como celdas distintas. El SDR se abre una sola vez para todo el grupo; las celdas avanzan al compás de su único reloj de muestras y una celda que deja de responder se sustituye por silencio en su portadora a los 250 ms para que no bloquee a las demás. Todas las celdas del grupo repiten los mismos `sample_rate`, `tx_center_freq`, `rx_center_freq` y `ppm_err`, y todas las portadoras deben caber en la misma banda (se comprueba al arrancar). Las ganancias y antenas salen de la primera celda del grupo; la ganancia de TX es común. La tarjeta Celdas muestra «SDR … (compartido con la celda N)». Diseño en `Docs/multi-cell-plan.md`, fase 7.
+
 ## v0.6.5 — Las llamadas de grupo ya no se cortan si la radio repite su U-SETUP
 
 - **El que habla conserva la palabra cuando su U-SETUP llega dos veces.** Si la radio no recibe el acuse de capa 2 de su U-SETUP, lo repite (el basic link no suprime duplicados, TS 100 392-2 cláusula 22.3.2.3 NOTA 3). La estación trataba la repetición como entrada tardía en la llamada que la propia radio acababa de abrir y le enviaba un D-CONNECT con "concedido a otro usuario": la radio dejaba de transmitir y cada llamada terminaba a los 3 s por inactividad del enlace ascendente sin un solo frame de voz (visto en un registro de campo con dos radios). Ahora la repetición recibe otra vez el D-CONNECT de la llamada original (transmisión concedida, propiedad de la llamada, cláusula 14.5.2.1.2), sin D-CALL PROCEEDING y sin cambiar la palabra.
