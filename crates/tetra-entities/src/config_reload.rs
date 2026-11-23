@@ -4,13 +4,18 @@
 //! cipher) rebuild when [`SharedConfig::config_generation`] changes.
 //!
 //! What cannot change at run time is listed by [`restart_reasons`]: the SDR and everything that
-//! retunes it, the network identity that seeds the scrambling code, the set of cells, and the
-//! connections and listeners opened at start-up. A change in any of those is not applied at all
+//! retunes it, the set of cells, and the
+//! network connections opened at start-up (Brew, LST) and the dashboard listener. A change in any of those is not applied at all
 //! (all or nothing), so the running station never ends up half on the old file and half on the
 //! new one; the caller then restarts as before.
 
 use tetra_config::bluestation::{SharedConfig, StackConfig};
 use tetra_core::CellId;
+
+/// Set by the start-up code when the Asterisk entity exists. With it, Asterisk settings (including
+/// switching it off and on again) apply live; without it, switching it on needs a restart because
+/// there is nothing to switch on.
+pub static ASTERISK_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Result of [`reload`].
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -50,14 +55,11 @@ pub fn restart_reasons(old: &StackConfig, new: &StackConfig) -> Vec<String> {
                     cell.duplex_spacing_id,
                     cell.custom_duplex_spacing,
                     cell.reverse_operation,
-                    cell.colour_code,
-                    c.network_of_cell(*id).net.mcc,
-                    c.network_of_cell(*id).net.mnc,
                 )
             })
             .collect::<Vec<_>>()
     };
-    check(differs(&rf(old), &rf(new)), "cell carrier, frequency, colour code or MCC/MNC (retunes the radio)");
+    check(differs(&rf(old), &rf(new)), "cell carrier or frequency plan (retunes the SDR)");
     check(
         differs(
             &old.extra_cells.iter().map(|c| (c.id, c.soapysdr.clone())).collect::<Vec<_>>(),
@@ -69,13 +71,12 @@ pub fn restart_reasons(old: &StackConfig, new: &StackConfig) -> Vec<String> {
     check(differs(&old.dashboard, &new.dashboard), "dashboard listener (ports, TLS, users)");
     check(differs(&old.debug_log, &new.debug_log), "debug_log");
     check(differs(&old.service_name, &new.service_name), "service_name");
-    check(differs(&old.telemetry, &new.telemetry), "telemetry endpoint");
-    check(differs(&old.control, &new.control), "control endpoint (Fleet Control)");
     check(differs(&old.brew, &new.brew) || differs(&old.networks, &new.networks), "Brew / network connections");
     check(differs(&old.lst_dispatch, &new.lst_dispatch), "LST dispatch");
-    check(differs(&old.asterisk, &new.asterisk), "Asterisk bridge");
-    check(differs(&old.health, &new.health), "health monitor / watchdog");
-    check(differs(&old.telegram, &new.telegram), "Telegram alerts");
+    check(
+        new.asterisk.enabled && differs(&old.asterisk, &new.asterisk) && !ASTERISK_RUNNING.load(std::sync::atomic::Ordering::Relaxed),
+        "Asterisk bridge (not running: it was off at start-up)",
+    );
     r
 }
 
@@ -96,6 +97,9 @@ pub fn reload(primary: &SharedConfig, extra: &[(CellId, SharedConfig)], new: Sta
         derived.push((shared, cell));
     }
     new.validate()?;
+    if differs(&old.security, &new.security) || differs(&old.extra_cells.iter().map(|c| &c.security).collect::<Vec<_>>(), &new.extra_cells.iter().map(|c| &c.security).collect::<Vec<_>>()) {
+        tracing::warn!("Security settings changed live: radios that are already registered keep their old keys until they register again");
+    }
     primary.replace_config(new)?;
     let cells = 1 + derived.len();
     for (shared, cell) in derived {
@@ -127,6 +131,17 @@ mod tests {
         let report = reload(&shared, &[], new).unwrap();
         assert!(!report.restart.is_empty());
         assert_eq!(shared.config_generation(), 0);
+    }
+
+    #[test]
+    fn colour_code_and_services_apply_live() {
+        let mut new = base();
+        new.cell.colour_code = (new.cell.colour_code + 1) % 64;
+        new.telemetry = None;
+        new.control = None;
+        new.telegram = None;
+        new.health.enabled = !new.health.enabled;
+        assert!(restart_reasons(&base(), &new).is_empty(), "{:?}", restart_reasons(&base(), &new));
     }
 
     #[test]

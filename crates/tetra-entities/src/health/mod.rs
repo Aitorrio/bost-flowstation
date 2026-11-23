@@ -16,5 +16,5 @@ pub mod supervisor;
 pub mod types;
 
 pub use registry::{HealthRegistry, HealthThresholds, registry};
-pub use supervisor::{HealthMonitorConfig, spawn_health_monitor};
+pub use supervisor::{HealthMonitorConfig, spawn_health_monitor, spawn_health_monitor_live};
 pub use types::{DomainHealth, HealthDomain, HealthLevel, HealthSnapshot};

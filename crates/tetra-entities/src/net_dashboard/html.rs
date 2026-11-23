@@ -18255,6 +18255,7 @@ async function saveSecurity(){
 }
 async function restartForSecurity(){
   if(secpChanged){secpMsg(t('secp_save_first'),false);return;}
+  if(await applyLiveOrRestart(secpMsg)){loadSecurity();return;}
   try{const r=await fetch('/api/security/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!r.ok){secpMsg(await r.text(),false);return;}secpMsg(t('secp_restarting'),true);}
   catch{secpMsg(t('conn_error'),false);}
 }

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod aie;
+pub mod live_link;
 pub mod config_reload;
 pub mod cmce;
 pub mod entity_trait;

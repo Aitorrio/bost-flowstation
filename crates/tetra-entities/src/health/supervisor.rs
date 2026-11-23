@@ -26,6 +26,8 @@ const PANIC_STORM_WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct HealthMonitorConfig {
+    /// False: the monitor idles (no snapshots, no watchdog) until a live reload turns it on.
+    pub enabled: bool,
     pub snapshot_interval: Duration,
     pub thresholds: HealthThresholds,
     /// Software watchdog: restart the service if the core loop stalls. Default off.
@@ -42,6 +44,7 @@ pub struct HealthMonitorConfig {
 impl Default for HealthMonitorConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             snapshot_interval: Duration::from_secs(5),
             thresholds: HealthThresholds::default(),
             restart_on_core_stall: false,
@@ -90,11 +93,15 @@ fn request_restart(reason: &str, last_restart: &mut Option<Instant>, cooldown: D
 
 /// Spawn the background health sampler. `sink` is a clone of the telemetry sink.
 pub fn spawn_health_monitor(sink: TelemetrySink, cfg: HealthMonitorConfig) {
-    let interval = cfg.snapshot_interval.max(Duration::from_secs(1));
-    let stall_critical_ms = cfg.thresholds.core_stall_critical_ms.max(1_000);
-    let restart_after = cfg.restart_after_critical.max(Duration::from_secs(1));
-    let cooldown = cfg.restart_cooldown.max(Duration::from_secs(1));
+    spawn_health_monitor_live(sink, Box::new(move || cfg.clone()));
+}
+
+/// Like [`spawn_health_monitor`], but the settings are fetched again every cycle, so a change to
+/// `[health]` (interval, thresholds, watchdog) applies at run time.
+pub fn spawn_health_monitor_live(sink: TelemetrySink, provider: Box<dyn Fn() -> HealthMonitorConfig + Send>) {
+    let cfg = provider();
     let state_path = cfg.restart_state_path.clone();
+    let cooldown = cfg.restart_cooldown.max(Duration::from_secs(1));
 
     // Seed the anti-reboot-loop guard from disk: without this the FIRST restart request tears the
     // process down and the fresh process starts with last_restart = None, so a stall that
@@ -118,7 +125,7 @@ pub fn spawn_health_monitor(sink: TelemetrySink, cfg: HealthMonitorConfig) {
         .spawn(move || {
             tracing::info!(
                 "Health monitor started (interval {}s, watchdog restart {})",
-                interval.as_secs(),
+                cfg.snapshot_interval.max(Duration::from_secs(1)).as_secs(),
                 if cfg.restart_on_core_stall { "ON" } else { "off" }
             );
             let mut stall_since: Option<Instant> = None;
@@ -126,7 +133,17 @@ pub fn spawn_health_monitor(sink: TelemetrySink, cfg: HealthMonitorConfig) {
             let mut panic_window_base = registry().caught_panics();
             let mut clock_warn = clock_sync::WarnState::default();
             loop {
+                let cfg = provider();
+                let interval = cfg.snapshot_interval.max(Duration::from_secs(1));
+                let stall_critical_ms = cfg.thresholds.core_stall_critical_ms.max(1_000);
+                let restart_after = cfg.restart_after_critical.max(Duration::from_secs(1));
+                let cooldown = cfg.restart_cooldown.max(Duration::from_secs(1));
                 thread::sleep(interval);
+                // Settings may have changed during the sleep.
+                let cfg = provider();
+                if !cfg.enabled {
+                    continue;
+                }
 
                 let snapshot = registry().snapshot(&cfg.thresholds);
                 registry().set_overall(snapshot.overall);

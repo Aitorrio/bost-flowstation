@@ -160,9 +160,9 @@ impl UmacBs {
         self.cipher = cipher;
     }
 
-    /// Rebuild what was derived from the configuration at start-up (broadcast PDUs, cipher) after
-    /// a live reload. Carriers, colour code and network identity are restart-only (they retune the
-    /// radio), so the schedulers and the scrambling code stay.
+    /// Rebuild what was derived from the configuration at start-up (broadcast PDUs, scrambling
+    /// code, cipher) after a live reload. Carriers and frequencies are restart-only (they retune
+    /// the SDR).
     fn refresh_config(&mut self) {
         let generation = self.config.config_generation();
         if generation == self.config_generation {
@@ -170,11 +170,14 @@ impl UmacBs {
         }
         self.config_generation = generation;
         let precomps = Self::generate_precomps(&self.config);
+        let c = self.config.config();
+        let scrambling_code = scrambler::tetra_scramb_get_init(c.net.mcc, c.net.mnc, c.cell.colour_code);
         self.channel_scheduler.set_precomps(precomps.clone());
+        self.channel_scheduler.set_scrambling_code(scrambling_code);
         for sched in &mut self.secondary_channel_schedulers {
             sched.set_precomps(precomps.clone());
+            sched.set_scrambling_code(scrambling_code);
         }
-        let c = self.config.config();
         let cipher = crate::aie::effective(&c).map(|aie| {
             let carriers: Vec<u16> = [Some(c.cell.main_carrier), c.cell.secondary_carrier].into_iter().flatten().collect();
             std::sync::Arc::new(

@@ -11,6 +11,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{
+    live_link::LiveLink,
     net_telemetry::{
         channel::{RecvEvent, TelemetrySource},
         codec::TelemetryCodecJson,
@@ -31,6 +32,10 @@ pub struct TelemetryWorker<T: NetworkTransport> {
     transport: T,
     connected: bool,
     last_connect_attempt: Option<Instant>,
+    /// Follows the `[telemetry]` section at run time (see [`LiveLink`]).
+    live: Option<LiveLink<T>>,
+    /// False while no `[telemetry]` section is configured: events are dropped, nothing connects.
+    enabled: bool,
 }
 
 impl<T: NetworkTransport> TelemetryWorker<T> {
@@ -40,18 +45,51 @@ impl<T: NetworkTransport> TelemetryWorker<T> {
             transport,
             connected: false,
             last_connect_attempt: None,
+            live: None,
+            enabled: true,
+        }
+    }
+
+    /// Follow the configuration: reconnect with new settings, or stop sending when removed.
+    /// `enabled` is whether the link is configured now.
+    pub fn with_live(mut self, live: LiveLink<T>, enabled: bool) -> Self {
+        self.live = Some(live);
+        self.enabled = enabled;
+        self
+    }
+
+    fn apply_live(&mut self) {
+        let Some(change) = self.live.as_mut().and_then(|l| l.poll()) else { return };
+        if self.connected {
+            self.transport.disconnect();
+        }
+        self.connected = false;
+        self.last_connect_attempt = None;
+        match change {
+            Some(transport) => {
+                tracing::info!("Telemetry: configuration changed, reconnecting");
+                self.transport = transport;
+                self.enabled = true;
+            }
+            None => {
+                tracing::info!("Telemetry: removed from the configuration, link closed");
+                self.enabled = false;
+            }
         }
     }
 
     pub fn run(&mut self) {
         tracing::debug!("Telemetry worker started");
-        self.try_connect();
+        if self.enabled {
+            self.try_connect();
+        }
 
         loop {
+            self.apply_live();
             // Block for up to POLL_TIMEOUT waiting for an event.
             // On timeout we still run maintenance (heartbeat / reconnect).
             match self.source.recv_timeout(POLL_TIMEOUT) {
-                RecvEvent::Event(event) if is_local_only(&event) => {}
+                RecvEvent::Event(event) if is_local_only(&event) || !self.enabled => {}
                 RecvEvent::Event(event) => {
                     tracing::debug!("telemetry event received: {:?}", event);
                     self.forward_event(&event);
@@ -65,6 +103,9 @@ impl<T: NetworkTransport> TelemetryWorker<T> {
                 }
             }
 
+            if !self.enabled {
+                continue;
+            }
             // Drive transport heartbeat: receive_reliable() sends pings and checks timeouts
             self.drive_heartbeat();
 

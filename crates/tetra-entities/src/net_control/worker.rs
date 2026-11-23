@@ -62,6 +62,10 @@ pub struct ControlWorker<T: NetworkTransport> {
     next_metrics: Option<Instant>,
     /// Source of the reports (replaced in tests).
     metrics_source: fn(&mut metrics::CpuSampler) -> ControlResponse,
+    /// Follows the `[control]` section at run time (see [`LiveLink`]).
+    live: Option<crate::live_link::LiveLink<T>>,
+    /// False while no `[control]` section is configured: the worker idles.
+    enabled: bool,
 }
 
 impl<T: NetworkTransport> ControlWorker<T> {
@@ -87,6 +91,37 @@ impl<T: NetworkTransport> ControlWorker<T> {
             cpu: metrics::CpuSampler::default(),
             next_metrics: None,
             metrics_source: metrics::collect,
+            live: None,
+            enabled: true,
+        }
+    }
+
+    /// Follow the configuration: reconnect with new settings, or idle when removed. `enabled` is
+    /// whether the link is configured now.
+    pub fn with_live(mut self, live: crate::live_link::LiveLink<T>, enabled: bool) -> Self {
+        self.live = Some(live);
+        self.enabled = enabled;
+        self
+    }
+
+    fn apply_live(&mut self) {
+        let Some(change) = self.live.as_mut().and_then(|l| l.poll()) else { return };
+        if self.connected {
+            self.transport.disconnect();
+            self.connected = false;
+            self.set_fleet_link(false);
+        }
+        self.last_connect_attempt = None;
+        match change {
+            Some(transport) => {
+                tracing::info!("Control: configuration changed, reconnecting");
+                self.transport = transport;
+                self.enabled = true;
+            }
+            None => {
+                tracing::info!("Control: removed from the configuration, link closed");
+                self.enabled = false;
+            }
         }
     }
 
@@ -98,9 +133,16 @@ impl<T: NetworkTransport> ControlWorker<T> {
 
     pub fn run(&mut self) {
         tracing::debug!("Control worker started");
-        self.try_connect();
+        if self.enabled {
+            self.try_connect();
+        }
 
         loop {
+            self.apply_live();
+            if !self.enabled {
+                std::thread::sleep(POLL_TIMEOUT);
+                continue;
+            }
             if self.connected {
                 self.poll_commands();
                 self.send_dgna_snapshot();
