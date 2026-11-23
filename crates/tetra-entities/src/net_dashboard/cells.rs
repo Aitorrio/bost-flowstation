@@ -264,9 +264,6 @@ pub fn cell_settings_json(text: &str, id: u8) -> Result<JsonValue, String> {
     let cfg = parsing::from_toml_str(text).map_err(|e| format!("config does not parse: {e}"))?;
     let extra = cfg.extra_cells.iter().find(|c| c.id.0 == id).ok_or_else(|| format!("no cell {id} in the config"))?;
     let eff = cfg.for_extra_cell(extra.id).ok_or_else(|| format!("no cell {id} in the config"))?;
-    let sec = &eff.security;
-    let aie = sec.aie.as_ref();
-    let low = |d: String| d.to_lowercase();
     Ok(json!({
         "id": id,
         "network": cfg.network_of_cell(extra.id).name,
@@ -276,21 +273,117 @@ pub fn cell_settings_json(text: &str, id: u8) -> Result<JsonValue, String> {
         "colour_code": extra.cell.colour_code,
         "location_area": extra.cell.location_area,
         "security_own": extra.security.is_some(),
-        "security": {
-            "class": aie.map_or(1, |a| a.security_class()),
-            "ksg": aie.map(|a| a.ksg),
-            "sckn": aie.map(|a| a.sckn),
-            "sck_vn": aie.map(|a| a.sck_vn),
-            "has_sck": aie.is_some_and(|a| a.class3.is_none()),
-            "cck_id": aie.and_then(|a| a.class3.as_ref().map(|c| c.cck_id)),
-            "has_cck": aie.is_some_and(|a| a.class3.is_some()),
-            "clear_groups": aie.map(|a| a.clear_groups.clone()).unwrap_or_default(),
-            "issi_whitelist": sec.issi_whitelist,
-            "whitelist_mode": low(format!("{:?}", sec.whitelist_mode)),
-            "authentication": low(format!("{:?}", sec.authentication)),
-            "mutual_authentication": sec.mutual_authentication,
-        },
+        "security": security_json(&eff.security),
     }))
+}
+
+/// The air-interface encryption and access settings a cell runs with, for the dashboard. Key
+/// material is never returned, only whether a key is set.
+pub(crate) fn security_json(sec: &tetra_config::bluestation::CfgSecurity) -> JsonValue {
+    let aie = sec.aie.as_ref();
+    let low = |d: String| d.to_lowercase();
+    json!({
+        "class": aie.map_or(1, |a| a.security_class()),
+        "ksg": aie.map(|a| a.ksg),
+        "sckn": aie.map(|a| a.sckn),
+        "sck_vn": aie.map(|a| a.sck_vn),
+        "has_sck": aie.is_some_and(|a| a.class3.is_none()),
+        "cck_id": aie.and_then(|a| a.class3.as_ref().map(|c| c.cck_id)),
+        "has_cck": aie.is_some_and(|a| a.class3.is_some()),
+        "clear_groups": aie.map(|a| a.clear_groups.clone()).unwrap_or_default(),
+        "issi_whitelist": sec.issi_whitelist,
+        "whitelist_mode": low(format!("{:?}", sec.whitelist_mode)),
+        "authentication": low(format!("{:?}", sec.authentication)),
+        "mutual_authentication": sec.mutual_authentication,
+    })
+}
+
+/// `[security]` keys the per-cell editor owns. Everything else in the table (key source,
+/// subscriber keys, E2EE, limits) is station-wide and left alone.
+pub(crate) const CELL_SECURITY_KEYS: &[&str] = &["aie", "issi_whitelist", "whitelist_mode", "authentication", "mutual_authentication"];
+
+/// Build the security table for an editor request `{aie?: {...}, issi_whitelist?, whitelist_mode?,
+/// authentication?, mutual_authentication?}`. `old_aie` is the `aie` table in the file: an empty
+/// `sck`/`cck` keeps the key already there.
+pub(crate) fn security_table(sec: &JsonValue, old_aie: Option<&toml_edit::Item>) -> Result<toml_edit::Table, String> {
+    use toml_edit::{Array, Item, Table, value};
+    let old_key = |k: &str| old_aie.and_then(|a| a.get(k)).and_then(|v| v.as_str()).map(str::to_string);
+    let mut st = Table::new();
+    if let Some(a) = sec.get("aie").filter(|a| a.is_object()) {
+        let class = ti_u(a, "class", 3)?.unwrap_or(1);
+        let mut at = Table::new();
+        at["class"] = value(class);
+        if class >= 2 {
+            if let Some(k) = ti_u(a, "ksg", 4)? {
+                at["ksg"] = value(k);
+            }
+        }
+        let hex = |k: &str| a.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).or_else(|| old_key(k));
+        if class == 2 {
+            for k in ["sckn", "sck_vn"] {
+                if let Some(n) = ti_u(a, k, 65535)? {
+                    at[k] = value(n);
+                }
+            }
+            if let Some(k) = hex("sck") {
+                at["sck"] = value(k);
+            }
+            let groups: Vec<i64> = a.get("clear_groups").and_then(|g| g.as_array()).map(|g| g.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default();
+            if !groups.is_empty() {
+                at["clear_groups"] = value(groups.into_iter().collect::<Array>());
+            }
+        }
+        if class == 3 {
+            if let Some(k) = hex("cck") {
+                at["cck"] = value(k);
+            }
+            if let Some(n) = ti_u(a, "cck_id", 65535)? {
+                at["cck_id"] = value(n);
+            }
+        }
+        st["aie"] = Item::Table(at);
+    }
+    if let Some(list) = sec.get("issi_whitelist").and_then(|l| l.as_array()) {
+        st["issi_whitelist"] = value(list.iter().filter_map(|x| x.as_i64()).collect::<Array>());
+    }
+    for k in ["whitelist_mode", "authentication"] {
+        if let Some(v) = sec.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty()) {
+            st[k] = value(v);
+        }
+    }
+    if let Some(b) = sec.get("mutual_authentication").and_then(|v| v.as_bool()) {
+        st["mutual_authentication"] = value(b);
+    }
+    Ok(st)
+}
+
+/// Write an additional cell's security request into its `[[cells]]` entry: `{"inherit": true}`
+/// removes `[cells.security]` (the station's applies), anything else replaces it.
+pub(crate) fn write_cell_security(entry: &mut toml_edit::Table, sec: &JsonValue) -> Result<(), String> {
+    if sec.get("inherit").and_then(|v| v.as_bool()) == Some(true) {
+        entry.remove("security");
+        return Ok(());
+    }
+    let old_aie = entry.get("security").and_then(|s| s.get("aie")).cloned();
+    let st = security_table(sec, old_aie.as_ref())?;
+    entry["security"] = toml_edit::Item::Table(st);
+    Ok(())
+}
+
+/// Write the primary cell's security request into the station's `[security]`: only the keys the
+/// cell editor owns ([`CELL_SECURITY_KEYS`]) are replaced, the station-wide ones stay.
+pub(crate) fn write_primary_security(doc: &mut toml_edit::DocumentMut, sec: &JsonValue) -> Result<(), String> {
+    use toml_edit::{Item, Table};
+    let old_aie = doc.get("security").and_then(|s| s.get("aie")).cloned();
+    let st = security_table(sec, old_aie.as_ref())?;
+    let table = doc.entry("security").or_insert(Item::Table(Table::new())).as_table_mut().ok_or("[security] is not a table")?;
+    for k in CELL_SECURITY_KEYS {
+        table.remove(k);
+    }
+    for (k, v) in st.iter() {
+        table.insert(k, v.clone());
+    }
+    Ok(())
 }
 
 fn ti_u(v: &JsonValue, key: &str, max: u64) -> Result<Option<i64>, String> {
@@ -306,7 +399,7 @@ fn ti_u(v: &JsonValue, key: &str, max: u64) -> Result<Option<i64>, String> {
 /// authentication?, mutual_authentication?}}`. An empty `sck`/`cck` keeps the key already in the
 /// file. The result is validated like add/remove.
 pub fn update_cell_toml(original: &str, req: &JsonValue) -> Result<String, String> {
-    use toml_edit::{Array, DocumentMut, Item, Table, value};
+    use toml_edit::{DocumentMut, Item, Table, value};
     let id = req.get("id").and_then(|v| v.as_u64()).and_then(|v| u8::try_from(v).ok()).filter(|i| *i != 0).ok_or("id (1-7) is required")?;
     let cfg = parsing::from_toml_str(original).map_err(|e| format!("current config does not parse: {e}"))?;
     let mut doc: DocumentMut = original.parse().map_err(|e| format!("config does not parse: {e}"))?;
@@ -350,59 +443,7 @@ pub fn update_cell_toml(original: &str, req: &JsonValue) -> Result<String, Strin
     }
 
     if let Some(sec) = req.get("security").filter(|s| s.is_object()) {
-        if sec.get("inherit").and_then(|v| v.as_bool()) == Some(true) {
-            entry.remove("security");
-        } else {
-            let old_aie = entry.get("security").and_then(|s| s.get("aie")).cloned();
-            let old_key = |k: &str| old_aie.as_ref().and_then(|a| a.get(k)).and_then(|v| v.as_str()).map(str::to_string);
-            let mut st = Table::new();
-            if let Some(a) = sec.get("aie").filter(|a| a.is_object()) {
-                let class = ti_u(a, "class", 3)?.unwrap_or(1);
-                let mut at = Table::new();
-                at["class"] = value(class);
-                if class >= 2 {
-                    if let Some(k) = ti_u(a, "ksg", 4)? {
-                        at["ksg"] = value(k);
-                    }
-                }
-                let hex = |k: &str| a.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).or_else(|| old_key(k));
-                if class == 2 {
-                    for k in ["sckn", "sck_vn"] {
-                        if let Some(n) = ti_u(a, k, 65535)? {
-                            at[k] = value(n);
-                        }
-                    }
-                    if let Some(k) = hex("sck") {
-                        at["sck"] = value(k);
-                    }
-                    let groups: Vec<i64> = a.get("clear_groups").and_then(|g| g.as_array()).map(|g| g.iter().filter_map(|x| x.as_i64()).collect()).unwrap_or_default();
-                    if !groups.is_empty() {
-                        at["clear_groups"] = value(groups.into_iter().collect::<Array>());
-                    }
-                }
-                if class == 3 {
-                    if let Some(k) = hex("cck") {
-                        at["cck"] = value(k);
-                    }
-                    if let Some(n) = ti_u(a, "cck_id", 65535)? {
-                        at["cck_id"] = value(n);
-                    }
-                }
-                st["aie"] = Item::Table(at);
-            }
-            if let Some(list) = sec.get("issi_whitelist").and_then(|l| l.as_array()) {
-                st["issi_whitelist"] = value(list.iter().filter_map(|x| x.as_i64()).collect::<Array>());
-            }
-            for k in ["whitelist_mode", "authentication"] {
-                if let Some(v) = sec.get(k).and_then(|v| v.as_str()).filter(|v| !v.is_empty()) {
-                    st[k] = value(v);
-                }
-            }
-            if let Some(b) = sec.get("mutual_authentication").and_then(|v| v.as_bool()) {
-                st["mutual_authentication"] = value(b);
-            }
-            entry["security"] = Item::Table(st);
-        }
+        write_cell_security(entry, sec)?;
     }
 
     let text = doc.to_string();

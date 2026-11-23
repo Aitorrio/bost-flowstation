@@ -170,9 +170,8 @@ pub struct CfgDashboard {
     /// Advanced DGNA control: when true, the dashboard shows the SS-DGNA attachment-mode picker.
     /// When false, operators always use the cell-level default attachment mode.
     pub show_dgna_attachment_mode_picker: bool,
-    /// Advanced: shows the "SDRs & cells" page, where each SDR is set to one cell, one cell on two
-    /// carriers (multi-carrier) or several cells (multi-cell). Only the dashboard reads it; the
-    /// stack runs whatever `[phy_io.soapysdr]` / `[[cells]]` say, with or without it.
+    /// No longer used: the Cells page that replaced the "SDRs & cells" page is always shown. Still
+    /// accepted so a config written by an earlier build keeps loading.
     pub sdr_manager: bool,
     /// Station default language of the dashboard and the login page (one of
     /// [`DASHBOARD_LANGUAGES`]), chosen in the Setup wizard. A browser that picked its own

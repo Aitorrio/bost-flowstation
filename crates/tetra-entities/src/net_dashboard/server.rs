@@ -4553,9 +4553,6 @@ fn handle_connection(
             Ok(v) => http_json_response(s, 200, &v.to_string()),
             Err(e) => http_response(s, 500, &e),
         }
-    } else if req_line.contains("POST /api/sdrs/enabled") {
-        let (inner, body_str) = read_post_body(stream);
-        serve_sdrs_enabled(inner, &config_path, &body_str);
     } else if req_line.contains("POST /api/sdrs/check") {
         let (inner, body_str) = read_post_body(stream);
         let req: serde_json::Value = serde_json::from_str(&body_str).unwrap_or_default();
@@ -6300,30 +6297,7 @@ fn serve_roaming_save(stream: PrefixedConn, config_path: &str, body: &str) {
     }
 }
 
-/// POST /api/sdrs/enabled — `{"on": bool}`: shows or hides the "SDRs & cells" page
-/// (`[dashboard] sdr_manager`). Only the dashboard reads it, so no restart.
-fn serve_sdrs_enabled(stream: PrefixedConn, config_path: &str, body: &str) {
-    let on = serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| v.get("on").and_then(|b| b.as_bool()));
-    let Some(on) = on else {
-        return http_response(stream, 400, "on (true/false) is required");
-    };
-    let original = match std::fs::read_to_string(config_path) {
-        Ok(s) => s,
-        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
-    };
-    let text = match crate::net_dashboard::sdrs::set_enabled(&original, on) {
-        Ok(t) => t,
-        Err(e) => return http_response(stream, 400, &e),
-    };
-    if let Err(e) = atomic_write(config_path, &text) {
-        return http_response(stream, 500, &format!("failed to write config: {e}"));
-    }
-    tracing::info!("Dashboard: SDRs & cells page switched {}", if on { "on" } else { "off" });
-    http_json_response(stream, 200, &serde_json::json!({"ok": true, "enabled": on}).to_string());
-}
-
-/// POST /api/sdrs — the "SDRs & cells" page (`sdrs::apply_sdrs`); writes the config and restarts.
-/// Refused while the page is switched off.
+/// POST /api/sdrs — the Cells page (`sdrs::apply_sdrs`); writes the config and restarts.
 fn serve_sdrs_save(stream: PrefixedConn, config_path: &str, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
@@ -6333,9 +6307,6 @@ fn serve_sdrs_save(stream: PrefixedConn, config_path: &str, body: &str) {
         Ok(s) => s,
         Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
     };
-    if !crate::net_dashboard::sdrs::enabled_in(&original) {
-        return http_response(stream, 403, "the SDRs & cells page is switched off (System page)");
-    }
     match crate::net_dashboard::sdrs::apply_sdrs(&original, &req) {
         Ok(text) => apply_cells_config(stream, config_path, &text, "SDRs and cells saved".to_string()),
         Err(e) => http_response(stream, 400, &e),

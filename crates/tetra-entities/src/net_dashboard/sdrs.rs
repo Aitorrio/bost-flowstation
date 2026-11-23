@@ -1,4 +1,5 @@
-//! Dashboard "SDRs & cells" page: every SDR of the station with the cells on it.
+//! Dashboard Cells page: every SDR of the station with the cells on it, and per cell its carriers,
+//! network, location area and encryption.
 //!
 //! Each SDR runs in one of three modes:
 //! - `single`: one cell on one carrier (the classic setup);
@@ -9,8 +10,9 @@
 //! The page writes the existing config format, so every other editor (Config page, Dual Carrier,
 //! profiles, calibration) keeps working: cells naming the same `soapysdr.device` share that SDR,
 //! and every member of a group gets the same hardware keys. The centre frequencies are computed
-//! here (midway between the group's carriers) instead of being typed in. The page is shown only
-//! when `[dashboard] sdr_manager = true` (System page switch).
+//! here (midway between the group's carriers) instead of being typed in. The primary cell's
+//! encryption is the station's `[security]` (only the per-cell keys, see `cells::CELL_SECURITY_KEYS`);
+//! an additional cell's is `[cells.security]` or, without it, the station's.
 
 use serde_json::{Value as JsonValue, json};
 use tetra_config::bluestation::{StackConfig, parsing};
@@ -22,27 +24,6 @@ use crate::net_dashboard::dual_carrier::device_default_sample_rate_hz;
 
 /// Hardware keys the page owns in a cell's `soapysdr` table (plus `rx_gain_*` / `tx_gain_*`).
 const HW_KEYS: &[&str] = &["device", "sample_rate", "ppm_err", "rx_antenna", "tx_antenna", "tx_center_freq", "rx_center_freq"];
-
-/// Whether the "SDRs & cells" page is switched on (`[dashboard] sdr_manager`).
-pub fn enabled_in(text: &str) -> bool {
-    text.parse::<DocumentMut>()
-        .ok()
-        .and_then(|d| d.get("dashboard").and_then(|t| t.get("sdr_manager")).and_then(|v| v.as_bool()))
-        .unwrap_or(false)
-}
-
-/// Turn the page on or off (`[dashboard] sdr_manager`), keeping everything else in the file.
-pub fn set_enabled(text: &str, on: bool) -> Result<String, String> {
-    let mut doc: DocumentMut = text.parse().map_err(|e| format!("config does not parse: {e}"))?;
-    let dash = doc.entry("dashboard").or_insert(Item::Table(Table::new()));
-    let dash = dash.as_table_like_mut().ok_or("[dashboard] is not a table")?;
-    if on {
-        dash.insert("sdr_manager", value(true));
-    } else {
-        dash.remove("sdr_manager");
-    }
-    Ok(doc.to_string())
-}
 
 /// The `soapysdr` table of cell `id` in the document (`[phy_io.soapysdr]` for the primary).
 fn soapy_table<'a>(doc: &'a DocumentMut, id: u8) -> Option<&'a dyn toml_edit::TableLike> {
@@ -97,8 +78,16 @@ pub fn sdrs_json(text: &str) -> Result<JsonValue, String> {
             let (_, cell, _) = cells.iter().find(|(i, _, _)| i == id).copied().expect("cell of the group");
             let extra = cfg.extra_cells.iter().find(|c| c.id == *id);
             carriers += 1 + usize::from(cell.secondary_carrier.is_some());
+            let sec = if id.0 == 0 { cfg.security.clone() } else { cfg.for_extra_cell(*id).map(|e| e.security).unwrap_or_else(|| cfg.security.clone()) };
+            let freqs = |c: Option<u16>| c.and_then(|c| carrier_freqs(&cfg.cell, c).ok()).map(|(dl, ul)| json!({"dl_hz": dl, "ul_hz": ul}));
             members.push(json!({
                 "id": id.0,
+                "primary": id.0 == 0,
+                "main_freqs": freqs(Some(cell.main_carrier)),
+                "secondary_freqs": freqs(cell.secondary_carrier),
+                "location_area_own": id.0 == 0 || own_location_area(&doc, id.0),
+                "security_own": id.0 == 0 || extra.is_some_and(|c| c.security.is_some()),
+                "security": crate::net_dashboard::cells::security_json(&sec),
                 "main_carrier": cell.main_carrier,
                 "secondary_carrier": cell.secondary_carrier,
                 "colour_code": cell.colour_code,
@@ -126,12 +115,31 @@ pub fn sdrs_json(text: &str) -> Result<JsonValue, String> {
             "cells": members,
         }));
     }
+    let networks: Vec<JsonValue> = if cfg.networks_explicit {
+        cfg.networks
+            .iter()
+            .map(|n| json!({"name": n.name, "mcc": n.net.mcc, "mnc": n.net.mnc, "cell_count": cfg.network_cells(&n.name).len()}))
+            .collect()
+    } else {
+        vec![json!({"name": cfg.network, "mcc": cfg.net.mcc, "mnc": cfg.net.mnc, "cell_count": cfg.extra_cells.len() + 1})]
+    };
     Ok(json!({
-        "enabled": enabled_in(text),
+        "networks_explicit": cfg.networks_explicit,
+        "networks": networks,
         "max_cells": CellId::MAX as usize + 1,
         "soapysdr": cfg.phy_io.backend == tetra_config::bluestation::PhyBackend::SoapySdr,
         "sdrs": out,
     }))
+}
+
+/// True when `[[cells]]` entry `id` sets its own location area (else it inherits cell 0's).
+fn own_location_area(doc: &DocumentMut, id: u8) -> bool {
+    doc.get("cells")
+        .and_then(|c| c.as_array_of_tables())
+        .and_then(|a| a.iter().find(|t| t.get("id").and_then(|v| v.as_integer()) == Some(id as i64)))
+        .and_then(|t| t.get("cell_info"))
+        .and_then(|c| c.get("location_area"))
+        .is_some()
 }
 
 /// One SDR of a request, checked.
@@ -159,6 +167,11 @@ struct CellPlan {
     colour_code: Option<u8>,
     /// `None` = inherit the primary's (additional cells only).
     location_area: Option<u16>,
+    /// `None` = leave as it is; `Some("")` = the primary's network (additional cells).
+    network: Option<String>,
+    /// Encryption and access request (`cells::security_table` format, `{"inherit": true}` for an
+    /// additional cell on the station's `[security]`); `None` = leave as it is.
+    security: Option<JsonValue>,
 }
 
 fn num(v: &JsonValue, key: &str) -> Option<f64> {
@@ -235,6 +248,8 @@ fn plan(cfg: &StackConfig, req: &JsonValue) -> Result<Vec<SdrPlan>, String> {
                 secondary_carrier,
                 colour_code: uint(c, "colour_code", 63, &what)?.map(|v| v as u8),
                 location_area: uint(c, "location_area", 16383, &what)?.map(|v| v as u16),
+                network: c.get("network").and_then(|v| v.as_str()).map(|v| v.trim().to_string()),
+                security: c.get("security").filter(|v| v.is_object()).cloned(),
             });
         }
         match mode {
@@ -443,6 +458,12 @@ pub fn apply_sdrs(original: &str, req: &JsonValue) -> Result<String, String> {
                 if let Some(la) = c.location_area {
                     ci["location_area"] = value(la as i64);
                 }
+                if let Some(net) = c.network.as_deref().filter(|n| !n.is_empty() && cfg.networks_explicit) {
+                    doc["network"] = value(net);
+                }
+                if let Some(sec) = &c.security {
+                    crate::net_dashboard::cells::write_primary_security(&mut doc, sec)?;
+                }
                 let phy = doc.entry("phy_io").or_insert(Item::Table(Table::new())).as_table_mut().ok_or("[phy_io] is not a table")?;
                 let soapy = phy.entry("soapysdr").or_insert(Item::Table(Table::new())).as_table_mut().ok_or("[phy_io.soapysdr] is not a table")?;
                 write_soapy(soapy, p, dl, ul);
@@ -489,6 +510,16 @@ pub fn apply_sdrs(original: &str, req: &JsonValue) -> Result<String, String> {
                 None => {
                     ci.remove("location_area");
                 }
+            }
+            match c.network.as_deref() {
+                Some("") => {
+                    entry.remove("network");
+                }
+                Some(net) => entry["network"] = value(net),
+                None => {}
+            }
+            if let Some(sec) = &c.security {
+                crate::net_dashboard::cells::write_cell_security(entry, sec)?;
             }
             let new_cell = !entry.contains_key("soapysdr");
             let soapy = entry.entry("soapysdr").or_insert(Item::Table(Table::new())).as_table_mut().ok_or("soapysdr is not a table")?;
@@ -545,7 +576,6 @@ colour_code = 1
     #[test]
     fn reads_the_classic_single_cell_setup() {
         let v = sdrs_json(BASE).unwrap();
-        assert_eq!(v["enabled"], false);
         let s = &v["sdrs"][0];
         assert_eq!((s["device"].clone(), s["mode"].clone()), (json!("driver=plutosdr"), json!("single")));
         assert_eq!(s["rx_gains"]["PGA"], 30.0, "gain names keep their case");
@@ -561,15 +591,6 @@ colour_code = 1
         let req = json!({"sdrs": [{"device": "driver=plutosdr", "mode": "multi_carrier", "cells": [{"id": 0, "main_carrier": 1528, "secondary_carrier": 1530}]}]});
         let t = apply_sdrs(&base, &req).unwrap();
         assert_eq!(parsing::from_toml_str(&t).unwrap().phy_io.soapysdr.unwrap().fs, Some(1_000_000.0));
-    }
-
-    #[test]
-    fn switch_is_written_under_dashboard() {
-        let on = set_enabled(BASE, true).unwrap();
-        assert!(enabled_in(&on));
-        parsing::from_toml_str(&on).unwrap();
-        let off = set_enabled(&on, false).unwrap();
-        assert!(!enabled_in(&off));
     }
 
     #[test]
@@ -646,4 +667,48 @@ colour_code = 1
         assert_eq!(ok["ok"], true, "{ok}");
         assert!(ok["sdrs"][0]["tx_center_freq"].is_number());
     }
+    #[test]
+    fn primary_cell_security_replaces_only_the_cell_keys() {
+        let base = format!("{BASE}\n[security]\nmax_registered_clients = 5\n[security.aie]\nclass = 2\nksg = 1\nsckn = 1\nsck = \"aabbccddeeff00112233\"\n");
+        let v = sdrs_json(&base).unwrap();
+        let c0 = &v["sdrs"][0]["cells"][0];
+        assert_eq!((c0["primary"].clone(), c0["security"]["class"].clone(), c0["security"]["has_sck"].clone()), (json!(true), json!(2), json!(true)));
+        assert!(!v.to_string().contains("aabbccddeeff00112233"), "key material stays out of the API");
+        let req = pluto("single", json!([{"id": 0, "main_carrier": 1528,
+            "security": {"aie": {"class": 2, "ksg": 2, "sckn": 3, "sck": ""}, "issi_whitelist": [1001], "whitelist_mode": "enforce"}}]));
+        let t = apply_sdrs(&base, &req).unwrap();
+        let cfg = parsing::from_toml_str(&t).unwrap();
+        let aie = cfg.security.aie.as_ref().unwrap();
+        assert_eq!((aie.ksg, aie.sckn), (2, 3));
+        assert!(t.contains("aabbccddeeff00112233"), "an empty key keeps the one in the file");
+        assert!(t.contains("max_registered_clients = 5"), "station-wide keys stay");
+        assert_eq!(cfg.security.issi_whitelist, vec![1001]);
+    }
+
+    #[test]
+    fn additional_cell_gets_its_network_and_own_security() {
+        let base = format!("network = \"home\"\n{}\n[networks.home]\n[networks.club]\nmcc = 901\nmnc = 1\n", BASE.replace("[net_info]\nmcc = 901\nmnc = 9999\n", "[net_info]\nmcc = 901\nmnc = 9999\n"));
+        // club has no cell yet: kept, listed as unused.
+        let v = sdrs_json(&base).unwrap();
+        assert_eq!(v["networks"].as_array().unwrap().iter().find(|n| n["name"] == "club").unwrap()["cell_count"], 0);
+        let req = pluto("multi_cell", json!([
+            {"id": 0, "main_carrier": 1528},
+            {"main_carrier": 1530, "colour_code": 2, "network": "club", "security": {"aie": {"class": 2, "ksg": 1, "sckn": 2, "sck": "00112233445566778899"}}},
+        ]));
+        let t = apply_sdrs(&base, &req).unwrap();
+        let cfg = parsing::from_toml_str(&t).unwrap();
+        let cell = &cfg.extra_cells[0];
+        assert_eq!(cell.network.as_deref(), Some("club"));
+        assert_eq!(cfg.for_extra_cell(cell.id).unwrap().security.aie.as_ref().unwrap().sckn, 2);
+        let v = sdrs_json(&t).unwrap();
+        let c1 = &v["sdrs"][0]["cells"][1];
+        assert_eq!((c1["network"].clone(), c1["security_own"].clone(), c1["security"]["class"].clone()), (json!("club"), json!(true), json!(2)));
+        // Back to the primary's network and the station's security.
+        let id = c1["id"].as_u64().unwrap();
+        let req = pluto("multi_cell", json!([{"id": 0, "main_carrier": 1528}, {"id": id, "main_carrier": 1530, "network": "", "security": {"inherit": true}}]));
+        let t = apply_sdrs(&t, &req).unwrap();
+        let cfg = parsing::from_toml_str(&t).unwrap();
+        assert!(cfg.extra_cells[0].network.is_none() && cfg.extra_cells[0].security.is_none());
+    }
+
 }
