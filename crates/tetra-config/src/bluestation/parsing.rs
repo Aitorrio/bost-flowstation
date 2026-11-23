@@ -372,11 +372,8 @@ fn resolve_networks(cfg: &mut StackConfig, raw_networks: Option<Value>, primary_
     cfg.brew = primary.brew.clone();
     cfg.networks = networks;
     cfg.networks_explicit = true;
-    for n in &cfg.networks {
-        if cfg.network_cells(&n.name).is_empty() {
-            return Err(format!("networks.{}: no cell serves this network (bind one with network = {:?})", n.name, n.name).into());
-        }
-    }
+    // A network no cell serves may stay in the file: it is inactive (no Brew link, nothing
+    // routed, `network_home_cell` is None) until a cell selects it.
     Ok(())
 }
 

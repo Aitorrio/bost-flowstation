@@ -304,7 +304,6 @@ main_carrier = 1529
         assert!(err_p("tetrapack", &format!("[brew]\nhost = \"h\"\nusername = 1\npassword = \"x\"\ntls = false\n{TWO_NETWORKS}")).contains("[brew] cannot be used together with [networks]"));
         assert!(err_p("nope", TWO_NETWORKS).contains("not a [networks] entry"));
         assert!(err_p("a", "[networks.a]\nmcc = 901\nmnc = 1\n[networks.b]\nmcc = 901\nmnc = 1\n[[cells]]\nid = 1\nnetwork = \"b\"\n[cells.cell_info]\nmain_carrier = 1525\n").contains("share MCC/MNC"));
-        assert!(err_p("a", "[networks.a]\nmcc = 901\nmnc = 1\n[networks.b]\nmcc = 901\nmnc = 2\n").contains("no cell serves this network"));
         assert!(err_p("a", "[networks.a]\nmcc = 5000\n").contains("mcc must be 0-1023"));
         assert!(err_p("a", "[networks.a]\nfoo = 1\n").contains("Unrecognized fields in networks.a"));
         assert!(err_p("a", "[networks.a]\n[networks.a.brew]\nhost = \"h\"\nusername = 1\npassword = \"x\"\ntls = false\nfoo = 1\n").contains("Unrecognized fields in networks.a.brew"));
@@ -331,6 +330,16 @@ network = "tp"
 [cells.cell_info]
 main_carrier = 1525
 "#;
+
+    #[test]
+    fn a_network_without_cells_is_kept_but_inactive() {
+        let cfg = parse_primary("a", "[networks.a]\nmcc = 901\nmnc = 1\n[networks.b]\nmcc = 901\nmnc = 2\n").unwrap();
+        assert_eq!(cfg.networks.len(), 2, "the unused network stays in the config");
+        assert!(cfg.network_cells("b").is_empty());
+        assert_eq!(cfg.network_home_cell("b"), None, "no cell hosts its link, so none is opened");
+        assert!(!cfg.network_is_linked("b"));
+        assert!(cfg.network_home_cell("a").is_some());
+    }
 
     #[test]
     fn a_network_via_another_uses_its_brew_link() {
