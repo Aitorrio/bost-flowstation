@@ -374,6 +374,8 @@ pub fn roaming_json(config_path: &str, shared: Option<&SharedConfig>) -> Result<
             // Registrations sent to its own Brew server again every N minutes (0 = off).
             "reregister_minutes": if n.via.is_none() { n.brew.as_ref().map(|b| b.reregister_minutes) } else { None },
             "server_check": server_check(&cfg, n, server_networks.as_ref()),
+            // Cells broadcasting it; 0 = kept in the config but inactive (no Brew link).
+            "cell_count": cfg.network_cells(&n.name).len(),
         })).collect::<Vec<_>>(),
         // What the primary network's Brew server says it is and reaches (`SERVICE_NETWORKS`,
         // extension `mni`), `null` until it sent that (Multi Network off, or no `mni`).

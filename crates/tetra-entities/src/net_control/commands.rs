@@ -166,6 +166,18 @@ pub enum ControlCommand {
         during_call: bool,
     },
 
+    /// Fleet Control (`rf-standby-v1`): RF kill switch. `standby` true suspends the radio stack
+    /// (the dashboard's Suspend: transmitter off, process, dashboard and control channel stay up)
+    /// 2 s after the answer; false starts it again (exit 75, systemd brings a fresh process).
+    /// Answered with a [`ControlResponse::CommandResult`]: `ok`, `busy` (an update is running),
+    /// `call_active` (a call is in progress and `during_call` is false), `fleet_control_off`.
+    SetRfStandby {
+        handle: u32,
+        standby: bool,
+        #[serde(default)]
+        during_call: bool,
+    },
+
     /// Fleet Control (`config-v1`): read the config. Answered with a [`ControlResponse::ConfigInfo`]
     /// (the settings of the Infrastructure page as JSON, the file as TOML, both without passwords
     /// and keys, and the config hash).
@@ -257,6 +269,7 @@ impl ControlCommand {
             | Self::StartUpdate { .. }
             | Self::SetMaintenance { .. }
             | Self::RestartStation { .. }
+            | Self::SetRfStandby { .. }
             | Self::GetConfig { .. }
             | Self::SetConfig { .. }
             | Self::ConfirmConfig { .. }
@@ -299,6 +312,10 @@ pub enum ControlResponse {
         /// nothing waits for confirmation.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config_pending: Option<u32>,
+        /// The radio stack is suspended (`rf-standby-v1`: RF kill switch or Suspend on the
+        /// dashboard), the transmitter is off. Older stations leave it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rf_standby: Option<bool>,
     },
 
     /// Fleet Control: the answer to every Fleet Control command, correlated by `handle`.

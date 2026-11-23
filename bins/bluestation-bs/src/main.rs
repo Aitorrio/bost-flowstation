@@ -37,7 +37,13 @@ use tetra_entities::{
     lmac::lmac_bs::LmacBs,
     mle::mle_bs::MleBs,
     mm::mm_bs::MmBs,
-    phy::{components::soapy_dev::RxTxDevSoapySdr, phy_bs::PhyBs},
+    phy::{
+        components::{
+            sdr_hub::{DEFAULT_STEP_TIMEOUT, HubCellDev, SdrHub},
+            soapy_dev::RxTxDevSoapySdr,
+        },
+        phy_bs::PhyBs,
+    },
     sndcp::sndcp_bs::Sndcp,
     umac::umac_bs::UmacBs,
 };
@@ -179,11 +185,92 @@ fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEnt
     })
 }
 
+/// One cell's view of an SDR shared with other cells, or why it could not be opened.
+type SharedSdrView = Result<HubCellDev<RxTxDevSoapySdr>, String>;
+
+/// Open every SDR that more than one cell names (`soapysdr.device`) once, and give each cell of
+/// the group its view of it ([`SdrHub`]). The group's first cell owns the hardware settings.
+/// Cells with an SDR of their own are not in the map.
+fn open_shared_sdrs(
+    primary: &SharedConfig,
+    extra: &[(CellId, SharedConfig)],
+    primary_sink: Option<TelemetrySink>,
+    cell_sink: Option<&TelemetrySink>,
+) -> HashMap<CellId, SharedSdrView> {
+    use tetra_config::bluestation::PhyBackend;
+    let mut views = HashMap::new();
+    if primary.config().phy_io.backend != PhyBackend::SoapySdr {
+        return views;
+    }
+    // (id, config) of every cell, primary first; group by device string.
+    let mut cells: Vec<(CellId, SharedConfig)> = vec![(CellId::PRIMARY, primary.clone())];
+    cells.extend(extra.iter().cloned());
+    let device_of = |c: &SharedConfig| {
+        c.config()
+            .phy_io
+            .soapysdr
+            .as_ref()
+            .and_then(|s| s.device.as_deref())
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty())
+    };
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, (_, c)) in cells.iter().enumerate() {
+        if let Some(dev) = device_of(c) {
+            match groups.iter_mut().find(|(d, _)| *d == dev) {
+                Some((_, m)) => m.push(i),
+                None => groups.push((dev, vec![i])),
+            }
+        }
+    }
+    for (device, members) in groups.into_iter().filter(|(_, m)| m.len() > 1) {
+        let ids: Vec<CellId> = members.iter().map(|&i| cells[i].0).collect();
+        let carriers_of = |i: usize| cells[i].1.config().bs_phase_mod_carriers().unwrap_or_default();
+        let owner = members[0];
+        let cell_carriers: Vec<Vec<u16>> = members.iter().map(|&i| carriers_of(i).iter().map(|(c, _, _)| *c).collect()).collect();
+        let device_carriers: Vec<u16> = cell_carriers.iter().flatten().copied().collect();
+        let extra_carriers: Vec<(u16, u32, u32)> = members.iter().skip(1).flat_map(|&i| carriers_of(i)).collect();
+        let sink = if owner == 0 { primary_sink.clone() } else { cell_sink.map(|s| s.for_cell(cells[owner].0 .0)) };
+        eprintln!(" -> Opening shared SDR '{device}' for cells {ids:?}…");
+        tetra_entities::rf_status::set_starting("SoapySdr");
+        match RxTxDevSoapySdr::with_shared_carriers(&cells[owner].1, sink, &extra_carriers) {
+            Ok(dev) => {
+                let hub_views = SdrHub::new(dev, cell_carriers, device_carriers, DEFAULT_STEP_TIMEOUT);
+                for (id, view) in ids.into_iter().zip(hub_views) {
+                    views.insert(id, Ok(view));
+                }
+            }
+            Err(e) => {
+                for id in ids {
+                    views.insert(id, Err(e.clone()));
+                }
+            }
+        }
+    }
+    views
+}
+
 /// Attach PHY after the dashboard is running. Never panics on SDR open failure —
 /// degraded mode keeps the web UI / setup wizard available.
 /// Returns true when a PHY was registered.
-fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<TelemetrySink>) -> bool {
+fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<TelemetrySink>, shared: Option<SharedSdrView>) -> bool {
     use tetra_config::bluestation::PhyBackend;
+    // Cells on one SDR: the device was opened once for the whole group (`open_shared_sdrs`).
+    if let Some(view) = shared {
+        return match view {
+            Ok(view) => {
+                router.register_entity(Box::new(PhyBs::new(cfg.clone(), view)));
+                tetra_entities::rf_status::set_online("SoapySdr", "shared SDR open, PHY registered");
+                eprintln!(" -> RF online (shared SoapySDR)");
+                true
+            }
+            Err(e) => {
+                tracing::error!("RF degraded — shared SDR not available: {e}");
+                tetra_entities::rf_status::set_error("SoapySdr", e.clone());
+                false
+            }
+        };
+    }
     match cfg.config().phy_io.backend {
         PhyBackend::None => {
             tetra_entities::rf_status::set_offline(
@@ -229,6 +316,7 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
 /// with the primary via `is_running`.
 fn spawn_extra_cells(
     cell_cfgs: Vec<(CellId, SharedConfig)>,
+    mut shared_sdrs: HashMap<CellId, SharedSdrView>,
     is_running: Arc<AtomicBool>,
     mut links: HashMap<CellId, CellLink>,
     mut hosts: HashMap<CellId, NetworkHome>,
@@ -240,12 +328,13 @@ fn spawn_extra_cells(
         let cell_sink = tsink.as_ref().map(|s| s.for_cell(id.0));
         let link = links.remove(&id);
         let home = hosts.remove(&id);
+        let shared = shared_sdrs.remove(&id);
         let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
             tetra_entities::cell_context::set_current(id);
             let phy_sink = cell_sink.clone();
             let mut router = build_cell_router(&cell_cfg, link, home, cell_sink);
             eprintln!(" -> {id}: opening SDR…");
-            if !try_attach_phy(&mut router, &cell_cfg, phy_sink) {
+            if !try_attach_phy(&mut router, &cell_cfg, phy_sink, shared) {
                 // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
                 tracing::error!("{id}: no PHY — cell not started");
                 return;
@@ -1057,10 +1146,12 @@ fn main() {
 
     // Open SDR / register PHY only after the dashboard (if any) is already listening,
     // so a missing radio never blocks the setup wizard.
-    try_attach_phy(&mut router, &cfg, phy_tsink);
+    // Cells that name the same SDR share one device; open each of those once, here.
+    let mut shared_sdrs = open_shared_sdrs(&cfg, &extra_cell_cfgs, phy_tsink.clone(), cell_tsink.as_ref());
+    try_attach_phy(&mut router, &cfg, phy_tsink, shared_sdrs.remove(&CellId::PRIMARY));
 
     // Multi-cell: additional cells run independently for now (multi-cell plan, phase 2).
-    let extra_cell_threads = spawn_extra_cells(extra_cell_cfgs, is_running.clone(), cell_links, network_homes, cell_tsink);
+    let extra_cell_threads = spawn_extra_cells(extra_cell_cfgs, shared_sdrs, is_running.clone(), cell_links, network_homes, cell_tsink);
     if !extra_cell_threads.is_empty() {
         tracing::warn!(
             "{} additional cell(s) started — calls and SDS are routed across cells through the site switch",
@@ -1158,7 +1249,7 @@ mod telemetry_tests {
         let mut cell = config.cell.clone();
         cell.main_carrier += 1;
         cell.wap_ip = Some(wap_profile());
-        config.extra_cells.push(tetra_config::bluestation::CfgExtraCell { id: CellId(1), cell, soapysdr: None, network: None });
+        config.extra_cells.push(tetra_config::bluestation::CfgExtraCell { id: CellId(1), cell, soapysdr: None, network: None, security: None });
         let cfg = SharedConfig::try_from_parts(config, None).unwrap();
         assert!(needs_telemetry(&cfg));
     }

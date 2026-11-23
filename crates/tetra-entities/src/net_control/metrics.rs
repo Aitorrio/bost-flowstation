@@ -175,7 +175,8 @@ pub fn collect(cpu: &mut CpuSampler) -> ControlResponse {
         .into_iter()
         .map(|(id, s)| CellMetrics {
             cell: id.0,
-            rf: rf_name(s.state).to_string(),
+            // Suspended radio stack (RF kill switch): the last state would read "online".
+            rf: if crate::service_control::is_standby() { "standby".to_string() } else { rf_name(s.state).to_string() },
             sdr_temp_c: sdr_temp(id.0, now),
             detail: if s.state == crate::rf_status::RfState::Error {
                 s.detail.chars().take(200).collect()

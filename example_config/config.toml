@@ -734,6 +734,10 @@ voice_service = true
 # false, the dashboard uses [cell_info].dgna_attachment_mode silently.
 # show_dgna_attachment_mode_picker = true
 #
+# OPTIONAL: show the "SDRs & cells" page (System -> Radio Hardware switch), where each
+# SDR is set to one cell, multi-carrier or multi-cell. Only the dashboard reads it.
+# sdr_manager = true
+#
 # OPTIONAL: where the dashboard OTA update comes from. Can also be changed in the update dialog.
 #   "installed" (default): the repository (origin) and branch this station was installed from,
 #                          so a station installed from a fork keeps updating from that fork.
@@ -1076,7 +1080,9 @@ voice_service = true
 # Every cell automatically advertises the other cells as neighbours (no need to
 # list them in neighbor_cells_ca), so radios can reselect between them.
 # Rules: ids 1-7, every carrier unique across all cells, same freq_band, and
-# with SoapySdr every cell (including the primary) must set a unique `device`.
+# with SoapySdr every cell (including the primary) must set a `device`. Cells
+# with different devices each run on their own SDR; cells naming the SAME device
+# share that one SDR (see "Several cells on one SDR" below).
 # NOTE: each extra cell runs its own radio stack on its own SDR. With [brew] or
 # LST dispatch enabled the cells are linked: group calls (from the network or
 # from a radio on any cell) reach every cell with members, one talker per group
@@ -1096,6 +1102,27 @@ voice_service = true
 # device = "driver=plutosdr,uri=ip:192.168.3.1"
 # tx_freq = 438125000
 # rx_freq = 433125000
+#
+# Several cells on one SDR (provisional, not yet validated on air): give the
+# cells the same `device`. The carriers of all of them must fit the one passband,
+# so every cell repeats the same sample_rate, tx_center_freq, rx_center_freq and
+# ppm_err (centres midway between the carriers); tx_freq/rx_freq stay the cell's
+# own carrier. Gains and antennas are taken from the first cell of the group
+# (the primary when it is part of it). The cells run in lockstep on the one
+# sample clock, so their TDMA frames are locked together. TX gain is common.
+#
+# Security per cell (provisional): [cells.security] puts this cell's keys on top of
+# [security]. `aie` replaces [security.aie] as a whole; `aie = { class = 1 }` = clear
+# cell. issi_whitelist, whitelist_mode, authentication, mutual_authentication
+# override one by one. Cells of one network must share the security class (use
+# [networks] for a clear cell next to an encrypted one); class 3 needs its cell
+# alone in its network. subscribers, e2ee stay station-wide.
+#
+# [cells.security.aie]
+# class = 2
+# ksg = 2
+# sckn = 2
+# sck = "aabbccddeeff00112233"
 #
 # Several networks (one MCC/MNC per cell, ETSI TS 100 392-2 table 18.17): see
 # Docs/networks.md. A network reached through another network's Brew server

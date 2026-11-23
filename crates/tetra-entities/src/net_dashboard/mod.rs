@@ -14,6 +14,7 @@ pub mod ota_remote;
 pub mod profiles;
 pub mod roaming;
 pub mod radioid;
+pub mod sdrs;
 pub mod sds_commands;
 pub mod security;
 pub mod server;

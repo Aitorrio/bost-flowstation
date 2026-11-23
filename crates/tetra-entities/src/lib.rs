@@ -38,6 +38,7 @@ pub mod service_control;
 pub mod sys_telemetry;
 pub mod tpg2200;
 pub mod wifi;
+pub mod wireguard;
 
 // Re-export commonly used items from router
 pub use entity_trait::TetraEntityTrait;

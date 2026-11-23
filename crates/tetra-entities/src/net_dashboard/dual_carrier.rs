@@ -298,6 +298,50 @@ pub fn effective_sample_rate_hz(fs_from_toml: Option<f64>) -> f64 {
         .unwrap_or(DEFAULT_SAMPLE_RATE_HZ)
 }
 
+/// Sample rate FlowStation uses for a device when `sample_rate` is not set
+/// (`phy::components::soapy_settings`): Pluto 1 MHz, SXceiver / MuCell 600 kHz, LimeSDR / USRP
+/// and others 512 kHz. Without a device string the old 600 kHz assumption stays.
+pub fn device_default_sample_rate_hz(device: Option<&str>) -> f64 {
+    let d = device.unwrap_or("").to_ascii_lowercase();
+    if d.trim().is_empty() {
+        DEFAULT_SAMPLE_RATE_HZ
+    } else if d.contains("pluto") {
+        1_000_000.0
+    } else if d.contains("mucell") || d.contains("mu-cell") || d.contains("sx") {
+        600_000.0
+    } else {
+        512_000.0
+    }
+}
+
+/// Effective sample rate: the TOML value, else the default of the configured device.
+pub fn effective_sample_rate_for(config_path: &str, fs_override: Option<f64>) -> f64 {
+    fs_override
+        .or_else(|| read_sample_rate_from_toml(config_path))
+        .filter(|f| f.is_finite() && *f > 0.0)
+        .unwrap_or_else(|| device_default_sample_rate_hz(read_soapy_str(config_path, "device").as_deref()))
+}
+
+/// A string key of `[phy_io.soapysdr]` (line scan; no full parse).
+fn read_soapy_str(config_path: &str, key: &str) -> Option<String> {
+    let txt = std::fs::read_to_string(config_path).ok()?;
+    let mut in_soapy = false;
+    for line in txt.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') && trimmed.contains(']') {
+            in_soapy = trimmed.starts_with("[phy_io.soapysdr]");
+            continue;
+        }
+        if in_soapy && !trimmed.starts_with('#') {
+            if let Some(v) = active_value(trimmed, key) {
+                let v = value_token(v);
+                return Some(v.trim_matches('"').to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Read `sample_rate` from TOML soapysdr if present (line scan; no full parse).
 pub fn read_sample_rate_from_toml(config_path: &str) -> Option<f64> {
     let txt = std::fs::read_to_string(config_path).ok()?;
@@ -490,5 +534,13 @@ issi_whitelist = []
         assert!(out.contains("sample_rate = 600000"));
         assert!(out.contains("tx_center_freq = 438037500"));
         assert!(out.contains("rx_center_freq = 433037500"));
+    }
+
+    #[test]
+    fn device_default_sample_rate_follows_the_driver() {
+        assert_eq!(super::device_default_sample_rate_hz(Some("driver=plutosdr,uri=ip:192.168.2.1")), 1_000_000.0);
+        assert_eq!(super::device_default_sample_rate_hz(Some("driver=sx")), 600_000.0);
+        assert_eq!(super::device_default_sample_rate_hz(Some("driver=lime")), 512_000.0);
+        assert_eq!(super::device_default_sample_rate_hz(None), super::DEFAULT_SAMPLE_RATE_HZ);
     }
 }

@@ -38,6 +38,10 @@ pub struct Subscriber {
     pub attached_groups: HashSet<u32>,
     /// Registered with air interface encryption (class 2); false = clear.
     pub encrypted: bool,
+    /// Granted energy-economy monitoring cycle, in TDMA frames (the MS wakes 1 frame every N).
+    /// `None` = StayAlive / always reachable. Mirrored from MM's grant so the LLC can size its
+    /// acknowledged-mode ACK grace window to a radio that only wakes periodically.
+    pub ee_cycle_frames: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -98,6 +102,11 @@ impl SubscriberRegistry {
         // last committed mode; the pending-ciphering transition re-confirms or changes it when the
         // new accept is acknowledged. (mm_bs registration path documents this same intent.)
         let was_encrypted = self.subscribers.get(&issi).map(|s| s.encrypted).unwrap_or(false);
+        // Preserve the granted energy-economy cycle across a re-registration for the same reason
+        // as `encrypted`: a periodic re-registration must not momentarily forget that the radio
+        // sleeps, or the LLC would briefly shrink its ACK grace window and start discarding the
+        // radio's late BL-ACKs again mid-session.
+        let was_ee_cycle = self.subscribers.get(&issi).and_then(|s| s.ee_cycle_frames);
         self.deregister(issi); // Clean up any existing registration to prevent stale affiliations
         self.subscribers.insert(
             issi,
@@ -105,6 +114,7 @@ impl SubscriberRegistry {
                 issi,
                 attached_groups: HashSet::new(),
                 encrypted: was_encrypted,
+                ee_cycle_frames: was_ee_cycle,
             },
         );
     }
@@ -115,6 +125,7 @@ impl SubscriberRegistry {
             issi,
             attached_groups: HashSet::new(),
             encrypted: false,
+            ee_cycle_frames: None,
         })
     }
 
@@ -128,6 +139,21 @@ impl SubscriberRegistry {
     /// Whether a locally registered radio is encrypted; `None` when the ISSI is not registered.
     pub fn encrypted(&self, issi: u32) -> Option<bool> {
         self.subscribers.get(&issi).map(|s| s.encrypted)
+    }
+
+    /// Records the energy-economy monitoring cycle (in TDMA frames; `None` = StayAlive) granted to
+    /// a registered radio. No-op if the ISSI is not registered — the LLC then falls back to the
+    /// always-awake grace window, which is harmless.
+    pub fn set_ee_cycle_frames(&mut self, issi: u32, cycle: Option<u8>) {
+        if let Some(s) = self.subscribers.get_mut(&issi) {
+            s.ee_cycle_frames = cycle;
+        }
+    }
+
+    /// The energy-economy monitoring cycle (TDMA frames) granted to a registered radio, or `None`
+    /// when the radio is always awake (StayAlive) or not registered.
+    pub fn ee_cycle_frames(&self, issi: u32) -> Option<u8> {
+        self.subscribers.get(&issi).and_then(|s| s.ee_cycle_frames)
     }
 
     /// Deregister an ISSI, removing it from the registry and cleaning up any group affiliations

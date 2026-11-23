@@ -463,6 +463,9 @@ pub struct CellInfo {
     pub neighbours: u16,
     /// SoapySDR device string, if configured.
     pub device: Option<String>,
+    /// Ids of the other cells that run on the same SDR (several cells on one device); empty when
+    /// this cell has its own.
+    pub sdr_shared_with: Vec<u8>,
     pub registered_radios: u32,
     /// ISSIs registered on this cell, sorted. Lets a consumer that missed registration events
     /// (e.g. after a telemetry reconnect) resync its list.

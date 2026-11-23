@@ -12,8 +12,9 @@ use tetra_saps::tma::TmaUnitdataReq;
 use tetra_saps::{SapMsg, SapMsgInner};
 
 use crate::llc::components::fcs;
+use tetra_core::frames;
 use tetra_pdus::llc::consts::consts::N252_BL_MAX_TLSDU_RETRANSMITS_ACKED;
-use tetra_pdus::llc::consts::timers::T251_SENDER_RETRY_TIMER;
+use tetra_pdus::llc::consts::timers::{ACK_GRACE_WINDOW, T251_SENDER_RETRY_TIMER};
 use tetra_pdus::llc::enums::llc_pdu_type::LlcPduType;
 use tetra_pdus::llc::pdus::bl_ack::BlAck;
 use tetra_pdus::llc::pdus::bl_adata::BlAdata;
@@ -51,6 +52,10 @@ pub struct ExpectedInAck {
     pub retransmission_buf: SapMsg,
     /// Number of retransmissions performed so far
     pub retransmit_count: u8,
+    /// Set when the on-air retransmit budget (N.252) is spent and the entry enters the ACK grace
+    /// window: it is kept alive (no further airtime) until the window closes, so a late BL-ACK from
+    /// an energy-economy / slow radio is still honoured instead of discarded as "unexpected".
+    pub retransmits_exhausted_at: Option<TdmaTime>,
 }
 
 /// Struct that maintains state for an ACK we still need to send back.
@@ -467,6 +472,7 @@ impl Llc {
             t_umac_done: None,
             retransmission_buf: sapmsg, // Clone the message to keep a copy for potential retransmission
             retransmit_count: 0,
+            retransmits_exhausted_at: None,
         });
 
         // The message will now be picked up for transmission at end-of-tick, if the ssi does not yet have
@@ -726,6 +732,15 @@ impl Llc {
         queue.push_back(s);
     }
 
+    /// How long (in timeslots) to keep an acknowledged-mode entry alive after its on-air retransmit
+    /// budget (N.252) is spent, so a late BL-ACK can still confirm it rather than being discarded as
+    /// "unexpected". Flat `ACK_GRACE_WINDOW` for every radio, plus the radio's own energy-economy
+    /// monitoring cycle for one that only wakes periodically (`ee_cycle` = frames between wakes,
+    /// `None` = always awake / StayAlive).
+    fn ack_grace_window(ee_cycle: Option<u8>) -> u32 {
+        ACK_GRACE_WINDOW + ee_cycle.map(|c| frames!(c as u32)).unwrap_or(0)
+    }
+
     fn submit_retransmissions_to_umac(&mut self, queue: &mut MessageQueue) -> bool {
         let mut had_activity = false;
         let dltime = self.dltime;
@@ -734,6 +749,17 @@ impl Llc {
         // if !self.outbound_messages.is_empty() {
         //     tracing::error!("{}", Self::format_expected_ack_list(&self.outbound_messages));
         // }
+
+        // Snapshot each target's ACK grace window (sized by its granted energy-economy cycle)
+        // before the mutable borrow below, so shared state is not borrowed inside the loop.
+        let grace_windows: HashMap<u32, u32> = {
+            let state = self.config.state_read();
+            self.outbound_messages
+                .iter()
+                .map(|ack| (ack.addr.ssi, Self::ack_grace_window(state.subscribers.ee_cycle_frames(ack.addr.ssi))))
+                .collect()
+        };
+        let grace_for = |ssi: u32| grace_windows.get(&ssi).copied().unwrap_or(ACK_GRACE_WINDOW);
 
         for ack in self.outbound_messages.iter_mut() {
             // First, check which have newly been txed, or discarded by Umac. If so, start t_umac_done.
@@ -748,11 +774,22 @@ impl Llc {
                 continue;
             };
 
+            // If the on-air retransmit budget is already spent, the entry is lingering in its ACK
+            // grace window: no further airtime, just wait for a late BL-ACK (from an energy-economy
+            // or slow radio) until the window closes. Discarding that ACK is what forced the
+            // re-registration churn, so we hold the entry here instead of giving up at budget.
+            if let Some(exhausted_at) = ack.retransmits_exhausted_at {
+                if dltime.diff(exhausted_at) as u32 >= grace_for(ack.addr.ssi) {
+                    removals.get_or_insert(Vec::new()).push((ack.addr.ssi, ack.carrier_num));
+                }
+                continue;
+            }
+
             // Retransmit scenario 1: it was transmitted but no ack received within the expected window (ETSI T.251 / N.252)
             // Retransmission scenario 2: it has been dropped by Umac due to congestion. Retransmit after same window
             let age = dltime.diff(t_umac_done); // Never fails
             if age as u32 >= T251_SENDER_RETRY_TIMER {
-                // Time for either retransmitting or giving up
+                // Time for either retransmitting or entering the ACK grace window
                 if ack.retransmit_count < N252_BL_MAX_TLSDU_RETRANSMITS_ACKED {
                     // Retransmit
                     ack.retransmit_count += 1;
@@ -766,8 +803,15 @@ impl Llc {
                     Self::submit_for_acknowledged_transmission(queue, ack, self.dltime.forward_to_timeslot(ack.t_first.t));
                     had_activity = true;
                 } else {
-                    // Exhausted retransmissions, flag for discard
-                    removals.get_or_insert(Vec::new()).push((ack.addr.ssi, ack.carrier_num));
+                    // On-air budget spent. Linger in the ACK grace window instead of discarding
+                    // immediately, so a late BL-ACK still confirms the SDU.
+                    ack.retransmits_exhausted_at = Some(dltime);
+                    tracing::info!(
+                        "SSI {} N(S) {} retransmits exhausted — awaiting late ACK for up to {} timeslots",
+                        ack.addr.ssi,
+                        ack.ns,
+                        grace_for(ack.addr.ssi),
+                    );
                 }
             }
         }
@@ -787,7 +831,7 @@ impl Llc {
                     continue;
                 };
                 tracing::warn!(
-                    "schedule_retransmissions: SSI {} carrier {} N(S) {} exhausted retransmissions",
+                    "schedule_retransmissions: SSI {} carrier {} N(S) {} exhausted retransmissions and ACK grace window",
                     ack.addr.ssi,
                     ack.carrier_num,
                     ack.ns
@@ -1188,5 +1232,68 @@ mod reattach_tests {
             let SapMsgInner::TlaTlDataReqBl(req) = q.pop_front().unwrap().msg else { panic!("LLC request") };
             assert_eq!(req.air_interface_encryption, Some(encrypted as _));
         }
+    }
+
+    /// Drives one acknowledged-mode message through its full on-air retransmit budget (ETSI N.252)
+    /// until it enters the ACK grace window, without any ACK. Returns the shared receipt plus the
+    /// carrier and N(S) needed to acknowledge it. The entry is still present (not yet lost).
+    fn drive_to_grace_window(llc: &mut Llc, q: &mut MessageQueue) -> (TxReporter, u16, u8) {
+        llc.rx_tla_tldata_req_bl(q, downlink(Some(false)));
+        llc.submit_free_messages_to_umac(q);
+        let ack = llc.outbound_messages.front().unwrap();
+        let receipt = ack.tx_reporter.clone();
+        let (carrier, ns) = (ack.carrier_num, ack.ns);
+
+        // N252 on-air attempts, then one further poll that trips into the grace window.
+        for _ in 0..(N252_BL_MAX_TLSDU_RETRANSMITS_ACKED as usize + 1) {
+            receipt.mark_transmitted();
+            // Tick A: records t_umac_done for the (re)transmission.
+            llc.dltime = llc.dltime.add_timeslots(1);
+            llc.submit_retransmissions_to_umac(q);
+            // Tick B, a full T251 later: retransmit, or — once the budget is spent — enter the grace window.
+            llc.dltime = llc.dltime.add_timeslots(T251_SENDER_RETRY_TIMER as i32 + 1);
+            llc.submit_retransmissions_to_umac(q);
+        }
+        (receipt, carrier, ns)
+    }
+
+    #[test]
+    fn late_ack_within_grace_window_is_honoured() {
+        let mut llc = station();
+        let mut q = MessageQueue::new();
+        let (receipt, carrier, ns) = drive_to_grace_window(&mut llc, &mut q);
+
+        // The on-air budget is spent, but the entry lingers — not yet declared lost.
+        assert_eq!(llc.outbound_messages.len(), 1);
+        assert_eq!(receipt.get_state(), TxState::Transmitted);
+
+        // A late BL-ACK arriving inside the grace window still confirms the SDU, instead of being
+        // discarded as "unexpected" (which is what forced the re-registration churn).
+        llc.process_incoming_ack(TetraAddress::issi(100), carrier, ns);
+        assert!(receipt.is_acknowledged());
+        assert!(llc.outbound_messages.is_empty());
+    }
+
+    #[test]
+    fn no_ack_within_grace_window_is_declared_lost() {
+        let mut llc = station();
+        let mut q = MessageQueue::new();
+        let (receipt, _carrier, _ns) = drive_to_grace_window(&mut llc, &mut q);
+        assert_eq!(llc.outbound_messages.len(), 1);
+
+        // Once the grace window closes with no ACK, the SDU is given up and MM is told it is lost.
+        llc.dltime = llc.dltime.add_timeslots(Llc::ack_grace_window(None) as i32 + 1);
+        llc.submit_retransmissions_to_umac(&mut q);
+        assert!(llc.outbound_messages.is_empty());
+        assert_eq!(receipt.get_state(), TxState::Lost);
+    }
+
+    #[test]
+    fn ack_grace_window_scales_with_energy_economy_cycle() {
+        // An always-awake radio gets the flat window; a radio that wakes every N frames gets N
+        // frames of headroom on top, since it can only ACK when it next wakes.
+        assert_eq!(Llc::ack_grace_window(None), ACK_GRACE_WINDOW);
+        assert_eq!(Llc::ack_grace_window(Some(2)), ACK_GRACE_WINDOW + frames!(2));
+        assert!(Llc::ack_grace_window(Some(6)) > Llc::ack_grace_window(Some(2)));
     }
 }

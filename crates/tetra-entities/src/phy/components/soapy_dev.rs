@@ -136,6 +136,17 @@ impl RxTxDevSoapySdr {
     ///
     /// Returns `Err` when the SDR cannot be opened so callers can degrade instead of aborting.
     pub fn with_telemetry(cfg: &SharedConfig, telemetry: Option<TelemetrySink>) -> Result<Self, String> {
+        Self::with_shared_carriers(cfg, telemetry, &[])
+    }
+
+    /// Like [`Self::with_telemetry`] for an SDR shared by several cells: `extra_carriers` are the
+    /// (carrier, DL Hz, UL Hz) of the other cells, appended after this cell's own so the device's
+    /// modulators and demodulators cover every carrier. Gains, antennas and ppm come from `cfg`.
+    pub fn with_shared_carriers(
+        cfg: &SharedConfig,
+        telemetry: Option<TelemetrySink>,
+        extra_carriers: &[(u16, u32, u32)],
+    ) -> Result<Self, String> {
         let mut fft_planner = rustfft::FftPlanner::new();
 
         // TODO FIXME currently no MS and MON support in the below statement; need to fix
@@ -161,10 +172,11 @@ impl RxTxDevSoapySdr {
             ul_corrected / 1e6
         );
 
-        let bs_carriers = config_guard
+        let mut bs_carriers = config_guard
             .as_ref()
             .bs_phase_mod_carriers()
             .expect("validated carrier configuration should compute");
+        bs_carriers.extend_from_slice(extra_carriers);
         let bs_carrier_numbers = bs_carriers.iter().map(|(carrier_num, _, _)| *carrier_num).collect::<Vec<_>>();
         // PPM-correct the per-carrier frequencies fed to the DSP channelizer, exactly as the SDR
         // centre frequency is corrected before tuning (soapyio.rs). This is essential, not cosmetic:

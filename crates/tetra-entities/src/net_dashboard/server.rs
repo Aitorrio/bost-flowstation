@@ -2887,6 +2887,7 @@ impl DashboardServer {
                     });
                 }
                 TelemetryEvent::SysHealth { total_power_w, sensors } => {
+                    s.push_sys_history(*total_power_w, sensors);
                     s.last_sys_health = Some(crate::net_dashboard::state::SysHealthSnapshot {
                         total_power_w: *total_power_w,
                         sensors: sensors.clone(),
@@ -4479,6 +4480,18 @@ fn handle_connection(
             }
         }
         serve_bts_info(buf.into_inner(), &shared_config);
+    } else if req_line.contains("GET /api/cells/settings") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let id = request_path(&req_line).map(query_params).and_then(|q| q.get("id").and_then(|v| v.parse::<u8>().ok()));
+        match (id, std::fs::read_to_string(&config_path)) {
+            (Some(id), Ok(text)) => match crate::net_dashboard::cells::cell_settings_json(&text, id) {
+                Ok(v) => http_json_response(s, 200, &v.to_string()),
+                Err(e) => http_response(s, 400, &e),
+            },
+            (None, _) => http_response(s, 400, "id is required"),
+            (_, Err(e)) => http_response(s, 500, &format!("cannot read config: {e}")),
+        }
     } else if req_line.contains("GET /api/cells") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4533,9 +4546,29 @@ fn handle_connection(
             Ok(v) => http_json_response(inner, 200, &v.to_string()),
             Err(e) => http_response(inner, 400, &e),
         }
+    } else if req_line.contains("GET /api/sdrs") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match std::fs::read_to_string(&config_path).map_err(|e| format!("cannot read config: {e}")).and_then(|t| crate::net_dashboard::sdrs::sdrs_json(&t)) {
+            Ok(v) => http_json_response(s, 200, &v.to_string()),
+            Err(e) => http_response(s, 500, &e),
+        }
+    } else if req_line.contains("POST /api/sdrs/check") {
+        let (inner, body_str) = read_post_body(stream);
+        let req: serde_json::Value = serde_json::from_str(&body_str).unwrap_or_default();
+        match std::fs::read_to_string(&config_path) {
+            Ok(t) => http_json_response(inner, 200, &crate::net_dashboard::sdrs::check_json(&t, &req).to_string()),
+            Err(e) => http_response(inner, 500, &format!("cannot read config: {e}")),
+        }
+    } else if req_line.contains("POST /api/sdrs") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_sdrs_save(inner, &config_path, &body_str);
     } else if req_line.contains("POST /api/cells/add") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_add(inner, &config_path, &body_str);
+    } else if req_line.contains("POST /api/cells/update") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_update(inner, &config_path, &body_str);
     } else if req_line.contains("POST /api/cells/remove") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_remove(inner, &config_path, &body_str);
@@ -5150,6 +5183,66 @@ fn handle_connection(
             Err(e) => serde_json::to_string(&serde_json::json!({"ok": false, "error": e})).unwrap_or_default(),
         };
         http_json_response(stream, 200, &body);
+    // ── WireGuard (Network tab) ────────────────────────────────────────
+    // Config file + wg-quick, see wireguard.rs. Secrets are write-only: never returned.
+    } else if req_line.contains("GET /api/network/wireguard") {
+        drain_http_headers(&mut stream);
+        let iface = req_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|u| u.split_once("iface="))
+            .map(|(_, v)| v.split('&').next().unwrap_or("").to_string())
+            .unwrap_or_else(|| crate::wireguard::DEFAULT_IFACE.to_string());
+        let body = match crate::wireguard::overview(&iface) {
+            Ok(v) => serde_json::json!({"ok": true, "wireguard": v}),
+            Err(e) => serde_json::json!({"ok": false, "error": {"msg": e}}),
+        };
+        http_json_response(stream, 200, &body.to_string());
+    } else if req_line.contains("POST /api/network/wireguard/") {
+        let raw = read_http_body(&mut stream);
+        let req: serde_json::Value = match serde_json::from_slice(&raw) {
+            Ok(v) => v,
+            Err(e) => {
+                http_response(stream, 400, &format!("invalid JSON: {}", e));
+                return;
+            }
+        };
+        let iface = req.get("iface").and_then(|v| v.as_str()).unwrap_or(crate::wireguard::DEFAULT_IFACE).to_string();
+        let flag = |k: &str| req.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+        let result: Result<(), String> = if req_line.contains("POST /api/network/wireguard/save") {
+            match serde_json::from_value::<crate::wireguard::Config>(req.get("config").cloned().unwrap_or_default()) {
+                Ok(cfg) => {
+                    tracing::info!("Dashboard: saving WireGuard config for {} ({} peer(s))", iface, cfg.peers.len());
+                    crate::wireguard::save(
+                        &iface,
+                        &cfg,
+                        &crate::wireguard::SaveOptions {
+                            private_key: req.get("private_key").and_then(|v| v.as_str()).map(|s| s.trim().to_string()),
+                            generate_private_key: flag("generate_private_key"),
+                            overwrite_unmanaged: flag("overwrite_unmanaged"),
+                            apply: flag("apply"),
+                        },
+                    )
+                }
+                Err(e) => Err(format!("invalid config: {e}")),
+            }
+        } else if req_line.contains("POST /api/network/wireguard/up") {
+            tracing::info!("Dashboard: WireGuard {} up", iface);
+            crate::wireguard::set_up(&iface, true)
+        } else if req_line.contains("POST /api/network/wireguard/down") {
+            tracing::info!("Dashboard: WireGuard {} down", iface);
+            crate::wireguard::set_up(&iface, false)
+        } else if req_line.contains("POST /api/network/wireguard/boot") {
+            crate::wireguard::set_boot(&iface, flag("enable"))
+        } else {
+            http_response(stream, 404, "not found");
+            return;
+        };
+        let body = match result {
+            Ok(()) => serde_json::json!({"ok": true}),
+            Err(e) => serde_json::json!({"ok": false, "error": {"msg": e}}),
+        };
+        http_json_response(stream, 200, &body.to_string());
     } else if req_line.contains("GET /api/wifi/available") {
         // Cheap probe used by the dashboard to decide whether to even show
         // the WiFi tab. Returns {"available": true|false}.
@@ -5237,6 +5330,7 @@ fn handle_ws(
         let last_sdr_health = s.last_sdr_health.clone();
         let cell_rf: Vec<serde_json::Value> = s.cell_rf.values().cloned().collect();
         let last_sys_health = s.last_sys_health.clone();
+        let sys_history = s.sys_history.clone();
         let last_health = s.last_health.clone();
         let dgna_log: Vec<_> = s.dgna_log.iter().rev().cloned().collect();
         let boot_id = s.boot_id.clone();
@@ -5266,6 +5360,7 @@ fn handle_ws(
             "last_sdr_health": last_sdr_health,
             "cell_rf": cell_rf,
             "last_sys_health": last_sys_health,
+            "sys_history": sys_history,
             "health": last_health,
             "dgna_log": dgna_log,
             "dgna_default_attachment_mode": dgna_default_attachment_mode,
@@ -6202,6 +6297,22 @@ fn serve_roaming_save(stream: PrefixedConn, config_path: &str, body: &str) {
     }
 }
 
+/// POST /api/sdrs — the Cells page (`sdrs::apply_sdrs`); writes the config and restarts.
+fn serve_sdrs_save(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::sdrs::apply_sdrs(&original, &req) {
+        Ok(text) => apply_cells_config(stream, config_path, &text, "SDRs and cells saved".to_string()),
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
 /// POST /api/cells/add — `{"device": "...", "main_carrier": N, "colour_code": N?, "location_area": N?}`.
 fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
@@ -6226,6 +6337,25 @@ fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
     };
     match crate::net_dashboard::cells::add_cell_toml(&original, device, main_carrier as u16, colour_code, location_area) {
         Ok((text, id)) => apply_cells_config(stream, config_path, &text, format!("cell {id} added (carrier {main_carrier})")),
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
+/// POST /api/cells/update — a cell's settings and security (`cells::update_cell_toml`).
+fn serve_cells_update(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::cells::update_cell_toml(&original, &req) {
+        Ok(text) => {
+            let id = req.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+            apply_cells_config(stream, config_path, &text, format!("cell {id} settings saved"))
+        }
         Err(e) => http_response(stream, 400, &e),
     }
 }
@@ -6259,7 +6389,7 @@ fn serve_dual_carrier_get(mut stream: PrefixedConn, shared_config: &Option<tetra
         .map(|c| c.config().cell.secondary_carrier.is_some())
         .unwrap_or(false);
     let fs_toml = dual_carrier::read_sample_rate_from_toml(config_path);
-    let sample_rate_hz = dual_carrier::effective_sample_rate_hz(fs_toml);
+    let sample_rate_hz = dual_carrier::effective_sample_rate_for(config_path, None);
     let max_delta = dual_carrier::max_carrier_delta(sample_rate_hz);
     let (sec_min, sec_max) = match main_carrier {
         Some(m) => {
@@ -6350,11 +6480,7 @@ fn serve_dual_carrier_post(
         return http_response(stream, 400, "main_carrier unknown — cannot enable dual carrier");
     };
 
-    let fs_hz = dual_carrier::effective_sample_rate_hz(
-        req.get("sample_rate_hz")
-            .and_then(|v| v.as_f64())
-            .or_else(|| dual_carrier::read_sample_rate_from_toml(config_path)),
-    );
+    let fs_hz = dual_carrier::effective_sample_rate_for(config_path, req.get("sample_rate_hz").and_then(|v| v.as_f64()));
 
     let requested = match req.get("secondary_carrier").and_then(|v| v.as_u64()) {
         Some(n) if n >= 4000 => {
@@ -8302,7 +8428,7 @@ fn drain_http_headers(stream: &mut PrefixedConn) {
             break;
         }
         // Detect "\r\n\r\n" by sliding a 4-byte window.
-        if prev3 == [b'\r', b'\n', b'\r'] && byte[0] == b'\n' {
+        if prev3 == *b"\r\n\r" && byte[0] == b'\n' {
             break;
         }
         prev3 = [prev3[1], prev3[2], byte[0]];
@@ -8325,7 +8451,7 @@ fn read_http_body(stream: &mut PrefixedConn) -> Vec<u8> {
             return Vec::new();
         }
         header_buf.push(byte[0]);
-        if prev3 == [b'\r', b'\n', b'\r'] && byte[0] == b'\n' {
+        if prev3 == *b"\r\n\r" && byte[0] == b'\n' {
             break;
         }
         prev3 = [prev3[1], prev3[2], byte[0]];

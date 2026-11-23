@@ -101,6 +101,11 @@ struct PendingCiphering {
 const T354: Duration = Duration::from_secs(30);
 /// How long a successful authentication stays valid for the held registration to go through.
 const AUTH_PASS_GRACE: Duration = Duration::from_secs(5);
+/// After a registration authenticated, a further location update that arrives encrypted under the
+/// key just agreed is accepted without a new challenge for this long (one T354). Radios (seen on
+/// Motorola) follow an accepted demand location update at once with their own roaming update and
+/// ignore a second challenge; the held update was then never answered.
+const REAUTH_HOLDOFF_ENCRYPTED: Duration = T354;
 /// How long to wait for U-OTAR SCK RESULT after an individually addressed provide.
 const T_OTAR_RESULT: Duration = Duration::from_secs(30);
 /// Maximum time to retain a location-update ciphering transition without an LLC ACK.
@@ -130,6 +135,8 @@ pub struct MmBs {
     auth_pending: HashMap<u32, PendingAuth>,
     /// Radios that just passed, so the replayed registration is not challenged again.
     auth_passed: HashMap<u32, Instant>,
+    /// When each radio last completed authentication as part of a registration.
+    registration_authenticated: HashMap<u32, Instant>,
     /// Newly authenticated DCKs; published to MAC only at the acknowledgement boundary.
     dck: HashMap<u32, SecCipherKey>,
     auth_result_pending: HashMap<u32, PendingAuthResult>,
@@ -228,6 +235,7 @@ impl MmBs {
             registration_probe_receipts: HashMap::new(),
             auth_pending: HashMap::new(),
             auth_passed: HashMap::new(),
+            registration_authenticated: HashMap::new(),
             dck: HashMap::new(),
             auth_result_pending: HashMap::new(),
             auth_ack_pending: HashMap::new(),
@@ -374,7 +382,7 @@ impl MmBs {
                 // SC3 switches DCK at the acknowledged authentication result, not
                 // at a later group-report exchange (EN 300 392-7, 4.5.5.1).
                 // Otherwise encrypted group reports need the very DCK they block.
-                awaiting_group_report: !ciphering.is_some_and(|c| c.class3)
+                awaiting_group_report: ciphering.is_none()
                     && self.group_report_in_flight.contains_key(&issi),
                 started: Instant::now(),
             },
@@ -712,6 +720,7 @@ impl MmBs {
     fn clear_registration_transients(&mut self, issi: u32) {
         self.auth_pending.remove(&issi);
         self.auth_passed.remove(&issi);
+        self.registration_authenticated.remove(&issi);
         self.dck.remove(&issi);
         self.auth_result_pending.remove(&issi);
         self.auth_ack_pending.remove(&issi);
@@ -1025,12 +1034,7 @@ impl MmBs {
             let cfg = self.config.config();
             let aie = crate::aie::effective(&cfg);
             (
-                crate::aie::registration_decision(
-                    aie,
-                    pdu.cipher_control,
-                    pdu.ciphering_parameters,
-                    pdu.class_of_ms.as_ref().is_some_and(|c| c.sck_encryption),
-                ),
+                crate::aie::registration_decision(aie, pdu.cipher_control, pdu.ciphering_parameters),
                 aie.map(crate::aie::preferred_parameters),
             )
         };
@@ -1208,6 +1212,7 @@ impl MmBs {
         // Store energy saving mode and monitoring window in client state
         let esm = esi.as_ref().map(|e| e.energy_saving_mode).unwrap_or(EnergySavingMode::StayAlive);
         let _ = self.client_mgr.set_client_energy_saving_mode(issi, esm);
+        self.mirror_ee_cycle_to_registry(issi, esm);
         let mf = esi.as_ref().and_then(|e| e.frame_number);
         let mmf = esi.as_ref().and_then(|e| e.multiframe_number);
         let _ = self.client_mgr.set_client_monitoring_window(issi, mf, mmf);
@@ -1369,16 +1374,11 @@ impl MmBs {
             self.sc3_cck(issi, "registration_sent");
             Some(AuthenticationDownlink { r1: true, tei_request: false, cck: Some(cck) })
         } else { None };
-        // Security downlink IE (EN 300 392-7): tell the MS which ciphering to apply as the
-        // 10-bit Ciphering parameters (KSG + security class + SCK number). Without this a radio
-        // that attached clear and is being ciphered by the infra never switches its traffic to
-        // SCK, so it stays clear and is refused on encrypted groups. Sent only when a cipher is
-        // negotiated (class 2 SCK); None leaves the accept clear exactly as before.
-        let security_downlink = ciphering.map(|params| tetra_core::typed_pdu_fields::Type3FieldGeneric {
-            field_id: 3, // MmType34ElemIdDl::SecurityDownlink
-            len: 10,
-            data: params.to_bits() as u128,
-        });
+        // No Security downlink element (EN 300 392-7 clause A.7.3, Table A.35a). It carries the
+        // authentication result R1 and information request flags, not the ciphering parameters, and
+        // the SwMI "shall only send" it to an MS known to support it (clauses 4.4, 4.4a). Filled with
+        // the 10-bit ciphering parameters it told an SC3 radio R1 = 0 (authentication failed) next to
+        // the Authentication downlink's R1 = 1 (why Motorola radios stopped registering).
         // Build D-LOCATION UPDATE ACCEPT pdu
         let pdu_response = DLocationUpdateAccept {
             location_update_accept_type: accept_type,
@@ -1388,7 +1388,7 @@ impl MmBs {
             energy_saving_information: esi,
             scch_information_and_distribution_on_18th_frame: scch_info,
             new_registered_area: None,
-            security_downlink,
+            security_downlink: None,
             group_identity_location_accept: gila,
             default_group_attachment_lifetime: None,
             authentication_downlink,
@@ -1601,6 +1601,15 @@ impl MmBs {
         }
     }
 
+    /// Mirror the granted energy-economy cycle (in TDMA frames, `None` = StayAlive/always awake)
+    /// into the shared subscriber registry, kept in lockstep with `set_client_energy_saving_mode`.
+    /// The LLC reads it to size its acknowledged-mode ACK grace window to a radio that only wakes
+    /// periodically, so a sleepy terminal's late BL-ACK is honoured instead of discarded.
+    fn mirror_ee_cycle_to_registry(&self, issi: u32, esm: EnergySavingMode) {
+        let cycle = crate::mm::components::client_state::ee_cycle_frames(esm);
+        self.config.state_write().subscribers.set_ee_cycle_frames(issi, cycle);
+    }
+
     fn rx_u_mm_status(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_mm_status");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
@@ -1654,6 +1663,7 @@ impl MmBs {
                 if let Err(e) = self.client_mgr.set_client_energy_saving_mode(issi, esi.energy_saving_mode) {
                     tracing::debug!("MM: mid-session ESM update on ISSI {} skipped: {:?}", issi, e);
                 }
+                self.mirror_ee_cycle_to_registry(issi, esi.energy_saving_mode);
                 if let Err(e) = self
                     .client_mgr
                     .set_client_monitoring_window(issi, esi.frame_number, esi.multiframe_number)
@@ -1681,6 +1691,7 @@ impl MmBs {
 
                 tracing::info!("MS {} energy saving mode change response: {:?}", issi, esm);
                 let _ = self.client_mgr.set_client_energy_saving_mode(issi, esm);
+                self.mirror_ee_cycle_to_registry(issi, esm);
                 self.recovery_mark_dirty();
                 handled = true;
             }
@@ -2920,7 +2931,7 @@ impl MmBs {
     fn mark_group_report_pending(&mut self, issi: u32) {
         self.group_report_in_flight.insert(issi, Instant::now());
         if let Some(pending) = self.pending_ciphering.get_mut(&issi)
-            && !pending.ciphering.is_some_and(|c| c.class3)
+            && pending.ciphering.is_none()
         {
             pending.awaiting_group_report = true;
             pending.started = Instant::now();
@@ -3791,6 +3802,21 @@ mod ee_tests {
 
 // ─────────────────────── Air-interface authentication (EN 300 392-7) ───────────────────────
 impl MmBs {
+    /// A follow-up location update right after an authenticated registration needs no new challenge:
+    /// authentication at registration is SwMI-initiated (EN 300 392-7 clause 4.4.2) and nothing
+    /// requires it on every location update. Accepted only while the radio is registered with a key from that
+    /// authentication, and only with proof of the key: encrypted under it within one T354, or in
+    /// clear within the few seconds of `AUTH_PASS_GRACE` (a clear update proves nothing, but it can
+    /// only re-register the same ISSI here).
+    fn recently_authenticated(&self, issi: u32, held: &SapMsg) -> bool {
+        let Some(at) = self.registration_authenticated.get(&issi) else { return false };
+        if !self.dck.contains_key(&issi) || !self.config.state_read().subscribers.is_registered(issi) {
+            return false;
+        }
+        let encrypted = matches!(&held.msg, SapMsgInner::LmmMleUnitdataInd(p) if p.encrypted);
+        at.elapsed() < if encrypted { REAUTH_HOLDOFF_ENCRYPTED } else { AUTH_PASS_GRACE }
+    }
+
     /// Decide whether a registering radio must authenticate first. Returns true when the
     /// registration has been taken over (challenge sent and the message held, or rejected).
     fn authentication_gate(
@@ -3816,6 +3842,10 @@ impl MmBs {
         // Just authenticated: let the replayed registration through.
         if self.auth_passed.get(&issi).is_some_and(|t| t.elapsed() < AUTH_PASS_GRACE) {
             self.auth_passed.remove(&issi);
+            return false;
+        }
+        if self.recently_authenticated(issi, &held) {
+            tracing::info!("MM: ISSI {} authenticated moments ago — accepting its follow-up location update without a new challenge", issi);
             return false;
         }
         let Some(k) = k else {
@@ -4083,6 +4113,7 @@ impl MmBs {
             self.sc3_phase(issi, "timeout");
         }
         self.auth_passed.retain(|_, t| t.elapsed() < AUTH_PASS_GRACE);
+        self.registration_authenticated.retain(|_, t| t.elapsed() < REAUTH_HOLDOFF_ENCRYPTED);
         self.registration_encryption.retain(|issi, _| {
             self.auth_pending.contains_key(issi) || self.auth_result_pending.contains_key(issi)
                 || self.auth_ack_pending.contains_key(issi) || self.pending_ciphering.contains_key(issi)
@@ -4140,6 +4171,7 @@ impl MmBs {
             // One internal replay only; standalone authentication must not give
             // a subsequent, independent location update a five-second bypass.
             self.auth_passed.insert(issi, Instant::now());
+            self.registration_authenticated.insert(issi, Instant::now());
             self.rx_u_location_update_demand_replay(queue, held);
         } else if self.is_class3() {
             // Standalone authentication is completed only after final RESULT's LLC ACK.
@@ -4511,57 +4543,39 @@ mod presence_tests {
     }
 
     #[test]
-    fn ciphering_transition_waits_for_group_report_completion_and_final_attach_llc_ack() {
-        let (mut mm, _) = station();
-        radio(&mut mm, 100);
-        let cipher = CipheringParameters::class2(2, 3);
-        let accept_reporter = TxReporter::new();
+    fn sc2_sck_activates_on_accept_ack_without_group_report_completion() {
+        for report_before_accept in [false, true] {
+            let (mut mm, _) = station();
+            radio(&mut mm, 100);
+            let cipher = CipheringParameters::class2(2, 3);
+            let accept_reporter = TxReporter::new();
 
-        // D-LOCATION-UPDATE-ACCEPT is queued first; the subsequent
-        // D-LOCATION-UPDATE-COMMAND marks the group report as in flight.
-        mm.replace_pending_ciphering(100, Some(cipher), accept_reporter.clone());
-        mm.mark_group_report_pending(100);
+            if report_before_accept {
+                mm.mark_group_report_pending(100);
+            }
+            mm.replace_pending_ciphering(100, Some(cipher), accept_reporter.clone());
+            if !report_before_accept {
+                mm.mark_group_report_pending(100);
+            }
+            assert!(mm.group_report_in_flight.contains_key(&100));
+            assert!(!mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
 
-        // Even an ACK of D-LOCATION-UPDATE-ACCEPT must not switch ciphering
-        // while the radio's group report is incomplete (completion marker absent).
-        accept_reporter.mark_transmitted();
-        accept_reporter.mark_acknowledged();
-        mm.process_pending_ciphering();
-        assert!(mm.group_report_in_flight.contains_key(&100));
-        assert!(mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
-        assert!(
-            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
-            "ciphering must remain unchanged while the group report is incomplete"
-        );
-        assert!(!mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+            // LLC transmission alone does not prove acknowledgement.
+            accept_reporter.mark_transmitted();
+            mm.process_pending_ciphering();
+            assert!(!mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
 
-        // The final group_report_response=0 causes MM to attach a fresh receipt
-        // to its final D-ATTACH acknowledgement. Merely receiving that uplink
-        // completion marker is not enough to switch ciphering.
-        let final_attach_reporter = mm
-            .prepare_group_report_completion(100)
-            .expect("final group report must create an ACK receipt");
-        assert!(!mm.group_report_in_flight.contains_key(&100));
-        assert!(!mm.pending_ciphering.get(&100).unwrap().awaiting_group_report);
-
-        mm.process_pending_ciphering();
-        assert!(
-            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
-            "the completion marker alone must not activate ciphering"
-        );
-
-        final_attach_reporter.mark_transmitted();
-        mm.process_pending_ciphering();
-        assert!(
-            mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_none(),
-            "the final acknowledgement must itself be LLC-ACKed"
-        );
-
-        final_attach_reporter.mark_acknowledged();
-        mm.process_pending_ciphering();
-        assert!(mm.client_mgr.get_client_by_issi(100).and_then(|client| client.ciphering).is_some());
-        assert!(mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
-        assert!(!mm.pending_ciphering.contains_key(&100));
+            // SC2 SCK activation is independent of group-report completion.
+            accept_reporter.mark_acknowledged();
+            mm.process_pending_ciphering();
+            assert!(mm.config.state_read().subscribers.encrypted(100).unwrap_or(false));
+            assert!(mm.client_mgr.get_client_by_issi(100)
+                .and_then(|client| client.ciphering).is_some());
+            assert!(!mm.pending_ciphering.contains_key(&100));
+            assert!(mm.group_report_in_flight.contains_key(&100));
+            assert!(mm.prepare_group_report_completion(100).is_none());
+            assert!(!mm.group_report_in_flight.contains_key(&100));
+        }
     }
 
     #[test]

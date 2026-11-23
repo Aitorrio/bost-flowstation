@@ -413,7 +413,7 @@ fn apply_aie_patch(dto: CfgAieDto) -> Result<Option<CfgAie>, String> {
             return Err("security.aie class 3: remove SCK settings; configure cck and cck_id".into());
         }
         let ksg = dto.ksg.unwrap_or(2);
-        if !(1..=3).contains(&ksg) { return Err("class 3 requires an implemented KSG (1, 2 or 3)".into()); }
+        if !(1..=4).contains(&ksg) { return Err("class 3 requires an implemented KSG (1-4, TEA1-TEA4)".into()); }
         if !dto.clear_groups.is_empty() { return Err("class 3 currently requires an encrypted-only cell (no clear_groups)".into()); }
         let cck = CipherKey::from_hex(dto.cck.as_deref().ok_or("security.aie.cck is required for class 3")?)
             .ok_or("security.aie.cck must be 20 hex digits (80 bits)")?;

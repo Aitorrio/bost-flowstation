@@ -219,6 +219,94 @@ when the sibling's band plan differs, and its `ms_txpwr_max_cell` when it differ
 20/10/10/6 dB) instead of 0; the time-only broadcast keeps 0. Nibble order and defaults are from my
 reading of clause 18.5 — verify with a terminal's field-test display.
 
+## Phase 7 (proposal) — Several cells on one SDR
+
+**Goal:** a second carrier configured as its own cell (own colour code, LA, network, neighbour list)
+on the same SDR, instead of a secondary carrier of one cell. Brew sees two cells, as today.
+
+**Why it is not dual carrier:** `secondary_carrier` is one cell (one stack, shared identity). Here each
+cell keeps its own stack thread and `[[cells]]` entry; only the radio front-end is shared.
+
+**Blockers today:** `StackConfig::validate` (`config.rs`, "same SDR device") rejects two cells on one
+`device`; `RxTxDevSoapySdr` owns the device and channelizer for exactly one PHY.
+
+**Design**
+- `SdrHub`: one owner thread per physical SDR. Holds the device, the RX channelizer (one demodulator
+  per carrier of every cell in the group) and the TX FCFB (one modulator per carrier).
+- `HubCellDev`: per-cell `RxTxDev` view handed to that cell's `PhyBs`. RX: receives only its
+  carrier's uplink bursts. TX: submits its carrier's downlink block.
+- TX commit: the hub commits a block once every cell has submitted (reuses the existing
+  prepare-all / commit-once logic in `soapy_dev.rs`). A cell that misses a deadline is filled with
+  silence so it cannot stall the others.
+- Timing: one sample clock, so the cells' TDMA frames are locked. Auto neighbours may then advertise
+  `neighbor_cell_synchronized = true`.
+- Config: a `[[cells]]` entry reuses the primary's `soapysdr.device` or sets `share_sdr_with = "<cell id>"`.
+  Hardware keys (sample rate, centre, gains, ppm, antenna) come from the owning cell and must not be
+  set differently on the others. Validation: all carriers of a group fit one passband (centre midway,
+  `sample_rate` required, as for dual carrier); carriers unique and same band.
+- Single-cell and one-SDR-per-cell setups are unchanged (the hub is used only for shared devices).
+- Dashboard: Cells card shows the shared SDR; RF status is per device.
+
+**Steps:** (1) hub + `HubCellDev` with a fake device and unit tests; (2) config and validation;
+(3) wire `spawn_extra_cells` / `try_attach_phy`; (4) dashboard; (5) on-air test: two cells on one
+Pluto+/Lime, registration on each, group call across cells, reselection.
+
+**Limits / risks:** TX gain and RF path are common to both cells; per-carrier amplitude is not
+exposed. Passband caps carrier distance. Hub back-pressure between cells needs the silence-fill
+deadline. Not validated on hardware; the thread/pacing model of `soapy_dev.rs` must be re-read
+before coding (this proposal is based on a read of the structure, not a full audit).
+
+## Phase 7b (proposal) — Per-cell security settings
+
+**Goal:** an additional cell can have its own air-interface encryption and access control
+(class 1/2/3, KSG, SCK, `clear_groups`, ISSI whitelist, authentication posture), e.g. a clear cell
+next to an encrypted one, or two encrypted cells with different SCKs. Independent of Phase 7 (works
+with one SDR per cell or a shared SDR).
+
+**Today:** `StackConfig::for_extra_cell` clones the primary config, so every cell inherits the whole
+station-wide `[security]`. `[[cells]]` accepts only `id`, `enabled`, `network`, `cell_info`,
+`soapysdr`.
+Each cell's entities read their own `SharedConfig`, so UMAC/MM/MLE/AIE already follow whatever
+`cfg.security` the cell was built with; the work is config and cross-cell rules.
+
+**Design**
+1. Config: optional `[cells.security]`, same keys as `[security]` minus the station-wide ones.
+   Overridable: `aie` (class, ksg, sckn, sck, sck_vn, clear_groups, cck, cck_id),
+   `issi_whitelist` + `whitelist_mode`, `authentication`, `mutual_authentication`. Not overridable
+   (rejected with "cannot be set per cell"): E2EE, rate limits and registry caps,
+   `[[security.subscribers]]` (one subscriber key database per station). Merged like
+   `[cells.cell_info]` (table deep-merge over the primary's, unknown keys refused).
+2. `for_extra_cell` applies the override to `cfg.security`.
+3. Validation: cells of different security class need `[networks]` separation or explicit
+   acknowledgement (`allow_mixed_security = true` at the root), because of rule 4. Same class with
+   different SCK/SCKN is allowed. Each cell's class-2/3 key material is validated as for the primary.
+4. Cross-cell behaviour (the hard part), decided per case:
+   - Registration: a radio changing to a cell of another class registers there anew (as with
+     another LA); announced reselection/forward registration to a cell of another class is refused
+     (D-PREPARE-FAIL) rather than carried over.
+   - Call restore (`restore_from_sibling`, U-RESTORE): refused with D-RESTORE-FAIL when the classes
+     differ; same class with another SCK works because the target cell encrypts with its own key.
+   - Group calls across cells (`SiteSwitch` copies voice as clear bursts, each cell re-encrypts):
+     a group is delivered to a cell only if the member's encryption mode there matches the group's
+     (`clear_groups` is per cell); otherwise that cell is skipped and logged once.
+   - Brew: the group encryption-mode checks use the receiving cell's `[security]`; the Brew rules
+     the switch re-applies stay station-wide.
+5. Keys: each cell's keys come from its own `[cells.security]` (or the station's `[security]`
+   when it sets none). Keys delivered from a server are out of scope.
+6. Dashboard: the Cells card shows each cell's class; the Security page edits the primary's section
+   and lists per-cell overrides read-only (edit in the TOML) in a first version.
+
+**As built (steps 1-2):** `[cells.security]` parsed in `sec_cells.rs` (`parse_cell_security`): keys override one by one, `aie` replaces the station's `[security.aie]` whole; `subscribers`, `e2ee`, `max_registered_clients`, `registration_rate_limit_per_min` and `honour_unauthenticated_detach` are refused per cell. `for_extra_cell` applies it. Validation: cells of one network must share the security class (different class = different network); the old "SC3 means one cell" rule is now "an SC3 cell must be alone in its network". Dashboard (part of step 4): Cells card *Edit* button per additional cell (`cells.rs` `cell_settings_json` / `update_cell_toml`, `GET /api/cells/settings`, `POST /api/cells/update`): network, carrier, colour code, LA and the cell's own security; keys are write-only. Not built: cross-cell rules (step 3), editing the primary here.
+
+**Steps:** (1) config parse/merge/validate with tests; (2) `for_extra_cell` + a test that a clear
+cell and a class 2 cell coexist; (3) cross-cell rules in `SiteSwitch` and MLE with tests;
+(4) key management and dashboard; (5) on-air test with a clear radio and an encrypted radio.
+
+**Risks:** cross-cell rules are where bugs will be (voice delivery to a cell whose members are in
+the other mode, silent failures on restore); radios of one fleet mixing classes between cells is
+unusual and terminal behaviour varies; the station-wide Fleet Control key updates must not
+overwrite a cell's own key. Not validated on air.
+
 ## Risks
 - **CPU on Raspberry Pi** — may cap practical N at 2; Phase 0 decides.
 - **USB bandwidth / power** for two SDRs on one Pi (powered hub may be required).

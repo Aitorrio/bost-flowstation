@@ -87,7 +87,11 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         Some(Value::Table(t)) => t.clone(),
         _ => toml::Table::new(),
     };
-    let extra_cells = parse_extra_cells(raw_cells, &primary_cell_info_raw)?;
+    let primary_security_raw = match raw.get("security") {
+        Some(Value::Table(t)) => t.clone(),
+        _ => toml::Table::new(),
+    };
+    let extra_cells = parse_extra_cells(raw_cells, &primary_cell_info_raw, &primary_security_raw)?;
     // `[networks]` is a table of free-form names, parsed by hand like the cells.
     let raw_networks = raw.remove("networks");
 
@@ -368,11 +372,8 @@ fn resolve_networks(cfg: &mut StackConfig, raw_networks: Option<Value>, primary_
     cfg.brew = primary.brew.clone();
     cfg.networks = networks;
     cfg.networks_explicit = true;
-    for n in &cfg.networks {
-        if cfg.network_cells(&n.name).is_empty() {
-            return Err(format!("networks.{}: no cell serves this network (bind one with network = {:?})", n.name, n.name).into());
-        }
-    }
+    // A network no cell serves may stay in the file: it is inactive (no Brew link, nothing
+    // routed, `network_home_cell` is None) until a cell selects it.
     Ok(())
 }
 
