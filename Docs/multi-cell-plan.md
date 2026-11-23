@@ -298,6 +298,8 @@ Each cell's entities read their own `SharedConfig`, so UMAC/MM/MLE/AIE already f
 6. Dashboard: the Cells card shows each cell's class; the Security page edits the primary's section
    and lists per-cell overrides read-only (edit in the TOML) in a first version.
 
+**As built (steps 1-2):** `[cells.security]` parsed in `sec_cells.rs` (`parse_cell_security`): keys override one by one, `aie` replaces the station's `[security.aie]` whole; `key_source`, `subscribers`, `e2ee`, `max_registered_clients`, `registration_rate_limit_per_min` and `honour_unauthenticated_detach` are refused per cell. `for_extra_cell` applies it. Validation: cells of one network must share the security class (different class = different network); the old "SC3 means one cell" rule is now "an SC3 cell must be alone in its network". Steps 3-4 (cross-cell rules, server keys, dashboard) are not built.
+
 **Steps:** (1) config parse/merge/validate with tests; (2) `for_extra_cell` + a test that a clear
 cell and a class 2 cell coexist; (3) cross-cell rules in `SiteSwitch` and MLE with tests;
 (4) key management and dashboard; (5) on-air test with a clear radio and an encrypted radio.

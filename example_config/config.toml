@@ -1107,6 +1107,19 @@ voice_service = true
 # (the primary when it is part of it). The cells run in lockstep on the one
 # sample clock, so their TDMA frames are locked together. TX gain is common.
 #
+# Security per cell (provisional): [cells.security] puts this cell's keys on top of
+# [security]. `aie` replaces [security.aie] as a whole; `aie = { class = 1 }` = clear
+# cell. issi_whitelist, whitelist_mode, authentication, mutual_authentication
+# override one by one. Cells of one network must share the security class (use
+# [networks] for a clear cell next to an encrypted one); class 3 needs its cell
+# alone in its network. key_source, subscribers, e2ee stay station-wide.
+#
+# [cells.security.aie]
+# class = 2
+# ksg = 2
+# sckn = 2
+# sck = "aabbccddeeff00112233"
+#
 # Several networks (one MCC/MNC per cell, ETSI TS 100 392-2 table 18.17): see
 # Docs/networks.md. A network reached through another network's Brew server
 # (Multi Network "Infrastructure", the server must offer `mni`) has `via`

@@ -87,7 +87,11 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         Some(Value::Table(t)) => t.clone(),
         _ => toml::Table::new(),
     };
-    let extra_cells = parse_extra_cells(raw_cells, &primary_cell_info_raw)?;
+    let primary_security_raw = match raw.get("security") {
+        Some(Value::Table(t)) => t.clone(),
+        _ => toml::Table::new(),
+    };
+    let extra_cells = parse_extra_cells(raw_cells, &primary_cell_info_raw, &primary_security_raw)?;
     // `[networks]` is a table of free-form names, parsed by hand like the cells.
     let raw_networks = raw.remove("networks");
 

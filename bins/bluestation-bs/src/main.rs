@@ -1249,7 +1249,7 @@ mod telemetry_tests {
         let mut cell = config.cell.clone();
         cell.main_carrier += 1;
         cell.wap_ip = Some(wap_profile());
-        config.extra_cells.push(tetra_config::bluestation::CfgExtraCell { id: CellId(1), cell, soapysdr: None, network: None });
+        config.extra_cells.push(tetra_config::bluestation::CfgExtraCell { id: CellId(1), cell, soapysdr: None, network: None, security: None });
         let cfg = SharedConfig::try_from_parts(config, None).unwrap();
         assert!(needs_telemetry(&cfg));
     }
