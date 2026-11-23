@@ -4,10 +4,13 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
-## v0.6.5 — TEA4 completa el conjunto A de cifrado TETRA
+## v0.6.6 — TEA4 completa el conjunto A de cifrado TETRA
 
 - **Cifrado de interfaz aérea TEA4.** El cuarto generador de secuencia cifrante de ETSI TS 104 053-1 (cláusula 8) está implementado registro a registro como TEA1–TEA3: registro de salida de ocho bytes, registro de clave de siete bytes en el que la clave de 80 bits se mezcla byte a byte, la sustitución P, el expansor, f1/f2 y BP de las figuras 19–24, máscara de IV 56DC28E3, 35 pasos de arranque y un byte de secuencia cada 19 pasos. `security.aie.ksg = 4` hace funcionar ahora una celda de clase 2 o 3 con TEA4 en lugar de caer a claro, y la página Seguridad ofrece TEA4 en el selector de algoritmo. TEA4 es el algoritmo de exportación que llevan muchos terminales comerciales (Hytera entre ellos), a los que esta estación hasta ahora no podía servir cifrados.
 - **Verificación.** Las tablas se comprueban contra los propios ejemplos de la especificación (P(28) = D4, el ejemplo de carga del IV) y sus propiedades estructurales (P es una permutación, cada caja S está equilibrada); no existen vectores públicos de secuencia TEA4, así que el primer registro en el aire de una radio TEA4 es la prueba de interoperabilidad. Por favor, informa de ella.
+## v0.6.5 — Las llamadas de grupo ya no se cortan si la radio repite su U-SETUP
+
+- **El que habla conserva la palabra cuando su U-SETUP llega dos veces.** Si la radio no recibe el acuse de capa 2 de su U-SETUP, lo repite (el basic link no suprime duplicados, TS 100 392-2 cláusula 22.3.2.3 NOTA 3). La estación trataba la repetición como entrada tardía en la llamada que la propia radio acababa de abrir y le enviaba un D-CONNECT con "concedido a otro usuario": la radio dejaba de transmitir y cada llamada terminaba a los 3 s por inactividad del enlace ascendente sin un solo frame de voz (visto en un registro de campo con dos radios). Ahora la repetición recibe otra vez el D-CONNECT de la llamada original (transmisión concedida, propiedad de la llamada, cláusula 14.5.2.1.2), sin D-CALL PROCEEDING y sin cambiar la palabra.
 
 ## v0.6.4 — Grupos DGNA al servidor Brew también en beta
 
