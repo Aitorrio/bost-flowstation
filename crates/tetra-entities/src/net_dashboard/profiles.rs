@@ -771,7 +771,7 @@ fn edit_value_to_toml(val: &toml_edit::Value) -> Option<TomlValue> {
 }
 
 /// When Dual Carrier is on, ensure `sample_rate` + midway TX/RX centers exist so validate()
-/// can prove the secondary fits the passband (Fs defaults to 600 kHz like SXceiver).
+/// can prove the secondary fits the passband (Fs defaults to the driver's own default).
 fn ensure_dual_carrier_rf_keys(table: &mut toml::Table) -> Result<(), String> {
     let Some(TomlValue::Table(cell)) = table.get("cell_info") else {
         return Ok(());
@@ -819,7 +819,9 @@ fn ensure_dual_carrier_rf_keys(table: &mut toml::Table) -> Result<(), String> {
         return Err("soapysdr must be a table".into());
     };
     if !soapy_t.contains_key("sample_rate") {
-        soapy_t.insert("sample_rate".into(), TomlValue::Float(600_000.0));
+        let device = soapy_t.get("device").and_then(|v| v.as_str());
+        let fs = crate::net_dashboard::dual_carrier::device_default_sample_rate_hz(device);
+        soapy_t.insert("sample_rate".into(), TomlValue::Float(fs));
     }
     soapy_t.insert(
         "tx_center_freq".into(),
@@ -1223,6 +1225,23 @@ pub fn auto_main_carrier_rx(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dual_carrier_without_sample_rate_takes_the_driver_default() {
+        let mut table: toml::Table = toml::from_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        let main = table["cell_info"]["main_carrier"].as_integer().unwrap();
+        {
+            let cell = table.get_mut("cell_info").unwrap().as_table_mut().unwrap();
+            cell.insert("dual_carrier_enabled".into(), TomlValue::Boolean(true));
+            cell.insert("secondary_carrier".into(), TomlValue::Integer(main + 1));
+            let soapy = table.get_mut("phy_io").unwrap().as_table_mut().unwrap()
+                .get_mut("soapysdr").unwrap().as_table_mut().unwrap();
+            soapy.remove("sample_rate");
+            soapy.insert("device".into(), TomlValue::String("driver=plutosdr".into()));
+        }
+        ensure_dual_carrier_rf_keys(&mut table).unwrap();
+        assert_eq!(table["phy_io"]["soapysdr"]["sample_rate"].as_float(), Some(1_000_000.0));
+    }
 
     // ── Comment-preserving config write (the "editor eats my comments" fix) ──────────────
     #[test]

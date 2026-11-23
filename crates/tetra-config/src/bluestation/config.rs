@@ -197,8 +197,8 @@ pub fn carrier_band_plan(cell: &CfgCellInfo) -> Option<u16> {
 /// Security class 3 keeps each radio's DCK (derived at authentication, EN 300 392-7 clause 4.5.5.1)
 /// only in the cell that authenticated it, and every cell derives its own ECK from carrier, colour
 /// code and location area (clause 4.2.7). This build hands neither DCKs nor calls over between
-/// cells, so SC3 and several cells (or roaming between stations) are either/or.
-pub const SC3_SINGLE_CELL: &str = "security class 3 (SC3) runs on a single cell only: remove [[cells]] or choose security class 1 or 2";
+/// cells, so an SC3 cell cannot share its network with another cell (or roam between stations).
+pub const SC3_SINGLE_CELL: &str = "security class 3 (SC3) runs on a cell that is alone in its network: put it on its own network ([networks]) or choose security class 1 or 2";
 
 impl StackConfig {
     /// Return BS phase-modulated carrier numbers and their DL/UL frequencies.
@@ -256,6 +256,9 @@ impl StackConfig {
         let mut cfg = self.clone();
         cfg.cell = extra.cell.clone();
         cfg.phy_io.soapysdr = extra.soapysdr.clone();
+        if let Some(security) = &extra.security {
+            cfg.security = security.clone();
+        }
         // Carriers of the cells of this cell's network (the station's cells as radios see them).
         let same_net = self.network_cells(&network.name);
         cfg.station_carriers =
@@ -460,8 +463,13 @@ impl StackConfig {
     pub fn validate(&self) -> Result<(), String> {
         self.validate_primary().map_err(String::from)?;
         self.validate_extra_cells()?;
-        if self.security_class3() && !self.extra_cells.is_empty() {
-            return Err(SC3_SINGLE_CELL.into());
+        // SC3 keeps DCKs and derives ECKs per cell and hands neither over: it needs the cell to be
+        // alone in its network (cells of other networks never exchange radios or calls).
+        for (id, _, _) in self.cells() {
+            let sec = self.extra_cells.iter().find(|c| c.id == id).and_then(|c| c.security.as_ref()).unwrap_or(&self.security);
+            if sec.aie.as_ref().is_some_and(|a| a.security_class() == 3) && self.network_cells(&self.network_of_cell(id).name).len() > 1 {
+                return Err(SC3_SINGLE_CELL.into());
+            }
         }
         Ok(())
     }
@@ -525,6 +533,59 @@ impl StackConfig {
         Ok(())
     }
 
+    /// Cells that name the same SDR `device` share it. They must repeat the same hardware
+    /// settings (sample rate, centres, ppm; gains and antennas are taken from the first cell of
+    /// the group) and every carrier of the group must fit the one passband.
+    pub(crate) fn validate_shared_sdrs(cells: &[(CellId, &CfgCellInfo, Option<&CfgSoapySdr>)]) -> Result<(), String> {
+        let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+        for (i, (id, _, soapy)) in cells.iter().enumerate() {
+            let device = soapy
+                .and_then(|s| s.device.as_deref())
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .ok_or_else(|| format!("{id}: soapysdr.device must be set when running more than one cell"))?;
+            match groups.iter_mut().find(|(d, _)| d == device) {
+                Some((_, members)) => members.push(i),
+                None => groups.push((device.to_string(), vec![i])),
+            }
+        }
+        for (device, members) in groups.iter().filter(|(_, m)| m.len() > 1) {
+            let (first_id, _, first) = &cells[members[0]];
+            let first = first.expect("device checked above");
+            let Some(fs) = first.fs else {
+                return Err(format!("{first_id}: cells sharing SDR '{device}' need soapysdr.sample_rate set"));
+            };
+            let (tx_c, _) = first.effective_tx_center_freq_corrected();
+            let (rx_c, _) = first.effective_rx_center_freq_corrected();
+            let mut dl = Vec::new();
+            let mut ul = Vec::new();
+            for &m in members {
+                let (id, cell, soapy) = &cells[m];
+                let soapy = soapy.expect("device checked above");
+                let differs = soapy.fs != Some(fs)
+                    || (soapy.effective_tx_center_freq_corrected().0 - tx_c).abs() > 1.0
+                    || (soapy.effective_rx_center_freq_corrected().0 - rx_c).abs() > 1.0
+                    || (soapy.ppm_err - first.ppm_err).abs() > f64::EPSILON;
+                if differs {
+                    return Err(format!(
+                        "{id}: shares SDR '{device}' with {first_id} but sample_rate / tx_center_freq / rx_center_freq / ppm_err differ"
+                    ));
+                }
+                for (_, d, u) in Self::cell_phase_mod_carriers(cell).map_err(|e| format!("{id}: {e}"))? {
+                    dl.push(d);
+                    ul.push(u);
+                }
+            }
+            if !Self::frequencies_fit_center(tx_c, fs, &dl) {
+                return Err(format!("cells sharing SDR '{device}': TX center/sample-rate do not cover all downlink carriers"));
+            }
+            if !Self::frequencies_fit_center(rx_c, fs, &ul) {
+                return Err(format!("cells sharing SDR '{device}': RX center/sample-rate do not cover all uplink carriers"));
+            }
+        }
+        Ok(())
+    }
+
     /// Per-cell and cross-cell checks for `[[cells]]`. No-op for single-cell configs.
     fn validate_extra_cells(&self) -> Result<(), String> {
         if self.extra_cells.is_empty() {
@@ -570,6 +631,23 @@ impl StackConfig {
             }
         }
 
+        // Cells of one network share its subscribers and group calls, so they must run in the same
+        // security class; cells of different classes belong on different networks.
+        let class_of = |id: CellId| {
+            let sec = self.extra_cells.iter().find(|c| c.id == id).and_then(|c| c.security.as_ref()).unwrap_or(&self.security);
+            sec.aie.as_ref().map_or(1, |a| a.security_class())
+        };
+        for (id, _, _) in &cells {
+            let net = self.network_of_cell(*id).name;
+            if let Some(other) = self.network_cells(&net).into_iter().find(|o| o.0 < id.0 && class_of(*o) != class_of(*id)) {
+                return Err(format!(
+                    "{other} and {id} are on network '{net}' but run security class {} and {}: put them on different networks",
+                    class_of(other),
+                    class_of(*id)
+                ));
+            }
+        }
+
         // No carrier may be used by two cells.
         let mut seen_carriers = std::collections::HashMap::new();
         for (id, cell, _) in &cells {
@@ -580,19 +658,10 @@ impl StackConfig {
             }
         }
 
-        // With real SDRs every cell must name its device, and no two cells may share one.
+        // With real SDRs every cell must name its device. Cells naming the same device share
+        // that SDR (one passband, one clock); `validate_shared_sdrs` checks they fit together.
         if self.phy_io.backend == PhyBackend::SoapySdr {
-            let mut seen_devices = std::collections::HashMap::new();
-            for (id, _, soapy) in &cells {
-                let device = soapy
-                    .and_then(|s| s.device.as_deref())
-                    .map(str::trim)
-                    .filter(|d| !d.is_empty())
-                    .ok_or_else(|| format!("{id}: soapysdr.device must be set when running more than one cell"))?;
-                if let Some(other) = seen_devices.insert(device.to_string(), *id) {
-                    return Err(format!("{other} and {id} use the same SDR device '{device}'"));
-                }
-            }
+            Self::validate_shared_sdrs(&cells)?;
         }
 
         Ok(())

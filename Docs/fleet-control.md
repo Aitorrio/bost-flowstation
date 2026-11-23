@@ -197,7 +197,10 @@ station is back from its next `StationHello`.
 
 Phases 4/5: the server reads the config and changes it with a rollback. The
 capability is announced once `fleet_config::boot` knows the config path (at
-start, in `main`).
+start, in `main`). Together with it the station announces `networks-unused-v1`:
+it keeps a `[networks]` entry no cell uses (inactive, no Brew link) instead of
+refusing the config, so the server may save such a network. Without it the
+server still requires a cell for every network.
 
 - **Hash.** `config_hash` in the hello: md5 (16 hex) of the parsed TOML
   re-serialized, without `[command] fleet_control`, so comments, layout and

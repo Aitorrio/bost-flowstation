@@ -4480,6 +4480,18 @@ fn handle_connection(
             }
         }
         serve_bts_info(buf.into_inner(), &shared_config);
+    } else if req_line.contains("GET /api/cells/settings") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let id = request_path(&req_line).map(query_params).and_then(|q| q.get("id").and_then(|v| v.parse::<u8>().ok()));
+        match (id, std::fs::read_to_string(&config_path)) {
+            (Some(id), Ok(text)) => match crate::net_dashboard::cells::cell_settings_json(&text, id) {
+                Ok(v) => http_json_response(s, 200, &v.to_string()),
+                Err(e) => http_response(s, 400, &e),
+            },
+            (None, _) => http_response(s, 400, "id is required"),
+            (_, Err(e)) => http_response(s, 500, &format!("cannot read config: {e}")),
+        }
     } else if req_line.contains("GET /api/cells") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4534,9 +4546,29 @@ fn handle_connection(
             Ok(v) => http_json_response(inner, 200, &v.to_string()),
             Err(e) => http_response(inner, 400, &e),
         }
+    } else if req_line.contains("GET /api/sdrs") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        match std::fs::read_to_string(&config_path).map_err(|e| format!("cannot read config: {e}")).and_then(|t| crate::net_dashboard::sdrs::sdrs_json(&t)) {
+            Ok(v) => http_json_response(s, 200, &v.to_string()),
+            Err(e) => http_response(s, 500, &e),
+        }
+    } else if req_line.contains("POST /api/sdrs/check") {
+        let (inner, body_str) = read_post_body(stream);
+        let req: serde_json::Value = serde_json::from_str(&body_str).unwrap_or_default();
+        match std::fs::read_to_string(&config_path) {
+            Ok(t) => http_json_response(inner, 200, &crate::net_dashboard::sdrs::check_json(&t, &req).to_string()),
+            Err(e) => http_response(inner, 500, &format!("cannot read config: {e}")),
+        }
+    } else if req_line.contains("POST /api/sdrs") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_sdrs_save(inner, &config_path, &body_str);
     } else if req_line.contains("POST /api/cells/add") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_add(inner, &config_path, &body_str);
+    } else if req_line.contains("POST /api/cells/update") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_update(inner, &config_path, &body_str);
     } else if req_line.contains("POST /api/cells/remove") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_remove(inner, &config_path, &body_str);
@@ -6265,6 +6297,22 @@ fn serve_roaming_save(stream: PrefixedConn, config_path: &str, body: &str) {
     }
 }
 
+/// POST /api/sdrs — the Cells page (`sdrs::apply_sdrs`); writes the config and restarts.
+fn serve_sdrs_save(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::sdrs::apply_sdrs(&original, &req) {
+        Ok(text) => apply_cells_config(stream, config_path, &text, "SDRs and cells saved".to_string()),
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
 /// POST /api/cells/add — `{"device": "...", "main_carrier": N, "colour_code": N?, "location_area": N?}`.
 fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
@@ -6289,6 +6337,25 @@ fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
     };
     match crate::net_dashboard::cells::add_cell_toml(&original, device, main_carrier as u16, colour_code, location_area) {
         Ok((text, id)) => apply_cells_config(stream, config_path, &text, format!("cell {id} added (carrier {main_carrier})")),
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
+/// POST /api/cells/update — a cell's settings and security (`cells::update_cell_toml`).
+fn serve_cells_update(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::cells::update_cell_toml(&original, &req) {
+        Ok(text) => {
+            let id = req.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+            apply_cells_config(stream, config_path, &text, format!("cell {id} settings saved"))
+        }
         Err(e) => http_response(stream, 400, &e),
     }
 }
@@ -6322,7 +6389,7 @@ fn serve_dual_carrier_get(mut stream: PrefixedConn, shared_config: &Option<tetra
         .map(|c| c.config().cell.secondary_carrier.is_some())
         .unwrap_or(false);
     let fs_toml = dual_carrier::read_sample_rate_from_toml(config_path);
-    let sample_rate_hz = dual_carrier::effective_sample_rate_hz(fs_toml);
+    let sample_rate_hz = dual_carrier::effective_sample_rate_for(config_path, None);
     let max_delta = dual_carrier::max_carrier_delta(sample_rate_hz);
     let (sec_min, sec_max) = match main_carrier {
         Some(m) => {
@@ -6413,11 +6480,7 @@ fn serve_dual_carrier_post(
         return http_response(stream, 400, "main_carrier unknown — cannot enable dual carrier");
     };
 
-    let fs_hz = dual_carrier::effective_sample_rate_hz(
-        req.get("sample_rate_hz")
-            .and_then(|v| v.as_f64())
-            .or_else(|| dual_carrier::read_sample_rate_from_toml(config_path)),
-    );
+    let fs_hz = dual_carrier::effective_sample_rate_for(config_path, req.get("sample_rate_hz").and_then(|v| v.as_f64()));
 
     let requested = match req.get("secondary_carrier").and_then(|v| v.as_u64()) {
         Some(n) if n >= 4000 => {
@@ -8365,7 +8428,7 @@ fn drain_http_headers(stream: &mut PrefixedConn) {
             break;
         }
         // Detect "\r\n\r\n" by sliding a 4-byte window.
-        if prev3 == [b'\r', b'\n', b'\r'] && byte[0] == b'\n' {
+        if prev3 == *b"\r\n\r" && byte[0] == b'\n' {
             break;
         }
         prev3 = [prev3[1], prev3[2], byte[0]];
@@ -8388,7 +8451,7 @@ fn read_http_body(stream: &mut PrefixedConn) -> Vec<u8> {
             return Vec::new();
         }
         header_buf.push(byte[0]);
-        if prev3 == [b'\r', b'\n', b'\r'] && byte[0] == b'\n' {
+        if prev3 == *b"\r\n\r" && byte[0] == b'\n' {
             break;
         }
         prev3 = [prev3[1], prev3[2], byte[0]];

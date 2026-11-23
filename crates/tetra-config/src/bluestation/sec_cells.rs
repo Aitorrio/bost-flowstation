@@ -22,11 +22,16 @@ use serde::Deserialize;
 use tetra_core::CellId;
 use toml::Value;
 
-use crate::bluestation::{CellInfoDto, CfgCellInfo, CfgSoapySdr, SoapySdrDto, cell_dto_to_cfg, soapy_dto_to_cfg, soapy_dto_unknown_keys};
+use crate::bluestation::{CfgSecurity, CfgSecurityDto, apply_security_patch, CellInfoDto, CfgCellInfo, CfgSoapySdr, SoapySdrDto, cell_dto_to_cfg, soapy_dto_to_cfg, soapy_dto_unknown_keys};
 
 /// `[cell_info]` keys that may not be overridden per cell: SDS remote control is a station-wide
 /// function owned by the primary cell.
 const NON_OVERRIDABLE_CELL_KEYS: &[&str] = &["sds_command_control"];
+
+/// `[security]` keys that may not be overridden per cell: the key database, E2EE
+/// and the registry / rate limits belong to the station, not to a cell.
+const NON_OVERRIDABLE_SECURITY_KEYS: &[&str] =
+    &["subscribers", "e2ee", "max_registered_clients", "registration_rate_limit_per_min", "honour_unauthenticated_detach"];
 
 /// One additional cell (SDR) of a multi-cell station.
 #[derive(Debug, Clone)]
@@ -38,6 +43,9 @@ pub struct CfgExtraCell {
     pub soapysdr: Option<CfgSoapySdr>,
     /// The `[networks]` entry this cell serves; `None` = the primary cell's network.
     pub network: Option<String>,
+    /// This cell's own `[cells.security]` (air-interface encryption, whitelist, authentication
+    /// posture) merged over the station's `[security]`; `None` = the station's settings.
+    pub security: Option<CfgSecurity>,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +53,7 @@ struct ExtraCellDto {
     id: u8,
     enabled: Option<bool>,
     network: Option<String>,
+    security: Option<toml::Table>,
     cell_info: Option<toml::Table>,
     soapysdr: Option<SoapySdrDto>,
     #[serde(flatten)]
@@ -54,7 +63,7 @@ struct ExtraCellDto {
 /// Parse the raw `cells` array. `primary_cell_info` is the primary `[cell_info]` table after the
 /// separately-parsed sub-tables were removed; each cell's overrides are merged on top of it.
 /// Disabled entries are dropped (their settings stay in the TOML for when they are re-enabled).
-pub fn parse_extra_cells(raw_cells: Option<Value>, primary_cell_info: &toml::Table) -> Result<Vec<CfgExtraCell>, String> {
+pub fn parse_extra_cells(raw_cells: Option<Value>, primary_cell_info: &toml::Table, primary_security: &toml::Table) -> Result<Vec<CfgExtraCell>, String> {
     let Some(raw_cells) = raw_cells else {
         return Ok(Vec::new());
     };
@@ -106,6 +115,11 @@ pub fn parse_extra_cells(raw_cells: Option<Value>, primary_cell_info: &toml::Tab
             None => None,
         };
 
+        let security = match dto.security {
+            Some(over) => Some(parse_cell_security(over, primary_security).map_err(|e| format!("cells[{i}].security: {e}"))?),
+            None => None,
+        };
+
         let mut cell = cell_dto_to_cfg(cell_dto);
         cell.neighbor_cells_ca = neighbours;
         cells.push(CfgExtraCell {
@@ -113,9 +127,26 @@ pub fn parse_extra_cells(raw_cells: Option<Value>, primary_cell_info: &toml::Tab
             cell,
             soapysdr,
             network: dto.network,
+            security,
         });
     }
     Ok(cells)
+}
+
+/// A cell's `[cells.security]` on top of the station's `[security]`. Keys override one by one,
+/// except `aie`, which replaces the station's whole `[security.aie]` (class, keys and clear
+/// groups only make sense together: a class 2 cell next to a class 3 station must not inherit
+/// the CCK). `aie = { class = 1 }` makes the cell clear.
+fn parse_cell_security(over: toml::Table, primary: &toml::Table) -> Result<CfgSecurity, String> {
+    let mut merged = primary.clone();
+    for (key, value) in over {
+        if NON_OVERRIDABLE_SECURITY_KEYS.contains(&key.as_str()) {
+            return Err(format!("{key} cannot be set per cell"));
+        }
+        merged.insert(key, value);
+    }
+    let dto: CfgSecurityDto = Value::Table(merged).try_into().map_err(|e| e.to_string())?;
+    apply_security_patch(dto)
 }
 
 #[cfg(test)]
@@ -177,6 +208,110 @@ colour_code = 2
         assert_eq!(c.cell.location_area, 1, "inherited from primary");
         let ids: Vec<_> = cfg.cells().iter().map(|(id, _, _)| *id).collect();
         assert_eq!(ids, vec![CellId(0), CellId(1)]);
+    }
+
+    fn soapy(device: &str, fs: Option<f64>, center: f64) -> crate::bluestation::CfgSoapySdr {
+        crate::bluestation::CfgSoapySdr {
+            ul_freq: center,
+            dl_freq: center,
+            rx_center_freq: Some(center),
+            tx_center_freq: Some(center),
+            ppm_err: 0.0,
+            device: Some(device.to_string()),
+            rx_ant: None,
+            tx_ant: None,
+            rx_gains: Default::default(),
+            tx_gains: Default::default(),
+            fs,
+            rx_ch: None,
+            tx_ch: None,
+        }
+    }
+
+    #[test]
+    fn cells_may_share_one_sdr_when_carriers_fit_the_passband() {
+        use crate::bluestation::StackConfig;
+        let cfg = parse("[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1522\n").unwrap();
+        let cells = cfg.cells();
+        let (dl, ul): (Vec<u32>, Vec<u32>) = cells
+            .iter()
+            .flat_map(|(_, c, _)| StackConfig::cell_phase_mod_carriers(c).unwrap())
+            .map(|(_, d, u)| (d, u))
+            .unzip();
+        let center = |v: &[u32]| (v[0] as f64 + v[1] as f64) / 2.0;
+        let (tx_c, rx_c) = (center(&dl), center(&ul));
+        let mk = |dev: &str, fs: Option<f64>| {
+            let mut s = soapy(dev, fs, tx_c);
+            s.rx_center_freq = Some(rx_c);
+            s
+        };
+        let run = |a: &crate::bluestation::CfgSoapySdr, b: &crate::bluestation::CfgSoapySdr| {
+            let v = vec![(cells[0].0, cells[0].1, Some(a)), (cells[1].0, cells[1].1, Some(b))];
+            StackConfig::validate_shared_sdrs(&v)
+        };
+        assert!(run(&mk("d", Some(600e3)), &mk("d", Some(600e3))).is_ok());
+        assert!(run(&mk("d", Some(600e3)), &mk("e", Some(600e3))).is_ok(), "different devices are independent");
+        assert!(run(&mk("d", Some(600e3)), &mk("d", Some(1.0e6))).unwrap_err().contains("differ"));
+        assert!(run(&mk("d", None), &mk("d", None)).unwrap_err().contains("sample_rate"));
+        assert!(run(&mk("d", Some(20e3)), &mk("d", Some(20e3))).unwrap_err().contains("do not cover"));
+    }
+
+    const KEY_A: &str = "00112233445566778899";
+    const KEY_B: &str = "aabbccddeeff00112233";
+
+    /// A two-network station: primary on "a" (901/9999), cell 1 on "b" (901/1).
+    fn two_networks(security: &str, cell_extra: &str) -> Result<crate::bluestation::StackConfig, String> {
+        let body = BASE.replace("config_version = \"0.6\"\n", "config_version = \"0.6\"\nnetwork = \"a\"\n");
+        from_toml_str(&format!(
+            "{body}\n[networks.a]\n[networks.b]\nmcc = 901\nmnc = 1\n{security}\n[[cells]]\nid = 1\nnetwork = \"b\"\n[cells.cell_info]\nmain_carrier = 1525\n{cell_extra}"
+        ))
+        .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_cell_can_have_its_own_security() {
+        // Station is class 2; cell 1 (other network) is clear, then class 2 with its own key.
+        let sec = format!("[security.aie]\nclass = 2\nsck = \"{KEY_A}\"\nsckn = 1\n");
+        let cfg = two_networks(&sec, "[cells.security.aie]\nclass = 1\n").unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.security.aie.as_ref().unwrap().security_class(), 2);
+        assert!(cfg.for_extra_cell(CellId(1)).unwrap().security.aie.is_none(), "cell 1 is clear");
+
+        let own = format!("[cells.security.aie]\nclass = 2\nsck = \"{KEY_B}\"\nsckn = 2\nksg = 2\n");
+        let cfg = two_networks(&sec, &own).unwrap();
+        cfg.validate().unwrap();
+        let aie1 = cfg.for_extra_cell(CellId(1)).unwrap().security.aie.clone().unwrap();
+        assert_eq!((aie1.sckn, aie1.ksg), (2, 2));
+        assert_eq!(cfg.for_extra_cell(CellId(0)).map(|_| ()), None, "primary is not an extra cell");
+        assert_eq!(cfg.security.aie.as_ref().unwrap().sckn, 1, "primary keeps its own");
+
+        // Whitelist per cell; everything else inherited.
+        let cfg = two_networks(&sec, "[cells.security]\nissi_whitelist = [1001]\nwhitelist_mode = \"enforce\"\n").unwrap();
+        let c1 = cfg.for_extra_cell(CellId(1)).unwrap();
+        assert_eq!(c1.security.issi_whitelist, vec![1001]);
+        assert_eq!(c1.security.aie.as_ref().unwrap().sckn, 1, "aie inherited");
+        assert!(cfg.security.issi_whitelist.is_empty());
+    }
+
+    #[test]
+    fn cells_of_one_network_must_share_the_security_class() {
+        let sec = format!("[security.aie]\nclass = 2\nsck = \"{KEY_A}\"\n");
+        // Cell 1 on the primary's network but clear: refused.
+        let body = format!("{BASE}\n{sec}\n[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\n[cells.security.aie]\nclass = 1\n");
+        let cfg = from_toml_str(&body).unwrap();
+        assert!(cfg.validate().unwrap_err().contains("security class"), "same network, different class");
+        // Same class, different key, same network: fine.
+        let body = format!("{BASE}\n{sec}\n[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\n[cells.security.aie]\nclass = 2\nsck = \"{KEY_B}\"\n");
+        from_toml_str(&body).unwrap().validate().unwrap();
+    }
+
+    #[test]
+    fn station_wide_security_keys_cannot_be_set_per_cell() {
+        for key in ["max_registered_clients = 5", "honour_unauthenticated_detach = false"] {
+            let err = parse(&format!("[[cells]]\nid = 1\n[cells.security]\n{key}\n")).unwrap_err();
+            assert!(err.contains("cannot be set per cell"), "{key}: {err}");
+        }
+        assert!(parse("[[cells]]\nid = 1\n[cells.security]\nauthentication = \"bogus\"\n").unwrap_err().contains("cells[0].security"));
     }
 
     #[test]
@@ -243,6 +378,9 @@ colour_code = 2
         assert_eq!(multi.validate().unwrap_err(), crate::bluestation::SC3_SINGLE_CELL);
 
         const SC2: &str = "[security.aie]\nclass = 2\nksg = 2\nsck = \"22222222222222222222\"\n";
+        // Class 3 on the primary with the cell on another network (cells never share radios): fine.
+        let two_nets = two_networks(SC3, "").unwrap();
+        two_nets.validate().unwrap();
         let sc2_multi = parse(&format!("{SC2}{CELL}")).unwrap();
         assert!(!sc2_multi.security_class3());
         sc2_multi.validate().unwrap();

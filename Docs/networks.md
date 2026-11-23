@@ -53,7 +53,8 @@ Rules the loader enforces:
   `[lst_dispatch]` stays with the primary cell's network and cannot be combined with a network
   that has a Brew link.
 - Every network needs its own MCC/MNC (two networks with one identity would be one network to the
-  radios), and every network must have at least one cell.
+  radios). A network no cell serves may stay in the file: it is inactive (no Brew link, nothing
+  routed) until a cell selects it with `network = "<name>"`; the Networks card marks it "unused".
 - A network's `mcc`/`mnc` default to `[net_info]`, so the classic identity can simply become one
   of several.
 
