@@ -116,10 +116,10 @@ export DEBIAN_FRONTEND=noninteractive
 log "Installing apt dependencies"
 apt-get update -qq
 apt-get install -y \
-  build-essential pkg-config git curl ca-certificates python3 \
+  build-essential pkg-config git curl ca-certificates python3 sudo \
   libssl-dev cmake \
   soapysdr-tools libsoapysdr-dev \
-  || apt-get install -y build-essential git curl ca-certificates python3 soapysdr-tools libsoapysdr-dev
+  || apt-get install -y build-essential git curl ca-certificates python3 sudo soapysdr-tools libsoapysdr-dev
 
 # Lime packages when present in the distro (optional at install time).
 for p in soapysdr-module-lms7 soapysdr0.8-module-lms7; do
@@ -144,16 +144,31 @@ if command -v uhd_images_downloader >/dev/null 2>&1; then
   fi
 fi
 
-# Rust toolchain for the service user (or root if building as root).
+# Oldest Rust that builds this workspace (edition 2024 needs 1.85).
+RUST_MIN_MINOR=85
+
+# Rust toolchain for the service user (or root if building as root). The distro's own rustc is
+# too old on Debian 12 bookworm (1.63) and 13 trixie (1.85, borderline), so the build always uses
+# rustup in the user's home. An existing rustup toolchain that is too old is updated: a Pi that
+# had Rust installed years ago would otherwise fail with "edition2024 is unstable".
 install_rust() {
   local user="$1"
-  local home
+  local home ver minor
   home="$(getent passwd "$user" | cut -d: -f6)"
-  if [[ -x "$home/.cargo/bin/cargo" ]]; then
+  if [[ ! -x "$home/.cargo/bin/cargo" ]]; then
+    log "Installing rustup for $user"
+    sudo -u "$user" bash -lc 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
     return 0
   fi
-  log "Installing rustup for $user"
-  sudo -u "$user" bash -lc 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
+  ver="$(sudo -u "$user" bash -lc 'source "$HOME/.cargo/env" && rustc --version' 2>/dev/null | awk '{print $2}')"
+  minor="$(echo "$ver" | awk -F. '{print $2}')"
+  if [[ "$ver" != 1.* || ! "$minor" =~ ^[0-9]+$ || "$minor" -lt "$RUST_MIN_MINOR" ]]; then
+    log "Rust ${ver:-unknown} for $user is older than 1.${RUST_MIN_MINOR}; updating the stable toolchain"
+    sudo -u "$user" bash -lc 'source "$HOME/.cargo/env" && rustup toolchain install stable --profile minimal && rustup default stable' \
+      || die "could not update Rust for $user (run: sudo -u $user -i rustup update stable)"
+  else
+    log "Rust $ver for $user"
+  fi
 }
 
 # Source tree. Align to origin/<branch> the same way dashboard OTA does (reset --hard;
