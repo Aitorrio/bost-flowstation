@@ -13,12 +13,14 @@ use tetra_pdus::mm::enums::reject_cause::RejectCause;
 use tetra_pdus::mm::fields::ciphering_parameters::CipheringParameters;
 use tetra_pdus::umac::fields::sysinfo_ext_services::SysinfoExtendedServices;
 
-/// True when this build carries the key stream generator for TEA`tea`. TEA1, TEA2 and TEA3 all
-/// come from the `tetra-security` crate, each checked against the published reference vectors.
+/// True when this build carries the key stream generator for TEA`tea`. All four generators of
+/// set A come from the `tetra-security` crate: TEA1–TEA3 checked against the published reference
+/// vectors, TEA4 against the specification's worked examples (no public vectors exist).
 /// TEA1 keeps only 32 of its 80 key bits (TETRA:BURST, 2023) and is for research and
-/// interoperability with TEA1-only radios; TEA2 or TEA3 are the ones to run.
+/// interoperability with TEA1-only radios; TEA2 or TEA3 are the ones to run where the radios
+/// have them, TEA4 for export-grade terminals that carry nothing else.
 pub fn ksg_available(tea: u8) -> bool {
-    matches!(tea, 1 | 2 | 3)
+    tea >= 1 && tetra_security::ksg::KsgId::from_number(tea - 1).is_some_and(|id| id.supported())
 }
 
 /// Whether the MAC layer encrypts and decrypts. On since phase 2; a cell still runs class 2 only
