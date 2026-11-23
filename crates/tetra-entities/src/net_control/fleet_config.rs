@@ -26,6 +26,9 @@ use crate::net_dashboard::{cells, ota_channel, roaming};
 
 /// Capability: `GetConfig`, `SetConfig`, `ConfirmConfig`, `RollbackConfig`, `config_hash` in the hello.
 pub const CAP_CONFIG: &str = "config-v1";
+/// Capability: the station keeps a `[networks]` entry no cell uses (inactive) instead of
+/// refusing the config, so the server's editor may save one.
+pub const CAP_UNUSED_NETWORKS: &str = "networks-unused-v1";
 /// Confirmation window after the restart when `SetConfig.confirm_secs` is 0.
 pub const DEFAULT_CONFIRM_SECS: u32 = 180;
 /// Bounds of the confirmation window.

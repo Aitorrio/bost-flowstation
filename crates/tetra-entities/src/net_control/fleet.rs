@@ -51,6 +51,7 @@ pub fn capabilities(ota_available: bool) -> Vec<String> {
     let mut caps = vec![CAP_FLEET.to_string(), CAP_MAINTENANCE.to_string(), CAP_RESTART.to_string(), super::metrics::CAP_METRICS.to_string()];
     if super::fleet_config::config_path().is_some() {
         caps.push(super::fleet_config::CAP_CONFIG.to_string());
+        caps.push(super::fleet_config::CAP_UNUSED_NETWORKS.to_string());
     }
     if ota_available {
         caps.push(CAP_UPDATE.to_string());
