@@ -132,8 +132,8 @@ pub fn ksg_catalogue() -> serde_json::Value {
          "note": "European public-safety algorithm (Schengen). No practical weakness published."},
         {"id": "tea3", "name": "TEA3", "available": true, "weak": false,
          "note": "Export public-safety algorithm. A non-bijective S-box is a theoretical weakness only."},
-        {"id": "tea4", "name": "TEA4", "available": false, "weak": false,
-         "note": "Not implemented in this build."},
+        {"id": "tea4", "name": "TEA4", "available": true, "weak": false,
+         "note": "Export algorithm of set A (ETSI TS 104 053-1 clause 8). Fitted to commercial Hytera terminals among others. No public weakness analysis; its key register holds 56 bits of state."},
     ])
 }
 
@@ -258,7 +258,7 @@ pub fn parse_edit(body: &str, current: &CfgSecurity) -> Result<SecurityEdit, Str
                 Some(v) => parse_ksg(v).ok_or("invalid KSG")?,
                 None => current.aie.as_ref().map_or(2, |c| c.ksg),
             };
-            if !(1..=3).contains(&ksg) { return Err(format!("TEA{ksg} is not available in this build")); }
+            if !(1..=4).contains(&ksg) { return Err(format!("TEA{ksg} is not available in this build")); }
             if class == 3 {
                 if a.get("enabled").is_some_and(|v| v.as_bool() != Some(true)) {
                     return Err("SC3 requires encryption enabled".into());
@@ -552,10 +552,11 @@ mod tests {
         assert_eq!(a.sck, [0u8; 10]);
         assert_eq!((a.sckn, a.sck_vn, a.ksg), (2, 9, 2));
         assert_eq!(a.clear_groups, vec![900], "clear groups carried over from the file");
-        // Unknown ISSI with keep → error; bad hex → error; TEA4 → error.
+        // Unknown ISSI with keep → error; bad hex → error; TEA4 is available, TEA5 is not.
         assert!(parse_edit(r#"{"subscribers":[{"issi":8,"k":"keep"}]}"#, &current).is_err());
         assert!(parse_edit(r#"{"subscribers":[{"issi":8,"k":"zz"}]}"#, &current).is_err());
-        assert!(parse_edit(r#"{"aie":{"ksg":"tea4","sck":"keep"}}"#, &current).is_err());
+        assert_eq!(parse_edit(r#"{"aie":{"ksg":"tea4","sck":"keep"}}"#, &current).unwrap().aie.unwrap().ksg, 4);
+        assert!(parse_edit(r#"{"aie":{"ksg":"tea5","sck":"keep"}}"#, &current).is_err());
         let off = parse_edit(r#"{"aie":{"enabled":false}}"#, &current).unwrap().aie.unwrap();
         assert!(!off.enabled && off.sck == [0u8; 10], "disabled but the file's key is kept");
         let bare = tetra_config::bluestation::from_toml_str(HEAD).unwrap().security;
@@ -626,7 +627,7 @@ mod tests {
             r#"{"subscribers":[]}"#, r#"{"aie":{"class":3,"cck":"bad"}}"#,
             r#"{"aie":{"class":3,"cck":123}}"#, r#"{"aie":{"class":3,"cck_id":-1}}"#,
             r#"{"aie":{"class":3,"cck_id":65536}}"#, r#"{"aie":{"class":3,"cck_id":1.5}}"#,
-            r#"{"aie":{"class":3,"ksg":"tea4"}}"#, r#"{"aie":{"class":3,"sck":"keep"}}"#,
+            r#"{"aie":{"class":3,"ksg":"tea5"}}"#, r#"{"aie":{"class":3,"sck":"keep"}}"#,
             r#"{"aie":{"class":3,"clear_groups":[900]}}"#, r#"{"aie":{"class":3,"enabled":false}}"#,
             r#"{"aie":{"class":4}}"#, r#"{"subscribers":[{"issi":7},{"issi":7}]}"#,
         ] { assert!(parse_edit(bad, &cfg).is_err(), "accepted {bad}"); }
