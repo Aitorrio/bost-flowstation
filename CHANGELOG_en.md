@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## Unreleased — Live configuration
+
+- **Configuration changes apply without a restart.** "Apply & Restart" (live settings, raw TOML, Cell/Brew profiles) now first calls `POST /api/config/reload`: it reads the saved `config.toml` and, if only live-appliable settings changed, loads it into every cell and does not restart (UMAC rebuilds SYSINFO and the cipher; the other entities already read the config on every use). If the change touches something that cannot be applied live, nothing is applied and the station restarts as before, saying why: SDR and hardware (`phy_io`), carrier/frequency/colour code/MCC-MNC (retune the radio), additional cells and their SDRs, the dashboard listener, `debug_log`, `service_name`, telemetry, control (Fleet Control), Brew/networks, LST, Asterisk, health and Telegram (connections opened at start-up). Still to do: apply those live too. Not tested on air.
+
 ## v0.6.8 — Maintenance release
 
 - **No functional changes.** Version number bump only.

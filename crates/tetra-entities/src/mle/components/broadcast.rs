@@ -19,16 +19,13 @@ pub enum BroadcastType {
 pub struct MleBroadcast {
     config: SharedConfig,
     last_broadcast_type: BroadcastType,
-    time_broadcast: Option<String>,
 }
 
 impl MleBroadcast {
     pub fn new(config: SharedConfig) -> Self {
-        let time_broadcast = config.config().cell.timezone.clone();
         Self {
             config,
             last_broadcast_type: BroadcastType::None,
-            time_broadcast,
         }
     }
 
@@ -53,7 +50,7 @@ impl MleBroadcast {
             BroadcastType::None => {
                 // Send broadcast if either time OR neighbor cells are configured.
                 // This lets us advertise neighbors even without a timezone.
-                if self.time_broadcast.is_some() || !self.config.config().cell.neighbor_cells_ca.is_empty() {
+                if self.config.config().cell.timezone.is_some() || !self.config.config().cell.neighbor_cells_ca.is_empty() {
                     BroadcastType::NetworkTime
                 } else {
                     BroadcastType::None
@@ -67,7 +64,7 @@ impl MleBroadcast {
         // Encode time if a timezone is configured. If encoding fails (e.g. DST
         // ambiguity or invalid timezone), continue without time — the broadcast
         // PDU still carries useful info (neighbours, cell load) and must not crash.
-        let time_value = self.time_broadcast.as_deref().and_then(network_time::encode_tetra_network_time);
+        let time_value = self.config.config().cell.timezone.as_deref().and_then(network_time::encode_tetra_network_time);
         let cfg = self.config.config();
         let has_neighbours = !cfg.cell.neighbor_cells_ca.is_empty();
 
@@ -130,7 +127,7 @@ impl MleBroadcast {
 
         tracing::info!(
             "D-NWRK-BROADCAST sent (tz={:?}, time={}, neighbours={})",
-            self.time_broadcast,
+            cfg.cell.timezone,
             time_value
                 .map(|value| format!("0x{value:012X}"))
                 .unwrap_or_else(|| "disabled".to_string()),

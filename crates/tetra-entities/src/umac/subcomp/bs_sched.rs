@@ -634,10 +634,14 @@ impl BsChannelScheduler {
     //     unimplemented!("need to refresh some msgs possibly");
     // }
 
-    // pub fn set_precomputed_msgs(&mut self, precomps: PrecomputedUmacPdus) {
-    //     self.precomps = precomps;
-    //     unimplemented!("need to refresh some msgs possibly");
-    // }
+    /// Replace the precomputed SYNC/SYSINFO PDUs after a live config reload. The time, hyperframe
+    /// and key id fields are rewritten every tick; the system-wide-services flag is kept.
+    pub fn set_precomps(&mut self, mut precomps: PrecomputedUmacPdus) {
+        precomps.mle_sysinfo.bs_service_details.system_wide_services =
+            self.precomps.mle_sysinfo.bs_service_details.system_wide_services;
+        precomps.mac_sync.time = self.precomps.mac_sync.time;
+        self.precomps = precomps;
+    }
 
     /// Update the System Wide Services flag in the broadcast SYSINFO.
     pub fn set_system_wide_services_state(&mut self, enabled: bool) {

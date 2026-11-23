@@ -814,8 +814,12 @@ pub(crate) fn validate_neighbours(cell_info: &CfgCellInfo) -> Result<(), &'stati
 /// Global shared configuration: immutable config + mutable state.
 #[derive(Clone)]
 pub struct SharedConfig {
-    /// Read-only configuration (immutable after construction).
-    cfg: Arc<StackConfig>,
+    /// Configuration. Each reader gets an immutable snapshot from [`Self::config`]; a live reload
+    /// ([`Self::replace_config`]) swaps the snapshot for every clone of this `SharedConfig`.
+    cfg: Arc<RwLock<Arc<StackConfig>>>,
+    /// Counts live reloads. Entities that cache values derived from the config compare it with
+    /// the generation they last saw and rebuild on a change.
+    generation: Arc<std::sync::atomic::AtomicU64>,
     /// Mutable state guarded with RwLock (write by the stack, read by others).
     state: Arc<RwLock<StackState>>,
 }
@@ -837,7 +841,8 @@ impl SharedConfig {
         state.fleet_control.enabled = cfg.control.as_ref().is_some_and(|c| c.fleet_control);
 
         Ok(Self {
-            cfg: Arc::new(cfg),
+            cfg: Arc::new(RwLock::new(Arc::new(cfg))),
+            generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             state: Arc::new(RwLock::new(state)),
         })
     }
@@ -851,7 +856,33 @@ impl SharedConfig {
 
     /// Access immutable config.
     pub fn config(&self) -> Arc<StackConfig> {
-        Arc::clone(&self.cfg)
+        Arc::clone(&self.cfg.read().expect("StackConfig RwLock blocked"))
+    }
+
+    /// Swap in a new configuration without restarting (live reload). Validates it, recomputes
+    /// the carriers and returns the previous snapshot. Callers decide which changes are safe;
+    /// see `tetra_config::bluestation::reload`.
+    pub fn replace_config(&self, new: StackConfig) -> Result<Arc<StackConfig>, String> {
+        new.validate()?;
+        let carriers = new
+            .bs_phase_mod_carriers()?
+            .into_iter()
+            .map(|(carrier_num, _, _)| carrier_num)
+            .collect::<Vec<_>>();
+        {
+            let mut state = self.state_write();
+            state.timeslot_alloc.configure_carriers(&carriers);
+            state.fleet_control.enabled = new.control.as_ref().is_some_and(|c| c.fleet_control);
+        }
+        let mut slot = self.cfg.write().expect("StackConfig RwLock blocked");
+        let old = std::mem::replace(&mut *slot, Arc::new(new));
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::Release);
+        Ok(old)
+    }
+
+    /// Number of live reloads so far (0 = the configuration the station started with).
+    pub fn config_generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Read guard for mutable state.
@@ -868,7 +899,7 @@ impl SharedConfig {
     /// otherwise the config file values. Returns an owned CfgWxService so callers don't
     /// hold the state lock.
     pub fn effective_wx_service(&self) -> crate::bluestation::CfgWxService {
-        let base = self.cfg.wx_service.clone();
+        let base = self.config().wx_service.clone();
         if let Some(o) = self.state_read().wx_override.as_ref() {
             crate::bluestation::CfgWxService {
                 enabled: o.enabled,
@@ -900,7 +931,7 @@ impl SharedConfig {
                 periodic_interval_secs: o.periodic_interval_secs,
             }
         } else {
-            self.cfg.aprs_wx.clone()
+            self.config().aprs_wx.clone()
         }
     }
 
@@ -909,7 +940,7 @@ impl SharedConfig {
     /// an owned [`CfgTelegram`] so callers don't hold the state lock. The alerter and the
     /// dashboard both read through this so a live edit applies without a restart.
     pub fn effective_telegram(&self) -> crate::bluestation::CfgTelegram {
-        let base = self.cfg.telegram.clone().unwrap_or_default();
+        let base = self.config().telegram.clone().unwrap_or_default();
         if let Some(o) = self.state_read().telegram_override.as_ref() {
             crate::bluestation::CfgTelegram {
                 enabled: o.enabled,
@@ -933,7 +964,7 @@ impl SharedConfig {
     /// Effective DAPNET settings: the dashboard runtime override if present, otherwise the config
     /// file values. Returns an owned [`CfgDapnet`] so callers don't hold the state lock.
     pub fn effective_dapnet(&self) -> crate::bluestation::CfgDapnet {
-        let base = self.cfg.dapnet.clone();
+        let base = self.config().dapnet.clone();
         if let Some(o) = self.state_read().dapnet_override.as_ref() {
             crate::bluestation::CfgDapnet {
                 enabled: o.enabled,
@@ -974,7 +1005,7 @@ impl SharedConfig {
     /// Effective GeoAlarm settings: the dashboard runtime override if present, otherwise the
     /// config file values. Returns an owned [`CfgGeoalarm`] so callers don't hold the state lock.
     pub fn effective_geoalarm(&self) -> crate::bluestation::CfgGeoalarm {
-        let base = self.cfg.geoalarm.clone();
+        let base = self.config().geoalarm.clone();
         if let Some(o) = self.state_read().geoalarm_override.as_ref() {
             crate::bluestation::CfgGeoalarm {
                 enabled: o.enabled,
@@ -1016,7 +1047,7 @@ impl SharedConfig {
     /// the config file values. Returns an owned [`CfgSnomNotify`] so callers don't hold the
     /// state lock while sending AMI requests.
     pub fn effective_snom_notify(&self) -> crate::bluestation::CfgSnomNotify {
-        let base = self.cfg.snom_notify.clone();
+        let base = self.config().snom_notify.clone();
         if let Some(o) = self.state_read().snom_notify_override.as_ref() {
             crate::bluestation::CfgSnomNotify {
                 enabled: o.enabled,
@@ -1055,6 +1086,6 @@ impl SharedConfig {
                 commands: o.commands.clone(),
             });
         }
-        self.cfg.cell.sds_command_control.clone()
+        self.config().cell.sds_command_control.clone()
     }
 }
