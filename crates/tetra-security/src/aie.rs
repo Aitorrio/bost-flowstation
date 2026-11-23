@@ -160,7 +160,12 @@ mod tests {
         let mut again = plain.clone();
         apply(KsgId::Tea3, &eck, dl, KssOffset::First, &mut again);
         assert_ne!(other, again, "uplink and downlink streams differ");
-        assert!(!apply(KsgId::Tea4, &eck, dl, KssOffset::First, &mut again), "TEA4 is not provided");
+        let mut tea4 = plain.clone();
+        assert!(apply(KsgId::Tea4, &eck, dl, KssOffset::First, &mut tea4), "TEA4 is provided");
+        assert_ne!(tea4, plain);
+        assert_ne!(tea4, again, "TEA4 and TEA3 streams differ");
+        apply(KsgId::Tea4, &eck, dl, KssOffset::First, &mut tea4);
+        assert_eq!(tea4, plain, "TEA4 is an involution");
         assert!(
             apply(KsgId::Tea1, &eck, dl, KssOffset::First, &mut again),
             "TEA1 is provided (weak)"

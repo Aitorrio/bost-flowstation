@@ -2,6 +2,11 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.6.5 — TEA4 completes TETRA encryption set A
+
+- **TEA4 air-interface encryption.** The fourth key stream generator of ETSI TS 104 053-1 (clause 8) is implemented register by register like TEA1–TEA3: eight-byte output register, seven-byte cipher key register into which the 80-bit key is mixed byte by byte, the P substitution, expander, f1/f2 and BP of Figures 19–24, IV mask 56DC28E3, 35 run-up steps, one key stream byte every 19 steps. `security.aie.ksg = 4` now runs a class 2 or class 3 cell with TEA4 instead of falling back to clear, and the Security page offers TEA4 in the algorithm picker. TEA4 is the export-grade algorithm fitted to many commercial terminals (Hytera among them), which until now could not be served encrypted by this station.
+- **Verification.** The tables are checked against the specification's own examples (P(28) = D4, the IV load worked example) and their structural properties (P is a permutation, every S-box is balanced); there are no public TEA4 key stream vectors, so the first on-air registration of a TEA4 radio is the interoperability proof. Please report it.
+
 ## v0.6.4 — DGNA groups to the Brew server on beta too
 
 - **Merged `main` into `beta`.** The DGNA report to the Brew server (v0.5.19, `main` only until now) is now on `beta` as well; see the v0.5.19 entry below. Nothing else changes.
