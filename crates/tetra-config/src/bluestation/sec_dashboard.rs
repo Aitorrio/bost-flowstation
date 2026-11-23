@@ -170,6 +170,10 @@ pub struct CfgDashboard {
     /// Advanced DGNA control: when true, the dashboard shows the SS-DGNA attachment-mode picker.
     /// When false, operators always use the cell-level default attachment mode.
     pub show_dgna_attachment_mode_picker: bool,
+    /// Advanced: shows the "SDRs & cells" page, where each SDR is set to one cell, one cell on two
+    /// carriers (multi-carrier) or several cells (multi-cell). Only the dashboard reads it; the
+    /// stack runs whatever `[phy_io.soapysdr]` / `[[cells]]` say, with or without it.
+    pub sdr_manager: bool,
     /// Station default language of the dashboard and the login page (one of
     /// [`DASHBOARD_LANGUAGES`]), chosen in the Setup wizard. A browser that picked its own
     /// language keeps it; `None` = the browser's language.
@@ -194,6 +198,7 @@ impl Default for CfgDashboard {
             http_allowed_networks: Vec::new(),
             public_overview: false,
             show_dgna_attachment_mode_picker: false,
+            sdr_manager: false,
             language: None,
         }
     }
@@ -237,6 +242,8 @@ pub struct CfgDashboardDto {
     pub public_overview: bool,
     #[serde(default)]
     pub show_dgna_attachment_mode_picker: bool,
+    #[serde(default)]
+    pub sdr_manager: bool,
     #[serde(default)]
     pub language: Option<String>,
 
@@ -342,6 +349,7 @@ pub fn apply_dashboard_patch(src: CfgDashboardDto) -> Result<CfgDashboard, Strin
         // so we accept it silently rather than erroring — keeps config validation lenient.
         public_overview: src.public_overview,
         show_dgna_attachment_mode_picker: src.show_dgna_attachment_mode_picker,
+        sdr_manager: src.sdr_manager,
     })
 }
 
@@ -529,6 +537,7 @@ mod tests {
             http_allowed_networks: Vec::new(),
             public_overview: false,
             show_dgna_attachment_mode_picker: false,
+            sdr_manager: false,
             language: None,
             extra: HashMap::new(),
         };
@@ -552,6 +561,7 @@ mod tests {
             http_allowed_networks: Vec::new(),
             public_overview: false,
             show_dgna_attachment_mode_picker: false,
+            sdr_manager: false,
             language: None,
             extra: HashMap::new(),
         };
@@ -573,6 +583,7 @@ mod tests {
             http_allowed_networks: Vec::new(),
             public_overview: false,
             show_dgna_attachment_mode_picker: false,
+            sdr_manager: false,
             language: language.map(str::to_string),
             extra: HashMap::new(),
         };
