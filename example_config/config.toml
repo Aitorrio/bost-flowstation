@@ -1116,7 +1116,7 @@ voice_service = true
 # cell. issi_whitelist, whitelist_mode, authentication, mutual_authentication
 # override one by one. Cells of one network must share the security class (use
 # [networks] for a clear cell next to an encrypted one); class 3 needs its cell
-# alone in its network. key_source, subscribers, e2ee stay station-wide.
+# alone in its network. subscribers, e2ee stay station-wide.
 #
 # [cells.security.aie]
 # class = 2

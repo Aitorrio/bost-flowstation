@@ -28,10 +28,10 @@ use crate::bluestation::{CfgSecurity, CfgSecurityDto, apply_security_patch, Cell
 /// function owned by the primary cell.
 const NON_OVERRIDABLE_CELL_KEYS: &[&str] = &["sds_command_control"];
 
-/// `[security]` keys that may not be overridden per cell: the key database, where keys live, E2EE
+/// `[security]` keys that may not be overridden per cell: the key database, E2EE
 /// and the registry / rate limits belong to the station, not to a cell.
 const NON_OVERRIDABLE_SECURITY_KEYS: &[&str] =
-    &["key_source", "subscribers", "e2ee", "max_registered_clients", "registration_rate_limit_per_min", "honour_unauthenticated_detach"];
+    &["subscribers", "e2ee", "max_registered_clients", "registration_rate_limit_per_min", "honour_unauthenticated_detach"];
 
 /// One additional cell (SDR) of a multi-cell station.
 #[derive(Debug, Clone)]
@@ -307,7 +307,7 @@ colour_code = 2
 
     #[test]
     fn station_wide_security_keys_cannot_be_set_per_cell() {
-        for key in ["key_source = \"local\"", "max_registered_clients = 5", "honour_unauthenticated_detach = false"] {
+        for key in ["max_registered_clients = 5", "honour_unauthenticated_detach = false"] {
             let err = parse(&format!("[[cells]]\nid = 1\n[cells.security]\n{key}\n")).unwrap_err();
             assert!(err.contains("cannot be set per cell"), "{key}: {err}");
         }

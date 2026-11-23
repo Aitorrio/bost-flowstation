@@ -256,7 +256,7 @@ exposed. Passband caps carrier distance. Hub back-pressure between cells needs t
 deadline. Not validated on hardware; the thread/pacing model of `soapy_dev.rs` must be re-read
 before coding (this proposal is based on a read of the structure, not a full audit).
 
-## Phase 8 (proposal) — Per-cell security settings
+## Phase 7b (proposal) — Per-cell security settings
 
 **Goal:** an additional cell can have its own air-interface encryption and access control
 (class 1/2/3, KSG, SCK, `clear_groups`, ISSI whitelist, authentication posture), e.g. a clear cell
@@ -265,18 +265,18 @@ with one SDR per cell or a shared SDR).
 
 **Today:** `StackConfig::for_extra_cell` clones the primary config, so every cell inherits the whole
 station-wide `[security]`. `[[cells]]` accepts only `id`, `enabled`, `network`, `cell_info`,
-`soapysdr`. Only the SC3 CCK differs per cell (per location area, `auc::apply_server_cck_cell`).
+`soapysdr`.
 Each cell's entities read their own `SharedConfig`, so UMAC/MM/MLE/AIE already follow whatever
-`cfg.security` the cell was built with; the work is config, key management and cross-cell rules.
+`cfg.security` the cell was built with; the work is config and cross-cell rules.
 
 **Design**
 1. Config: optional `[cells.security]`, same keys as `[security]` minus the station-wide ones.
    Overridable: `aie` (class, ksg, sckn, sck, sck_vn, clear_groups, cck, cck_id),
    `issi_whitelist` + `whitelist_mode`, `authentication`, `mutual_authentication`. Not overridable
-   (rejected with "cannot be set per cell"): `key_source`, E2EE, rate limits and registry caps,
+   (rejected with "cannot be set per cell"): E2EE, rate limits and registry caps,
    `[[security.subscribers]]` (one subscriber key database per station). Merged like
    `[cells.cell_info]` (table deep-merge over the primary's, unknown keys refused).
-2. `for_extra_cell` applies the override to `cfg.security`; the CCK-per-LA step still runs after it.
+2. `for_extra_cell` applies the override to `cfg.security`.
 3. Validation: cells of different security class need `[networks]` separation or explicit
    acknowledgement (`allow_mixed_security = true` at the root), because of rule 4. Same class with
    different SCK/SCKN is allowed. Each cell's class-2/3 key material is validated as for the primary.
@@ -291,14 +291,12 @@ Each cell's entities read their own `SharedConfig`, so UMAC/MM/MLE/AIE already f
      (`clear_groups` is per cell); otherwise that cell is skipped and logged once.
    - Brew: the group encryption-mode checks use the receiving cell's `[security]`; the Brew rules
      the switch re-applies stay station-wide.
-5. Key management: with `key_source = "server"` the server's SCK is per station today. Phase 8
-   keeps one server SCK for all class-2 cells that do not set their own `sck`; a cell with its own
-   SCK keeps it (server updates skip it). Per-cell server keys would need a protocol extension
-   (brew-server `sck-v1` per cell id) and are out of scope.
+5. Keys: each cell's keys come from its own `[cells.security]` (or the station's `[security]`
+   when it sets none). Keys delivered from a server are out of scope.
 6. Dashboard: the Cells card shows each cell's class; the Security page edits the primary's section
    and lists per-cell overrides read-only (edit in the TOML) in a first version.
 
-**As built (steps 1-2):** `[cells.security]` parsed in `sec_cells.rs` (`parse_cell_security`): keys override one by one, `aie` replaces the station's `[security.aie]` whole; `key_source`, `subscribers`, `e2ee`, `max_registered_clients`, `registration_rate_limit_per_min` and `honour_unauthenticated_detach` are refused per cell. `for_extra_cell` applies it. Validation: cells of one network must share the security class (different class = different network); the old "SC3 means one cell" rule is now "an SC3 cell must be alone in its network". Dashboard (part of step 4): Cells card *Edit* button per additional cell (`cells.rs` `cell_settings_json` / `update_cell_toml`, `GET /api/cells/settings`, `POST /api/cells/update`): network, carrier, colour code, LA and the cell's own security; keys are write-only. Not built: cross-cell rules (step 3), server keys per cell, editing the primary here.
+**As built (steps 1-2):** `[cells.security]` parsed in `sec_cells.rs` (`parse_cell_security`): keys override one by one, `aie` replaces the station's `[security.aie]` whole; `subscribers`, `e2ee`, `max_registered_clients`, `registration_rate_limit_per_min` and `honour_unauthenticated_detach` are refused per cell. `for_extra_cell` applies it. Validation: cells of one network must share the security class (different class = different network); the old "SC3 means one cell" rule is now "an SC3 cell must be alone in its network". Dashboard (part of step 4): Cells card *Edit* button per additional cell (`cells.rs` `cell_settings_json` / `update_cell_toml`, `GET /api/cells/settings`, `POST /api/cells/update`): network, carrier, colour code, LA and the cell's own security; keys are write-only. Not built: cross-cell rules (step 3), editing the primary here.
 
 **Steps:** (1) config parse/merge/validate with tests; (2) `for_extra_cell` + a test that a clear
 cell and a class 2 cell coexist; (3) cross-cell rules in `SiteSwitch` and MLE with tests;
