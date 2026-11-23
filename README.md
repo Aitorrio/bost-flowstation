@@ -246,9 +246,15 @@ Every extra SDR can run one more TETRA cell from the same station — for exampl
 
 > **Status:** new in **v0.5.0** — complete in code and unit tests, **not yet validated on air**. Please report how it behaves with your radios.
 
+### Several cells on one SDR *(v0.6.7)*
+
+Cells that name the same `soapysdr.device` share that SDR instead of needing one SDR each: every cell keeps its own carrier, colour code, location area, network, encryption and neighbours, and the cells run in lockstep on the SDR's one sample clock. On the Cells page each SDR gets a mode: *one cell*, *multi-carrier* (one cell on two carriers) or *multi-cell* (several cells on the one SDR). **Provisional, not yet validated on air.**
+
+The multi-cell engine for this (`SdrHub`, shared SDR opening, per-cell security `[cells.security]`) was built by **Yiannis Samouhos (ysamouhos)**. The implementation in the dashboard (the Cells page, which replaced the SDRs & cells page) and the rework of the configuration around it (one SDR per group of cells, computed centre frequencies, sample rate field, networks without a cell, config check per network) are by **Sebastian, OE4SXM**. Design in [`Docs/multi-cell-plan.md`](Docs/multi-cell-plan.md), phases 7 and 7b.
+
 ### Setting it up
 
-- **Dashboard:** the **Cells** card on the **Infrastructure** page lists every cell (RF state, carriers, SDR, radios). *Scan* finds your SDRs; pick the device, a free carrier and optionally a colour code and location area (LA; empty = the primary's), and *Add cell* — the station restarts. *Remove* takes a cell out again.
+- **Dashboard:** the **Cells** page (menu *Cells*, since v0.6.7) shows every cell grouped by the SDR that carries it and adds, edits and removes cells: SDR and mode, carriers, colour code, location area (empty = the primary's), network, encryption and neighbours; saving checks the whole config and restarts the station. The **Cells** card on the **Infrastructure** page lists the cells with a link to it.
 - **By hand:** add a `[[cells]]` entry per extra SDR. It inherits everything from `[cell_info]` except what you override:
 
   ```toml
@@ -541,9 +547,9 @@ For Asterisk, DAPNET, Snom, GeoAlarm and deep protocol notes, use the upstream d
 - **Mihajlo YU4MSH**, **Torben DJ2TH**, **Joaquin EA5GVK** and others credited upstream
 - **MidnightBlueLabs** — [tetra-bluestation](https://github.com/MidnightBlueLabs/tetra-bluestation)
 - **Aitor, EA4HBL** — this fork (install, Setup, visual config, OTA UX, Spanish UI).
-- **Yiannis Samouhos, ysamouhos** — Multi-cell support with multiple SDR and AIE, several cells on one SDR (`SdrHub`), per-cell security settings.
+- **Yiannis Samouhos, ysamouhos** — Multi-cell support with multiple SDR and AIE; the multi-cell engine for several cells on one SDR (`SdrHub`, one SDR opened for a group of cells) and per-cell security settings.
 - **David Harcus, MM7FDM** — TETRA authentication (TAA1), TEA2/TEA3, SCK OTAR, the Security dashboard page, USRP B210 support, the WAP packet-data (SNDCP) gateway with its live status page, end-to-end encryption (E2EE) of SDS, and individual call handover between the cells of a multi-cell station (PR #30).
-- **Sebastian, OE4SXM** ([sebastianmadl](https://github.com/sebastianmadl)) — roaming between stations over Brew (group and individual calls across stations, announced and unannounced cell reselection), multi-cell roaming (individual calls with the network follow the radio between cells, built on David's PR #30; cells sharing a location area; multi-cell stations roaming with other stations), the Infrastructure dashboard page (formerly Roaming / Cells) with the Brew server's cell list, configurable minimum access level and migration flag, group access and RX only from the Brew server, Multi Network, Fleet Control (station side), the SDRs & cells page and the sample rate field, English changelog.
+- **Sebastian, OE4SXM** ([sebastianmadl](https://github.com/sebastianmadl)) — roaming between stations over Brew (group and individual calls across stations, announced and unannounced cell reselection), multi-cell roaming (individual calls with the network follow the radio between cells, built on David's PR #30; cells sharing a location area; multi-cell stations roaming with other stations), the Infrastructure dashboard page (formerly Roaming / Cells) with the Brew server's cell list, configurable minimum access level and migration flag, group access and RX only from the Brew server, Multi Network, Fleet Control (station side), several cells on one SDR: the implementation in the dashboard (Cells page) and the rework of the configuration (SDR modes one cell / multi-carrier / multi-cell, computed centre frequencies, sample rate field, networks without a cell), English changelog.
 - **Chris, DN9CHO** ([dn9cho](https://github.com/dn9cho)) — APRS weather station reports from aprs.fi on the radio (`APRSWX` SDS command, on request or as a periodic send, configurable live in the WX card of the dashboard), plus fixes for group calls cut off after six minutes and for radios scanning more than 12 groups.
 
 ---
