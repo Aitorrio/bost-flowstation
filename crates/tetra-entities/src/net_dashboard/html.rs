@@ -20296,7 +20296,7 @@ function cpRenderEdit(){
     let netField;
     if(sdrData.networks_explicit){
       const opts=(primary?[]:[['',t('cp_net_as_primary',{net:cpNetOf(cpPrimary())})]]).concat((sdrData.networks||[]).map(n=>{
-        const used=cpAllCells().some(c=>c!==(cpEdit.isNew?null:sdrData.sdrs[cpEdit.i].cells[cpEdit.j])&&cpNetOf(c)===n.name);
+        const used=d.net===n.name||cpAllCells().some(c=>c!==(cpEdit.isNew?null:sdrData.sdrs[cpEdit.i].cells[cpEdit.j])&&cpNetOf(c)===n.name);
         return [n.name,n.name+' · '+n.mcc+'/'+n.mnc+(used?'':' — '+t('cp_unused'))];
       }));
       netField=ceField(t('roam_th_network'),'<select class="form-input" onchange="cpSet(\'net\',this.value)">'+ceOpts(opts,d.net)+'</select>');
@@ -23767,6 +23767,12 @@ mod tests {
         for k in ["fleet_off_body2:", "cmd_off_body2:", "fleet_off_understood:"] {
             assert_eq!(H.matches(k).count(), 3, "{k} in en, de and es");
         }
+    }
+
+    #[test]
+    fn network_picker_does_not_call_the_cells_own_network_unused() {
+        // Sebastian 2026-11-23: the cell's own network was listed as "unused" in its dialog.
+        assert!(H.contains("const used=d.net===n.name||cpAllCells().some("));
     }
 
     #[test]
