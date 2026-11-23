@@ -282,6 +282,9 @@ pub struct BrewEntity {
 
     /// Worker thread handle for graceful shutdown
     worker_handle: Option<thread::JoinHandle<()>>,
+
+    /// Config generation `brew_config` was copied from (live reload).
+    config_generation: u64,
 }
 
 impl BrewEntity {
@@ -290,6 +293,20 @@ impl BrewEntity {
     /// The transport is moved into a worker thread. Any [`NetworkTransport`]
     /// implementation can be used (WebSocket, QUIC, TCP, …).
     pub fn new<T: NetworkTransport + 'static>(config: SharedConfig, transport: T) -> Self {
+        Self::build(config, transport, None)
+    }
+
+    /// Like [`Self::new`], but the link follows the `[brew]` section at run time: `rebuild` makes
+    /// the transport for a changed section and the worker reconnects with it.
+    pub fn new_following_config<T: NetworkTransport + 'static>(
+        config: SharedConfig,
+        transport: T,
+        rebuild: impl Fn(&CfgBrew) -> T + Send + 'static,
+    ) -> Self {
+        Self::build(config, transport, Some(Box::new(rebuild)))
+    }
+
+    fn build<T: NetworkTransport + 'static>(config: SharedConfig, transport: T, rebuild: Option<Box<dyn Fn(&CfgBrew) -> T + Send>>) -> Self {
         // Create channels. The worker→entity direction is BOUNDED (see
         // BREW_EVENT_CHANNEL_CAPACITY): it is fed by the remote core, so it is the one an
         // attacker controls. The entity→worker direction is driven by our own tick, so it
@@ -303,7 +320,17 @@ impl BrewEntity {
         let handle = thread::Builder::new()
             .name("brew-worker".to_string())
             .spawn(move || {
+                let live = rebuild.map(|build| {
+                    crate::live_link::LiveLink::new(
+                        worker_config.clone(),
+                        |c| format!("{:?}", c.brew),
+                        Box::new(move |c| c.brew.as_ref().map(&build)),
+                    )
+                });
                 let mut worker = BrewWorker::new(worker_config, event_sender, command_receiver, transport);
+                if let Some(live) = live {
+                    worker = worker.with_live(live);
+                }
                 worker.run();
             })
             .expect("failed to spawn BrewWorker thread");
@@ -316,6 +343,7 @@ impl BrewEntity {
         Self {
             config,
             brew_config,
+            config_generation: 0,
             dltime: TdmaTime::default(),
             event_receiver,
             command_sender,
@@ -1880,6 +1908,13 @@ impl TetraEntityTrait for BrewEntity {
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.dltime = ts;
+        let generation = self.config.config_generation();
+        if generation != self.config_generation {
+            self.config_generation = generation;
+            if let Some(brew) = self.config.config().brew.clone() {
+                self.brew_config = brew;
+            }
+        }
         // Process all pending events from the worker thread
         self.process_events(queue);
         self.apply_pending_sysinfo_disconnect();

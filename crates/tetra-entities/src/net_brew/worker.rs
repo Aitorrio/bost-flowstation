@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use crate::live_link::LiveLink;
 use crossbeam_channel::{Receiver, Sender};
 use tetra_config::bluestation::BrewDirectoryNeighbour;
 use tetra_config::bluestation::CfgBrew;
@@ -419,6 +420,8 @@ struct PendingSds {
 /// Runs in a separate thread. Communicates with [`super::entity::BrewEntity`] via
 /// crossbeam channels ([`BrewEvent`] and [`BrewCommand`]).
 pub struct BrewWorker<T: NetworkTransport> {
+    /// Follows the `[brew]` section (see [`LiveLink`]).
+    live: Option<LiveLink<T>>,
     config: SharedConfig,
     brew_config: CfgBrew,
     /// Network transport (WebSocket, QUIC, TCP, …)
@@ -487,6 +490,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
     pub fn new(config: SharedConfig, event_sender: Sender<BrewEvent>, command_receiver: Receiver<BrewCommand>, transport: T) -> Self {
         let brew_config = config.config().brew.clone().unwrap(); // Never fails
         Self {
+            live: None,
             config,
             brew_config,
             transport,
@@ -503,6 +507,26 @@ impl<T: NetworkTransport> BrewWorker<T> {
             reregister_due: None,
             last_call_activity: None,
         }
+    }
+
+    /// Follow the `[brew]` section of this cell's network at run time: when it changes, the worker
+    /// drops the link and reconnects with the new server, credentials and timers.
+    pub fn with_live(mut self, live: LiveLink<T>) -> Self {
+        self.live = Some(live);
+        self
+    }
+
+    /// A changed `[brew]` section: switch to its transport and have `message_loop` end so that
+    /// `run` reconnects. A removed section cannot be followed (there is nothing to connect to);
+    /// the restart check of the reload keeps that case from getting here.
+    fn follow_config(&mut self) -> Result<(), String> {
+        let Some(Some(transport)) = self.live.as_mut().and_then(|l| l.poll()) else { return Ok(()) };
+        if let Some(brew) = self.config.config().brew.clone() {
+            self.brew_config = brew;
+        }
+        self.transport.disconnect();
+        self.transport = transport;
+        Err("configuration changed, reconnecting".to_string())
     }
 
     // ── Re-registration (`reregister_minutes`) ──
@@ -857,6 +881,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
         self.reregister_due = self.reregister_interval().map(|every| Instant::now() + every);
         self.last_call_activity = None;
         loop {
+            self.follow_config()?;
             let now = Instant::now();
             self.drive_reregistration(now);
 
