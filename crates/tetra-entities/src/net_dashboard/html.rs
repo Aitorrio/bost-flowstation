@@ -3519,6 +3519,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
 .cell-rf{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border);}
 .cell-rf.online{color:var(--success,#2ecc71);border-color:currentColor;}
 .cell-rf.error{color:var(--danger);border-color:currentColor;}
+.cells-edit{border:1px solid var(--border,#444);border-radius:8px;padding:12px;margin-top:12px;}
+.cells-edit h4{margin:0 0 8px;font-size:14px;}
+.cells-edit .ce-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px 12px;align-items:end;}
+.cells-edit label{display:flex;flex-direction:column;gap:3px;font-size:12px;}
+.cells-edit label.ce-check{flex-direction:row;align-items:center;gap:6px;}
+.cells-edit .ce-actions{display:flex;gap:8px;margin-top:12px;}
 .cells-add{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center;}
 .cells-add .form-input{flex:1 1 160px;min-width:0;width:auto;}
 .cells-add .form-input.narrow{flex:0 1 110px;}
@@ -6397,6 +6403,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
         </div>
         <div class="card-body">
           <div class="cells-list" id="cells-list"></div>
+          <div class="cells-edit" id="cells-edit" style="display:none"></div>
           <div class="help-text" data-i18n="cells_help">Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.</div>
           <div class="cells-add">
             <input type="text" class="form-input" id="cells-device" list="cells-device-options" placeholder="driver=plutosdr,uri=ip:192.168.3.1">
@@ -8339,7 +8346,7 @@ const LANGS={
     roam_help_n_rxlev:'Minimum RX access level of the neighbour (clause 18.5.12). Empty: radios assume the same as this cell (table 18.64, note 2).',
     roam_help_n_txpwr:'Maximum MS transmit power in the neighbour (table 18.57), used by the radio for C2. Empty: same as this cell.',
     cells_title:'Cells',cells_help:"Each extra SDR runs one more cell. Pick a free carrier; its frequencies follow from the primary cell's band plan. The station restarts to apply changes.",
-    cells_carrier:'Carrier',cells_cc:'Colour code',cells_la_help:'Location area of the new cell. Empty = same as the primary cell. With its own location area a radio registers on every change of cell (TS 100 392-2 clause 18.3.4.7.1a).',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',ms_visitor:'Guest · {net}',ms_vassi:'(V)ASSI here',ms_visitor_title:'Radio of network {net} (migration, TS 100 392-2 clause 16.4.1.1 b)). It has a (V)ASSI on this cell; calls and SDS to its own ISSI reach it here.',cells_radios:'{n} radio(s)',cells_sdr_shared:'shared with cell {cells}',
+    cells_carrier:'Carrier',cells_cc:'Colour code',cells_la_help:'Location area of the new cell. Empty = same as the primary cell. With its own location area a radio registers on every change of cell (TS 100 392-2 clause 18.3.4.7.1a).',cells_add:'Add cell',cells_remove:'Remove',cells_cell:'Cell {n}',ms_visitor:'Guest · {net}',ms_vassi:'(V)ASSI here',ms_visitor_title:'Radio of network {net} (migration, TS 100 392-2 clause 16.4.1.1 b)). It has a (V)ASSI on this cell; calls and SDS to its own ISSI reach it here.',cells_radios:'{n} radio(s)',cells_sdr_shared:'shared with cell {cells}',cells_edit:'Edit',cells_edit_title:'Cell {n} settings',cells_f_network:'Network (empty = the primary cell\'s network)',cells_sec_title:'Security of this cell',cells_sec_own:'Own security settings (off = the station\'s [security])',cells_sec_class:'Security class',cells_sec_c1:'1 — clear',cells_sec_c2:'2 — static key (SCK)',cells_sec_c3:'3 — per-radio keys (SC3)',cells_sec_ksg:'Algorithm',cells_sec_sckn:'SCK number (0-31)',cells_sec_sckvn:'SCK version',cells_sec_sck:'SCK (20 hex digits)',cells_sec_key_kept:'set — leave empty to keep',cells_sec_clear:'Clear groups (GSSIs, comma separated)',cells_sec_cck:'CCK (20 hex digits)',cells_sec_cckid:'CCK id',cells_sec_wl:'ISSI whitelist (comma separated)',cells_sec_wlmode:'Whitelist mode',cells_sec_auth:'Authentication',cells_sec_mutual:'Mutual authentication',cells_save:'Save and restart',cells_cancel:'Cancel',cells_confirm_edit:'Save the settings of cell {n}? The station restarts.',cells_sec_note:'Cells of one network must share the security class; a clear cell next to an encrypted one needs its own network. Key source, subscriber keys and E2EE stay station-wide. Class 3 needs its cell alone in its network.',
     cells_net_local:'local',cells_net_up:'core up',cells_net_down:'core down',
     cells_single:'Single cell',rf_cells_note:'Pick a cell to show its SDR on this page.',cells_linked:'Cells linked',cells_independent:'Independent cells',
     cells_need_fields:'Device and carrier are required.',cells_confirm_add:'Add this cell? The station restarts.',cells_confirm_remove:'Remove cell {n}? The station restarts.',
@@ -9022,7 +9029,7 @@ const LANGS={
     roam_help_n_rxlev:'Nivel mínimo de acceso RX de la vecina (cláusula 18.5.12). Vacío: las radios suponen el mismo que esta celda (tabla 18.64, nota 2).',
     roam_help_n_txpwr:'Potencia de transmisión máxima de la radio en la vecina (tabla 18.57), la usa la radio para C2. Vacío: igual que esta celda.',
     cells_title:'Celdas',cells_help:'Cada SDR adicional ejecuta una celda más. Elige una portadora libre; sus frecuencias salen del plan de banda de la celda principal. La estación se reinicia para aplicar los cambios.',
-    cells_carrier:'Portadora',cells_cc:'Código de color',cells_la_help:'Área de localización de la nueva celda. Vacío = la misma que la celda principal. Con un área propia la radio se registra en cada cambio de celda (TS 100 392-2 cláusula 18.3.4.7.1a).',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',ms_visitor:'Invitado · {net}',ms_vassi:'(V)ASSI aquí',ms_visitor_title:'Radio de la red {net} (migración, TS 100 392-2 cláusula 16.4.1.1 b)). Tiene una (V)ASSI en esta celda; las llamadas y SDS a su propia ISSI le llegan aquí.',cells_radios:'{n} radio(s)',cells_sdr_shared:'compartido con la celda {cells}',
+    cells_carrier:'Portadora',cells_cc:'Código de color',cells_la_help:'Área de localización de la nueva celda. Vacío = la misma que la celda principal. Con un área propia la radio se registra en cada cambio de celda (TS 100 392-2 cláusula 18.3.4.7.1a).',cells_add:'Añadir celda',cells_remove:'Quitar',cells_cell:'Celda {n}',ms_visitor:'Invitado · {net}',ms_vassi:'(V)ASSI aquí',ms_visitor_title:'Radio de la red {net} (migración, TS 100 392-2 cláusula 16.4.1.1 b)). Tiene una (V)ASSI en esta celda; las llamadas y SDS a su propia ISSI le llegan aquí.',cells_radios:'{n} radio(s)',cells_sdr_shared:'compartido con la celda {cells}',cells_edit:'Editar',cells_edit_title:'Ajustes de la celda {n}',cells_f_network:'Red (vacío = la de la celda principal)',cells_sec_title:'Seguridad de esta celda',cells_sec_own:'Seguridad propia (apagado = el [security] de la estación)',cells_sec_class:'Clase de seguridad',cells_sec_c1:'1 — en claro',cells_sec_c2:'2 — clave estática (SCK)',cells_sec_c3:'3 — claves por radio (SC3)',cells_sec_ksg:'Algoritmo',cells_sec_sckn:'Número de SCK (0-31)',cells_sec_sckvn:'Versión del SCK',cells_sec_sck:'SCK (20 dígitos hex)',cells_sec_key_kept:'definida — vacío para conservarla',cells_sec_clear:'Grupos en claro (GSSI, separados por comas)',cells_sec_cck:'CCK (20 dígitos hex)',cells_sec_cckid:'Id del CCK',cells_sec_wl:'Lista blanca de ISSI (separadas por comas)',cells_sec_wlmode:'Modo de la lista blanca',cells_sec_auth:'Autenticación',cells_sec_mutual:'Autenticación mutua',cells_save:'Guardar y reiniciar',cells_cancel:'Cancelar',cells_confirm_edit:'¿Guardar los ajustes de la celda {n}? La estación se reinicia.',cells_sec_note:'Las celdas de una misma red deben tener la misma clase de seguridad; una celda en claro junto a una cifrada necesita su propia red. El origen de claves, las claves de abonados y E2EE son de toda la estación. La clase 3 necesita su celda sola en su red.',
     cells_net_local:'local',cells_net_up:'núcleo conectado',cells_net_down:'núcleo desconectado',
     cells_single:'Celda única',rf_cells_note:'Elige una celda para ver su SDR en esta página.',cells_linked:'Celdas enlazadas',cells_independent:'Celdas independientes',
     cells_need_fields:'Hacen falta el dispositivo y la portadora.',cells_confirm_add:'¿Añadir esta celda? La estación se reinicia.',cells_confirm_remove:'¿Quitar la celda {n}? La estación se reinicia.',
@@ -19695,7 +19702,7 @@ function renderCells(cells,siteLinked){
     const carriers=(c.carriers||[]).map(k=>'#'+k.carrier_num+' '+mhz(k.tx_freq_hz)+'/'+mhz(k.rx_freq_hz)+' MHz').join(' · ');
     const meta=[carriers,cellNetLabel(c),'CC '+c.colour_code,'LA '+c.location_area,
       t('cells_radios',{n:c.registered_radios}),cellSdrLabel(c)].filter(Boolean).join(' — ');
-    const rm=c.primary?'':'<button class="btn btn-sm btn-danger" onclick="cellsRemove('+c.id+')">'+escHtml(t('cells_remove'))+'</button>';
+    const rm=c.primary?'':'<button class="btn btn-sm" onclick="cellsEdit('+c.id+')">'+escHtml(t('cells_edit'))+'</button> <button class="btn btn-sm btn-danger" onclick="cellsRemove('+c.id+')">'+escHtml(t('cells_remove'))+'</button>';
     return '<div class="cell-row"><span class="cell-name">'+escHtml(t('cells_cell',{n:c.id}))+(c.primary?' ★':'')+'</span>'+
       '<span class="cell-rf '+escHtmlAttr(rf)+'" title="'+escHtmlAttr(c.rf_detail||'')+'">'+escHtml(rf)+'</span>'+
       '<span class="cell-meta">'+escHtml(meta)+'</span>'+rm+'</div>';
@@ -20436,6 +20443,81 @@ function cellsAdd(){
   const laRaw=(document.getElementById('cells-la')||{}).value;
   if(laRaw!=='')body.location_area=parseInt(laRaw,10);
   cellsPost('/api/cells/add',body);
+}
+let cellsEditId=null;
+function ceVal(id){const e=document.getElementById(id);return e?e.value:'';}
+function ceNums(id){return ceVal(id).split(/[\s,;]+/).filter(Boolean).map(x=>parseInt(x,10)).filter(n=>isFinite(n));}
+function ceOpts(vals,sel){return vals.map(v=>'<option value="'+escHtmlAttr(v[0])+'"'+(String(v[0])===String(sel)?' selected':'')+'>'+escHtml(v[1])+'</option>').join('');}
+function ceField(label,inner){return '<label>'+escHtml(label)+inner+'</label>';}
+async function cellsEdit(id){
+  const box=document.getElementById('cells-edit');
+  if(!box)return;
+  try{
+    const r=await fetch('/api/cells/settings?id='+id,{credentials:'same-origin'});
+    if(!r.ok){setText('cells-msg',await r.text());return;}
+    const d=await r.json(),s=d.security||{};
+    cellsEditId=id;
+    const num=(i,v,mx)=>'<input class="form-input" type="number" id="'+i+'" min="0" max="'+mx+'" value="'+(v==null?'':escHtmlAttr(String(v)))+'">';
+    const txt=(i,v,ph)=>'<input class="form-input" type="text" id="'+i+'" value="'+escHtmlAttr(v==null?'':String(v))+'" placeholder="'+escHtmlAttr(ph||'')+'" autocomplete="off">';
+    const sel=(i,o,v,fn)=>'<select class="form-input" id="'+i+'"'+(fn?' onchange="'+fn+'"':'')+'>'+ceOpts(o,v)+'</select>';
+    const keyPh=has=>has?t('cells_sec_key_kept'):'';
+    box.innerHTML='<h4>'+escHtml(t('cells_edit_title',{n:id}))+'</h4><div class="ce-grid">'+
+      ceField(t('cells_f_network'),txt('ce-network',d.network_explicit?d.network:'',d.network))+
+      ceField(t('bts_sec_carrier'),num('ce-carrier',d.main_carrier,4095))+
+      ceField(t('cfg_colour'),num('ce-cc',d.colour_code,63))+
+      ceField(t('cfg_la'),num('ce-la',d.location_area,16383))+
+      '</div><h4 style="margin-top:14px">'+escHtml(t('cells_sec_title'))+'</h4>'+
+      '<label class="ce-check"><input type="checkbox" id="ce-own"'+(d.security_own?' checked':'')+' onchange="ceSecToggle()"> '+escHtml(t('cells_sec_own'))+'</label>'+
+      '<div class="ce-grid" id="ce-sec" style="margin-top:8px">'+
+      ceField(t('cells_sec_class'),sel('ce-class',[[1,t('cells_sec_c1')],[2,t('cells_sec_c2')],[3,t('cells_sec_c3')]],s.class||1,'ceSecToggle()'))+
+      '<span data-ce="k">'+ceField(t('cells_sec_ksg'),sel('ce-ksg',[[1,'TEA1'],[2,'TEA2'],[3,'TEA3'],[4,'TEA4']],s.ksg||1))+'</span>'+
+      '<span data-ce="2">'+ceField(t('cells_sec_sckn'),num('ce-sckn',s.sckn==null?0:s.sckn,31))+'</span>'+
+      '<span data-ce="2">'+ceField(t('cells_sec_sckvn'),num('ce-sckvn',s.sck_vn==null?0:s.sck_vn,65535))+'</span>'+
+      '<span data-ce="2">'+ceField(t('cells_sec_sck'),txt('ce-sck','',keyPh(s.has_sck)))+'</span>'+
+      '<span data-ce="2">'+ceField(t('cells_sec_clear'),txt('ce-clear',(s.clear_groups||[]).join(', ')))+'</span>'+
+      '<span data-ce="3">'+ceField(t('cells_sec_cck'),txt('ce-cck','',keyPh(s.has_cck)))+'</span>'+
+      '<span data-ce="3">'+ceField(t('cells_sec_cckid'),num('ce-cckid',s.cck_id==null?0:s.cck_id,65535))+'</span>'+
+      ceField(t('cells_sec_wl'),txt('ce-wl',(s.issi_whitelist||[]).join(', ')))+
+      ceField(t('cells_sec_wlmode'),sel('ce-wlmode',[['auto','auto'],['open','open'],['enforce','enforce']],s.whitelist_mode))+
+      ceField(t('cells_sec_auth'),sel('ce-auth',[['off','off'],['optional','optional'],['required','required']],s.authentication))+
+      '<label class="ce-check"><input type="checkbox" id="ce-mutual"'+(s.mutual_authentication?' checked':'')+'> '+escHtml(t('cells_sec_mutual'))+'</label>'+
+      '</div><div class="help-text">'+escHtml(t('cells_sec_note'))+'</div>'+
+      '<div class="ce-actions"><button class="btn btn-sm" onclick="cellsSaveEdit()">'+escHtml(t('cells_save'))+'</button>'+
+      '<button class="btn btn-sm" onclick="cellsCloseEdit()">'+escHtml(t('cells_cancel'))+'</button></div>';
+    box.style.display='';
+    ceSecToggle();
+  }catch(e){setText('cells-msg',String(e));}
+}
+function ceSecToggle(){
+  const own=document.getElementById('ce-own'),sec=document.getElementById('ce-sec');
+  if(!own||!sec)return;
+  const cls=ceVal('ce-class');
+  sec.style.opacity=own.checked?'1':'0.45';
+  sec.querySelectorAll('input,select').forEach(e=>{e.disabled=!own.checked;});
+  sec.querySelectorAll('[data-ce]').forEach(e=>{
+    const k=e.getAttribute('data-ce');
+    e.style.display=(k==='k'?cls!=='1':k===cls)?'':'none';
+  });
+}
+function cellsCloseEdit(){const b=document.getElementById('cells-edit');if(b){b.style.display='none';b.innerHTML='';}cellsEditId=null;}
+function cellsSaveEdit(){
+  if(cellsEditId==null)return;
+  const body={id:cellsEditId,network:ceVal('ce-network').trim(),cell:{}};
+  const carrier=ceVal('ce-carrier'),cc=ceVal('ce-cc'),la=ceVal('ce-la');
+  if(carrier!=='')body.cell.main_carrier=parseInt(carrier,10);
+  if(cc!=='')body.cell.colour_code=parseInt(cc,10);
+  body.cell.location_area=la===''?null:parseInt(la,10);
+  if(!document.getElementById('ce-own').checked){body.security={inherit:true};}
+  else{
+    const cls=parseInt(ceVal('ce-class'),10);
+    const aie={class:cls};
+    if(cls>=2)aie.ksg=parseInt(ceVal('ce-ksg'),10);
+    if(cls===2){aie.sckn=parseInt(ceVal('ce-sckn'),10)||0;aie.sck_vn=parseInt(ceVal('ce-sckvn'),10)||0;aie.sck=ceVal('ce-sck').trim();aie.clear_groups=ceNums('ce-clear');}
+    if(cls===3){aie.cck=ceVal('ce-cck').trim();aie.cck_id=parseInt(ceVal('ce-cckid'),10)||0;}
+    body.security={aie:aie,issi_whitelist:ceNums('ce-wl'),whitelist_mode:ceVal('ce-wlmode'),authentication:ceVal('ce-auth'),mutual_authentication:document.getElementById('ce-mutual').checked};
+  }
+  if(!confirm(t('cells_confirm_edit',{n:cellsEditId})))return;
+  cellsPost('/api/cells/update',body);
 }
 function cellsRemove(id){
   if(!confirm(t('cells_confirm_remove',{n:id})))return;

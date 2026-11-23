@@ -4480,6 +4480,18 @@ fn handle_connection(
             }
         }
         serve_bts_info(buf.into_inner(), &shared_config);
+    } else if req_line.contains("GET /api/cells/settings") {
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let id = request_path(&req_line).map(query_params).and_then(|q| q.get("id").and_then(|v| v.parse::<u8>().ok()));
+        match (id, std::fs::read_to_string(&config_path)) {
+            (Some(id), Ok(text)) => match crate::net_dashboard::cells::cell_settings_json(&text, id) {
+                Ok(v) => http_json_response(s, 200, &v.to_string()),
+                Err(e) => http_response(s, 400, &e),
+            },
+            (None, _) => http_response(s, 400, "id is required"),
+            (_, Err(e)) => http_response(s, 500, &format!("cannot read config: {e}")),
+        }
     } else if req_line.contains("GET /api/cells") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4537,6 +4549,9 @@ fn handle_connection(
     } else if req_line.contains("POST /api/cells/add") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_add(inner, &config_path, &body_str);
+    } else if req_line.contains("POST /api/cells/update") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_update(inner, &config_path, &body_str);
     } else if req_line.contains("POST /api/cells/remove") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_remove(inner, &config_path, &body_str);
@@ -6289,6 +6304,25 @@ fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
     };
     match crate::net_dashboard::cells::add_cell_toml(&original, device, main_carrier as u16, colour_code, location_area) {
         Ok((text, id)) => apply_cells_config(stream, config_path, &text, format!("cell {id} added (carrier {main_carrier})")),
+        Err(e) => http_response(stream, 400, &e),
+    }
+}
+
+/// POST /api/cells/update — a cell's settings and security (`cells::update_cell_toml`).
+fn serve_cells_update(stream: PrefixedConn, config_path: &str, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    match crate::net_dashboard::cells::update_cell_toml(&original, &req) {
+        Ok(text) => {
+            let id = req.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+            apply_cells_config(stream, config_path, &text, format!("cell {id} settings saved"))
+        }
         Err(e) => http_response(stream, 400, &e),
     }
 }
