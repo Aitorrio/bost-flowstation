@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.6.8 — Maintenance release
+
+- **No functional changes.** Version number bump only.
+
 ## v0.6.7 — Cells page and several cells on one SDR
 
 Several cells on one SDR: the multi-cell engine (`SdrHub`) and per-cell security were built by Yiannis Samouhos (ysamouhos); the implementation in the dashboard (Cells page) and the rework of the configuration are by Sebastian, OE4SXM.
@@ -15,6 +19,8 @@ Several cells on one SDR: the multi-cell engine (`SdrHub`) and per-cell security
 - **Home: security class and algorithm next to each cell.** The cell header shows "SC2 · TEA2" (or "SC1 · open") from that cell's settings, also with a single cell. `GET /api/cells` carries `security` per cell (`class`, and `ksg` 1–4 = TEA1–TEA4 for an encrypted cell).
 - **Cells dialog: the cell's own network is no longer marked "unused".** The network list in the *Network & area* tab only counted the other cells.
 - **Fleet Control: RF kill switch.** The Brew server (1.22.9) can switch the transmitter off with the station's Suspend (`SetRfStandby`, capability `rf-standby-v1`) and on again (service restart). The dashboard and Fleet Control stay reachable meanwhile; the hello reports `rf_standby` and is sent again when it changes, also after a Suspend on the dashboard, so the server shows the station as *Standby* instead of offline. The metrics report the cells as `standby`, so no SDR alarm is raised. Older servers ignore the field.
+- **Installer: runs on Debian 12 bookworm and 13 trixie (Raspberry Pi OS).** A Rust toolchain already in the service user's home that is too old for this code (edition 2024 needs Rust 1.85) is now updated to the current stable before the build; before, the installer kept it and the build stopped with "failed to parse manifest" (seen on Pis that had Rust installed earlier, typically on bookworm). The installer also installs `sudo` if it is missing (plain Debian without it could not build as the service user). Checked with a full install on Debian 12 and 13, once with an old Rust 1.80 in place.
+- **Infrastructure page: CA certificate field for telemetry and remote control.** Both link cards have a *CA certificate (optional)* field (`ca_cert`, e.g. `/etc/ssl/certs/ca.der`) for a server whose certificate comes from your own CA; empty when not used, then the system CAs are trusted as before. Saving checks that TLS is on and that the file exists and is a DER or PEM certificate. A PEM file with several certificates now works too (before only one DER certificate). A missing or broken CA file no longer stops the station at start-up (it used to exit and restart in a loop): the error is logged, that link cannot connect, the radio keeps running.
 
 ## v0.6.6 — TEA4 completes TETRA encryption set A
 

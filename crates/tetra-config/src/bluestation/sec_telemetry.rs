@@ -62,7 +62,9 @@ fn default_enabled() -> bool {
 ///
 /// Returns an error string if `ca_cert` is set but `use_tls` is `false`.
 pub fn apply_telemetry_patch(src: CfgTelemetryDto) -> Result<CfgTelemetry, String> {
-    if src.ca_cert.is_some() && !src.use_tls {
+    // `ca_cert = ""` is the same as no CA file: the system CAs are trusted.
+    let ca_cert = src.ca_cert.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+    if ca_cert.is_some() && !src.use_tls {
         return Err("telemetry: ca_cert requires use_tls = true".to_string());
     }
 
@@ -89,6 +91,6 @@ pub fn apply_telemetry_patch(src: CfgTelemetryDto) -> Result<CfgTelemetry, Strin
             (None, None) => None,
             _ => return Err("telemetry: both username and password must be set for credentials".to_string()),
         },
-        ca_cert: src.ca_cert,
+        ca_cert,
     })
 }
