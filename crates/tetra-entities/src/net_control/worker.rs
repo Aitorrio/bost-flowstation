@@ -45,6 +45,8 @@ pub struct ControlWorker<T: NetworkTransport> {
     dgna_snapshot_sent: bool,
     /// Whether that hello listed `update-v1` (an OTA was available).
     hello_ota: bool,
+    /// Standby (suspended radio stack) the last hello said, to send a new one when it changes.
+    hello_standby: bool,
     /// Answers produced off the loop (update checks), sent by the loop.
     async_tx: std::sync::mpsc::Sender<ControlResponse>,
     async_rx: std::sync::mpsc::Receiver<ControlResponse>,
@@ -76,6 +78,7 @@ impl<T: NetworkTransport> ControlWorker<T> {
             dgna_offered: false,
             dgna_snapshot_sent: false,
             hello_ota: false,
+            hello_standby: false,
             async_tx,
             async_rx,
             last_progress: None,
@@ -173,6 +176,17 @@ impl<T: NetworkTransport> ControlWorker<T> {
         if let Some(response) =
             fleet::restart_command(&command, self.fleet_enabled(), crate::net_dashboard::ota_remote::active_calls(), updating, fleet::schedule_restart)
         {
+            self.send_response(&response);
+            return;
+        }
+        if let Some(response) = fleet::rf_standby_command(
+            &command,
+            self.fleet_enabled(),
+            crate::net_dashboard::ota_remote::active_calls(),
+            updating,
+            crate::service_control::is_standby(),
+            fleet::set_rf_standby,
+        ) {
             self.send_response(&response);
             return;
         }
@@ -283,7 +297,9 @@ impl<T: NetworkTransport> ControlWorker<T> {
                 (fleet_config::current_hash(), fleet_config::pending_secs().is_some()) != self.hello_config
             }
         };
-        if self.hello_announced == Some(enabled) && (!enabled || self.hello_ota == ota) && !config_changed {
+        // Suspend on the dashboard or the RF kill switch: the server shows the station as standby.
+        let standby = crate::service_control::is_standby();
+        if self.hello_announced == Some(enabled) && (!enabled || (self.hello_ota == ota && self.hello_standby == standby)) && !config_changed {
             return;
         }
         let hello = fleet::station_hello(&shared);
@@ -292,6 +308,7 @@ impl<T: NetworkTransport> ControlWorker<T> {
         }
         self.hello_announced = Some(enabled);
         self.hello_ota = ota;
+        self.hello_standby = standby;
         if let ControlResponse::StationHello { config_hash, config_pending, .. } = &hello {
             self.hello_config = (config_hash.clone(), config_pending.is_some());
         }
@@ -558,7 +575,7 @@ mod tests {
                 other => panic!("expected a hello, got {other:?}"),
             })
             .collect();
-        assert_eq!(hellos, vec![(false, vec![]), (true, vec!["fleet-v1".to_string(), "maintenance-v1".to_string(), "restart-v1".to_string(), "metrics-v1".to_string()]), (false, vec![])]);
+        assert_eq!(hellos, vec![(false, vec![]), (true, vec!["fleet-v1".to_string(), "maintenance-v1".to_string(), "restart-v1".to_string(), "rf-standby-v1".to_string(), "metrics-v1".to_string()]), (false, vec![])]);
     }
 
     #[test]

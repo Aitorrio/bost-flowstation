@@ -45,10 +45,12 @@ pub const CAP_UPDATE_LIVE: &str = "update-live-v1";
 pub const CAP_MAINTENANCE: &str = "maintenance-v1";
 /// Restart of the service or reboot of the host (`RestartStation`).
 pub const CAP_RESTART: &str = "restart-v1";
+/// RF kill switch (`SetRfStandby`, `rf_standby` in the hello): the dashboard's Suspend.
+pub const CAP_RF_STANDBY: &str = "rf-standby-v1";
 
 /// Capability names the station lists in its hello while the switch is on.
 pub fn capabilities(ota_available: bool) -> Vec<String> {
-    let mut caps = vec![CAP_FLEET.to_string(), CAP_MAINTENANCE.to_string(), CAP_RESTART.to_string(), super::metrics::CAP_METRICS.to_string()];
+    let mut caps = vec![CAP_FLEET.to_string(), CAP_MAINTENANCE.to_string(), CAP_RESTART.to_string(), CAP_RF_STANDBY.to_string(), super::metrics::CAP_METRICS.to_string()];
     if super::fleet_config::config_path().is_some() {
         caps.push(super::fleet_config::CAP_CONFIG.to_string());
         caps.push(super::fleet_config::CAP_UNUSED_NETWORKS.to_string());
@@ -95,6 +97,7 @@ pub fn station_hello(shared: &SharedConfig) -> ControlResponse {
         capabilities: if enabled { capabilities(crate::net_dashboard::ota_remote::available()) } else { Vec::new() },
         config_hash: if enabled { super::fleet_config::current_hash() } else { None },
         config_pending: if enabled { super::fleet_config::pending_secs() } else { None },
+        rf_standby: Some(crate::service_control::is_standby()),
     }
 }
 
@@ -184,6 +187,46 @@ pub fn schedule_restart(host: bool) {
         crate::service_control::schedule_host_reboot(Duration::from_secs(5));
     } else {
         crate::service_control::schedule_service_action(crate::service_control::ServiceAction::Restart, Duration::from_secs(5));
+    }
+}
+
+/// Handle `SetRfStandby` (`None` for every other command). `standby_now`: the radio stack is
+/// suspended; `act(true)` suspends it, `act(false)` starts it again.
+pub fn rf_standby_command(
+    command: &ControlCommand,
+    enabled: bool,
+    calls: usize,
+    updating: bool,
+    standby_now: bool,
+    act: impl FnOnce(bool),
+) -> Option<ControlResponse> {
+    let ControlCommand::SetRfStandby { handle, standby, during_call } = command else { return None };
+    let handle = *handle;
+    if !enabled {
+        return Some(off(handle));
+    }
+    if *standby == standby_now {
+        return Some(result(handle, true, code::OK, if standby_now { "RF is already off (standby)" } else { "RF is already on" }));
+    }
+    if updating {
+        return Some(result(handle, false, code::BUSY, "An update is running"));
+    }
+    if *standby && calls > 0 && !during_call {
+        return Some(result(handle, false, code::CALL_ACTIVE, "A call is in progress"));
+    }
+    act(*standby);
+    Some(result(handle, true, code::OK, if *standby { "RF off in 2 s (standby)" } else { "RF on: the service starts again" }))
+}
+
+/// RF kill switch: suspend the radio stack in 2 s (time for the answer to leave), or start it
+/// again (exit 75, a fresh process opens the SDR).
+pub fn set_rf_standby(standby: bool) {
+    if standby {
+        tracing::warn!("Fleet Control: RF kill switch from the Brew server, suspending the radio stack");
+        crate::service_control::schedule_service_action(crate::service_control::ServiceAction::Stop, Duration::from_secs(2));
+    } else {
+        tracing::warn!("Fleet Control: RF on from the Brew server, starting the service again");
+        crate::service_control::request_start();
     }
 }
 
@@ -389,8 +432,8 @@ mod tests {
 
     #[test]
     fn capabilities_list_update_only_with_an_ota() {
-        assert_eq!(capabilities(false), vec!["fleet-v1", "maintenance-v1", "restart-v1", "metrics-v1"]);
-        assert_eq!(capabilities(true), vec!["fleet-v1", "maintenance-v1", "restart-v1", "metrics-v1", "update-v1", "update-live-v1"]);
+        assert_eq!(capabilities(false), vec!["fleet-v1", "maintenance-v1", "restart-v1", "rf-standby-v1", "metrics-v1"]);
+        assert_eq!(capabilities(true), vec!["fleet-v1", "maintenance-v1", "restart-v1", "rf-standby-v1", "metrics-v1", "update-v1", "update-live-v1"]);
     }
 
     fn prog(running: bool, stage: OtaStage, percent: u8) -> Progress {
@@ -461,6 +504,37 @@ mod tests {
     }
 
     #[test]
+    fn rf_standby_outcomes() {
+        let never = |_| panic!("must not switch");
+        let cmd = |standby, during_call| ControlCommand::SetRfStandby { handle: 1, standby, during_call };
+        let run = |c: &ControlCommand, enabled, calls, updating, now, act: &mut dyn FnMut(bool)| code_of(rf_standby_command(c, enabled, calls, updating, now, |s| act(s)).map(UpdateAction::Reply));
+        assert_eq!(run(&cmd(true, false), false, 0, false, false, &mut |_| panic!()), (false, "fleet_control_off".into()));
+        assert_eq!(run(&cmd(true, false), true, 0, true, false, &mut |_| panic!()), (false, "busy".into()));
+        assert_eq!(run(&cmd(true, false), true, 2, false, false, &mut |_| panic!()), (false, "call_active".into()));
+        // Already in the asked state: ok, nothing done (also during an update or a call).
+        assert_eq!(run(&cmd(true, false), true, 2, true, true, &mut |_| panic!()), (true, "ok".into()));
+        assert_eq!(run(&cmd(false, false), true, 0, false, false, &mut |_| panic!()), (true, "ok".into()));
+        let mut asked = None;
+        assert_eq!(run(&cmd(true, true), true, 2, false, false, &mut |s| asked = Some(s)), (true, "ok".into()));
+        assert_eq!(asked, Some(true), "off during a call when asked to");
+        let mut asked = None;
+        assert_eq!(run(&cmd(false, false), true, 1, false, true, &mut |s| asked = Some(s)), (true, "ok".into()));
+        assert_eq!(asked, Some(false), "on again (no call check: nothing is on the air)");
+        assert!(rf_standby_command(&ControlCommand::FleetPing { handle: 1 }, true, 0, false, false, never).is_none());
+        let c = ControlCodecJson.decode_command(br#"{"SetRfStandby":{"handle":7,"standby":true}}"#).unwrap();
+        assert!(matches!(c, ControlCommand::SetRfStandby { handle: 7, standby: true, during_call: false }));
+        assert!(capabilities(false).contains(&CAP_RF_STANDBY.to_string()));
+    }
+
+    #[test]
+    fn hello_says_whether_the_radio_stack_is_suspended() {
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        let shared = SharedConfig::from_parts(cfg, None);
+        let json = serde_json::to_value(station_hello(&shared)).unwrap();
+        assert_eq!(json["StationHello"]["rf_standby"], serde_json::json!(false));
+    }
+
+    #[test]
     fn json_wire_shape() {
         // Externally tagged, as brew-server's `control.rs` parses it (docs: Docs/fleet-control.md).
         let codec = ControlCodecJson;
@@ -474,6 +548,7 @@ mod tests {
             capabilities: vec!["fleet-v1".into()],
             config_hash: None,
             config_pending: None,
+            rf_standby: None,
         };
         let json: serde_json::Value = serde_json::from_slice(&codec.encode_response(&hello)).unwrap();
         assert_eq!(

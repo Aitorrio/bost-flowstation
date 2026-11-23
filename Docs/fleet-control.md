@@ -65,7 +65,7 @@ Only on a control connection whose HTTP 101 names `fleet-control`:
 - `StationHello {protocol: 1, version, brew_login, mcc, mnc, fleet_control,
   capabilities}` right after connecting and whenever the switch changes (also
   to off, so the server can drop the station from its list and log it).
-  `capabilities` is e.g. `["fleet-v1", "maintenance-v1", "restart-v1", "metrics-v1", "config-v1", "update-v1", "update-live-v1"]` while the switch is on
+  `capabilities` is e.g. `["fleet-v1", "maintenance-v1", "restart-v1", "rf-standby-v1", "metrics-v1", "config-v1", "update-v1", "update-live-v1"]` while the switch is on
   (`update-v1` only while the dashboard runs, because the OTA lives there),
   empty while off. A hello is sent again when `update-v1` appears later.
 - `CommandResult {handle, ok, code, message}` for every Fleet Control command.
@@ -192,6 +192,25 @@ service restarts, `host` false, or the host reboots, `host` true, 5 s later),
 (`service_control::schedule_host_reboot`, `systemctl reboot`) needs no sudo or
 polkit rule and works right after a fresh install. The server knows the
 station is back from its next `StationHello`.
+
+## RF kill switch (`rf-standby-v1`)
+
+`SetRfStandby {handle, standby, during_call}` → `CommandResult`. `standby`
+true is the dashboard's **Suspend** (`service_control::schedule_service_action
+(Stop)`, 2 s after the answer): the radio stack stops and the transmitter goes
+off, the process with its dashboard and the control worker (own thread) stay
+up. `standby` false is the dashboard's **Start** (`service_control::
+request_start`, exit 75, systemd brings a fresh process that opens the SDR
+again). Codes: `ok` (also when already in the asked state), `busy` (an update
+is running), `call_active` (switching off during a call without
+`during_call`), `fleet_control_off`. Code `net_control::fleet::
+rf_standby_command` / `set_rf_standby`.
+
+Every `StationHello` carries `rf_standby` (`service_control::is_standby()`);
+the worker sends a new hello when it changes, so a Suspend on the dashboard
+shows on the server too. `FleetMetrics` report `rf: "standby"` per cell while
+suspended. The Brew link stops with the stack, so the server shows the
+station as Standby (control channel up) instead of offline.
 
 ## Station config (`config-v1`)
 
