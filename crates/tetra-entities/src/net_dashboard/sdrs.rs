@@ -18,6 +18,7 @@ use tetra_core::CellId;
 use toml_edit::{DocumentMut, Item, Table, value};
 
 use crate::net_dashboard::cells::{carrier_freqs, validated};
+use crate::net_dashboard::dual_carrier::device_default_sample_rate_hz;
 
 /// Hardware keys the page owns in a cell's `soapysdr` table (plus `rx_gain_*` / `tx_gain_*`).
 const HW_KEYS: &[&str] = &["device", "sample_rate", "ppm_err", "rx_antenna", "tx_antenna", "tx_center_freq", "rx_center_freq"];
@@ -114,7 +115,9 @@ pub fn sdrs_json(text: &str) -> Result<JsonValue, String> {
         out.push(json!({
             "device": device,
             "mode": mode,
-            "sample_rate": soapy.and_then(|s| s.fs),
+            // Without `sample_rate` the SDR runs at its driver's default; show that value.
+            "sample_rate": soapy.and_then(|s| s.fs).unwrap_or_else(|| device_default_sample_rate_hz(Some(device.as_str()))),
+            "sample_rate_default": soapy.and_then(|s| s.fs).is_none(),
             "ppm_err": soapy.map_or(0.0, |s| s.ppm_err),
             "rx_antenna": soapy.and_then(|s| s.rx_ant.clone()),
             "tx_antenna": soapy.and_then(|s| s.tx_ant.clone()),
@@ -254,7 +257,7 @@ fn plan(cfg: &StackConfig, req: &JsonValue) -> Result<Vec<SdrPlan>, String> {
                 carriers.push((i, carrier, dl, ul));
             }
         }
-        let sample_rate = num(s, "sample_rate").filter(|f| *f > 0.0);
+        let sample_rate = num(s, "sample_rate").filter(|f| *f > 0.0).or_else(|| (!device.is_empty()).then(|| device_default_sample_rate_hz(Some(device.as_str()))));
         let (tx_center, rx_center) = if carriers.len() > 1 {
             let fs = sample_rate.ok_or_else(|| format!("{what}: several carriers on one SDR need a sample rate"))?;
             let mid = |f: &dyn Fn(&(usize, u16, u32, u32)) -> u32| {
@@ -547,6 +550,17 @@ colour_code = 1
         assert_eq!((s["device"].clone(), s["mode"].clone()), (json!("driver=plutosdr"), json!("single")));
         assert_eq!(s["rx_gains"]["PGA"], 30.0, "gain names keep their case");
         assert_eq!(s["cells"][0]["main_carrier"], 1528);
+    }
+
+    #[test]
+    fn missing_sample_rate_is_the_drivers_default() {
+        let base = BASE.replace("sample_rate = 1000000\n", "");
+        let v = sdrs_json(&base).unwrap();
+        assert_eq!((v["sdrs"][0]["sample_rate"].clone(), v["sdrs"][0]["sample_rate_default"].clone()), (json!(1000000.0), json!(true)));
+        // Multi-carrier without a typed sample rate uses the Pluto's 1 MHz.
+        let req = json!({"sdrs": [{"device": "driver=plutosdr", "mode": "multi_carrier", "cells": [{"id": 0, "main_carrier": 1528, "secondary_carrier": 1530}]}]});
+        let t = apply_sdrs(&base, &req).unwrap();
+        assert_eq!(parsing::from_toml_str(&t).unwrap().phy_io.soapysdr.unwrap().fs, Some(1_000_000.0));
     }
 
     #[test]

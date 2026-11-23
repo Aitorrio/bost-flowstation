@@ -6418,7 +6418,7 @@ fn serve_dual_carrier_get(mut stream: PrefixedConn, shared_config: &Option<tetra
         .map(|c| c.config().cell.secondary_carrier.is_some())
         .unwrap_or(false);
     let fs_toml = dual_carrier::read_sample_rate_from_toml(config_path);
-    let sample_rate_hz = dual_carrier::effective_sample_rate_hz(fs_toml);
+    let sample_rate_hz = dual_carrier::effective_sample_rate_for(config_path, None);
     let max_delta = dual_carrier::max_carrier_delta(sample_rate_hz);
     let (sec_min, sec_max) = match main_carrier {
         Some(m) => {
@@ -6509,11 +6509,7 @@ fn serve_dual_carrier_post(
         return http_response(stream, 400, "main_carrier unknown — cannot enable dual carrier");
     };
 
-    let fs_hz = dual_carrier::effective_sample_rate_hz(
-        req.get("sample_rate_hz")
-            .and_then(|v| v.as_f64())
-            .or_else(|| dual_carrier::read_sample_rate_from_toml(config_path)),
-    );
+    let fs_hz = dual_carrier::effective_sample_rate_for(config_path, req.get("sample_rate_hz").and_then(|v| v.as_f64()));
 
     let requested = match req.get("secondary_carrier").and_then(|v| v.as_u64()) {
         Some(n) if n >= 4000 => {

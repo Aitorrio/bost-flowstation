@@ -6035,6 +6035,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--bg3) 70%, transparent);}
                         <input type="hidden" id="vc-device" value="">
                       </div>
                       <label class="field"><span>PPM</span><input type="text" inputmode="decimal" id="vc-ppm" class="form-input" value="0" placeholder="e.g. 0 or -1.2" title="Frequency correction in PPM" onblur="normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:false,emptyValue:'0'});this.blur();}" data-i18n-placeholder="cfg_hw_ppm_ph"></label>
+                      <label class="field"><span data-i18n="cfg_hw_fs">Sample rate (MHz)</span><input type="text" inputmode="decimal" id="vc-sample-rate" class="form-input" value="" placeholder="1.0" onblur="onVcSampleRateChange(this)" onkeydown="if(event.key==='Enter'){this.blur();}"></label>
                       <label class="field vc-hw-row" data-hw="ant"><span><span data-i18n="ui_rx_antenna">RX antenna</span></span><select id="vc-rx-ant" class="form-input"><option value="" data-i18n="cfg_hw_ant_default">(default)</option></select></label>
                       <label class="field vc-hw-row" data-hw="ant"><span><span data-i18n="ui_tx_antenna">TX antenna</span></span><select id="vc-tx-ant" class="form-input"><option value="" data-i18n="cfg_hw_ant_default">(default)</option></select></label>
                       <label class="field vc-hw-row" data-hw="rx-lna"><span><span data-i18n="ui_rx_gain_lna">RX gain LNA</span></span><input type="text" inputmode="decimal" id="vc-rx-lna" class="form-input" data-hw-ex="40" placeholder="e.g. 40 — empty = default" onblur="normalizeHwRfField(this,{allowEmpty:true})" onkeydown="if(event.key==='Enter'){normalizeHwRfField(this,{allowEmpty:true});this.blur();}"></label>
@@ -8589,7 +8590,7 @@ const LANGS={
     cfg_live_help:'Changes apply to the active config.toml only — they are not saved into a TMO/Brew profile. Use Apply & Restart to put them on air.',
     cfg_live_apply_confirm:'Write live settings to config.toml and restart?',
     cfg_raw_apply_confirm:'Save raw config.toml and restart?',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',cfg_duplex_hint_9:'Using a non-standard duplex split (e.g. 9 MHz)? Open Advanced RF below, set Custom duplex (MHz) to your split (e.g. 9), then press Auto RX + carrier to fill RX.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frequencies',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'Advanced RF',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'SDR device comes from Setup. Gains/antennas depend on that driver. Use comma or dot; leave empty for device defaults (key omitted from config).',cfg_hw_device:'Device',cfg_hw_ppm_ph:'e.g. 0 or -1.2',cfg_hw_ppm_hint:'Frequency correction in PPM (comma or dot).',cfg_hw_fs:'Sample rate (MHz)',cfg_hw_fs_ph:'empty = {fs} (device default)',cfg_hw_fs_invalid:'Sample rate must be between 0.2 and 61.44 MHz, or empty for the device default.',cfg_hw_gain_ph:'e.g. {ex} — empty = default',cfg_hw_gain_hint:'Soapy gain stage in dB (comma or dot). Empty omits the key — device default. Example only; range is hardware-specific.',cfg_hw_num_invalid:'Enter a number (e.g. 9 or 9,5), or leave empty for device default.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Enter a valid frequency in MHz (e.g. 438.025 or 438,025).',cfg_custom_duplex:'Custom duplex (MHz)',cfg_duplex_invalid:'Enter a valid duplex spacing in MHz (e.g. 7.6 or 7,6), or leave empty.',cfg_duplex_hint_9:'Using a non-standard duplex split (e.g. 9 MHz)? Open Advanced RF below, set Custom duplex (MHz) to your split (e.g. 9), then press Auto RX + carrier to fill RX.',
     cfg_sec_network:'Network',cfg_net_title:'TETRA identity',cfg_la:'Location area',cfg_net_adv:'Advanced network / timers',
     cfg_timers_hint:'Timers: empty/reset = engine default. Tap «?» on each field for details. Call timeout 0 = unlimited; T351 0 = off.',
     cfg_help_tx:'BS downlink (TX) frequency in MHz. Must match radios’ RX. When you leave the field, band, offset, main carrier and RX are calculated from it (with the duplex spacing below); Auto RX + carrier does the same.',
@@ -8607,6 +8608,7 @@ const LANGS={
     cfg_rxlev_min:'Min. access level (dBm)',cfg_rxlev_default:'Default (−110)',cfg_help_rxlev_min:'RXLEV_ACCESS_MIN in SYSINFO (ETSI table 21.65): radios below this level cannot use the cell, and a higher value makes them reselect a better neighbour earlier. −125 to −50 dBm in 5 dB steps; default −110. Use the same value on neighbouring stations or set it per neighbour. See Docs/cell-reselection.md.',cfg_migration:'Migration supported',cfg_help_migration:'BS service details in SYSINFO: migration is supported by this cell (ETSI 18.5.2.1), for radios of another network (other MCC/MNC). Radios of another network are accepted only when [multi_network] is on and lists their network: they get a (V)ASSI (ETSI 16.4.1.1 b, 16.4.7). Otherwise every migrating registration is rejected with cause 12 “Migration not supported”. Turned on by itself while [multi_network] is on. Default off.',cfg_migration_auto:'On by itself: [multi_network] is enabled.',
     cfg_help_hw_device:'SoapySDR device string from Setup. Change device in Setup, not here.',
     cfg_help_ppm:'Frequency correction in PPM (comma or dot). Typically 0, but clone SDRs can be 1–2 kHz off: Sepura radios still register, Hytera radios never find the cell. Measure with an RTL-SDR and tools/carrier-offset.py (Docs/carrier-accuracy.md); a station transmitting low needs a positive value.',
+    cfg_help_sample_rate:'SDR sample rate in MHz. Empty = the driver default: Pluto+ 1 MHz, SXceiver/MuCell 0.6 MHz, LimeSDR/USRP 0.512 MHz. Dual Carrier needs both carriers inside it (25 kHz per carrier step). Cells sharing one SDR must use the same value; the SDRs & cells page sets it for them.',
     cfg_help_rx_ant:'RX antenna port for this SDR driver. Empty = device default.',
     cfg_help_tx_ant:'TX antenna port for this SDR driver. Empty = device default.',
     cfg_help_gain:'Soapy gain stage in dB. Empty omits the key (device default). Range is hardware-specific.',
@@ -8874,6 +8876,8 @@ const LANGS={
     tg_cat_backhaul:'Backhaul Brew up/down',tg_cat_logs:'Log critic (avertismente/erori)',
   },
   de:{
+    cfg_hw_fs:'Sample Rate (MHz)',cfg_hw_fs_ph:'leer = {fs} (Geräte-Default)',cfg_hw_fs_invalid:'Sample Rate muss zwischen 0,2 und 61,44 MHz liegen, oder leer für den Geräte-Default.',
+    cfg_help_sample_rate:'Sample Rate des SDR in MHz. Leer = Default des Treibers: Pluto+ 1 MHz, SXceiver/MuCell 0,6 MHz, LimeSDR/USRP 0,512 MHz. Bei Dual Carrier müssen beide Träger hineinpassen (25 kHz pro Trägerschritt). Zellen auf einem SDR brauchen denselben Wert; die Seite SDRs & Zellen setzt ihn für sie.',
     sdrs:'SDRs & Zellen',sdr_title:'SDRs und ihre Zellen',sdr_help:'Für jedes SDR wählen, wie es läuft: eine Zelle, eine Zelle auf zwei Trägern (Multi-Carrier, eine Zellidentität) oder mehrere Zellen (Multi-Cell, jede mit eigenem Colour Code, Location Area und Netz). SDRs in verschiedenen Modi lassen sich kombinieren. Die Mittenfrequenzen werden aus den Trägern berechnet. Beim Speichern wird die ganze Konfiguration geprüft und die Station neu gestartet.',sdr_save:'Speichern und neu starten',sdr_add_sdr:'SDR hinzufügen',sdr_remove_sdr:'SDR entfernen',sdr_switch:'Seite SDRs & Zellen (Multi-Carrier / Multi-Cell)',sdr_switch_help:'Zeigt die Seite SDRs & Zellen im Menü, auf der jedes SDR als eine Zelle, Multi-Carrier oder Multi-Cell eingestellt wird. Nur das Dashboard ändert sich, die Station läuft wie konfiguriert weiter.',sdr_off:'Die Seite SDRs & Zellen ist ausgeschaltet (Seite System, Funk-Hardware).',sdr_scan_found:'{n} SDR(s) gefunden',sdr_mode_single:'Eine Zelle',sdr_mode_single_h:'ein Träger',sdr_mode_mc:'Multi-Carrier',sdr_mode_mc_h:'eine Zelle auf zwei Trägern',sdr_mode_cells:'Multi-Cell',sdr_mode_cells_h:'mehrere Zellen, jede eigene Identität',sdr_device:'Gerät',sdr_rate:'Abtastrate (MHz)',sdr_ppm:'Frequenzkorrektur (ppm)',sdr_rx_ant:'RX-Antenne',sdr_tx_ant:'TX-Antenne',sdr_rx_gains:'RX-Verstärkung (Name=dB, …)',sdr_tx_gains:'TX-Verstärkung (Name=dB, …)',sdr_th_cell:'Zelle',sdr_th_main:'Hauptträger',sdr_th_second:'2. Träger',sdr_th_move:'Verschieben nach',sdr_second_none:'keiner',sdr_la_inherit:'wie Zelle 0',sdr_cell_primary:'Zelle 0 (primär)',sdr_cell_new:'Neue Zelle',sdr_n:'SDR {n}',sdr_has_primary:'Primärzelle',sdr_confirm_drop:'Nur eine Zelle auf diesem SDR behalten? Beim Speichern werden {n} Zelle(n) entfernt.',sdr_max_cells:'Höchstens {n} Zellen pro Station.',sdr_problem:'Noch nicht gespeichert: {e}',sdr_centres:'{n} Träger · TX-Mitte {tx} MHz · RX-Mitte {rx} MHz',sdr_centre_single:'ein Träger, das SDR stimmt direkt darauf ab',sdr_fits:'passt',sdr_not_ok:'siehe Meldung oben',sdr_confirm_save:'SDRs und Zellen speichern und Station neu starten?',cells_cell:'Zelle {n}',cells_cc:'Colour Code',cells_remove:'Entfernen',cells_add:'Zelle hinzufügen',
     sys_lang:'Standardsprache',sys_lang_browser:'Browser-Sprache (nicht gesetzt)',sys_lang_confirm:'{lang} als Standardsprache der Station setzen? Der FlowStation-Dienst startet neu (ca. 20 s nicht auf Sendung).',
     fleet_off_title:'Flottenkontrolle ausschalten?',fleet_off_body1:'Die Flottenkontrolle wird deaktiviert. Das Remote-Management dieser Basisstation vom Brew-Server aus (Updates, Neustart, Wartung, Konfigurationsänderungen) ist abgeschaltet, bis die Flottenkontrolle hier wieder eingeschaltet wird.',fleet_off_body2:'Bist du wirklich sicher? Der Systemadmin und die Flottenmanager werden verständigt (Eintrag im Change-Log des Brew-Servers).',fleet_off_understood:'Ich habe verstanden',fleet_off_yes:'Ja, ausschalten',cmd_off_title:'Remote Command / Control ausschalten?',cmd_off_body1:'Beim Speichern wird der Steuerkanal zum Server abgeschaltet. Remote-Befehle (Kick, DGNA, SDS, Neustart) und die Flottenkontrolle, also das Remote-Management dieser Basisstation, funktionieren dann nicht mehr, bis er hier wieder eingeschaltet wird.',cmd_off_body2:'Bist du wirklich sicher? Der Systemadmin und die Flottenmanager werden verständigt: Zuerst wird die Flottenkontrolle ausgeschaltet, das trägt der Brew-Server in sein Change-Log ein.',roam_n_mm_hint:'Leer = Netz dieser Zelle ({mm})',
@@ -9193,7 +9197,7 @@ const LANGS={
     cfg_need_name:'Introduce un nombre de perfil.',cfg_need_select:'Selecciona primero un perfil.',
     cfg_deleted:'✓ Eliminado',cfg_applied:'✓ Aplicado — reiniciando…',cfg_updated:'✓ Perfil guardado',
     cfg_apply_confirm:'¿Aplicar los perfiles Cell × Brew seleccionados y reiniciar? Se hará copia de seguridad del config.toml actual.',
-    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',cfg_duplex_hint_9:'¿Usas una separación duplex no estándar (p. ej. 9 MHz)? Abre RF avanzada abajo, pon Duplex personalizado (MHz) en tu separación (p. ej. 9) y pulsa Auto RX + carrier para rellenar RX.',
+    cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_fs:'Sample rate (MHz)',cfg_hw_fs_ph:'vacío = {fs} (default del equipo)',cfg_hw_fs_invalid:'El sample rate debe estar entre 0,2 y 61,44 MHz, o vacío para el default del equipo.',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',cfg_duplex_hint_9:'¿Usas una separación duplex no estándar (p. ej. 9 MHz)? Abre RF avanzada abajo, pon Duplex personalizado (MHz) en tu separación (p. ej. 9) y pulsa Auto RX + carrier para rellenar RX.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
     sds_filter_lip:'LIP',sds_filter_text:'Texto',sds_filter_status:'Estado',sds_filter_concat:'Concat',sds_filter_home:'Pantalla home',sds_filter_other:'Otros',
     rf_freq:'Frecuencia central',rf_rate:'Tasa de muestreo',rf_rms:'RMS',rf_peak:'Pico',rf_age:'Captura',
@@ -9340,6 +9344,7 @@ const LANGS={
     cfg_rxlev_min:'Nivel mín. de acceso (dBm)',cfg_rxlev_default:'Por defecto (−110)',cfg_help_rxlev_min:'RXLEV_ACCESS_MIN en SYSINFO (ETSI tabla 21.65): las radios por debajo de este nivel no pueden usar la celda, y un valor más alto hace que reseleccionen antes una vecina mejor. −125 a −50 dBm en pasos de 5 dB; por defecto −110. Usa el mismo valor en las estaciones vecinas o ajústalo por vecina. Ver Docs/cell-reselection.md.',cfg_migration:'Migración admitida',cfg_help_migration:'Detalles de servicio en SYSINFO: esta celda admite migración (ETSI 18.5.2.1), para radios de otra red (otro MCC/MNC). Las radios de otra red solo se aceptan si [multi_network] está activo y lista su red: reciben una (V)ASSI (ETSI 16.4.1.1 b, 16.4.7). Si no, todo registro migrante se rechaza con la causa 12 “Migration not supported”. Se activa solo mientras [multi_network] está activo. Apagado por defecto.',cfg_migration_auto:'Activa sola: [multi_network] está habilitado.',
     cfg_help_hw_device:'Cadena SoapySDR del dispositivo (viene de Setup). Cambia el SDR en Setup, no aquí.',
     cfg_help_ppm:'Corrección de frecuencia en PPM (coma o punto). Suele ser 0, pero los SDR clónicos pueden desviarse 1–2 kHz: las Sepura registran igual, las Hytera nunca encuentran la celda. Mide con un RTL-SDR y tools/carrier-offset.py (Docs/carrier-accuracy.md); una estación que transmite baja necesita un valor positivo.',
+    cfg_help_sample_rate:'Sample rate del SDR en MHz. Vacío = default del driver: Pluto+ 1 MHz, SXceiver/MuCell 0,6 MHz, LimeSDR/USRP 0,512 MHz. Dual Carrier necesita las dos portadoras dentro (25 kHz por paso de portadora). Las celdas que comparten un SDR deben usar el mismo valor; la página SDR y celdas lo pone por ellas.',
     cfg_help_rx_ant:'Puerto de antena RX del driver. Vacío = default del dispositivo.',
     cfg_help_tx_ant:'Puerto de antena TX del driver. Vacío = default del dispositivo.',
     cfg_help_gain:'Etapa de ganancia Soapy en dB. Vacío omite la clave (default del hardware). El rango depende del SDR.',
@@ -16940,6 +16945,32 @@ function hwRfFamily(device){
   if(d.includes('usrp')||d.includes('b200')||d.includes('b210')||d.includes('uhd'))return 'usrp';
   return null;
 }
+// Sample rate FlowStation uses when [phy_io.soapysdr] sample_rate is not set
+// (soapy_settings.rs: Pluto 1 MS/s, SXceiver/MuCell 600 kHz, everything else 512 kHz).
+function hwDefaultFs(device){
+  const d=(device||'').toLowerCase();
+  if(!d)return 600000;
+  if(d.includes('pluto'))return 1000000;
+  if(d.includes('mucell')||d.includes('mu-cell')||d.includes('sx'))return 600000;
+  return 512000;
+}
+let vcLoadedCenters=null;
+function vcEffectiveFs(){
+  const n=vcNum('vc-sample-rate');
+  return (n!=null&&n>0)?Math.round(n*1e6):hwDefaultFs(vcStr('vc-device'));
+}
+function refreshVcSampleRatePlaceholder(){
+  const el=document.getElementById('vc-sample-rate');if(!el)return;
+  const def=hwDefaultFs(vcStr('vc-device'));
+  el.placeholder=t('cfg_hw_fs_ph').replace('{fs}',String(def/1e6));
+}
+function onVcSampleRateChange(el){
+  normalizeHwRfField(el,{allowEmpty:true});
+  const n=vcNum('vc-sample-rate');
+  if(n!=null&&!(n>=0.2&&n<=61.44)){vcMsg('vc-rf-msg',t('cfg_hw_fs_invalid'),false);el.value='';}
+  dcState.sample_rate_hz=vcEffectiveFs();
+  if(document.getElementById('vc-dual-carrier')?.checked){updateVcDualHint();clampVcSecondaryCarrier();}
+}
 function fillHwAntSelect(id,opts,current){
   const el=document.getElementById(id);if(!el)return;
   const cur=(current!=null&&current!==undefined)?String(current):(el.value||'');
@@ -16955,6 +16986,7 @@ function hwRfGainPlaceholder(ex){
   return t('cfg_hw_gain_ph').replace('{ex}',String(ex!=null&&ex!==''?ex:'0'));
 }
 function refreshHwRfPlaceholders(){
+  refreshVcSampleRatePlaceholder();
   const ppm=document.getElementById('vc-ppm');
   if(ppm){
     ppm.placeholder=t('cfg_hw_ppm_ph');
@@ -17000,7 +17032,7 @@ const CFG_HELP_BY_ID={
   'vc-dual-carrier':'cfg_dual_help','vc-secondary-carrier':'cfg_dual_help',
   'vc-main-carrier':'cfg_help_main_carrier','vc-freq-band':'cfg_help_freq_band','vc-duplex-id':'cfg_help_duplex_id',
   'vc-custom-duplex':'cfg_help_custom_duplex','vc-freq-offset':'cfg_help_freq_offset','vc-reverse':'cfg_help_reverse','vc-rxlev-min':'cfg_help_rxlev_min','vc-migration':'cfg_help_migration',
-  'vc-device':'cfg_help_hw_device','vc-ppm':'cfg_help_ppm','vc-rx-ant':'cfg_help_rx_ant','vc-tx-ant':'cfg_help_tx_ant',
+  'vc-device':'cfg_help_hw_device','vc-ppm':'cfg_help_ppm','vc-sample-rate':'cfg_help_sample_rate','vc-rx-ant':'cfg_help_rx_ant','vc-tx-ant':'cfg_help_tx_ant',
   'vc-rx-lna':'cfg_help_gain','vc-rx-tia':'cfg_help_gain','vc-rx-pga':'cfg_help_gain',
   'vc-tx-pad':'cfg_help_gain','vc-tx-iamp':'cfg_help_gain','vc-tx-dac':'cfg_help_gain','vc-tx-mixer':'cfg_help_gain','vc-tx-pga':'cfg_help_gain',
   'vc-mcc':'cfg_help_mcc','vc-mnc':'cfg_help_mnc','vc-la':'cfg_help_la','vc-tz':'cfg_help_tz',
@@ -17150,11 +17182,22 @@ function collectVisualConfig(){
   const main=cell_info.main_carrier??0;
   const want=vcNum('vc-secondary-carrier');
   if(want!=null||dualOn){
-    cell_info.secondary_carrier=clampSecondaryCarrier(main,want==null?main+1:want,dcState.sample_rate_hz||600000);
+    cell_info.secondary_carrier=clampSecondaryCarrier(main,want==null?main+1:want,vcEffectiveFs());
   }
-  if(dualOn){
+  const fsField=vcNum('vc-sample-rate');
+  if(fsField!=null&&fsField>0){
+    soapysdr.sample_rate=Math.round(fsField*1e6);
+  } else if(dualOn){
     // Persist effective Fs so dual-carrier validate() succeeds (device default if unset).
-    soapysdr.sample_rate=dcState.sample_rate_hz||600000;
+    soapysdr.sample_rate=vcEffectiveFs();
+  }
+  // Centers: with Dual Carrier the server recomputes them. Otherwise keep the ones the file
+  // had (the SDRs & cells page sets them for cells sharing one SDR), unless Dual Carrier was
+  // just switched off on this page.
+  if(!dualOn&&vcLoadedCenters&&!vcLoadedCenters.dual){
+    if(vcLoadedCenters.tx!=null)soapysdr.tx_center_freq=vcLoadedCenters.tx;
+    if(vcLoadedCenters.rx!=null)soapysdr.rx_center_freq=vcLoadedCenters.rx;
+    if(soapysdr.sample_rate==null&&vcLoadedCenters.fs!=null)soapysdr.sample_rate=vcLoadedCenters.fs;
   }
   const customDuplex=mhzFieldToHz('vc-custom-duplex'); if(customDuplex!==null)cell_info.custom_duplex_spacing=customDuplex;
   const tz=vcStr('vc-tz'); if(tz)cell_info.timezone=tz;
@@ -17214,7 +17257,14 @@ function fillVisualConfig(d,opts){
       || (cell.secondary_carrier!=null && cell.dual_carrier_enabled!==false);
   }
   if(cell.secondary_carrier!=null)vcSet('vc-secondary-carrier',cell.secondary_carrier);
-  if(soapy.sample_rate)dcState.sample_rate_hz=Number(soapy.sample_rate);
+  vcSet('vc-sample-rate',soapy.sample_rate?formatHwRfNumber(Number(soapy.sample_rate)/1e6):'');
+  refreshVcSampleRatePlaceholder();
+  dcState.sample_rate_hz=soapy.sample_rate?Number(soapy.sample_rate):hwDefaultFs(soapy.device);
+  vcLoadedCenters=(soapy.tx_center_freq!=null||soapy.rx_center_freq!=null)?{
+    tx:soapy.tx_center_freq!=null?Number(soapy.tx_center_freq):null,
+    rx:soapy.rx_center_freq!=null?Number(soapy.rx_center_freq):null,
+    fs:soapy.sample_rate?Number(soapy.sample_rate):null,
+    dual:!!(dualEl&&dualEl.checked)}:null;
   onVcDualCarrierChange();
   vcSet('vc-duplex-id',cell.duplex_spacing??4);
   vcSet('vc-custom-duplex', (cell.custom_duplex_spacing!=null && cell.custom_duplex_spacing!=='')
