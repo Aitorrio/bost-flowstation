@@ -629,10 +629,11 @@ impl BsChannelScheduler {
         buf
     }
 
-    // pub fn set_scrambling_code(&mut self, scrambling_code: u32) {
-    //     self.scrambling_code = scrambling_code;
-    //     unimplemented!("need to refresh some msgs possibly");
-    // }
+    /// New scrambling code after a live change of colour code or MCC/MNC. The SYNC/SYSINFO PDUs
+    /// that carry them come from [`Self::set_precomps`].
+    pub fn set_scrambling_code(&mut self, scrambling_code: u32) {
+        self.scrambling_code = scrambling_code;
+    }
 
     /// Replace the precomputed SYNC/SYSINFO PDUs after a live config reload. The time, hyperframe
     /// and key id fields are rewritten every tick; the system-wide-services flag is kept.

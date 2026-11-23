@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+use std::time::Duration;
+use tetra_entities::live_link::LiveLink;
 use tetra_core::tetra_entities::TetraEntity;
 use tetra_entities::net_control::channel::build_all_control_links;
 use tetra_entities::net_control::{
@@ -132,56 +134,80 @@ fn ca_certs_or_none(link: &str, path: &str) -> Vec<rustls::pki_types::Certificat
     }
 }
 
-fn start_telemetry_worker(cfg: SharedConfig, telemetry_source: TelemetrySource) -> thread::JoinHandle<()> {
-    let config = cfg.config();
-    let tcfg = config.telemetry.as_ref().unwrap();
-
-    let custom_root_certs = tcfg.ca_cert.as_deref().map(|path| ca_certs_or_none("telemetry", path));
-
-    let ws_config = WebSocketTransportConfig {
-        host: tcfg.host.clone(),
-        port: tcfg.port,
-        use_tls: tcfg.use_tls,
+/// Transport settings for a `[telemetry]` / `[control]` link, `None` when the section is absent.
+fn link_transport(link: &str, section: Option<(&str, u16, bool, Option<(String, String)>, Option<&str>)>, protocol: &str, heartbeat: (Duration, Duration)) -> Option<WebSocketTransport> {
+    let (host, port, use_tls, credentials, ca_cert) = section?;
+    Some(WebSocketTransport::new(WebSocketTransportConfig {
+        host: host.to_string(),
+        port,
+        use_tls,
         digest_auth_credentials: None,
-        basic_auth_credentials: tcfg.credentials.clone(),
+        basic_auth_credentials: credentials,
         endpoint_path: "/".to_string(),
-        subprotocol: Some(TELEMETRY_PROTOCOL_VERSION.to_string()),
+        subprotocol: Some(protocol.to_string()),
         user_agent: format!("BlueStation/{}", tetra_core::STACK_VERSION),
-        heartbeat_interval: TELEMETRY_HEARTBEAT_INTERVAL,
-        heartbeat_timeout: TELEMETRY_HEARTBEAT_TIMEOUT,
-        custom_root_certs,
-    };
+        heartbeat_interval: heartbeat.0,
+        heartbeat_timeout: heartbeat.1,
+        custom_root_certs: ca_cert.map(|path| ca_certs_or_none(link, path)),
+    }))
+}
 
+fn telemetry_transport(c: &StackConfig) -> Option<WebSocketTransport> {
+    let t = c.telemetry.as_ref();
+    link_transport(
+        "telemetry",
+        t.map(|t| (t.host.as_str(), t.port, t.use_tls, t.credentials.clone(), t.ca_cert.as_deref())),
+        TELEMETRY_PROTOCOL_VERSION,
+        (TELEMETRY_HEARTBEAT_INTERVAL, TELEMETRY_HEARTBEAT_TIMEOUT),
+    )
+}
+
+fn control_transport(c: &StackConfig) -> Option<WebSocketTransport> {
+    let t = c.control.as_ref();
+    link_transport(
+        "control",
+        t.map(|t| (t.host.as_str(), t.port, t.use_tls, t.credentials.clone(), t.ca_cert.as_deref())),
+        CONTROL_PROTOCOL_VERSION,
+        (CONTROL_HEARTBEAT_INTERVAL, CONTROL_HEARTBEAT_TIMEOUT),
+    )
+}
+
+/// A transport that is never connected, for a link that is not configured yet (the worker idles
+/// until a live reload adds the section).
+fn idle_transport() -> WebSocketTransport {
+    WebSocketTransport::new(WebSocketTransportConfig {
+        host: String::new(),
+        port: 0,
+        use_tls: false,
+        digest_auth_credentials: None,
+        basic_auth_credentials: None,
+        endpoint_path: "/".to_string(),
+        subprotocol: None,
+        user_agent: String::new(),
+        heartbeat_interval: Duration::from_secs(60),
+        heartbeat_timeout: Duration::from_secs(60),
+        custom_root_certs: None,
+    })
+}
+
+fn start_telemetry_worker(cfg: SharedConfig, telemetry_source: TelemetrySource) -> thread::JoinHandle<()> {
+    let first = telemetry_transport(&cfg.config());
+    let enabled = first.is_some();
+    let live = LiveLink::new(cfg, |c| format!("{:?}", c.telemetry), Box::new(telemetry_transport));
     thread::spawn(move || {
-        let transport = WebSocketTransport::new(ws_config);
-        let mut worker = TelemetryWorker::new(telemetry_source, transport);
+        let transport = first.unwrap_or_else(idle_transport);
+        let mut worker = TelemetryWorker::new(telemetry_source, transport).with_live(live, enabled);
         worker.run();
     })
 }
 
 fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEntity, CommandDispatcher>) -> thread::JoinHandle<()> {
-    let config = cfg.config();
-    let ccfg = config.control.as_ref().unwrap();
-
-    let custom_root_certs = ccfg.ca_cert.as_deref().map(|path| ca_certs_or_none("control", path));
-
-    let ws_config = WebSocketTransportConfig {
-        host: ccfg.host.clone(),
-        port: ccfg.port,
-        use_tls: ccfg.use_tls,
-        digest_auth_credentials: None,
-        basic_auth_credentials: ccfg.credentials.clone(),
-        endpoint_path: "/".to_string(),
-        subprotocol: Some(CONTROL_PROTOCOL_VERSION.to_string()),
-        user_agent: format!("BlueStation/{}", tetra_core::STACK_VERSION),
-        heartbeat_interval: CONTROL_HEARTBEAT_INTERVAL,
-        heartbeat_timeout: CONTROL_HEARTBEAT_TIMEOUT,
-        custom_root_certs,
-    };
-
+    let first = control_transport(&cfg.config());
+    let enabled = first.is_some();
+    let live = LiveLink::new(cfg.clone(), |c| format!("{:?}", c.control), Box::new(control_transport));
     thread::spawn(move || {
-        let transport = WebSocketTransport::new(ws_config);
-        let mut worker = ControlWorker::new(command_dispatchers, transport).with_shared(cfg);
+        let transport = first.unwrap_or_else(idle_transport);
+        let mut worker = ControlWorker::new(command_dispatchers, transport).with_shared(cfg).with_live(live, enabled);
         worker.run();
     })
 }
@@ -443,16 +469,12 @@ fn wrap_network_entity(entity: Box<dyn TetraEntityTrait>, cfg: &SharedConfig, si
     }
 }
 
-/// The WAP status pages consume live telemetry even on an otherwise headless station.
-fn needs_telemetry(cfg: &SharedConfig) -> bool {
-    let config = cfg.config();
-    config.telemetry.is_some()
-        || config.dashboard.is_some()
-        || config.telegram.is_some()
-        || config.geoalarm.enabled
-        || cfg.effective_snom_notify().enabled
-        || config.cell.wap_enabled()
-        || config.extra_cells.iter().any(|cell| cell.cell.wap_enabled())
+/// The telemetry stream always runs: the telemetry link, Telegram alerts, the dashboard, geo-fence
+/// alarms, Snom notifications and the WAP status pages can all be switched on at run time (live
+/// configuration reload), so their consumers must find the stream already there. Costs one channel
+/// and one idle thread on a headless station.
+fn needs_telemetry(_cfg: &SharedConfig) -> bool {
+    true
 }
 
 fn build_bs_stack(
@@ -492,38 +514,43 @@ fn build_bs_stack(
         // Background lite stack-health monitor — samples the global health registry and emits a
         // HealthSnapshot through telemetry (→ dashboard tile + Telegram alerts). Tunable via the
         // `[health]` config section; observe-only unless `restart_on_core_stall` is enabled.
-        let hcfg = cfg.config().health.clone();
-        if hcfg.enabled {
+        {
             use std::time::Duration;
             // The backhaul indicator follows the primary cell's network; other networks' links
             // show per cell in the Cells card.
             tetra_entities::health::registry().set_brew_configured(cfg.config().brew.is_some());
-            tetra_entities::health::spawn_health_monitor(
+            // The cooldown has to survive the restart it triggers, otherwise a stall that
+            // reproduces at boot reboots forever. Stamp file next to the config, same
+            // convention as recovery_cache.json.
+            let state_path = std::path::Path::new(config_path)
+                .parent()
+                .map(|d| d.join("health_restart_state"))
+                .unwrap_or_else(|| std::path::PathBuf::from("health_restart_state"));
+            // Read again every cycle, so `[health]` changes apply without a restart.
+            let health_cfg = cfg.clone();
+            tetra_entities::health::spawn_health_monitor_live(
                 sink.clone(),
-                tetra_entities::health::HealthMonitorConfig {
-                    snapshot_interval: Duration::from_secs(hcfg.snapshot_interval_secs),
-                    thresholds: tetra_entities::health::HealthThresholds {
-                        core_stall_critical_ms: hcfg.core_stall_secs.saturating_mul(1000),
-                        radios_silent_degraded_secs: hcfg.radios_silent_secs,
-                        periodic_registration_secs: cfg.config().cell.periodic_registration_secs as u64,
-                        dl_queue_degraded: hcfg.dl_queue_degraded as usize,
-                        dl_queue_critical: hcfg.dl_queue_critical as usize,
-                        sds_queue_degraded: hcfg.sds_queue_degraded as usize,
-                        sds_queue_critical: hcfg.sds_queue_critical as usize,
-                    },
-                    restart_on_core_stall: hcfg.restart_on_core_stall,
-                    restart_after_critical: Duration::from_secs(hcfg.restart_after_critical_secs),
-                    restart_cooldown: Duration::from_secs(hcfg.restart_cooldown_secs),
-                    // The cooldown has to survive the restart it triggers, otherwise a stall that
-                    // reproduces at boot reboots forever. Stamp file next to the config, same
-                    // convention as recovery_cache.json.
-                    restart_state_path: Some(
-                        std::path::Path::new(config_path)
-                            .parent()
-                            .map(|d| d.join("health_restart_state"))
-                            .unwrap_or_else(|| std::path::PathBuf::from("health_restart_state")),
-                    ),
-                },
+                Box::new(move || {
+                    let config = health_cfg.config();
+                    let hcfg = &config.health;
+                    tetra_entities::health::HealthMonitorConfig {
+                        enabled: hcfg.enabled,
+                        snapshot_interval: Duration::from_secs(hcfg.snapshot_interval_secs),
+                        thresholds: tetra_entities::health::HealthThresholds {
+                            core_stall_critical_ms: hcfg.core_stall_secs.saturating_mul(1000),
+                            radios_silent_degraded_secs: hcfg.radios_silent_secs,
+                            periodic_registration_secs: config.cell.periodic_registration_secs as u64,
+                            dl_queue_degraded: hcfg.dl_queue_degraded as usize,
+                            dl_queue_critical: hcfg.dl_queue_critical as usize,
+                            sds_queue_degraded: hcfg.sds_queue_degraded as usize,
+                            sds_queue_critical: hcfg.sds_queue_critical as usize,
+                        },
+                        restart_on_core_stall: hcfg.restart_on_core_stall,
+                        restart_after_critical: Duration::from_secs(hcfg.restart_after_critical_secs),
+                        restart_cooldown: Duration::from_secs(hcfg.restart_cooldown_secs),
+                        restart_state_path: Some(state_path.clone()),
+                    }
+                }),
             );
         }
     }
@@ -619,6 +646,7 @@ fn build_bs_stack(
     if cfg.config().asterisk.enabled {
         match AsteriskEntity::new(cfg.clone()) {
             Ok(asterisk_entity) => {
+                tetra_entities::config_reload::ASTERISK_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
                 // Multi-cell: wrapped so radios on every cell can use the SIP bridge.
                 let entity: Box<dyn TetraEntityTrait> = match asterisk_relay {
                     Some((ports, extra, directory)) => Box::new(SiteRelay::new(Box::new(asterisk_entity), cfg, &extra, ports, directory)),
@@ -739,7 +767,7 @@ fn main() {
 
     // If the dashboard OR Telegram alerts are enabled, set up the log capture channel BEFORE
     // logging initialises (Telegram forwards WARN/ERROR lines as its critical-status catch-all).
-    let dashboard_log_rx = if cfg.config().dashboard.is_some() || cfg.config().telegram.is_some() {
+    let dashboard_log_rx = if true {
         let (tx, rx) = crossbeam_channel::bounded::<(String, String)>(4096);
         debug::set_dashboard_log_sender(tx);
         Some(rx)
@@ -870,14 +898,12 @@ fn main() {
     // Start Telemetry and Control threads, if enabled
     // If dashboard is also enabled, tee the telemetry events to both.
     if let Some(telemetry_source) = tsource {
-        let has_telemetry_server = cfg.config().telemetry.is_some();
         let has_dashboard = cfg.config().dashboard.is_some();
-        let has_telegram = cfg.config().telegram.is_some();
 
         // Telegram alerter — independent of the dashboard. Spawned whenever [telegram_alerts]
         // exists; it idles when alerts are disabled and reads settings live via
         // effective_telegram(), so toggling from the dashboard takes effect without a restart.
-        let alert_sink = if has_telegram {
+        let alert_sink = if true {
             let (sink, alert_source) = telegram_alert_channel();
             let alert_cfg = cfg.clone();
             let snom_for_alerts = snom_notify_sink.clone();
@@ -1013,11 +1039,9 @@ fn main() {
 
         // Single telemetry consumer: fan each event out to the dashboard, the Telegram alerter, and
         // the network telemetry worker — each independently optional.
-        let (tee_sink, tee_source) = if has_telemetry_server {
+        let (tee_sink, tee_source) = {
             let (a, b) = telemetry_channel();
             (Some(a), Some(b))
-        } else {
-            (None, None)
         };
         {
             let dash = dashboard.clone();
@@ -1121,9 +1145,7 @@ fn main() {
         }
     };
 
-    if cfg.config().control.is_some() {
-        start_control_worker(cfg.clone(), cdispatchers);
-    };
+    start_control_worker(cfg.clone(), cdispatchers);
 
     // DAPNET worker — off-path; idles when disabled and reads settings live.
     spawn_dapnet_worker(cfg.clone(), dapnet_cmd_tx, dapnet_telegram_sink, dapnet_telemetry_sink);
@@ -1231,9 +1253,9 @@ mod telemetry_tests {
     }
 
     #[test]
-    fn headless_without_consumers_needs_no_telemetry() {
+    fn headless_station_still_runs_the_telemetry_stream() {
         let cfg = SharedConfig::try_from_parts(headless_config(), None).unwrap();
-        assert!(!needs_telemetry(&cfg));
+        assert!(needs_telemetry(&cfg), "consumers can be enabled live, so the stream is always there");
     }
 
     #[test]

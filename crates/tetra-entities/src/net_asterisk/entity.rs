@@ -268,10 +268,13 @@ pub struct AsteriskEntity {
     last_rx: Option<String>,
     last_tx: Option<String>,
     last_error: Option<String>,
+    /// Config generation `asterisk_config` and the sockets were built from.
+    config_generation: u64,
 }
 
 impl AsteriskEntity {
     pub fn new(config: SharedConfig) -> io::Result<Self> {
+        let config_generation = config.config_generation();
         let asterisk_config = config.config().asterisk.clone();
         let bind = format!("{}:{}", asterisk_config.bind_addr, asterisk_config.bind_port);
         let sip_socket = UdpSocket::bind(bind)?;
@@ -304,9 +307,56 @@ impl AsteriskEntity {
             last_rx: None,
             last_tx: None,
             last_error: None,
+            config_generation,
         };
         entity.refresh_status();
         Ok(entity)
+    }
+
+    /// Follow a live configuration reload: rebind the SIP socket, re-resolve the PBX and the
+    /// allowed peers and register again. Waits until no dialog is open (a call keeps the settings
+    /// it was set up with); a change that cannot be applied (address does not resolve, port in
+    /// use) leaves the running settings as they are and is reported as the last error.
+    fn reconfigure(&mut self) {
+        let generation = self.config.config_generation();
+        if generation == self.config_generation {
+            return;
+        }
+        let new = self.config.config().asterisk.clone();
+        if format!("{:?}", new) == format!("{:?}", self.asterisk_config) {
+            self.config_generation = generation;
+            return;
+        }
+        if !self.dialogs.is_empty() {
+            return; // try again once the calls are over
+        }
+        self.config_generation = generation;
+        let remote = match (new.remote_host.as_str(), new.remote_port).to_socket_addrs().ok().and_then(|mut a| a.next()) {
+            Some(r) => r,
+            None => {
+                self.set_error("configuration reload: the PBX address does not resolve, keeping the previous settings");
+                return;
+            }
+        };
+        if (&new.bind_addr, new.bind_port) != (&self.asterisk_config.bind_addr, self.asterisk_config.bind_port) {
+            match UdpSocket::bind(format!("{}:{}", new.bind_addr, new.bind_port)).and_then(|s| s.set_nonblocking(true).map(|_| s)) {
+                Ok(socket) => self.sip_socket = socket,
+                Err(e) => {
+                    self.set_error(format!("configuration reload: cannot listen on {}:{} ({e}), keeping the previous settings", new.bind_addr, new.bind_port));
+                    return;
+                }
+            }
+        }
+        self.remote = remote;
+        self.allowed_peers = resolve_allowed_peers(&new.allow_from);
+        self.next_rtp_port = new.rtp_port_min;
+        self.register_call_id = format!("flow-reg-{}@{}", Uuid::new_v4(), new.contact_host);
+        self.register_auth = None;
+        self.register_status = "not registered".to_string();
+        self.last_register = None;
+        self.last_options = None;
+        self.asterisk_config = new;
+        tracing::info!("AsteriskEntity: configuration reloaded");
     }
 
     fn sip_listen(&self) -> String {
@@ -1702,6 +1752,12 @@ impl TetraEntityTrait for AsteriskEntity {
     }
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
+        self.reconfigure();
+        if !self.asterisk_config.enabled && self.dialogs.is_empty() {
+            // Switched off at run time: stay quiet (no REGISTER, no OPTIONS) until switched on.
+            self.refresh_status();
+            return;
+        }
         self.maybe_periodic_sip();
         self.poll_sip(queue);
         self.poll_rtp(queue, ts);

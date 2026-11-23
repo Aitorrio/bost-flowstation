@@ -43,6 +43,8 @@ pub struct LmacBs {
     /// Cached from global config
     stack_mode: StackMode,
     scrambling_code: u32,
+    /// Config generation the scrambling code was derived from.
+    config_generation: u64,
 
     /// Traffic channels and associated state
     // ul_circuits: [Option<LmacTrafficChan>; 4],
@@ -81,6 +83,7 @@ impl LmacBs {
             config,
             stack_mode,
             scrambling_code: sc,
+            config_generation: 0,
 
             dltime: TdmaTime::default(),
             uplink_phy_chan: HashMap::new(),
@@ -586,5 +589,12 @@ impl TetraEntityTrait for LmacBs {
 
     fn tick_start(&mut self, _queue: &mut MessageQueue, ts: TdmaTime) {
         self.dltime = ts;
+        let generation = self.config.config_generation();
+        if generation != self.config_generation {
+            // Live reload: colour code or MCC/MNC may have changed.
+            self.config_generation = generation;
+            let c = self.config.config();
+            self.scrambling_code = scrambler::tetra_scramb_get_init(c.net.mcc, c.net.mnc, c.cell.colour_code);
+        }
     }
 }
