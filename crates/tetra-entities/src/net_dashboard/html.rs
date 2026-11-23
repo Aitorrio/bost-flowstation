@@ -19831,14 +19831,9 @@ async function loadDualCarrier(){
     updateVcDualHint();
   }catch{}
 }
+// Dual Carrier (second carrier) is set per cell on the Cells page.
 function gotoDualCarrierConfig(){
-  showPage('config',document.getElementById('nav-config'));
-  setTimeout(()=>{
-    const el=document.getElementById('vc-dual-carrier')||document.getElementById('vc-main-carrier');
-    const details=el?.closest('details');
-    if(details)details.open=true;
-    el?.scrollIntoView({behavior:'smooth',block:'center'});
-  },120);
+  showPage('sdrs',document.getElementById('nav-sdrs'));
 }
 let cellsCache=null;
 async function loadCells(){
