@@ -910,6 +910,17 @@ main_carrier_number = 1586
     }
 
     #[test]
+    fn an_empty_ca_cert_means_no_ca_file() {
+        let empty = minimal_toml("")
+            + "\n[telemetry]\nhost = \"t.example\"\nport = 443\nuse_tls = false\nca_cert = \"\"\n\n[command]\nhost = \"c.example\"\nport = 443\nuse_tls = true\nca_cert = \" \"\n";
+        let cfg = from_toml_str(&empty).expect("an empty ca_cert needs no TLS and is no file");
+        assert!(cfg.telemetry.unwrap().ca_cert.is_none() && cfg.control.unwrap().ca_cert.is_none());
+
+        let set = minimal_toml("") + "\n[command]\nhost = \"c.example\"\nport = 443\nuse_tls = false\nca_cert = \"/etc/ssl/certs/ca.der\"\n";
+        assert!(from_toml_str(&set).is_err(), "a CA file still needs TLS");
+    }
+
+    #[test]
     fn telegram_alerts_section_parses() {
         let toml = minimal_toml("")
             + r#"

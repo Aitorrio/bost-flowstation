@@ -59,7 +59,9 @@ fn default_enabled() -> bool {
 ///
 /// Returns an error string if `ca_cert` is set but `use_tls` is `false`.
 pub fn apply_control_patch(src: CfgControlDto) -> Result<CfgControl, String> {
-    if src.ca_cert.is_some() && !src.use_tls {
+    // `ca_cert = ""` is the same as no CA file: the system CAs are trusted.
+    let ca_cert = src.ca_cert.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+    if ca_cert.is_some() && !src.use_tls {
         return Err("control: ca_cert requires use_tls = true".to_string());
     }
 
@@ -72,7 +74,7 @@ pub fn apply_control_patch(src: CfgControlDto) -> Result<CfgControl, String> {
             (None, None) => None,
             _ => return Err("control: both username and password must be set for credentials".to_string()),
         },
-        ca_cert: src.ca_cert,
+        ca_cert,
         fleet_control: src.fleet_control,
     })
 }

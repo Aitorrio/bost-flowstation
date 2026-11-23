@@ -442,9 +442,11 @@ fn link_section_json(table: &Table, key: &str) -> JsonValue {
 
 /// A `[telemetry]` / `[command]` link from the page: `{"enabled": bool, "host": s, "port": N,
 /// "use_tls": bool, "username": s, "password": s}` plus, for telemetry, `"site_name": s,
-/// "latitude": x, "longitude": x` (both or neither). Keys the page does not edit (`ca_cert`) stay
-/// as they are; an empty password keeps the saved one, an empty username removes the login. Off
-/// with nothing filled in removes the section; off with values keeps them with `enabled = false`.
+/// "latitude": x, "longitude": x` (both or neither). `"ca_cert": s` sets the CA certificate file
+/// (an absolute path to a readable DER or PEM certificate, needs TLS); empty removes it, missing
+/// keeps it (older pages and scripts). An empty password keeps the saved one, an empty username
+/// removes the login. Off with nothing filled in removes the section; off with values keeps them
+/// with `enabled = false`.
 pub(crate) fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) -> Result<(), String> {
     let obj = v.as_object().ok_or_else(|| format!("{key} must be an object"))?;
     let enabled = match obj.get("enabled") {
@@ -471,6 +473,13 @@ pub(crate) fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) ->
         None | Some(JsonValue::Null) => true,
         Some(v) => v.as_bool().ok_or_else(|| format!("{key}.use_tls must be true or false"))?,
     };
+    // None: the page did not send it, keep the saved one. Some(""): remove it.
+    let ca_cert = obj.get("ca_cert").filter(|v| !v.is_null()).map(|v| {
+        v.as_str().map(|p| p.trim().to_string()).ok_or_else(|| format!("{key}.ca_cert must be a path"))
+    }).transpose()?;
+    if let Some(path) = ca_cert.as_deref().filter(|p| !p.is_empty()) {
+        check_ca_cert(key, path, use_tls)?;
+    }
     let username = text("username");
     // The password is taken as typed (no trim): spaces may be part of it.
     let password = obj.get("password").and_then(|v| v.as_str()).unwrap_or_default().to_string();
@@ -484,6 +493,20 @@ pub(crate) fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) ->
     section.insert("host".into(), TomlValue::String(host));
     section.insert("port".into(), TomlValue::Integer(port));
     section.insert("use_tls".into(), TomlValue::Boolean(use_tls));
+    match ca_cert {
+        Some(p) if p.is_empty() => {
+            section.remove("ca_cert");
+        }
+        Some(p) => {
+            section.insert("ca_cert".into(), TomlValue::String(p));
+        }
+        None => {
+            // A kept CA file still needs TLS (the config check refuses it otherwise).
+            if !use_tls && section.contains_key("ca_cert") {
+                return Err(format!("{key}.ca_cert needs TLS: switch TLS on or remove the CA certificate"));
+            }
+        }
+    }
     if username.is_empty() {
         section.remove("username");
         section.remove("password");
@@ -526,6 +549,18 @@ pub(crate) fn apply_link_section(table: &mut Table, key: &str, v: &JsonValue) ->
         }
     }
     Ok(())
+}
+
+/// A `ca_cert` from the page: an absolute path to a certificate the station can read now, so a
+/// typo is refused at save instead of breaking the link after the restart.
+fn check_ca_cert(key: &str, path: &str, use_tls: bool) -> Result<(), String> {
+    if !use_tls {
+        return Err(format!("{key}.ca_cert needs TLS: switch TLS on or remove the CA certificate"));
+    }
+    if !path.starts_with('/') || path.chars().any(char::is_control) {
+        return Err(format!("{key}.ca_cert: an absolute path such as /etc/ssl/certs/ca.der"));
+    }
+    crate::network::transports::websocket::load_ca_certs(path).map(|_| ()).map_err(|e| format!("{key}.ca_cert: {e}"))
 }
 
 pub(crate) fn int_in(v: &JsonValue, what: &str, min: i64, max: i64) -> Result<i64, String> {
@@ -829,7 +864,7 @@ main_carrier = 1525
                 let _ = std::fs::remove_file(&self.0);
             }
         }
-        fn rand_suffix() -> u128 {
+        pub fn rand_suffix() -> u128 {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         }
     }
@@ -1259,5 +1294,55 @@ main_carrier = 1525
         for body in bad {
             assert!(apply_roaming(BASE, &body).is_err(), "accepted {body}");
         }
+    }
+
+    /// `ca_cert` from the page: set (DER or PEM, needs TLS and a readable file), kept when the
+    /// page does not send it, removed when the field is empty.
+    #[test]
+    fn link_ca_cert_is_set_checked_kept_and_cleared() {
+        let dir = std::env::temp_dir().join(format!("roaming-ca-{}-{}", std::process::id(), tempfile_path::rand_suffix()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let der = dir.join("ca.der");
+        std::fs::write(&der, [0x30u8, 0x82, 0x01, 0x0a, 0x30, 0x82]).unwrap();
+        let pem = dir.join("ca.pem");
+        std::fs::write(&pem, "-----BEGIN CERTIFICATE-----\nMAMCAQA=\n-----END CERTIFICATE-----\n").unwrap();
+        let junk = dir.join("junk.txt");
+        std::fs::write(&junk, "hello").unwrap();
+        let (der, pem, junk) = (der.to_str().unwrap(), pem.to_str().unwrap(), junk.to_str().unwrap());
+        let link = |ca: JsonValue, tls: bool| json!({"command": {"enabled": true, "host": "control.example", "port": 443, "use_tls": tls, "username": "", "password": "", "ca_cert": ca}});
+
+        // Set, with surrounding spaces trimmed: the config check and the start-up read it.
+        let text = apply_roaming(BASE, &link(json!(format!(" {der} ")), true)).unwrap();
+        assert_eq!(parsing::from_toml_str(&text).unwrap().control.unwrap().ca_cert.as_deref(), Some(der));
+        let f = write(&text);
+        assert_eq!(roaming_json(f.str(), None).unwrap()["command"]["ca_cert"], der);
+        let text = apply_roaming(&text, &link(json!(pem), true)).unwrap();
+        assert!(text.contains(pem), "{text}");
+
+        // Not sent (older page or script): kept.
+        let mut keep = link(JsonValue::Null, true);
+        keep["command"].as_object_mut().unwrap().remove("ca_cert");
+        let kept = apply_roaming(&text, &keep).unwrap();
+        assert!(kept.contains(pem), "{kept}");
+        // ... but a kept CA file still needs TLS.
+        keep["command"]["use_tls"] = json!(false);
+        assert!(apply_roaming(&text, &keep).unwrap_err().contains("needs TLS"));
+
+        // Empty field: removed, the link trusts the system CAs again.
+        let cleared = apply_roaming(&text, &link(json!(""), true)).unwrap();
+        assert!(!cleared.contains("ca_cert"), "{cleared}");
+        assert!(parsing::from_toml_str(&cleared).unwrap().control.unwrap().ca_cert.is_none());
+
+        // Refused: no TLS, relative path, missing file, not a certificate.
+        for (ca, tls, why) in [
+            (der.to_string(), false, "needs TLS"),
+            ("certs/ca.der".to_string(), true, "absolute path"),
+            (format!("{der}.missing"), true, "cannot read"),
+            (junk.to_string(), true, "not a DER or PEM"),
+        ] {
+            let err = apply_roaming(BASE, &link(json!(ca), tls)).unwrap_err();
+            assert!(err.contains(why), "{ca}: {err}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
