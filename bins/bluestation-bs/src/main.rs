@@ -119,17 +119,24 @@ fn load_config_with_fallback(cfg_path: &str) -> ConfigLoadResult {
     }
 }
 
+/// The `ca_cert` of a link. A missing or broken file must not take the station off the air: log
+/// it and trust nothing, so the link fails its TLS handshake (it never falls back to the system
+/// CAs) while the radio keeps running.
+fn ca_certs_or_none(link: &str, path: &str) -> Vec<rustls::pki_types::CertificateDer<'static>> {
+    match tetra_entities::network::transports::websocket::load_ca_certs(path) {
+        Ok(certs) => certs,
+        Err(e) => {
+            tracing::error!("{link}: {e}; the {link} link cannot connect until the CA file is fixed");
+            Vec::new()
+        }
+    }
+}
+
 fn start_telemetry_worker(cfg: SharedConfig, telemetry_source: TelemetrySource) -> thread::JoinHandle<()> {
     let config = cfg.config();
     let tcfg = config.telemetry.as_ref().unwrap();
 
-    let custom_root_certs = tcfg.ca_cert.as_ref().map(|path| {
-        let der_bytes = std::fs::read(path).unwrap_or_else(|e| {
-            eprintln!("Failed to read CA certificate from '{}': {}", path, e);
-            std::process::exit(1);
-        });
-        vec![rustls::pki_types::CertificateDer::from(der_bytes)]
-    });
+    let custom_root_certs = tcfg.ca_cert.as_deref().map(|path| ca_certs_or_none("telemetry", path));
 
     let ws_config = WebSocketTransportConfig {
         host: tcfg.host.clone(),
@@ -156,13 +163,7 @@ fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEnt
     let config = cfg.config();
     let ccfg = config.control.as_ref().unwrap();
 
-    let custom_root_certs = ccfg.ca_cert.as_ref().map(|path| {
-        let der_bytes = std::fs::read(path).unwrap_or_else(|e| {
-            eprintln!("Failed to read CA certificate from '{}': {}", path, e);
-            std::process::exit(1);
-        });
-        vec![rustls::pki_types::CertificateDer::from(der_bytes)]
-    });
+    let custom_root_certs = ccfg.ca_cert.as_deref().map(|path| ca_certs_or_none("control", path));
 
     let ws_config = WebSocketTransportConfig {
         host: ccfg.host.clone(),

@@ -101,6 +101,32 @@ impl Write for AuthStream {
     }
 }
 
+/// Read the CA certificate(s) of `[telemetry]` / `[command]` `ca_cert`: one DER certificate, or
+/// a PEM file with one or more `CERTIFICATE` blocks. Errors name the path and the reason.
+pub fn load_ca_certs(path: &str) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read CA certificate '{path}': {e}"))?;
+    parse_ca_certs(&bytes).map_err(|e| format!("CA certificate '{path}': {e}"))
+}
+
+/// The certificates in a DER or PEM file (see [`load_ca_certs`]).
+pub fn parse_ca_certs(bytes: &[u8]) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, String> {
+    let text_start = bytes.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(bytes.len());
+    if bytes[text_start..].starts_with(b"-----BEGIN") {
+        let certs: Vec<_> = rustls_pemfile::certs(&mut std::io::BufReader::new(bytes))
+            .collect::<Result<_, _>>()
+            .map_err(|e| format!("invalid PEM: {e}"))?;
+        if certs.is_empty() {
+            return Err("no CERTIFICATE block in the PEM file".to_string());
+        }
+        return Ok(certs);
+    }
+    // DER: an X.509 certificate is one ASN.1 SEQUENCE (tag 0x30) with a long-form length.
+    if bytes.len() < 4 || bytes[0] != 0x30 {
+        return Err("not a DER or PEM certificate".to_string());
+    }
+    Ok(vec![rustls::pki_types::CertificateDer::from(bytes.to_vec())])
+}
+
 /// Build a rustls ClientConfig.
 ///
 /// When `custom_root_certs` is `Some`, the provided DER-encoded certificates are
@@ -783,7 +809,20 @@ impl NetworkTransport for WebSocketTransport {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_brew_extensions;
+    use super::{parse_brew_extensions, parse_ca_certs};
+
+    #[test]
+    fn ca_cert_files_are_read_as_der_or_pem() {
+        let der = [0x30u8, 0x82, 0x01, 0x0a, 0x02, 0x01];
+        assert_eq!(parse_ca_certs(&der).unwrap()[0].as_ref(), &der);
+        let pem = b"\n-----BEGIN CERTIFICATE-----\nMAMCAQA=\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMAMCAQE=\n-----END CERTIFICATE-----\n";
+        let certs = parse_ca_certs(pem).unwrap();
+        assert_eq!(certs.len(), 2);
+        assert_eq!(certs[0].as_ref(), &[0x30, 0x03, 0x02, 0x01, 0x00]);
+        assert!(parse_ca_certs(b"hello").unwrap_err().contains("not a DER or PEM"));
+        assert!(parse_ca_certs(b"").is_err());
+        assert!(parse_ca_certs(b"-----BEGIN PRIVATE KEY-----\nMAMCAQA=\n-----END PRIVATE KEY-----\n").unwrap_err().contains("no CERTIFICATE"));
+    }
 
     #[test]
     fn brew_extensions_header_is_split_into_names() {

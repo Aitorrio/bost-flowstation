@@ -773,7 +773,7 @@ voice_service = true
 # host = "telemetry.example.com"     # collector hostname or IP (required)
 # port = 443                          # collector port (required)
 # use_tls = true                      # OPTIONAL: wss:// instead of ws:// (default false; required if ca_cert set)
-# ca_cert = "/etc/tetra-bluestation/telemetry-ca.der"  # OPTIONAL: DER CA cert for private-CA TLS; needs use_tls
+# ca_cert = "/etc/ssl/certs/ca.der"  # OPTIONAL: CA cert (DER or PEM) for private-CA TLS; needs use_tls. Empty/absent = system CAs
 # OPTIONAL: HTTP Basic Auth — set both username and password, or neither.
 # Basic Auth is base64 (not encrypted); only safe over the internet with use_tls = true.
 # username = "bts"
@@ -799,7 +799,7 @@ voice_service = true
 # host = "control.example.com"        # control server address (required when present)
 # port = 443                          # control server port (required when present)
 # use_tls = true                      # OPTIONAL: wss:// (default false; required if ca_cert set)
-# ca_cert = "/etc/tetra-bluestation/control-ca.der"  # OPTIONAL: DER CA cert for private-CA TLS; needs use_tls
+# ca_cert = "/etc/ssl/certs/ca.der"  # OPTIONAL: CA cert (DER or PEM) for private-CA TLS; needs use_tls. Empty/absent = system CAs
 # OPTIONAL: HTTP Basic Auth — set both username and password, or neither.
 # Basic Auth is base64 (not encrypted); use use_tls = true for anything off-host.
 # username = "station"
