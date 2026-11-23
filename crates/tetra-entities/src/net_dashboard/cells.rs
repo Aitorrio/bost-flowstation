@@ -74,10 +74,34 @@ pub fn cell_infos(primary: &SharedConfig) -> Vec<CellInfo> {
     cells
 }
 
-/// GET /api/cells payload: every running cell, primary first.
+/// A cell's air-interface security from its config (EN 300 392-7 clause 6.2): `{"class": 1}` for a
+/// clear cell, else the class and the key stream generator (`ksg` 1-4 = TEA1-TEA4).
+fn security_summary(cfg: &SharedConfig) -> JsonValue {
+    match cfg.config().security.aie.as_ref() {
+        Some(a) if a.security_class() > 1 => json!({"class": a.security_class(), "ksg": a.ksg}),
+        _ => json!({"class": 1}),
+    }
+}
+
+/// GET /api/cells payload: every running cell, primary first, each with its `security`.
 pub fn cells_json(primary: &SharedConfig) -> JsonValue {
+    let mut security = vec![(CellId::PRIMARY.0, security_summary(primary))];
+    for (id, cfg) in crate::net_site::extra_cells() {
+        security.push((id.0, security_summary(cfg)));
+    }
+    let cells: Vec<JsonValue> = cell_infos(primary)
+        .into_iter()
+        .map(|c| {
+            let sec = security.iter().find(|(id, _)| *id == c.id).map(|(_, s)| s.clone());
+            let mut v = serde_json::to_value(c).unwrap_or(JsonValue::Null);
+            if let (Some(obj), Some(sec)) = (v.as_object_mut(), sec) {
+                obj.insert("security".into(), sec);
+            }
+            v
+        })
+        .collect();
     json!({
-        "cells": cell_infos(primary),
+        "cells": cells,
         "site_linked": primary.config().is_site_linked(),
         "max_cells": CellId::MAX as usize + 1,
     })
@@ -483,6 +507,17 @@ duplex_spacing = 4
 reverse_operation = false
 location_area = 1
 "#;
+
+    #[test]
+    fn security_summary_names_class_and_tea() {
+        let shared = |t: &str| SharedConfig::try_from_parts(parsing::from_toml_str(t).unwrap(), None).unwrap();
+        assert_eq!(security_summary(&shared(BASE)), json!({"class": 1}));
+        let sc2 = format!("{BASE}[security.aie]\nclass = 2\nksg = 4\nsckn = 1\nsck = \"00112233445566778899\"\n");
+        assert_eq!(security_summary(&shared(&sc2)), json!({"class": 2, "ksg": 4}));
+        let staged = format!("{BASE}[security.aie]\nclass = 1\nksg = 2\nsckn = 1\nsck = \"00112233445566778899\"\n");
+        assert_eq!(security_summary(&shared(&staged)), json!({"class": 1}), "a staged key keeps the cell clear");
+        assert!(cells_json(&shared(&sc2))["cells"][0]["security"] == json!({"class": 2, "ksg": 4}));
+    }
 
     #[test]
     fn add_then_remove_cell_round_trips() {
