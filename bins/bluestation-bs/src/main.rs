@@ -393,7 +393,7 @@ fn network_entity(cfg: &SharedConfig, directory: Option<&SharedDirectory>, tsink
     let name = cfg.config().network.clone();
     match cfg.config().brew.clone() {
         Some(brew_cfg) => {
-            let mut brew = BrewEntity::new(cfg.clone(), new_websocket_transport(&brew_cfg));
+            let mut brew = BrewEntity::new_following_config(cfg.clone(), new_websocket_transport(&brew_cfg), new_websocket_transport);
             if let Some(sink) = tsink {
                 brew.set_telemetry_sink(sink.clone());
             }
@@ -623,6 +623,7 @@ fn build_bs_stack(
         if !lst_enabled {
             tracing::warn!("LST handle provided but lst_dispatch not enabled — ignoring");
         } else {
+            tetra_entities::config_reload::LST_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
             let entity = LstDispatchEntity::new(cfg.clone(), handle);
             router.register_entity(wrap_network_entity(Box::new(entity), cfg, &mut site));
             eprintln!(" -> LST Dispatch (local console) enabled");

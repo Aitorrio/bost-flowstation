@@ -328,45 +328,90 @@ fn get_default_logfile_filter() -> EnvFilter {
     EnvFilter::new("debug")
 }
 
-/// Sets up logging to stdout and optionally, a verbose log file.
-/// Returns guards that must be kept alive for background log draining to continue.
-fn setup_logging(stdout_filter: EnvFilter, outfile: Option<(String, EnvFilter)>) -> Option<LogGuards> {
-    let (stdout_writer, stdout_guard) = tracing_appender::non_blocking(std::io::stdout());
-    if let Some((outfile, outfile_filter)) = outfile {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            // Start each run with a fresh log rather than overwriting in place (which would
-            // leave stale tail bytes when the previous run's log was longer).
-            .truncate(true)
-            .open(outfile)
-            .expect("Failed to open log file");
-        let (file_writer, file_guard) = tracing_appender::non_blocking(file);
+/// Where the verbose log file's lines go right now (`None`: nowhere).
+static FILE_SINK: std::sync::Mutex<Option<tracing_appender::non_blocking::NonBlocking>> = std::sync::Mutex::new(None);
+/// Keeps the file's background writer alive; replaced when the file changes.
+static FILE_GUARD: std::sync::Mutex<Option<WorkerGuard>> = std::sync::Mutex::new(None);
+/// Whether a verbose log file is open. The file layer formats nothing while it is not.
+static FILE_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-        INIT_LOG.call_once(|| {
-            let file_layer = tracingfmt::layer()
-                .event_format(AlignedFormatter)
-                .with_writer(file_writer)
-                .with_ansi(false);
-            let stdout_layer = tracingfmt::layer().event_format(AlignedFormatter).with_writer(stdout_writer);
+/// Writer of the file layer: forwards to the current file, or discards.
+#[derive(Clone, Copy)]
+struct SwitchWriter;
 
-            tracing_subscriber::registry()
-                .with(file_layer.with_filter(outfile_filter))
-                .with(stdout_layer.with_filter(stdout_filter))
-                .with(DashboardLayer.with_filter(LevelFilter::INFO))
-                .init();
-        });
-
-        LogGuards::new(vec![stdout_guard, file_guard])
-    } else {
-        INIT_LOG.call_once(|| {
-            let stdout_layer = tracingfmt::layer().event_format(AlignedFormatter).with_writer(stdout_writer);
-
-            tracing_subscriber::registry()
-                .with(stdout_layer.with_filter(stdout_filter))
-                .with(DashboardLayer.with_filter(LevelFilter::INFO))
-                .init();
-        });
-        LogGuards::new(vec![stdout_guard])
+impl std::io::Write for SwitchWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match FILE_SINK.lock().ok().as_deref_mut() {
+            Some(Some(sink)) => sink.write(buf),
+            _ => Ok(buf.len()),
+        }
     }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match FILE_SINK.lock().ok().as_deref_mut() {
+            Some(Some(sink)) => sink.flush(),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for SwitchWriter {
+    type Writer = SwitchWriter;
+    fn make_writer(&'a self) -> Self::Writer {
+        SwitchWriter
+    }
+}
+
+/// Start (`Some(path)`, truncating it) or stop (`None`) writing the verbose log file, while the
+/// station runs. Safe to call repeatedly; on error the previous file stays in use.
+pub fn set_log_file(path: Option<&str>) -> Result<(), String> {
+    match path {
+        Some(path) => {
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                // Start each run with a fresh log rather than overwriting in place (which would
+                // leave stale tail bytes when the previous run's log was longer).
+                .truncate(true)
+                .open(path)
+                .map_err(|e| format!("cannot open log file {path}: {e}"))?;
+            let (writer, guard) = tracing_appender::non_blocking(file);
+            *FILE_SINK.lock().map_err(|_| "log file lock poisoned".to_string())? = Some(writer);
+            // The old guard drops here, flushing the previous file.
+            *FILE_GUARD.lock().map_err(|_| "log file lock poisoned".to_string())? = Some(guard);
+            FILE_ON.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        None => {
+            FILE_ON.store(false, std::sync::atomic::Ordering::Relaxed);
+            *FILE_SINK.lock().map_err(|_| "log file lock poisoned".to_string())? = None;
+            *FILE_GUARD.lock().map_err(|_| "log file lock poisoned".to_string())? = None;
+        }
+    }
+    Ok(())
+}
+
+/// Sets up logging to stdout and a verbose log file that can be started and stopped later with
+/// [`set_log_file`]. Returns guards that must be kept alive for background log draining to
+/// continue working.
+fn setup_logging(stdout_filter: EnvFilter, outfile: Option<(String, EnvFilter)>) -> Option<LogGuards> {
+    use tracing_subscriber::filter::{FilterExt, filter_fn};
+    let (stdout_writer, stdout_guard) = tracing_appender::non_blocking(std::io::stdout());
+    let file_filter = outfile.as_ref().map(|(_, f)| f.to_string()).unwrap_or_else(|| "debug".to_string());
+    if let Some((outfile, _)) = &outfile {
+        set_log_file(Some(outfile)).expect("Failed to open log file");
+    }
+
+    INIT_LOG.call_once(|| {
+        let file_layer = tracingfmt::layer().event_format(AlignedFormatter).with_writer(SwitchWriter).with_ansi(false);
+        let stdout_layer = tracingfmt::layer().event_format(AlignedFormatter).with_writer(stdout_writer);
+        // Debug events are only formatted while a file is open.
+        let file_filter = EnvFilter::new(file_filter).and(filter_fn(|_| FILE_ON.load(std::sync::atomic::Ordering::Relaxed)));
+
+        tracing_subscriber::registry()
+            .with(file_layer.with_filter(file_filter))
+            .with(stdout_layer.with_filter(stdout_filter))
+            .with(DashboardLayer.with_filter(LevelFilter::INFO))
+            .init();
+    });
+
+    LogGuards::new(vec![stdout_guard])
 }

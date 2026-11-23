@@ -17,6 +17,10 @@ use tetra_core::CellId;
 /// there is nothing to switch on.
 pub static ASTERISK_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Set by the start-up code when the LST dispatch entity exists. Like [`ASTERISK_RUNNING`]: with it
+/// the console's settings apply live, without it switching it on needs a restart.
+pub static LST_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Result of [`reload`].
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ReloadReport {
@@ -68,11 +72,28 @@ pub fn restart_reasons(old: &StackConfig, new: &StackConfig) -> Vec<String> {
         "additional cells or their SDRs",
     );
     // Connections and listeners opened once at start-up.
-    check(differs(&old.dashboard, &new.dashboard), "dashboard listener (ports, TLS, users)");
-    check(differs(&old.debug_log, &new.debug_log), "debug_log");
-    check(differs(&old.service_name, &new.service_name), "service_name");
-    check(differs(&old.brew, &new.brew) || differs(&old.networks, &new.networks), "Brew / network connections");
-    check(differs(&old.lst_dispatch, &new.lst_dispatch), "LST dispatch");
+    // The dashboard's login, public overview and private-HTTP allowlist follow live; the sockets
+    // it listens on do not (a wrong port would cut off the only management channel).
+    let listener = |c: &StackConfig| c.dashboard.as_ref().map(|d| (d.port, d.https_port, d.bind.clone(), d.source_dir.clone()));
+    check(differs(&listener(old), &listener(new)), "dashboard listener (bind address, ports, source_dir)");
+    // Brew settings follow live; what cannot is which networks exist, which cell serves which, and
+    // which of them have a core link at all (that decides which entities were built).
+    let topology = |c: &StackConfig| {
+        (
+            c.networks_explicit,
+            c.network.clone(),
+            c.brew.is_some(),
+            c.networks.iter().map(|n| (n.name.clone(), n.brew.is_some(), n.via.clone())).collect::<Vec<_>>(),
+            c.extra_cells.iter().map(|x| (x.id, x.network.clone())).collect::<Vec<_>>(),
+        )
+    };
+    check(differs(&topology(old), &topology(new)), "networks: added, removed, or a network gaining or losing its Brew link");
+    check(
+        new.lst_dispatch.as_ref().is_some_and(|l| l.enabled)
+            && differs(&old.lst_dispatch, &new.lst_dispatch)
+            && !LST_RUNNING.load(std::sync::atomic::Ordering::Relaxed),
+        "LST dispatch (not running: it was off at start-up)",
+    );
     check(
         new.asterisk.enabled && differs(&old.asterisk, &new.asterisk) && !ASTERISK_RUNNING.load(std::sync::atomic::Ordering::Relaxed),
         "Asterisk bridge (not running: it was off at start-up)",
@@ -100,7 +121,20 @@ pub fn reload(primary: &SharedConfig, extra: &[(CellId, SharedConfig)], new: Sta
     if differs(&old.security, &new.security) || differs(&old.extra_cells.iter().map(|c| &c.security).collect::<Vec<_>>(), &new.extra_cells.iter().map(|c| &c.security).collect::<Vec<_>>()) {
         tracing::warn!("Security settings changed live: radios that are already registered keep their old keys until they register again");
     }
+    let (log_changed, name_changed) = (differs(&old.debug_log, &new.debug_log), differs(&old.service_name, &new.service_name));
+    let (log_file, service_name) = (new.debug_log.clone(), new.service_name.clone());
+    let dashboard = new.dashboard.clone();
     primary.replace_config(new)?;
+    crate::net_dashboard::server::apply_live_credentials(dashboard.as_ref());
+    if log_changed && let Err(e) = tetra_core::debug::set_log_file(log_file.as_deref()) {
+        tracing::warn!("debug_log: {e}; keeping the previous log file");
+    }
+    if name_changed {
+        match service_name.as_deref() {
+            Some(name) => crate::service_control::set_configured_service_unit(name),
+            None => crate::service_control::clear_configured_service_unit(),
+        }
+    }
     let cells = 1 + derived.len();
     for (shared, cell) in derived {
         shared.replace_config(cell)?;
@@ -142,6 +176,33 @@ mod tests {
         new.telegram = None;
         new.health.enabled = !new.health.enabled;
         assert!(restart_reasons(&base(), &new).is_empty(), "{:?}", restart_reasons(&base(), &new));
+    }
+
+    #[test]
+    fn log_file_service_name_and_dashboard_login_apply_live() {
+        let mut new = base();
+        new.debug_log = Some("/tmp/flowstation-test.log".into());
+        new.service_name = Some("tetra".into());
+        if let Some(d) = new.dashboard.as_mut() {
+            d.username = Some("op".into());
+            d.password = Some("secret".into());
+            d.public_overview = !d.public_overview;
+        }
+        assert!(restart_reasons(&base(), &new).is_empty(), "{:?}", restart_reasons(&base(), &new));
+    }
+
+    #[test]
+    fn dashboard_ports_and_a_brew_link_appearing_still_need_a_restart() {
+        let mut ports = base();
+        if let Some(d) = ports.dashboard.as_mut() {
+            d.https_port += 1;
+            assert!(!restart_reasons(&base(), &ports).is_empty());
+        }
+        let mut brew = base();
+        if brew.brew.is_some() {
+            brew.brew = None;
+            assert!(!restart_reasons(&base(), &brew).is_empty(), "removing the core link changes which entities exist");
+        }
     }
 
     #[test]

@@ -21,13 +21,21 @@ static STANDBY_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Service unit configured from the TOML config file (e.g. service_name = "tetra").
 /// Takes precedence over cgroup auto-detection but is overridden by FLOWSTATION_SERVICE_UNIT env var.
-static CONFIGURED_SERVICE_UNIT: OnceLock<String> = OnceLock::new();
+static CONFIGURED_SERVICE_UNIT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
-/// Set the service unit from config — should be called once at startup.
-/// Subsequent calls are ignored (OnceLock).
+/// Set the service unit from config, at start-up and again on a live configuration reload.
+/// `None` in the config goes back to auto-detection.
+pub fn clear_configured_service_unit() {
+    if let Ok(mut slot) = CONFIGURED_SERVICE_UNIT.write() {
+        *slot = None;
+    }
+}
+
 pub fn set_configured_service_unit(unit: &str) {
     if let Some(normalized) = normalize_service_unit(unit) {
-        let _ = CONFIGURED_SERVICE_UNIT.set(normalized);
+        if let Ok(mut slot) = CONFIGURED_SERVICE_UNIT.write() {
+            *slot = Some(normalized);
+        }
     } else {
         tracing::warn!("Service control: ignoring invalid configured service_name={:?}", unit);
     }
@@ -129,8 +137,8 @@ pub fn resolve_service_unit() -> String {
         tracing::warn!("Service control: ignoring invalid {}={:?}", SERVICE_UNIT_ENV, value);
     }
 
-    if let Some(configured) = CONFIGURED_SERVICE_UNIT.get() {
-        return configured.clone();
+    if let Some(configured) = CONFIGURED_SERVICE_UNIT.read().ok().and_then(|slot| slot.clone()) {
+        return configured;
     }
 
     std::fs::read_to_string("/proc/self/cgroup")

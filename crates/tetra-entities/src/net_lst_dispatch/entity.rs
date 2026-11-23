@@ -90,6 +90,10 @@ pub struct LstDispatchEntity {
     config: SharedConfig,
     handle: LstDispatchHandle,
     operator_issi: u32,
+    /// False while `[lst_dispatch]` is switched off by a live reload.
+    enabled: bool,
+    /// Config generation the operator ISSI and `enabled` follow.
+    config_generation: u64,
     codec: Option<LstCodec>,
     group: Option<ActiveGroup>,
     private: Option<ActivePrivate>,
@@ -114,6 +118,7 @@ impl LstDispatchEntity {
             .as_ref()
             .map(|c| c.operator_issi)
             .unwrap_or(9_990_001);
+        let config_generation_at_start = config.config_generation();
         let codec = LstCodec::new();
         handle.set_status(|s| {
             s.enabled = true;
@@ -130,6 +135,8 @@ impl LstDispatchEntity {
             config,
             handle,
             operator_issi,
+            enabled: true,
+            config_generation: config_generation_at_start,
             codec,
             group: None,
             private: None,
@@ -370,31 +377,52 @@ impl LstDispatchEntity {
         }
     }
 
+    /// Change the operator's ISSI, moving its group listening over to the new one.
+    fn set_operator_issi(&mut self, queue: &mut MessageQueue, issi: u32) {
+        let issi = issi.clamp(1, 16_777_214);
+        if issi != self.operator_issi {
+            let keep: Vec<u32> = self.listen_gssis.iter().copied().collect();
+            if !keep.is_empty() {
+                self.push_mm(queue, self.operator_issi, BrewSubscriberAction::Deregister, Vec::new());
+                self.listen_gssis.clear();
+            }
+            self.operator_issi = issi;
+            self.handle.set_status(|s| s.operator_issi = issi);
+            if !keep.is_empty() {
+                self.sync_listen(queue, keep);
+            }
+        } else {
+            self.handle.set_status(|s| s.operator_issi = self.operator_issi);
+        }
+    }
+
+    /// Follow a live configuration reload: switch the console on or off and take the operator
+    /// ISSI from `[lst_dispatch]`. A call in progress is not cut when the console is switched off;
+    /// it ends as usual.
+    fn follow_config(&mut self, queue: &mut MessageQueue) {
+        let generation = self.config.config_generation();
+        if generation == self.config_generation {
+            return;
+        }
+        self.config_generation = generation;
+        let (enabled, issi) = self
+            .config
+            .config()
+            .lst_dispatch
+            .as_ref()
+            .map(|c| (c.enabled, c.operator_issi))
+            .unwrap_or((false, self.operator_issi));
+        self.enabled = enabled;
+        self.handle.set_status(|s| s.enabled = enabled);
+        if enabled {
+            self.set_operator_issi(queue, issi);
+        }
+    }
+
     fn process_cmds(&mut self, queue: &mut MessageQueue) {
         for cmd in self.handle.drain_cmds(MAX_CMDS_PER_TICK) {
             match cmd {
-                LstUiCommand::SetOperatorIssi { issi } => {
-                    let issi = issi.clamp(1, 16_777_214);
-                    if issi != self.operator_issi {
-                        let keep: Vec<u32> = self.listen_gssis.iter().copied().collect();
-                        if !keep.is_empty() {
-                            self.push_mm(
-                                queue,
-                                self.operator_issi,
-                                BrewSubscriberAction::Deregister,
-                                Vec::new(),
-                            );
-                            self.listen_gssis.clear();
-                        }
-                        self.operator_issi = issi;
-                        self.handle.set_status(|s| s.operator_issi = issi);
-                        if !keep.is_empty() {
-                            self.sync_listen(queue, keep);
-                        }
-                    } else {
-                        self.handle.set_status(|s| s.operator_issi = self.operator_issi);
-                    }
-                }
+                LstUiCommand::SetOperatorIssi { issi } => self.set_operator_issi(queue, issi),
                 LstUiCommand::JoinGroup { gssi } => {
                     if gssi > 0 && !self.listen_gssis.contains(&gssi) {
                         let mut list: Vec<u32> = self.listen_gssis.iter().copied().collect();
@@ -1406,6 +1434,12 @@ impl TetraEntityTrait for LstDispatchEntity {
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.dltime = ts;
+        self.follow_config(queue);
+        if !self.enabled {
+            // Switched off at run time: refuse console commands.
+            let _ = self.handle.drain_cmds(MAX_CMDS_PER_TICK);
+            return;
+        }
         self.process_cmds(queue);
     }
 

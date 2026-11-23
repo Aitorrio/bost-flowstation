@@ -380,6 +380,21 @@ type SharedSessionStore = Arc<Mutex<SessionStore>>;
 /// without restarting the service.
 type SharedAuth = Arc<RwLock<Option<(String, String)>>>;
 
+/// The running dashboard's credentials, so a live configuration reload can change the login.
+static LIVE_AUTH: OnceLock<SharedAuth> = OnceLock::new();
+
+/// Apply `[dashboard]` username/password from a reloaded configuration to the running dashboard.
+/// Existing sessions stay valid until they expire (a password change in the System tab behaves the
+/// same way).
+pub fn apply_live_credentials(dashboard: Option<&tetra_config::bluestation::CfgDashboard>) {
+    let Some(auth) = LIVE_AUTH.get() else { return };
+    let creds = dashboard.and_then(|d| match (&d.username, &d.password) {
+        (Some(u), Some(p)) => Some((u.clone(), p.clone())),
+        _ => None,
+    });
+    *auth.write().unwrap_or_else(|e| e.into_inner()) = creds;
+}
+
 /// Only the socket's direct peer participates in private HTTP admission. Forwarded headers are
 /// intentionally irrelevant: the operator explicitly trusts these source networks, not a proxy.
 fn private_http_configured(shared_config: &Option<tetra_config::bluestation::SharedConfig>) -> bool {
@@ -2226,6 +2241,7 @@ impl DashboardServer {
         let update_state = Arc::clone(&self.update_state);
         let source_dir_override = self.source_dir_override.clone();
         let auth: SharedAuth = Arc::clone(&self.auth);
+        let _ = LIVE_AUTH.set(Arc::clone(&self.auth));
         let public_overview = self.public_overview;
         let shared_config = self.shared_config.clone();
         let sessions = Arc::clone(&self.sessions);
@@ -3434,6 +3450,12 @@ fn handle_connection(
     // permanently occupy a DASH_MAX_CONN slot (that starved polls and wedged the Pi UI).
     mut conn_guard: Option<DashConnGuard>,
 ) {
+    // The public overview follows the configuration (live reload); the value the listener was
+    // started with applies when no configuration is attached.
+    let public_overview = shared_config
+        .as_ref()
+        .and_then(|c| c.config().dashboard.as_ref().map(|d| d.public_overview))
+        .unwrap_or(public_overview);
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
     // Captured before the stream is wrapped — the login throttle keys on it.
     let peer_ip = stream.peer_addr().ok().map(|a| a.ip());
