@@ -4,6 +4,10 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## Sin publicar — Configuración en caliente
+
+- **Los cambios de configuración se aplican sin reiniciar.** "Aplicar y reiniciar" (ajustes en vivo, TOML en bruto, perfiles Cell/Brew) ahora llama primero a `POST /api/config/reload`: lee el `config.toml` guardado y, si solo cambia algo que se puede aplicar en caliente, lo carga en todas las celdas y no reinicia (UMAC reconstruye SYSINFO y el cifrado; el resto de entidades ya leía la configuración en cada uso). Si el cambio toca algo que no se puede aplicar en caliente no se aplica nada y se reinicia como antes, indicando el motivo: SDR y hardware (`phy_io`), portadora/frecuencia/colour code/MCC-MNC (reajustan la radio), celdas adicionales y sus SDR, escucha del dashboard, `debug_log`, `service_name`, telemetría, control (Fleet Control), Brew/redes, LST, Asterisk, health y Telegram (conexiones abiertas al arrancar). Pendiente: aplicar también estos últimos en caliente. No probado en el aire.
+
 ## v0.6.8 — Versión de mantenimiento
 
 - **Sin cambios funcionales.** Solo sube el número de versión.

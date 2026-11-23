@@ -4082,6 +4082,13 @@ fn handle_connection(
         };
         // Always 200 — the validation verdict is in the body, not the HTTP status.
         http_json_response(inner, 200, &json)
+    } else if req_line.contains("POST /api/config/reload") {
+        // Apply the saved config.toml to the running station without a restart. Answers
+        // {"applied":true,"cells":n} or {"applied":false,"restart":[reasons]} (nothing applied).
+        let mut s = stream;
+        drain_http_headers(&mut s);
+        let json = reload_saved_config(&config_path, &shared_config);
+        http_json_response(s, 200, &json.to_string());
     } else if req_line.contains("POST /api/config") {
         let mut buf = BufReader::new(stream);
         let mut content_length = 0usize;
@@ -8266,6 +8273,26 @@ fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, Str
         tracing::warn!("Dashboard: failed to write config backup: {}", e);
     }
     atomic_write(config_path, body).map_err(|e| (500, e.to_string()))
+}
+
+/// Parse the saved config file and swap it into the running cells (`POST /api/config/reload`).
+fn reload_saved_config(config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>) -> serde_json::Value {
+    let Some(shared) = shared else {
+        return serde_json::json!({"applied": false, "restart": ["configuration not available to the dashboard"]});
+    };
+    let mut new = match tetra_config::bluestation::parsing::from_file(config_path) {
+        Ok(c) => c,
+        Err(e) => return serde_json::json!({"applied": false, "error": format!("config does not parse: {e}")}),
+    };
+    if let Err(e) = new.validate() {
+        return serde_json::json!({"applied": false, "error": format!("config is invalid: {e}")});
+    }
+    new.add_sibling_neighbours();
+    match crate::config_reload::reload(shared, crate::net_site::extra_cells(), new) {
+        Ok(r) if r.restart.is_empty() => serde_json::json!({"applied": true, "cells": r.cells}),
+        Ok(r) => serde_json::json!({"applied": false, "restart": r.restart}),
+        Err(e) => serde_json::json!({"applied": false, "error": e}),
+    }
 }
 
 /// Dry-run validation of a posted `config.toml`: unmask any still-masked secrets against the live

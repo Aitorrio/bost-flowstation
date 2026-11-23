@@ -8700,7 +8700,7 @@ const LANGS={
     cfg_advanced_toml:'Raw config.toml',cfg_toml_toggle:'Show / hide TOML editor',cfg_advanced_warn:'Advanced users only',
     cfg_sec_advanced:'Advanced',
     cfg_apply_confirm:'Apply selected Cell × Brew profiles and restart? Current config.toml will be backed up.',
-    cfg_need_name:'Enter a profile name.',cfg_need_select:'Select a profile first.',cfg_deleted:'✓ Deleted',cfg_applied:'✓ Applied — restarting…',cfg_updated:'✓ Profile saved',
+    cfg_need_name:'Enter a profile name.',cfg_need_select:'Select a profile first.',cfg_deleted:'✓ Deleted',cfg_applied:'✓ Applied — restarting…',cfg_applied_live:'✓ Applied live — no restart needed',cfg_needs_restart:'Needs a restart:',cfg_updated:'✓ Profile saved',
 
     update:'Update',update_available:'Update available',update_title:'OTA Update',
     update_confirm:'Pull latest from the {channel} channel (branch {branch}) and rebuild?\nThe service will restart automatically if a new build is needed.',
@@ -9256,7 +9256,7 @@ const LANGS={
     cfg_advanced_warn:'Solo para usuarios avanzados',
     cfg_sec_advanced:'Avanzado',
     cfg_need_name:'Introduce un nombre de perfil.',cfg_need_select:'Selecciona primero un perfil.',
-    cfg_deleted:'✓ Eliminado',cfg_applied:'✓ Aplicado — reiniciando…',cfg_updated:'✓ Perfil guardado',
+    cfg_deleted:'✓ Eliminado',cfg_applied:'✓ Aplicado — reiniciando…',cfg_applied_live:'✓ Aplicado en caliente — no hace falta reiniciar',cfg_needs_restart:'Requiere reinicio:',cfg_updated:'✓ Perfil guardado',
     cfg_apply_confirm:'¿Aplicar los perfiles Cell × Brew seleccionados y reiniciar? Se hará copia de seguridad del config.toml actual.',
     cfg_sec_rf:'RF',cfg_rf_title:'Frecuencias',cfg_auto:'Auto RX + carrier',cfg_tx:'Downlink TX (MHz)',cfg_rx:'Uplink RX (MHz)',cfg_colour:'Colour code',cfg_rf_adv:'RF avanzada',cfg_hw_rf:'Hardware RF',cfg_hw_rf_help:'El dispositivo SDR viene de Setup. Ganancias/antenas dependen de ese driver. Usa coma o punto; vacío = default del equipo (no se escribe la clave).',cfg_hw_device:'Dispositivo',cfg_hw_ppm_ph:'p. ej. 0 o -1,2',cfg_hw_ppm_hint:'Corrección de frecuencia en PPM (coma o punto).',cfg_hw_fs:'Sample rate (MHz)',cfg_hw_fs_ph:'vacío = {fs} (default del equipo)',cfg_hw_fs_invalid:'El sample rate debe estar entre 0,2 y 61,44 MHz, o vacío para el default del equipo.',cfg_hw_gain_ph:'p. ej. {ex} — vacío = default',cfg_hw_gain_hint:'Etapa de ganancia Soapy en dB (coma o punto). Vacío omite la clave — default del equipo. El ejemplo no es un rango; depende del hardware.',cfg_hw_num_invalid:'Introduce un número (p. ej. 9 o 9,5), o déjalo vacío para el default del equipo.',cfg_hw_ant_default:'(default)',cfg_freq_invalid:'Introduce una frecuencia válida en MHz (p. ej. 438.025 o 438,025).',cfg_custom_duplex:'Duplex personalizado (MHz)',cfg_duplex_invalid:'Introduce un duplex válido en MHz (p. ej. 7.6 o 7,6), o déjalo vacío.',cfg_duplex_hint_9:'¿Usas una separación duplex no estándar (p. ej. 9 MHz)? Abre RF avanzada abajo, pon Duplex personalizado (MHz) en tu separación (p. ej. 9) y pulsa Auto RX + carrier para rellenar RX.',
     sdslog:'Registro SDS',th_dir:'Dir',th_from:'De',th_to:'Para',th_message:'Mensaje',no_sds:'Aún no hay mensajes SDS',sds_refresh:'Actualizar',
@@ -17512,6 +17512,7 @@ async function applyHomeProfiles(){
     const vcBrew=document.getElementById('vc-brew-profile');
     if(vcCell)vcCell.value=cell;
     if(vcBrew&&!vcBrew.disabled)vcBrew.value=brew||'';
+    if(await applyLiveOrRestart((x,o)=>vcMsg('home-profiles-msg',x,o)))return;
     try{
       const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
       if(!rr.ok)wsSend({type:'restart'});
@@ -17544,12 +17545,25 @@ async function saveVisualConfig(){
     return ok;
   }catch(e){vcMsg('vc-rf-msg',String(e),false);return false;}
 }
+// Apply the saved config.toml to the running station. Returns true when it took effect live (no
+// restart); otherwise says why a restart is needed and returns false so the caller restarts.
+async function applyLiveOrRestart(msg){
+  try{
+    const r=await fetch('/api/config/reload',{method:'POST',credentials:'same-origin'});
+    const j=await r.json();
+    if(j.applied){msg(t('cfg_applied_live'),true);return true;}
+    if(j.error){msg(j.error,false);return true;}
+    if(j.restart&&j.restart.length)msg(t('cfg_needs_restart')+' '+j.restart.join(', '),true);
+  }catch{}
+  return false;
+}
 async function applyLiveAndRestart(){
   const ok=await dashConfirm(t('cfg_apply_restart'),t('cfg_live_apply_confirm'),{confirmLabel:t('cfg_apply_restart')});
   if(!ok)return;
   if(!await ensureServiceOrOfferStart(t('cfg_apply_restart')))return;
   const saved=await saveVisualConfig();
   if(!saved)return;
+  if(await applyLiveOrRestart(setConfigMsg))return;
   try{
     const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
     if(!rr.ok)wsSend({type:'restart'});
@@ -17563,7 +17577,9 @@ async function applyRawConfigAndRestart(){
   try{
     const r=await fetch('/api/config',{method:'POST',body:document.getElementById('config-editor').value});
     if(!r.ok){const txt=await r.text();setConfigMsg(t('save_fail')+': '+txt,false);cfgSetErr(cfgParseErrLine(txt));return;}
-    setConfigMsg(t('cfg_applied'),true);cfgSetErr(null);
+    cfgSetErr(null);
+    if(await applyLiveOrRestart(setConfigMsg))return;
+    setConfigMsg(t('cfg_applied'),true);
     try{
       const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
       if(!rr.ok)wsSend({type:'restart'});
@@ -17778,6 +17794,7 @@ async function applySelectedProfiles(){
     const txt=await r.text();
     if(!r.ok){vcMsg('vc-profiles-msg',txt,false);return;}
     vcMsg('vc-profiles-msg',t('cfg_applied'),true);
+    if(await applyLiveOrRestart((x,o)=>vcMsg('vc-profiles-msg',x,o)))return;
     try{
       const rr=await fetch('/api/service/restart',{method:'POST',credentials:'same-origin'});
       if(!rr.ok)wsSend({type:'restart'});

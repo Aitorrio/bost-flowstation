@@ -77,6 +77,8 @@ pub struct UmacBs {
     cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
     /// Radios already reported to telemetry as encrypting (first encrypted uplink PDU seen).
     encrypting_reported: std::collections::HashSet<u32>,
+    /// Config generation the cached broadcast PDUs and cipher were built from.
+    config_generation: u64,
 }
 
 /// Watch UL while hangtime is held so CMCE can defer network talk-permit.
@@ -106,6 +108,7 @@ struct PendingStch {
 
 impl UmacBs {
     pub fn new(config: SharedConfig, telemetry: Option<TelemetrySink>) -> Self {
+        let config_generation = config.config_generation();
         let c = config.config();
         let scrambling_code = scrambler::tetra_scramb_get_init(c.net.mcc, c.net.mnc, c.cell.colour_code);
         let system_wide_services = Self::get_system_wide_services_state(&config);
@@ -143,6 +146,7 @@ impl UmacBs {
             pending_circuit_closes: HashMap::new(),
             telemetry,
             encrypting_reported: std::collections::HashSet::new(),
+            config_generation,
         }
     }
 
@@ -154,6 +158,31 @@ impl UmacBs {
             sched.set_cipher(cipher.clone());
         }
         self.cipher = cipher;
+    }
+
+    /// Rebuild what was derived from the configuration at start-up (broadcast PDUs, cipher) after
+    /// a live reload. Carriers, colour code and network identity are restart-only (they retune the
+    /// radio), so the schedulers and the scrambling code stay.
+    fn refresh_config(&mut self) {
+        let generation = self.config.config_generation();
+        if generation == self.config_generation {
+            return;
+        }
+        self.config_generation = generation;
+        let precomps = Self::generate_precomps(&self.config);
+        self.channel_scheduler.set_precomps(precomps.clone());
+        for sched in &mut self.secondary_channel_schedulers {
+            sched.set_precomps(precomps.clone());
+        }
+        let c = self.config.config();
+        let cipher = crate::aie::effective(&c).map(|aie| {
+            let carriers: Vec<u16> = [Some(c.cell.main_carrier), c.cell.secondary_carrier].into_iter().flatten().collect();
+            std::sync::Arc::new(
+                crate::aie::cipher::CellCipher::new(aie, &carriers, c.cell.location_area, c.cell.colour_code).with_config(self.config.clone()),
+            )
+        });
+        self.set_cipher(cipher);
+        tracing::info!("UMAC: configuration reloaded (generation {generation})");
     }
 
     fn main_carrier(&self) -> u16 {
@@ -2674,6 +2703,7 @@ impl TetraEntityTrait for UmacBs {
 
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.dltime = ts;
+        self.refresh_config();
         self.refresh_system_wide_services();
 
         // Expire stale uplink reassembly contexts. Without this the defrag map only ever
