@@ -4,6 +4,10 @@ Notas para operadores. El dashboard OTA muestra las secciones posteriores a tu v
 
 English version: [`CHANGELOG_en.md`](CHANGELOG_en.md).
 
+## v0.6.8 — Versión de mantenimiento
+
+- **Sin cambios funcionales.** Solo sube el número de versión.
+
 ## v0.6.7 — Página Celdas y varias celdas en un SDR
 
 Varias celdas en un SDR: el motor multicelda (`SdrHub`) y la seguridad por celda los construyó Yiannis Samouhos (ysamouhos); la implementación en el dashboard (página Celdas) y la reestructuración de la configuración son de Sebastian, OE4SXM.

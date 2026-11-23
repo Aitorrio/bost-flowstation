@@ -2,6 +2,10 @@
 
 Operator notes. English version of [`CHANGELOG.md`](CHANGELOG.md) (Spanish), which the dashboard OTA reads and shows the sections after your current version from. Both files carry the same entries.
 
+## v0.6.8 — Maintenance release
+
+- **No functional changes.** Version number bump only.
+
 ## v0.6.7 — Cells page and several cells on one SDR
 
 Several cells on one SDR: the multi-cell engine (`SdrHub`) and per-cell security were built by Yiannis Samouhos (ysamouhos); the implementation in the dashboard (Cells page) and the rework of the configuration are by Sebastian, OE4SXM.
