@@ -21763,6 +21763,9 @@ const rfCellData = {};
 function rfCell(id){
   return rfCellData[id] || (rfCellData[id] = {last:{}, waterfall:[]});
 }
+// The page starts on cell 0: draw from its history, which rfIngest fills (rfSelectCell only swaps
+// the buffer when the pick changes, so without this the waterfall stayed empty).
+rfState.waterfall = rfCell(0).waterfall;
 const RF_HANDLERS = {tx_visual: m=>handleTxVisual(m), tx_quality: m=>handleTxQuality(m), sdr_health: m=>handleSdrHealth(m)};
 function rfIngest(type, msg){
   const id = msg.cell|0;
