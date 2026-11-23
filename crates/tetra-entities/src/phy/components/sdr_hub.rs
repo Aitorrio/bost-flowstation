@@ -80,6 +80,7 @@ pub struct SdrHub<D> {
 impl<D: RxTxDev> SdrHub<D> {
     /// `cell_carriers[i]` are the carriers of cell `i`; `device_carriers` is the device's carrier
     /// order (the order its modulators were built in). Returns one device view per cell.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(dev: D, cell_carriers: Vec<Vec<u16>>, device_carriers: Vec<u16>, timeout: Duration) -> Vec<HubCellDev<D>> {
         let n = cell_carriers.len();
         let hub = Arc::new(Self {

@@ -8428,7 +8428,7 @@ fn drain_http_headers(stream: &mut PrefixedConn) {
             break;
         }
         // Detect "\r\n\r\n" by sliding a 4-byte window.
-        if prev3 == [b'\r', b'\n', b'\r'] && byte[0] == b'\n' {
+        if prev3 == *b"\r\n\r" && byte[0] == b'\n' {
             break;
         }
         prev3 = [prev3[1], prev3[2], byte[0]];
@@ -8451,7 +8451,7 @@ fn read_http_body(stream: &mut PrefixedConn) -> Vec<u8> {
             return Vec::new();
         }
         header_buf.push(byte[0]);
-        if prev3 == [b'\r', b'\n', b'\r'] && byte[0] == b'\n' {
+        if prev3 == *b"\r\n\r" && byte[0] == b'\n' {
             break;
         }
         prev3 = [prev3[1], prev3[2], byte[0]];

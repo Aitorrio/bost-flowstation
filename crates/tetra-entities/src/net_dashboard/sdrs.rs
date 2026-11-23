@@ -687,7 +687,7 @@ colour_code = 1
 
     #[test]
     fn additional_cell_gets_its_network_and_own_security() {
-        let base = format!("network = \"home\"\n{}\n[networks.home]\n[networks.club]\nmcc = 901\nmnc = 1\n", BASE.replace("[net_info]\nmcc = 901\nmnc = 9999\n", "[net_info]\nmcc = 901\nmnc = 9999\n"));
+        let base = format!("network = \"home\"\n{}\n[networks.home]\n[networks.club]\nmcc = 901\nmnc = 1\n", BASE);
         // club has no cell yet: kept, listed as unused.
         let v = sdrs_json(&base).unwrap();
         assert_eq!(v["networks"].as_array().unwrap().iter().find(|n| n["name"] == "club").unwrap()["cell_count"], 0);
