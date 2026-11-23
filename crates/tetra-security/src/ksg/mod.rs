@@ -10,10 +10,12 @@
 mod tea1;
 mod tea2;
 mod tea3;
+mod tea4;
 
 pub use tea1::Tea1;
 pub use tea2::Tea2;
 pub use tea3::Tea3;
+pub use tea4::Tea4;
 
 use crate::keys::CipherKey;
 
@@ -40,9 +42,9 @@ impl KsgId {
         }
     }
 
-    /// Whether this crate can run the generator (TEA4 is not yet implemented).
+    /// Whether this crate can run the generator: all four of set A.
     pub fn supported(self) -> bool {
-        matches!(self, KsgId::Tea1 | KsgId::Tea2 | KsgId::Tea3)
+        matches!(self, KsgId::Tea1 | KsgId::Tea2 | KsgId::Tea3 | KsgId::Tea4)
     }
 
     /// TEA1 keeps only 32 bits of its 80-bit key (TETRA:BURST, 2023): usable for
@@ -71,7 +73,7 @@ pub fn new_ksg(id: KsgId, key: &CipherKey, iv: Iv) -> Option<Box<dyn Ksg>> {
         KsgId::Tea1 => Some(Box::new(Tea1::new(&key.0, iv))),
         KsgId::Tea2 => Some(Box::new(Tea2::new(&key.0, iv))),
         KsgId::Tea3 => Some(Box::new(Tea3::new(&key.0, iv))),
-        KsgId::Tea4 => None,
+        KsgId::Tea4 => Some(Box::new(Tea4::new(&key.0, iv))),
     }
 }
 

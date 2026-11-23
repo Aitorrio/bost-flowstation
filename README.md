@@ -199,7 +199,7 @@ every one checked against independent test vectors:
   show an **AUTH** badge in the Radios table. Authentication is an access-control handshake and is
   fine on amateur allocations.
 - **Encryption (class 2):** the static cipher key (SCK), its number and version, the algorithm
-  (**TEA1**, flagged weak — it keeps only 32 of its 80 key bits; **TEA2**; **TEA3**) and the
+  (**TEA1**, flagged weak — it keeps only 32 of its 80 key bits; **TEA2**; **TEA3**; **TEA4**) and the
   clear talkgroups for radios without encryption (this fork's mixed-cell policy). Radios seen
   encrypting show a lock badge with the key they use.
 - **Encryption (class 3, experimental):** each radio gets its own derived cipher key (DCK) from
