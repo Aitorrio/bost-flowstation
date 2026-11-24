@@ -873,6 +873,12 @@ fn main() {
 
     let (mut router, tsource, cdispatchers, dapnet_telemetry_sink) =
         build_bs_stack(&mut cfg, &args.config, lst_handle.clone(), site);
+    // A station of one cell can gain or lose its core link at run time: the reload sends the Brew
+    // entity to the router between two ticks.
+    if cfg.config().extra_cells.is_empty() && lst_handle.is_none() {
+        let swap_sink = dapnet_telemetry_sink.clone();
+        tetra_entities::network_swap::register(router.mailbox(), Box::new(move |c| network_entity(c, None, swap_sink.as_ref())));
+    }
     // Clone for PHY attach after the dashboard is listening (degraded boot).
     let phy_tsink = dapnet_telemetry_sink.clone();
     // Additional cells report registrations etc. through the same stream, tagged per cell.
