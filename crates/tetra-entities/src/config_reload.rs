@@ -76,18 +76,21 @@ pub fn restart_reasons(old: &StackConfig, new: &StackConfig) -> Vec<String> {
     // it listens on do not (a wrong port would cut off the only management channel).
     let listener = |c: &StackConfig| c.dashboard.as_ref().map(|d| (d.port, d.https_port, d.bind.clone(), d.source_dir.clone()));
     check(differs(&listener(old), &listener(new)), "dashboard listener (bind address, ports, source_dir)");
-    // Brew settings follow live; what cannot is which networks exist, which cell serves which, and
-    // which of them have a core link at all (that decides which entities were built).
-    let topology = |c: &StackConfig| {
-        (
-            c.networks_explicit,
-            c.network.clone(),
-            c.brew.is_some(),
-            c.networks.iter().map(|n| (n.name.clone(), n.brew.is_some(), n.via.clone())).collect::<Vec<_>>(),
-            c.extra_cells.iter().map(|x| (x.id, x.network.clone())).collect::<Vec<_>>(),
-        )
-    };
-    check(differs(&topology(old), &topology(new)), "networks: added, removed, or a network gaining or losing its Brew link");
+    // Brew settings follow live. The network layout is live on a station of one cell: networks no
+    // cell serves are only configuration, and the primary's core link is attached or dropped
+    // through the router. With several cells the links between them (site switch, cell links) are
+    // built once at start-up, so any change of layout restarts.
+    let lst_on = |c: &StackConfig| c.lst_dispatch.as_ref().is_some_and(|l| l.enabled);
+    let single = old.extra_cells.is_empty() && new.extra_cells.is_empty();
+    let link_change = old.brew.is_some() != new.brew.is_some();
+    let layout = |c: &StackConfig| (c.networks_explicit, c.network.clone(), c.networks.iter().map(|n| (n.name.clone(), n.brew.is_some(), n.via.clone())).collect::<Vec<_>>(), c.extra_cells.iter().map(|x| (x.id, x.network.clone())).collect::<Vec<_>>());
+    if single {
+        check(old.network != new.network, "the network the cell serves");
+        check(link_change && (lst_on(old) || lst_on(new)), "core link and LST dispatch exchange the Brew slot");
+        check(link_change && !crate::network_swap::available(), "core link gained or lost (not available on this station)");
+    } else {
+        check(differs(&layout(old), &layout(new)), "networks: added, removed, or a network gaining or losing its Brew link (several cells)");
+    }
     check(
         new.lst_dispatch.as_ref().is_some_and(|l| l.enabled)
             && differs(&old.lst_dispatch, &new.lst_dispatch)
@@ -106,6 +109,7 @@ pub fn restart_reasons(old: &StackConfig, new: &StackConfig) -> Vec<String> {
 /// anything, or the number of cells swapped.
 pub fn reload(primary: &SharedConfig, extra: &[(CellId, SharedConfig)], new: StackConfig) -> Result<ReloadReport, String> {
     let old = primary.config();
+    let single_cell = old.extra_cells.is_empty() && new.extra_cells.is_empty();
     let restart = restart_reasons(&old, &new);
     if !restart.is_empty() {
         return Ok(ReloadReport { cells: 0, restart });
@@ -124,7 +128,23 @@ pub fn reload(primary: &SharedConfig, extra: &[(CellId, SharedConfig)], new: Sta
     let (log_changed, name_changed) = (differs(&old.debug_log, &new.debug_log), differs(&old.service_name, &new.service_name));
     let (log_file, service_name) = (new.debug_log.clone(), new.service_name.clone());
     let dashboard = new.dashboard.clone();
+    let link = (old.brew.is_some(), new.brew.is_some());
     primary.replace_config(new)?;
+    match link {
+        (false, true) if single_cell => {
+            tracing::info!("Core link gained: starting the Brew entity");
+            crate::network_swap::attach(primary);
+        }
+        (true, false) if single_cell => {
+            tracing::info!("Core link removed: stopping the Brew entity");
+            crate::network_swap::detach(primary);
+            crate::health::registry().set_brew_configured(false);
+        }
+        _ => {}
+    }
+    if link == (false, true) {
+        crate::health::registry().set_brew_configured(true);
+    }
     crate::net_dashboard::server::apply_live_credentials(dashboard.as_ref());
     if log_changed && let Err(e) = tetra_core::debug::set_log_file(log_file.as_deref()) {
         tracing::warn!("debug_log: {e}; keeping the previous log file");
@@ -203,6 +223,18 @@ mod tests {
             brew.brew = None;
             assert!(!restart_reasons(&base(), &brew).is_empty(), "removing the core link changes which entities exist");
         }
+    }
+
+    #[test]
+    fn a_network_no_cell_serves_is_only_configuration_on_one_cell() {
+        let mut new = base();
+        new.networks.push(tetra_config::bluestation::CfgNetwork {
+            name: "spare".into(),
+            net: new.net.clone(),
+            brew: None,
+            via: None,
+        });
+        assert!(restart_reasons(&base(), &new).is_empty(), "{:?}", restart_reasons(&base(), &new));
     }
 
     #[test]

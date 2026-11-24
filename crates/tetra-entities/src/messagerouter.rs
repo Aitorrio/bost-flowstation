@@ -103,7 +103,31 @@ impl MessageQueue {
     }
 }
 
+/// A change to the entity set of a running router, applied at the start of its next tick.
+pub enum RouterCommand {
+    /// Put an entity in its slot, replacing the one there.
+    Register(Box<dyn TetraEntityTrait>),
+    /// Empty a slot.
+    Remove(TetraEntity),
+}
+
+/// Handle to send [`RouterCommand`]s to a router that runs on another thread.
+#[derive(Clone, Default)]
+pub struct RouterMailbox(Arc<std::sync::Mutex<Vec<RouterCommand>>>);
+
+impl RouterMailbox {
+    pub fn send(&self, command: RouterCommand) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).push(command);
+    }
+
+    fn take(&self) -> Vec<RouterCommand> {
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+}
+
 pub struct MessageRouter {
+    /// Entity changes waiting for the next tick (live configuration reload).
+    mailbox: RouterMailbox,
     /// While currently unused by the MessageRouter, this may change in the future
     /// As such, we provide the MessageRouter with a copy of the SharedConfig.
     /// `None` only in unit tests, which need a router without a full stack config.
@@ -120,6 +144,7 @@ pub struct MessageRouter {
 impl MessageRouter {
     pub fn new(config: SharedConfig) -> Self {
         Self {
+            mailbox: RouterMailbox::default(),
             entities: HashMap::new(),
             msg_queue: MessageQueue { messages: VecDeque::new() },
             _config: Some(config),
@@ -131,6 +156,7 @@ impl MessageRouter {
     #[cfg(test)]
     fn new_bare() -> Self {
         Self {
+            mailbox: RouterMailbox::default(),
             entities: HashMap::new(),
             msg_queue: MessageQueue { messages: VecDeque::new() },
             _config: None,
@@ -142,6 +168,23 @@ impl MessageRouter {
     /// Incremented each tick and passed to entities in tick() function
     pub fn set_dl_time(&mut self, ts: TdmaTime) {
         self.ts = ts;
+    }
+
+    /// Handle for changing this router's entities from another thread while it runs.
+    pub fn mailbox(&self) -> RouterMailbox {
+        self.mailbox.clone()
+    }
+
+    fn apply_mailbox(&mut self) {
+        for command in self.mailbox.take() {
+            match command {
+                RouterCommand::Register(entity) => self.register_entity(entity),
+                RouterCommand::Remove(slot) => {
+                    tracing::debug!("remove_entity {:?}", slot);
+                    self.entities.remove(&slot);
+                }
+            }
+        }
     }
 
     pub fn register_entity(&mut self, entity: Box<dyn TetraEntityTrait>) {
@@ -207,6 +250,7 @@ impl MessageRouter {
     }
 
     pub fn tick_start(&mut self) {
+        self.apply_mailbox();
         // tracing::info!("--- tick dl {} ul {} txdl {} ----------------------------",
         //     self.ts, self.ts.add_timeslots(-2), self.ts.add_timeslots(MACSCHED_TX_AHEAD as i32));
         tracing::info!("--- tick dl {} ----------------------------", self.ts);
@@ -358,6 +402,26 @@ mod tests {
     }
 
     /// A panicking entity must degrade to a dropped message, not to a dead cell: the loop keeps
+    /// An entity sent through the mailbox is in place after the next tick start, and can be
+    /// removed the same way.
+    #[test]
+    fn mailbox_registers_and_removes_entities_between_ticks() {
+        let mut router = MessageRouter::new_bare();
+        let mailbox = router.mailbox();
+        mailbox.send(RouterCommand::Register(Box::new(FlakyEntity {
+            id: TetraEntity::Brew,
+            seen: Arc::new(AtomicUsize::new(0)),
+            panic_on_rx: false,
+            panic_on_tick: false,
+        })));
+        assert!(router.get_entity(TetraEntity::Brew).is_none(), "not before a tick");
+        router.tick_start();
+        assert!(router.get_entity(TetraEntity::Brew).is_some());
+        mailbox.send(RouterCommand::Remove(TetraEntity::Brew));
+        router.tick_start();
+        assert!(router.get_entity(TetraEntity::Brew).is_none());
+    }
+
     /// running, the healthy entity still gets its message, and the catch is counted.
     #[test]
     fn panicking_entity_does_not_kill_the_loop() {
