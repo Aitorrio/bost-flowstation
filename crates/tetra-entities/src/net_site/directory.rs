@@ -56,6 +56,33 @@ impl SiteDirectory {
         moved_from
     }
 
+    /// A cell left the station (live reload): its radios move to `to`, a cell of the same
+    /// location area where they stay registered without registering again (TS 100 392-2 clause
+    /// 16.4.1.0), or are forgotten when there is none. Returns the radios that were there.
+    pub fn rehome(&mut self, from: CellId, to: Option<CellId>) -> Vec<u32> {
+        let mut issis: Vec<u32> = self.location.iter().filter(|(_, c)| **c == from).map(|(i, _)| *i).collect();
+        issis.sort_unstable();
+        for issi in &issis {
+            match to {
+                Some(to) => {
+                    self.location.insert(*issi, to);
+                }
+                None => {
+                    self.location.remove(issi);
+                }
+            }
+        }
+        let gone: Vec<(CellId, u32)> = self.affiliations.keys().filter(|(c, _)| *c == from).copied().collect();
+        for key in gone {
+            if let Some(groups) = self.affiliations.remove(&key)
+                && let Some(to) = to
+            {
+                self.affiliations.entry((to, key.1)).or_default().extend(groups);
+            }
+        }
+        issis
+    }
+
     /// Cell the ISSI is registered on, if known.
     pub fn location(&self, issi: u32) -> Option<CellId> {
         self.location.get(&issi).copied()
@@ -116,5 +143,18 @@ mod tests {
         assert_eq!(d.location(100), Some(CellId(1)));
         d.apply(CellId(1), &upd(100, &[], BrewSubscriberAction::Deregister));
         assert_eq!(d.location(100), None);
+    }
+
+    #[test]
+    fn a_removed_cell_hands_its_radios_to_its_area_sibling_or_forgets_them() {
+        let mut d = SiteDirectory::default();
+        d.apply(CellId(1), &upd(100, &[91], BrewSubscriberAction::Register));
+        d.apply(CellId(2), &upd(200, &[92], BrewSubscriberAction::Register));
+        assert_eq!(d.rehome(CellId(1), Some(CellId(0))), vec![100]);
+        assert_eq!(d.location(100), Some(CellId(0)));
+        assert_eq!(d.group_cells(91), BTreeSet::from([CellId(0)]));
+        assert_eq!(d.rehome(CellId(2), None), vec![200]);
+        assert_eq!(d.location(200), None);
+        assert!(d.group_cells(92).is_empty());
     }
 }

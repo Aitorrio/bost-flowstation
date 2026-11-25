@@ -31,7 +31,7 @@ const NON_OVERRIDABLE_CELL_KEYS: &[&str] = &["sds_command_control"];
 /// `[security]` keys that may not be overridden per cell: the key database, E2EE
 /// and the registry / rate limits belong to the station, not to a cell.
 const NON_OVERRIDABLE_SECURITY_KEYS: &[&str] =
-    &["subscribers", "e2ee", "max_registered_clients", "registration_rate_limit_per_min", "honour_unauthenticated_detach"];
+    &["subscribers", "e2ee", "max_registered_clients", "registration_rate_limit_per_min", "honour_unauthenticated_detach", "change_lead_secs"];
 
 /// One additional cell (SDR) of a multi-cell station.
 #[derive(Debug, Clone)]

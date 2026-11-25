@@ -193,7 +193,7 @@ fn idle_transport() -> WebSocketTransport {
 fn start_telemetry_worker(cfg: SharedConfig, telemetry_source: TelemetrySource) -> thread::JoinHandle<()> {
     let first = telemetry_transport(&cfg.config());
     let enabled = first.is_some();
-    let live = LiveLink::new(cfg, |c| format!("{:?}", c.telemetry), Box::new(telemetry_transport));
+    let live = LiveLink::new(cfg, |c| tetra_config::bluestation::debug_with_secrets(&c.telemetry), Box::new(telemetry_transport));
     thread::spawn(move || {
         let transport = first.unwrap_or_else(idle_transport);
         let mut worker = TelemetryWorker::new(telemetry_source, transport).with_live(live, enabled);
@@ -204,7 +204,7 @@ fn start_telemetry_worker(cfg: SharedConfig, telemetry_source: TelemetrySource) 
 fn start_control_worker(cfg: SharedConfig, command_dispatchers: HashMap<TetraEntity, CommandDispatcher>) -> thread::JoinHandle<()> {
     let first = control_transport(&cfg.config());
     let enabled = first.is_some();
-    let live = LiveLink::new(cfg.clone(), |c| format!("{:?}", c.control), Box::new(control_transport));
+    let live = LiveLink::new(cfg.clone(), |c| tetra_config::bluestation::debug_with_secrets(&c.control), Box::new(control_transport));
     thread::spawn(move || {
         let transport = first.unwrap_or_else(idle_transport);
         let mut worker = ControlWorker::new(command_dispatchers, transport).with_shared(cfg).with_live(live, enabled);
@@ -337,45 +337,167 @@ fn try_attach_phy(router: &mut MessageRouter, cfg: &SharedConfig, tsink: Option<
     }
 }
 
-/// Start one thread per additional cell (`[[cells]]`). Each runs its own radio stack
-/// (PHY → CMCE) on its own SDR with a config from [`StackConfig::for_extra_cell`], so the cells
-/// are fully independent for now: separate registrations, no Brew/LST/dashboard. Threads stop
-/// with the primary via `is_running`.
-fn spawn_extra_cells(
-    cell_cfgs: Vec<(CellId, SharedConfig)>,
-    mut shared_sdrs: HashMap<CellId, SharedSdrView>,
-    is_running: Arc<AtomicBool>,
-    mut links: HashMap<CellId, CellLink>,
-    mut hosts: HashMap<CellId, NetworkHome>,
-    tsink: Option<TelemetrySink>,
-) -> Vec<thread::JoinHandle<()>> {
-    let mut handles = Vec::new();
-    for (id, cell_cfg) in cell_cfgs {
-        let is_running = is_running.clone();
-        let cell_sink = tsink.as_ref().map(|s| s.for_cell(id.0));
-        let link = links.remove(&id);
-        let home = hosts.remove(&id);
-        let shared = shared_sdrs.remove(&id);
-        let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
-            tetra_entities::cell_context::set_current(id);
-            let phy_sink = cell_sink.clone();
-            let mut router = build_cell_router(&cell_cfg, link, home, cell_sink);
-            eprintln!(" -> {id}: opening SDR…");
-            if !try_attach_phy(&mut router, &cell_cfg, phy_sink, shared) {
-                // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
-                tracing::error!("{id}: no PHY — cell not started");
-                return;
-            }
-            tracing::info!("{id}: cell stack running");
-            router.run_stack(None, Some(is_running));
-            tracing::info!("{id}: cell stack stopped");
-        });
-        match spawned {
-            Ok(h) => handles.push(h),
-            Err(e) => tracing::error!("{id}: failed to spawn cell thread: {e}"),
+/// Start one additional cell's thread: its radio stack (PHY → CMCE) on its own SDR (or its view
+/// of a shared one) with a config from [`StackConfig::for_extra_cell`]. The thread runs until
+/// `running` is cleared.
+fn spawn_cell(
+    id: CellId,
+    cell_cfg: SharedConfig,
+    shared: Option<SharedSdrView>,
+    link: Option<CellLink>,
+    home: Option<NetworkHome>,
+    tsink: Option<&TelemetrySink>,
+    running: Arc<AtomicBool>,
+) -> Option<thread::JoinHandle<()>> {
+    let cell_sink = tsink.map(|s| s.for_cell(id.0));
+    let spawned = thread::Builder::new().name(format!("{id}")).spawn(move || {
+        tetra_entities::cell_context::set_current(id);
+        let phy_sink = cell_sink.clone();
+        let mut router = build_cell_router(&cell_cfg, link, home, cell_sink);
+        eprintln!(" -> {id}: opening SDR…");
+        let attached = {
+            let _sdr = SDR_OPEN_CLOSE.lock().unwrap_or_else(|e| e.into_inner());
+            try_attach_phy(&mut router, &cell_cfg, phy_sink, shared)
+        };
+        if !attached {
+            // Without a PHY nothing paces the loop, so don't run it; the cell stays down.
+            tracing::error!("{id}: no PHY — cell not started");
+            return;
+        }
+        tracing::info!("{id}: cell stack running");
+        router.run_stack(None, Some(running));
+        // The SDR closes when the router drops; one close at a time (see `CellManager`).
+        let _sdr = SDR_OPEN_CLOSE.lock().unwrap_or_else(|e| e.into_inner());
+        drop(router);
+        tracing::info!("{id}: cell stack stopped");
+    });
+    match spawned {
+        Ok(h) => Some(h),
+        Err(e) => {
+            tracing::error!("{id}: failed to spawn cell thread: {e}");
+            None
         }
     }
-    handles
+}
+
+/// One SDR opens or closes at a time: libiio segfaults in closeStream when two Pluto streams
+/// close concurrently.
+static SDR_OPEN_CLOSE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Time a removed cell stays on the air after it was retired: its MM and CMCE release the calls
+/// and registrations on the next tick and the releases reach the radios and the network.
+const CELL_RETIRE_GRACE: Duration = Duration::from_secs(2);
+
+/// A running additional cell.
+struct RunningCell {
+    running: Arc<AtomicBool>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+/// The additional cells' threads: started at boot, and added or removed by a live reload
+/// (`tetra_entities::live_cells`). Cells stop when the primary stops ([`Self::stop_all`]).
+struct CellManager {
+    cells: std::sync::Mutex<HashMap<CellId, RunningCell>>,
+    /// Cells being taken off the air.
+    retiring: std::sync::Mutex<Vec<thread::JoinHandle<()>>>,
+    /// The primary network's site switch, to join or detach cells (linked cells only).
+    site: Option<tetra_entities::net_site::SiteHandle>,
+    tsink: Option<TelemetrySink>,
+    stopping: AtomicBool,
+}
+
+impl CellManager {
+    fn new(site: Option<tetra_entities::net_site::SiteHandle>, tsink: Option<TelemetrySink>) -> Self {
+        Self {
+            cells: Default::default(),
+            retiring: Default::default(),
+            site,
+            tsink,
+            stopping: AtomicBool::new(false),
+        }
+    }
+
+    /// Start the cells configured at boot.
+    fn start_boot_cells(
+        &self,
+        cell_cfgs: Vec<(CellId, SharedConfig)>,
+        mut shared_sdrs: HashMap<CellId, SharedSdrView>,
+        mut links: HashMap<CellId, CellLink>,
+        mut hosts: HashMap<CellId, NetworkHome>,
+    ) -> usize {
+        let mut cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
+        for (id, cell_cfg) in cell_cfgs {
+            let running = Arc::new(AtomicBool::new(true));
+            let handle = spawn_cell(id, cell_cfg, shared_sdrs.remove(&id), links.remove(&id), hosts.remove(&id), self.tsink.as_ref(), running.clone());
+            if handle.is_some() {
+                cells.insert(id, RunningCell { running, handle });
+            }
+        }
+        cells.len()
+    }
+
+    fn apply(&self, change: tetra_entities::live_cells::CellChange) {
+        use tetra_entities::live_cells::CellChange;
+        if self.stopping.load(Ordering::SeqCst) {
+            return;
+        }
+        match change {
+            CellChange::Add { id, cfg } => {
+                let mut cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
+                if cells.contains_key(&id) {
+                    tracing::warn!("{id}: already running, not started again");
+                    return;
+                }
+                let link = if cfg.config().is_site_linked() { self.site.as_ref().map(|h| h.add_cell(id, cfg.clone())) } else { None };
+                tetra_entities::net_site::add_extra_cell(id, cfg.clone());
+                let running = Arc::new(AtomicBool::new(true));
+                let handle = spawn_cell(id, cfg, None, link, None, self.tsink.as_ref(), running.clone());
+                cells.insert(id, RunningCell { running, handle });
+            }
+            CellChange::Remove { id, how } => {
+                let Some(cell) = self.cells.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) else {
+                    return;
+                };
+                if let Some((_, cfg)) = tetra_entities::net_site::extra_cells().into_iter().find(|(c, _)| *c == id) {
+                    cfg.retire(how);
+                }
+                tetra_entities::net_site::remove_extra_cell(id);
+                let site = self.site.clone();
+                let retire = thread::Builder::new().name(format!("{id} retire")).spawn(move || {
+                    thread::sleep(CELL_RETIRE_GRACE);
+                    cell.running.store(false, Ordering::SeqCst);
+                    if let Some(handle) = cell.handle
+                        && handle.join().is_err()
+                    {
+                        tracing::error!("{id}: cell thread panicked while stopping");
+                    }
+                    if let Some(site) = site {
+                        site.remove_cell(id);
+                    }
+                    tracing::info!("{id}: removed by a live reload");
+                });
+                match retire {
+                    Ok(h) => self.retiring.lock().unwrap_or_else(|e| e.into_inner()).push(h),
+                    Err(e) => tracing::error!("{id}: failed to stop the cell: {e}"),
+                }
+            }
+        }
+    }
+
+    /// Stop every cell and wait for it to close its SDR.
+    fn stop_all(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+        let cells: Vec<RunningCell> = self.cells.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, c)| c).collect();
+        for cell in &cells {
+            cell.running.store(false, Ordering::SeqCst);
+        }
+        let retiring: Vec<_> = self.retiring.lock().unwrap_or_else(|e| e.into_inner()).drain(..).collect();
+        for handle in cells.into_iter().filter_map(|c| c.handle).chain(retiring) {
+            if handle.join().is_err() {
+                tracing::error!("cell thread panicked during shutdown");
+            }
+        }
+    }
 }
 
 /// A network whose switch and core link run in one of the additional cells: the network's home
@@ -871,6 +993,7 @@ fn main() {
         }
     }
 
+    let site_handle = site.as_ref().map(|(ports, _, _)| ports.handle());
     let (mut router, tsource, cdispatchers, dapnet_telemetry_sink) =
         build_bs_stack(&mut cfg, &args.config, lst_handle.clone(), site);
     // A station of one cell can gain or lose its core link at run time: the reload sends the Brew
@@ -1180,26 +1303,24 @@ fn main() {
     let mut shared_sdrs = open_shared_sdrs(&cfg, &extra_cell_cfgs, phy_tsink.clone(), cell_tsink.as_ref());
     try_attach_phy(&mut router, &cfg, phy_tsink, shared_sdrs.remove(&CellId::PRIMARY));
 
-    // Multi-cell: additional cells run independently for now (multi-cell plan, phase 2).
-    let extra_cell_threads = spawn_extra_cells(extra_cell_cfgs, shared_sdrs, is_running.clone(), cell_links, network_homes, cell_tsink);
-    if !extra_cell_threads.is_empty() {
-        tracing::warn!(
-            "{} additional cell(s) started — calls and SDS are routed across cells through the site switch",
-            extra_cell_threads.len()
-        );
+    // Multi-cell: one thread per additional cell; a live reload may add or remove cells.
+    let cell_manager = Arc::new(CellManager::new(site_handle, cell_tsink));
+    let started = cell_manager.start_boot_cells(extra_cell_cfgs, shared_sdrs, cell_links, network_homes);
+    if started > 0 {
+        tracing::warn!("{started} additional cell(s) started — calls and SDS are routed across cells through the site switch");
+    }
+    {
+        let manager = cell_manager.clone();
+        tetra_entities::live_cells::install(Box::new(move |change| manager.apply(change)));
     }
 
     // Start the stack
     router.run_stack(None, Some(is_running));
 
-    // The extra cells stop on the same `is_running` flag. Wait for them to close their SDRs before
-    // this thread exits or closes its own: libiio segfaults in closeStream when two Pluto streams
-    // close concurrently, or when the process exits while a cell is still closing.
-    for handle in extra_cell_threads {
-        if handle.join().is_err() {
-            tracing::error!("cell thread panicked during shutdown");
-        }
-    }
+    // Stop the extra cells and wait for them to close their SDRs before this thread exits or
+    // closes its own: libiio segfaults in closeStream when two Pluto streams close concurrently,
+    // or when the process exits while a cell is still closing.
+    cell_manager.stop_all();
 
     // Keep `router` alive while we may enter soft standby so the dashboard thread
     // (and SharedConfig) remain available for Arrancar / config / OTA.

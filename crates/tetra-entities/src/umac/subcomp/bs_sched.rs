@@ -168,6 +168,9 @@ pub struct BsChannelScheduler {
 
     /// Air interface encryption (class 2), when the cell runs it.
     cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
+    /// A security class or key change saved at run time: from this downlink slot on, these
+    /// broadcast PDUs and this cipher (EN 300 392-7 clause 4.5.5.6).
+    next_air: Option<(TdmaTime, PrecomputedUmacPdus, Option<std::sync::Arc<crate::aie::cipher::CellCipher>>)>,
     /// Per timeslot: the traffic channel carries an encrypted call (set when its channel
     /// allocation is sent, cleared when the circuit closes).
     tch_encrypted: [bool; 4],
@@ -376,6 +379,7 @@ impl BsChannelScheduler {
             pending_ra_acks: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             mcch_chan_alloc_sent_this_frame: false,
             cipher: None,
+            next_air: None,
             tch_encrypted: [false; 4],
             pdch_ms: Vec::new(),
             tch_dl_address: [None; 4],
@@ -390,6 +394,27 @@ impl BsChannelScheduler {
     }
 
     pub fn set_cipher(&mut self, cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>) {
+        self.cipher = cipher;
+    }
+
+    /// From downlink slot `at` on, broadcast `precomps` and encrypt with `cipher` (a security
+    /// class or key change announced with D-CK CHANGE DEMAND; SYSINFO follows on the same slot,
+    /// EN 300 392-7 clause 4.5.5.6). `None` withdraws a planned change.
+    pub fn set_next_air(&mut self, next: Option<(TdmaTime, PrecomputedUmacPdus, Option<std::sync::Arc<crate::aie::cipher::CellCipher>>)>) {
+        self.next_air = next;
+    }
+
+    /// Take a planned security change once the downlink reaches its slot.
+    fn switch_air_at(&mut self, ts: TdmaTime) {
+        if !self.next_air.as_ref().is_some_and(|(at, _, _)| ts.diff(*at) >= 0) {
+            return;
+        }
+        let Some((_, precomps, cipher)) = self.next_air.take() else { return };
+        self.set_precomps(precomps);
+        if cipher.is_none() {
+            // Class 1 from here: no traffic channel is encrypted any more.
+            self.tch_encrypted = [false; 4];
+        }
         self.cipher = cipher;
     }
 
@@ -1834,6 +1859,7 @@ impl BsChannelScheduler {
 
         // We finalize a FUTURE slot: cur_ts plus some number of timeslots
         let ts = self.cur_dltime.add_timeslots(MACSCHED_TX_AHEAD as i32);
+        self.switch_air_at(ts);
         self.dl_built_this_tick = true;
         let carrier_num = self.carrier_num;
         self.precomps.mac_sync.time = ts;
@@ -2486,6 +2512,31 @@ mod tests {
         assert_eq!(sysinfo_key_field(None, t(4)), (Some(77), None), "clear cell: always the hyperframe");
         assert_eq!(sysinfo_key_field(Some(&cipher), t(3)), (Some(77), None));
         assert_eq!(sysinfo_key_field(Some(&cipher), t(4)), (None, Some(0x1234)));
+    }
+
+    /// A security class change saved at run time: SYSINFO and the cipher switch on the downlink
+    /// slot named in D-CK CHANGE DEMAND, not before (EN 300 392-7 clause 4.5.5.6).
+    #[test]
+    fn a_planned_security_change_switches_broadcast_and_cipher_on_its_slot() {
+        use tetra_config::bluestation::{CfgAie, CipherKey};
+        let aie = CfgAie { enabled: true, ksg: 1, sck: CipherKey([7; 10]), sckn: 3, sck_vn: 9, clear_groups: vec![], class3: None };
+        let mut sched = get_testing_slotter();
+        sched.precomps.mac_sysinfo2.ext_services = Some(crate::aie::sysinfo_security(None).1);
+        let mut next = sched.precomps.clone();
+        next.mac_sysinfo2.ext_services = Some(crate::aie::sysinfo_security(Some(&aie)).1);
+        let cipher = std::sync::Arc::new(crate::aie::cipher::CellCipher::new(&aie, &[sched.carrier_num()], 1, 1));
+        let at = TdmaTime { t: 1, f: 1, m: 8, h: 5 };
+        sched.set_next_air(Some((at, next, Some(cipher))));
+        let built = |sched: &mut BsChannelScheduler, dl: TdmaTime| {
+            sched.set_dl_time(dl);
+            let _ = sched.finalize_ts_for_tick();
+            (sched.precomps.mac_sysinfo2.ext_services.as_ref().unwrap().class2_supported, sched.cipher.is_some())
+        };
+        // The slot built at dl time t is t + MACSCHED_TX_AHEAD.
+        let ahead = MACSCHED_TX_AHEAD as i32;
+        assert_eq!(built(&mut sched, at.add_timeslots(-1 - ahead)), (false, false), "class 1 up to the slot before");
+        assert_eq!(built(&mut sched, at.add_timeslots(-ahead)), (true, true), "class 2 from the announced slot");
+        assert!(sched.next_air.is_none());
     }
 
     #[test]

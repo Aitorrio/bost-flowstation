@@ -22,8 +22,39 @@ pub(super) const EE_DSETUP_FALLBACK_TS: i32 = 423;
 pub(super) const NETWORK_MEDIA_INACTIVITY_TS: i32 = 10 * 18 * 4;
 
 impl CcBsSubentity {
+    /// A live reload gave the cell another colour code or network code: the radios lost the cell
+    /// (MM deregisters them), so every call of the old identity ends here and towards the network.
+    pub(super) fn follow_cell_identity(&mut self, queue: &mut MessageQueue) {
+        let generation = self.config.config_generation();
+        if generation == self.identity_generation {
+            return;
+        }
+        self.identity_generation = generation;
+        // A new identity, or the cell retired: its calls cannot go on.
+        let identity = self.config.live_identity();
+        if identity == self.cell_identity {
+            return;
+        }
+        self.cell_identity = identity;
+        let groups: Vec<u16> = self.active_calls.keys().copied().collect();
+        let individuals: Vec<u16> = self.individual_calls.keys().copied().collect();
+        if !groups.is_empty() || !individuals.is_empty() {
+            tracing::warn!("CMCE: cell identity changed by a live reload: releasing {} group and {} individual call(s)", groups.len(), individuals.len());
+        }
+        for call_id in groups {
+            self.release_group_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
+        }
+        for call_id in individuals {
+            self.release_individual_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
+        }
+        self.deferred_restores.clear();
+        self.deferred_individual_restores.clear();
+        self.handover_reservations.clear();
+    }
+
     pub fn tick_start(&mut self, queue: &mut MessageQueue, dltime: TdmaTime) {
         self.dltime = dltime;
+        self.follow_cell_identity(queue);
 
         // ETSI T310 equivalent for active calls.
         self.check_call_timeout_expiry(queue);

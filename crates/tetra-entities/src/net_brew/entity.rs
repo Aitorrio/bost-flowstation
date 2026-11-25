@@ -323,7 +323,7 @@ impl BrewEntity {
                 let live = rebuild.map(|build| {
                     crate::live_link::LiveLink::new(
                         worker_config.clone(),
-                        |c| format!("{:?}", c.brew),
+                        |c| tetra_config::bluestation::debug_with_secrets(&c.brew),
                         Box::new(move |c| c.brew.as_ref().map(&build)),
                     )
                 });

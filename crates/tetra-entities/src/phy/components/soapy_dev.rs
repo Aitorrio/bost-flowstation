@@ -2,7 +2,7 @@
 //! between SDR device and modulator/demodulator code.
 
 use rustfft;
-use tetra_config::bluestation::SharedConfig;
+use tetra_config::bluestation::{SharedConfig, StackConfig, sec_phy_soapy::CfgSoapySdr};
 
 use tetra_pdus::phy::traits::rxtx_dev::RxSlotBits;
 use tetra_pdus::phy::traits::rxtx_dev::RxTxDev;
@@ -62,6 +62,68 @@ pub struct RxTxDevSoapySdr {
     pending_skipped_slots: u32,
     /// Rate limit for the stack catch-up warning.
     catch_up_log_next: std::time::Instant,
+    /// Follows gains, antennas and ppm of the cell's config at run time.
+    live: LiveSdr,
+}
+
+/// What [`RxTxDevSoapySdr::follow_config`] needs to apply a live configuration change.
+struct LiveSdr {
+    cfg: SharedConfig,
+    generation: u64,
+    /// The SDR settings in effect.
+    applied: Option<CfgSoapySdr>,
+    /// Carriers of the other cells on a shared SDR (see `with_shared_carriers`).
+    extra_carriers: Vec<(u16, u32, u32)>,
+    /// This cell's carriers (number, DL Hz, UL Hz) the SDR is tuned for.
+    carriers: Vec<(u16, u32, u32)>,
+    telemetry: Option<TelemetrySink>,
+}
+
+/// Carrier numbers and their ppm-corrected downlink and uplink frequencies, this cell's first,
+/// then `extra_carriers`.
+fn carrier_frequencies(config: &StackConfig, soapy_cfg: &CfgSoapySdr, extra_carriers: &[(u16, u32, u32)]) -> (Vec<u16>, Vec<f64>, Vec<f64>) {
+    let mut bs_carriers = config.bs_phase_mod_carriers().expect("validated carrier configuration should compute");
+    bs_carriers.extend_from_slice(extra_carriers);
+    // PPM-correct the per-carrier frequencies fed to the DSP channelizer, exactly as the SDR
+    // centre frequency is corrected before tuning (soapyio.rs). This is essential, not cosmetic:
+    // the FCFB places each carrier at bin offset `carrier - centre`, and `centre` is read back
+    // from the (already ppm-corrected) hardware LO. If the carriers stayed uncorrected the bin
+    // offset would absorb an equal-and-opposite `-err`, cancelling the LO correction so the net
+    // emitted/received RF never moved — the "changing ppm_err does nothing" bug. Correcting the
+    // carriers too makes net RF = carrier·(1+ppm/1e6), the intended calibration, and is robust to
+    // LO tuning quantisation since `centre` is the actual readback.
+    (
+        bs_carriers.iter().map(|(c, _, _)| *c).collect(),
+        bs_carriers.iter().map(|(_, dl_hz, _)| soapy_cfg.correct_frequency(*dl_hz as f64).0).collect(),
+        bs_carriers.iter().map(|(_, _, ul_hz)| soapy_cfg.correct_frequency(*ul_hz as f64).0).collect(),
+    )
+}
+
+/// The gains and antennas that differ between two SDR settings (live configuration). A gain is
+/// set when its value changed; a gain or antenna that was removed is left as it is (the reload
+/// restarts for that, see `config_reload`).
+#[derive(Debug, Default, PartialEq)]
+struct SdrChanges {
+    rx_gains: Vec<(String, f64)>,
+    tx_gains: Vec<(String, f64)>,
+    rx_ant: Option<String>,
+    tx_ant: Option<String>,
+    ppm: bool,
+}
+
+fn sdr_changes(old: &CfgSoapySdr, new: &CfgSoapySdr) -> SdrChanges {
+    let changed = |o: &std::collections::HashMap<String, f64>, n: &std::collections::HashMap<String, f64>| {
+        let mut v: Vec<(String, f64)> = n.iter().filter(|(k, db)| o.get(*k) != Some(db)).map(|(k, db)| (k.clone(), *db)).collect();
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    };
+    SdrChanges {
+        rx_gains: changed(&old.rx_gains, &new.rx_gains),
+        tx_gains: changed(&old.tx_gains, &new.tx_gains),
+        rx_ant: new.rx_ant.clone().filter(|a| old.rx_ant.as_ref() != Some(a)),
+        tx_ant: new.tx_ant.clone().filter(|a| old.tx_ant.as_ref() != Some(a)),
+        ppm: old.ppm_err != new.ppm_err,
+    }
 }
 
 /// Rate-limit helper for the catch-up warning: true at most once every 5 s.
@@ -172,29 +234,17 @@ impl RxTxDevSoapySdr {
             ul_corrected / 1e6
         );
 
-        let mut bs_carriers = config_guard
-            .as_ref()
-            .bs_phase_mod_carriers()
-            .expect("validated carrier configuration should compute");
-        bs_carriers.extend_from_slice(extra_carriers);
-        let bs_carrier_numbers = bs_carriers.iter().map(|(carrier_num, _, _)| *carrier_num).collect::<Vec<_>>();
-        // PPM-correct the per-carrier frequencies fed to the DSP channelizer, exactly as the SDR
-        // centre frequency is corrected before tuning (soapyio.rs). This is essential, not cosmetic:
-        // the FCFB places each carrier at bin offset `carrier - centre`, and `centre` is read back
-        // from the (already ppm-corrected) hardware LO. If the carriers stayed uncorrected the bin
-        // offset would absorb an equal-and-opposite `-err`, cancelling the LO correction so the net
-        // emitted/received RF never moved — the "changing ppm_err does nothing" bug. Correcting the
-        // carriers too makes net RF = carrier·(1+ppm/1e6), the intended calibration, and is robust to
-        // LO tuning quantisation since `centre` is the actual readback. NOTE: ppm_err is only read
-        // here at PHY construction, so a dashboard change still needs a stack restart to take effect.
-        let bs_dl_frequencies = bs_carriers
-            .iter()
-            .map(|(_, dl_hz, _)| soapy_cfg.correct_frequency(*dl_hz as f64).0)
-            .collect::<Vec<_>>();
-        let bs_ul_frequencies = bs_carriers
-            .iter()
-            .map(|(_, _, ul_hz)| soapy_cfg.correct_frequency(*ul_hz as f64).0)
-            .collect::<Vec<_>>();
+        // A later ppm change retunes and rebuilds the channelizer live (`follow_config`).
+        let (bs_carrier_numbers, bs_dl_frequencies, bs_ul_frequencies) =
+            carrier_frequencies(&config_guard, soapy_cfg, extra_carriers);
+        let live = LiveSdr {
+            cfg: cfg.clone(),
+            generation: cfg.config_generation(),
+            applied: Some(soapy_cfg.clone()),
+            extra_carriers: extra_carriers.to_vec(),
+            carriers: config_guard.bs_phase_mod_carriers().unwrap_or_default(),
+            telemetry: telemetry.clone(),
+        };
 
         let phy_config = soapy_dev::PhyConfig {
             monitor_frequencies: &[],
@@ -244,9 +294,95 @@ impl RxTxDevSoapySdr {
             cal_control,
             pending_skipped_slots: 0,
             catch_up_log_next: std::time::Instant::now(),
+            live,
 
             sdr: Some(sdr),
         })
+    }
+
+    /// Live configuration: apply changed gains and antennas to the running SDR, and a changed ppm
+    /// correction by retuning and rebuilding the channelizer for the corrected carrier
+    /// frequencies. The sample and block counters carry over, so the stack's timing does not
+    /// move; at most one block of a slot is lost. Runs on the PHY thread, between slots.
+    fn follow_config(&mut self) {
+        let generation = self.live.cfg.config_generation();
+        if generation == self.live.generation {
+            return;
+        }
+        self.live.generation = generation;
+        let config = self.live.cfg.config();
+        let Some(new) = config.phy_io.soapysdr.clone() else { return };
+        let Some(old) = self.live.applied.replace(new.clone()) else { return };
+        let mut changes = sdr_changes(&old, &new);
+        // A cell on its own SDR may move to another carrier (same number of carriers): retune
+        // like a ppm change. On a shared SDR the reload restarts instead.
+        let carriers = config.bs_phase_mod_carriers().unwrap_or_default();
+        let moved = carriers != self.live.carriers;
+        if moved {
+            if self.live.extra_carriers.is_empty() && carriers.len() == self.live.carriers.len() {
+                tracing::info!("PHY: carriers {:?} -> {:?} (live configuration), retuning", self.live.carriers.iter().map(|c| c.0).collect::<Vec<_>>(), carriers.iter().map(|c| c.0).collect::<Vec<_>>());
+                self.live.carriers = carriers;
+            } else {
+                tracing::warn!("PHY: carrier change on a shared SDR or with another number of carriers cannot apply live; restart the station");
+            }
+        }
+        let retune = changes.ppm || (moved && self.live.carriers == config.bs_phase_mod_carriers().unwrap_or_default());
+        changes.ppm = retune;
+        if changes == SdrChanges::default() {
+            return;
+        }
+        let Some(sdr) = self.sdr.as_mut() else { return };
+        for (name, db) in &changes.rx_gains {
+            match sdr.set_rx_gain(name, *db) {
+                Ok(()) => tracing::info!("PHY: RX gain {name} = {db} dB (live configuration)"),
+                Err(e) => tracing::warn!("PHY: live configuration: {e}"),
+            }
+        }
+        for (name, db) in &changes.tx_gains {
+            match sdr.set_tx_gain(name, *db) {
+                Ok(()) => tracing::info!("PHY: TX gain {name} = {db} dB (live configuration)"),
+                Err(e) => tracing::warn!("PHY: live configuration: {e}"),
+            }
+        }
+        for (rx, ant) in [(true, &changes.rx_ant), (false, &changes.tx_ant)] {
+            if let Some(ant) = ant {
+                match sdr.set_antenna(rx, ant) {
+                    Ok(()) => tracing::info!("PHY: {} antenna {ant} (live configuration)", if rx { "RX" } else { "TX" }),
+                    Err(e) => tracing::warn!("PHY: live configuration: {e}"),
+                }
+            }
+        }
+        if !changes.rx_gains.is_empty() || !changes.tx_gains.is_empty() {
+            if let Some(health) = self.health.as_mut() {
+                health.forget_gains();
+            }
+        }
+        if changes.ppm {
+            if let Err(e) = sdr.retune(&new, config.stack_mode) {
+                tracing::warn!("PHY: live configuration: retune not applied: {e}");
+                return;
+            }
+            let (numbers, dl, ul) = carrier_frequencies(&config, &new, &self.live.extra_carriers);
+            let phy_config = soapy_dev::PhyConfig {
+                monitor_frequencies: &[],
+                monitor_carrier_numbers: &[],
+                bs_dl_frequencies: &dl,
+                bs_ul_frequencies: &ul,
+                bs_carrier_numbers: &numbers,
+            };
+            let mut planner = rustfft::FftPlanner::new();
+            if let Some(old_rx) = self.rx_dsp.take() {
+                let mut rx = RxDsp::new(&mut planner, sdr, &phy_config);
+                rx.continue_from(old_rx);
+                self.rx_dsp = Some(rx);
+            }
+            if let Some(old_tx) = self.tx_dsp.take() {
+                let mut tx = TxDsp::new(&mut planner, sdr, &phy_config, self.live.telemetry.clone());
+                tx.continue_from(old_tx);
+                self.tx_dsp = Some(tx);
+            }
+            tracing::info!("PHY: retuned live (ppm {} -> {})", old.ppm_err, new.ppm_err);
+        }
     }
 
     /// Drop Soapy streams/device so the cell leaves the air (OTA compile path).
@@ -323,6 +459,7 @@ impl RxTxDev for RxTxDevSoapySdr {
         if crate::rf_status::ota_rf_off_requested() {
             self.power_off_for_ota();
         }
+        self.follow_config();
         if self.sdr.is_none() {
             // Pace ~1 TDMA slot so the stack does not busy-spin while cargo builds.
             std::thread::sleep(std::time::Duration::from_millis(57));
@@ -466,6 +603,15 @@ impl RxDsp {
                 })
                 .collect(),
         }
+    }
+
+    /// Take over the stream position of the channelizer this one replaces (live ppm change).
+    fn continue_from(&mut self, old: RxDsp) {
+        if old.rx_buffer.len() == self.rx_buffer.len() {
+            self.rx_buffer = old.rx_buffer;
+            self.rx_buffer_i = old.rx_buffer_i;
+        }
+        self.rx_block_count = old.rx_block_count;
     }
 
     fn process_block(&mut self, sdr: &mut soapyio::SoapyIo) -> Result<bool, RxTxDevError> {
@@ -659,6 +805,12 @@ impl TxDsp {
             tx_signal_scratch: Vec::new(),
             late_log_next: std::time::Instant::now(),
         }
+    }
+
+    /// Take over the stream position of the synthesizer this one replaces (live ppm change).
+    fn continue_from(&mut self, old: TxDsp) {
+        self.block_count = old.block_count;
+        self.initial_time = old.initial_time;
     }
 
     /// How many timeslots the stack's next TX slot lies before the earliest slot the SDR can
@@ -1473,8 +1625,8 @@ struct SdrHealthMonitor {
     next_emit: std::time::Instant,
     /// Polling interval.
     interval: std::time::Duration,
-    /// Cached TX/RX gain readback. The gains are configured once at startup and never
-    /// change at runtime, so reading them back from the SDR on every health tick is
+    /// Cached TX/RX gain readback. The gains change only by an explicit live configuration
+    /// change (which clears the cache, `forget_gains`), so reading them back from the SDR on every health tick is
     /// pointless — and on USB SDRs (LimeSDR Mini) each list_gains()/gain_element() call
     /// is a synchronous USB transaction taking 5-15 ms. Doing ~9 of them every 5 s on the
     /// PHY thread stalled TX block production for 45-135 ms, producing the "Too late to
@@ -1495,6 +1647,12 @@ impl SdrHealthMonitor {
             cached_tx_gains: None,
             cached_rx_gains: None,
         }
+    }
+
+    /// The gains were changed live: read them again on the next tick.
+    fn forget_gains(&mut self) {
+        self.cached_tx_gains = None;
+        self.cached_rx_gains = None;
     }
 
     fn tick(&mut self, sdr: &soapyio::SoapyIo) {
@@ -1522,5 +1680,45 @@ impl SdrHealthMonitor {
             tx_gains,
             rx_gains,
         });
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    fn soapy() -> CfgSoapySdr {
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../../example_config/config.toml")).unwrap();
+        cfg.phy_io.soapysdr.unwrap()
+    }
+
+    #[test]
+    fn only_changed_gains_and_antennas_are_set() {
+        let mut old = soapy();
+        old.rx_gains.insert("LNA".into(), 20.0);
+        old.rx_gains.insert("PGA".into(), 10.0);
+        old.tx_ant = Some("BAND1".into());
+        assert_eq!(sdr_changes(&old, &old), SdrChanges::default());
+        let mut new = old.clone();
+        new.rx_gains.insert("LNA".into(), 25.0);
+        new.tx_gains.insert("PAD".into(), 40.0);
+        new.rx_ant = Some("LNAW".into());
+        new.ppm_err += 0.5;
+        let c = sdr_changes(&old, &new);
+        assert_eq!(c.rx_gains, vec![("LNA".to_string(), 25.0)], "PGA unchanged is not set again");
+        assert_eq!(c.tx_gains, vec![("PAD".to_string(), 40.0)]);
+        assert_eq!((c.rx_ant.as_deref(), c.tx_ant.as_deref()), (Some("LNAW"), None));
+        assert!(c.ppm);
+    }
+
+    #[test]
+    fn a_ppm_change_moves_every_carrier_frequency() {
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../../example_config/config.toml")).unwrap();
+        let mut s = cfg.phy_io.soapysdr.clone().unwrap();
+        let (_, dl0, ul0) = carrier_frequencies(&cfg, &s, &[]);
+        s.ppm_err += 2.0;
+        let (_, dl1, ul1) = carrier_frequencies(&cfg, &s, &[]);
+        assert!(dl0.iter().zip(&dl1).all(|(a, b)| (b - a).abs() > 100.0), "{dl0:?} {dl1:?}");
+        assert!(ul0.iter().zip(&ul1).all(|(a, b)| (b - a).abs() > 100.0));
     }
 }

@@ -4,6 +4,7 @@ pub mod aie;
 pub mod live_link;
 pub mod config_reload;
 pub mod network_swap;
+pub mod live_cells;
 pub mod cmce;
 pub mod entity_trait;
 pub mod llc;

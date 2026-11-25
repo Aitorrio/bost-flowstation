@@ -67,7 +67,18 @@ pub struct CfgSecurity {
     pub invalid_subscriber_keys: Vec<u32>,
     /// End-to-end encryption of base-station SDS; `None` = off (the default).
     pub e2ee: Option<CfgE2ee>,
+    /// How far ahead a security class or cipher key change saved at run time is announced to the
+    /// registered radios with D-CK CHANGE DEMAND (EN 300 392-7 clauses 4.5.5.6, 4.5.6), in
+    /// seconds ([`CHANGE_LEAD_SECS_MIN`]..=[`CHANGE_LEAD_SECS_MAX`]); the change then takes
+    /// effect at the start of the next multiframe.
+    pub change_lead_secs: u64,
 }
+
+/// Default of [`CfgSecurity::change_lead_secs`].
+pub const CHANGE_LEAD_SECS_DEFAULT: u64 = 30;
+/// Range of [`CfgSecurity::change_lead_secs`].
+pub const CHANGE_LEAD_SECS_MIN: u64 = 5;
+pub const CHANGE_LEAD_SECS_MAX: u64 = 300;
 
 /// Whether and how radios are authenticated when they register. With `Off` the cell trusts the
 /// ISSI a radio claims; with `Optional` radios that have a key on file are challenged and the
@@ -134,6 +145,9 @@ pub struct CipherKey(pub [u8; 10]);
 
 impl std::fmt::Debug for CipherKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if super::config::secrets_revealed() {
+            return write!(f, "CipherKey({:02x?})", self.0);
+        }
         f.write_str("CipherKey(<redacted>)")
     }
 }
@@ -251,6 +265,7 @@ impl Default for CfgSecurity {
             subscribers: Vec::new(),
             invalid_subscriber_keys: Vec::new(),
             e2ee: None,
+            change_lead_secs: CHANGE_LEAD_SECS_DEFAULT,
         }
     }
 }
@@ -338,6 +353,8 @@ pub struct CfgSecurityDto {
     pub subscribers: Vec<SubscriberKeyDto>,
     #[serde(default)]
     pub e2ee: Option<CfgE2eeDto>,
+    #[serde(default)]
+    pub change_lead_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -539,12 +556,27 @@ pub fn apply_security_patch(dto: CfgSecurityDto) -> Result<CfgSecurity, String> 
         registration_rate_limit_per_min: dto
             .registration_rate_limit_per_min
             .unwrap_or(defaults.registration_rate_limit_per_min),
+        change_lead_secs: match dto.change_lead_secs {
+            None => defaults.change_lead_secs,
+            Some(s) if (CHANGE_LEAD_SECS_MIN..=CHANGE_LEAD_SECS_MAX).contains(&s) => s,
+            Some(s) => return Err(format!("security.change_lead_secs = {s}: must be {CHANGE_LEAD_SECS_MIN} to {CHANGE_LEAD_SECS_MAX} seconds")),
+        },
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn change_lead_defaults_to_30_s_and_stays_in_range() {
+        assert_eq!(apply_security_patch(CfgSecurityDto::default()).unwrap().change_lead_secs, 30);
+        let lead = |s| apply_security_patch(CfgSecurityDto { change_lead_secs: Some(s), ..Default::default() });
+        assert_eq!(lead(5).unwrap().change_lead_secs, 5);
+        assert_eq!(lead(300).unwrap().change_lead_secs, 300);
+        assert!(lead(4).is_err());
+        assert!(lead(301).is_err());
+    }
 
     #[test]
     fn e2ee_resolves_and_validates() {

@@ -17,6 +17,7 @@ use tetra_saps::{SapMsg, SapMsgInner};
 
 use crate::mm::components::client_state::{ClientMgrErr, MmClientMgr, MmClientState};
 use crate::mm::components::not_supported::make_ul_mm_pdu_function_not_supported;
+use tetra_pdus::mm::pdus::ck_change::{ChangeTime, DCkChangeDemand, KeyChange};
 use tetra_pdus::cmce::ss_dgna::enums::results::GroupIdentityAttachmentMode;
 use tetra_pdus::mm::enums::energy_saving_mode::EnergySavingMode;
 use tetra_pdus::mm::enums::location_update_type::LocationUpdateType;
@@ -108,6 +109,24 @@ const AUTH_PASS_GRACE: Duration = Duration::from_secs(5);
 const REAUTH_HOLDOFF_ENCRYPTED: Duration = T354;
 /// How long to wait for U-OTAR SCK RESULT after an individually addressed provide.
 const T_OTAR_RESULT: Duration = Duration::from_secs(30);
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// A security class or key change saved at run time is committed to the cell's config this many
+/// slots after it took effect on the downlink (the uplink follows two slots later, EN 300 392-7
+/// clause 4.5.5.4; until the commit UMAC runs the new settings from their slot on).
+pub(crate) const AIR_CHANGE_COMMIT_SLOTS: i32 = 8;
+
+/// The slot of a key change at time `at_ms`, seen from `ts` at `now_ms`: the first slot of the
+/// multiframe that starts at or after that time (a past time: the next multiframe, "immediate" in
+/// EN 300 392-7 clause 4.5.5.6). One slot is 255/18 ms (TS 100 392-2 clause 7).
+pub(crate) fn sck_change_slot(ts: TdmaTime, at_ms: u64, now_ms: u64) -> TdmaTime {
+    let slots = (at_ms.saturating_sub(now_ms) * 18).div_ceil(255).min(i32::MAX as u64 / 2) as i32;
+    let t = ts.add_timeslots(slots.max(1));
+    let into_mf = t.to_int().rem_euclid(4 * 18);
+    if into_mf == 0 { t } else { t.add_timeslots(4 * 18 - into_mf) }
+}
 /// Maximum time to retain a location-update ciphering transition without an LLC ACK.
 const CIPHERING_ACK_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -128,6 +147,15 @@ pub struct MmBs {
     registration_checks_rf_ready: bool,
     registration_command_last_frame: Option<i32>,
     registration_check_last_tick: Option<Instant>,
+    /// Live reload of the location area: config generation and LA last seen, the radios still
+    /// to be asked to register in the new LA, and the frame of the last such command.
+    la_generation: u64,
+    la_current: u16,
+    la_change_pending: VecDeque<u32>,
+    la_change_last_frame: Option<i32>,
+    /// The cell identity (colour code, MCC, MNC) the registrations belong to.
+    /// `None` once the cell is retired by a live reload.
+    cell_identity: Option<tetra_config::bluestation::CellIdentity>,
     registration_probe_receipts: HashMap<u32, tetra_core::tx_receipt::TxReporter>,
 
     // ── Air-interface security (EN 300 392-7) ──────────────────────────────────────────────
@@ -224,6 +252,8 @@ impl MmBs {
                 );
             }
         }
+        let (la_generation, la_current) = (config.config_generation(), config.config().cell.location_area);
+        let cell_identity = config.live_identity();
         Self {
             config,
             telemetry,
@@ -232,6 +262,11 @@ impl MmBs {
             registration_checks_rf_ready: false,
             registration_command_last_frame: None,
             registration_check_last_tick: None,
+            la_generation,
+            la_current,
+            cell_identity,
+            la_change_pending: VecDeque::new(),
+            la_change_last_frame: None,
             registration_probe_receipts: HashMap::new(),
             auth_pending: HashMap::new(),
             auth_passed: HashMap::new(),
@@ -3386,6 +3421,189 @@ impl MmBs {
         }
     }
 
+    /// A live configuration reload moved this cell to another location area. The radios
+    /// registered here hold the old LA in their registered area and a radio that stays on the
+    /// cell has no reselection that would make it register (TS 100 392-2 clause 16.4.1.0), so the
+    /// SwMI asks each of them to register again with D-LOCATION UPDATE COMMAND (clause 16.4.3),
+    /// one radio per TDMA frame like the presence checks.
+    fn follow_location_area(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
+        let generation = self.config.config_generation();
+        if generation != self.la_generation {
+            self.la_generation = generation;
+            let identity = self.config.live_identity();
+            if identity != self.cell_identity {
+                self.cell_identity = identity;
+                self.la_current = self.config.config().cell.location_area;
+                match identity {
+                    // A new identity takes the LA along: everything registered is gone.
+                    Some(identity) => self.reset_registrations(queue, Some(identity)),
+                    None => match self.config.retirement() {
+                        Some(tetra_config::bluestation::Retirement::DropRegistrations) => self.reset_registrations(queue, None),
+                        _ => {
+                            // Another cell serves the location area: the radios reselect to it
+                            // without registering (TS 100 392-2 clause 16.4.1.0) and the site
+                            // switch moves their registrations there.
+                            tracing::info!("MM: cell retired by a live reload; its radios stay registered in the location area");
+                            self.la_change_pending.clear();
+                        }
+                    },
+                }
+                return;
+            }
+            let la = self.config.config().cell.location_area;
+            if la != self.la_current {
+                let issis = self.client_mgr.all_known_issis();
+                tracing::info!(
+                    "MM: location area {} -> {} by a live reload: asking {} registered radio(s) to register again (D-LOCATION-UPDATE-COMMAND)",
+                    self.la_current,
+                    la,
+                    issis.len()
+                );
+                self.la_current = la;
+                self.la_change_pending = issis.into_iter().collect();
+            }
+        }
+        if self.la_change_pending.is_empty() {
+            return;
+        }
+        let frame = ts.to_int() / 4;
+        if self.la_change_last_frame == Some(frame) {
+            return;
+        }
+        while let Some(issi) = self.la_change_pending.pop_front() {
+            // A radio that left in the meantime is not asked.
+            if self.client_mgr.get_client_by_issi(issi).is_none() {
+                continue;
+            }
+            self.la_change_last_frame = Some(frame);
+            self.send_d_location_update_command(queue, issi, 0);
+            break;
+        }
+    }
+
+    /// A security class or cipher key change saved at run time (`config_reload::reload_with`
+    /// holds it in `StackState::air_change`). First it is announced to every registered radio with
+    /// D-CK CHANGE DEMAND for the first slot of the multiframe at or after the configured lead
+    /// time (EN 300 392-7 clauses 4.5.5.0, 4.5.5.6, 4.5.6.1 to 4.5.6.3); UMAC switches the cipher
+    /// and SYSINFO on that slot. A few slots later the change is committed to the cell's config.
+    /// Radios registered in clear are told too: on a change from class 1 they must register again
+    /// (clause 4.5.6.0); on a change to class 1 encrypted radios stay registered in clear.
+    fn follow_air_change(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
+        let Some(change) = self.config.state_read().air_change.clone() else {
+            return;
+        };
+        let cfg = self.config.config();
+        let from = crate::aie::on_air(cfg.security.aie.as_ref());
+        let to = crate::aie::on_air(change.target.as_ref());
+        let Some(at) = change.at else {
+            if tetra_config::bluestation::debug_with_secrets(&from) == tetra_config::bluestation::debug_with_secrets(&to) {
+                // Nothing on air changes (a staged key, clear groups): commit at once.
+                self.commit_air_change(change.target, from.map(|f| f.0), to.map(|t| t.0));
+                return;
+            }
+            let now = now_ms();
+            let at = sck_change_slot(ts, now + change.lead_secs * 1000, now);
+            let from_class = from.as_ref().map_or(1, |f| f.0);
+            let (change_of_class, key) = match &to {
+                None => (0b01, KeyChange::NoCipherKey),
+                Some((class, sckn, vn, _)) => {
+                    let key = if *class == 3 { KeyChange::Cck(*vn) } else { KeyChange::Sck(vec![(sckn & 0x1f, *vn)]) };
+                    (if *class == from_class { 0b00 } else { *class }, key)
+                }
+            };
+            let pdu = DCkChangeDemand { ack_required: false, change_of_class, key, time: ChangeTime::AbsoluteIv { t: at.t, f: at.f, m: at.m, h: at.h } };
+            let mut radios = self.client_mgr.all_known_issis();
+            radios.sort_unstable();
+            tracing::warn!(
+                "MM: security change by a live reload: class {} -> {} ({}) from {}/{}/{}/{}, announced to {} registered radio(s) with D-CK CHANGE DEMAND",
+                from_class,
+                to.as_ref().map_or(1, |t| t.0),
+                match &to {
+                    None => "no cipher key".to_string(),
+                    Some((3, _, vn, _)) => format!("CCK-id {vn}"),
+                    Some((_, n, vn, _)) => format!("SCKN {n} version {vn}"),
+                },
+                at.h,
+                at.m,
+                at.f,
+                at.t,
+                radios.len()
+            );
+            for issi in radios {
+                self.send_auth_pdu(queue, issi, 0, "DCkChangeDemand", |b| pdu.to_bitbuf(b));
+            }
+            if let Some(c) = self.config.state_write().air_change.as_mut() {
+                c.at = Some(at);
+            }
+            return;
+        };
+        if ts.diff(at) >= AIR_CHANGE_COMMIT_SLOTS {
+            self.commit_air_change(change.target, from.map(|f| f.0), to.map(|t| t.0));
+        }
+    }
+
+    fn commit_air_change(&mut self, target: Option<tetra_config::bluestation::CfgAie>, from: Option<u8>, to: Option<u8>) {
+        let mut cfg = (*self.config.config()).clone();
+        cfg.security.aie = target;
+        self.config.state_write().air_change = None;
+        if let Err(e) = self.config.replace_config(cfg) {
+            tracing::error!("MM: security change could not be committed: {e}");
+            return;
+        }
+        if from.is_some() && to.is_none() {
+            // Class 1 now: encrypted radios stay registered with ciphering off (clause 4.5.6.0).
+            let issis: Vec<u32> = self.registration_encryption.keys().copied().collect();
+            let mut st = self.config.state_write();
+            for issi in issis {
+                self.registration_encryption.insert(issi, false);
+                st.subscribers.set_encrypted(issi, false);
+            }
+        }
+        tracing::info!("MM: security change in effect: class {}", to.unwrap_or(1));
+    }
+
+    /// A live reload gave the cell another colour code, network code or carrier. Every radio on it
+    /// loses the cell (the scrambling or the frequency changes) and, finding it again, sees another network and must
+    /// register anew (TS 100 392-2 clause 16.4.1.0). The cell is rebuilt in place: each radio is
+    /// deregistered towards the network first (groups, then the registration, as for a radio that
+    /// left), and the registry, authentication and key state of the old identity are dropped.
+    /// `identity` is `None` when the cell is retired: no cell serves its location area any more,
+    /// so its radios register anew wherever they reselect to.
+    fn reset_registrations(&mut self, queue: &mut MessageQueue, identity: Option<tetra_config::bluestation::CellIdentity>) {
+        let issis = self.client_mgr.all_known_issis();
+        match identity {
+            Some(identity) => tracing::warn!(
+                "MM: cell identity changed by a live reload (colour code {}, MCC {}, MNC {}, carrier {}): {} radio(s) deregistered, they register again on the new identity",
+                identity.0,
+                identity.1,
+                identity.2,
+                identity.3,
+                issis.len()
+            ),
+            None => tracing::warn!("MM: cell retired by a live reload: {} radio(s) deregistered, they register again on another cell", issis.len()),
+        }
+        for issi in issis {
+            let groups = self
+                .client_mgr
+                .get_client_by_issi(issi)
+                .map(|client| client.groups.iter().copied().collect::<Vec<_>>())
+                .unwrap_or_default();
+            if !groups.is_empty() {
+                self.emit_subscriber_update(queue, issi, groups, BrewSubscriberAction::Deaffiliate);
+            }
+            self.emit_subscriber_update(queue, issi, Vec::new(), BrewSubscriberAction::Deregister);
+            self.config.state_write().subscribers.deregister(issi);
+            self.client_mgr.remove_client(issi);
+        }
+        self.la_change_pending.clear();
+        self.registration_probe_receipts.clear();
+        self.auth_pending.clear();
+        self.auth_passed.clear();
+        self.registration_authenticated.clear();
+        self.dck.clear();
+        self.recovery_mark_dirty();
+    }
+
     fn drive_registration_checks(&mut self, queue: &mut MessageQueue, ts: TdmaTime, now: Instant, rf_ready: bool) {
         let interval_secs = self.config.config().cell.periodic_registration_secs;
         let presence_secs = self.config.config().cell.presence_check_secs;
@@ -3568,6 +3786,8 @@ impl TetraEntityTrait for MmBs {
         let rf_ready = crate::rf_status::get_all()
             .into_iter()
             .any(|(cell, status)| cell == self.config.config().cell_id && status.state == crate::rf_status::RfState::Online);
+        self.follow_location_area(queue, ts);
+        self.follow_air_change(queue, ts);
         self.drive_registration_checks(queue, ts, Instant::now(), rf_ready);
 
         // Restart recovery: replay D-LOCATION-UPDATE-COMMANDs to cached terminals awaiting
@@ -4897,6 +5117,186 @@ mod presence_tests {
         assert_eq!(request.sdu.read_field(10, "ciphering_parameters").unwrap(),
             CipheringParameters::class2(2, 24).to_bits());
         assert!(!request.encryption_flag, "initial location command must still be clear");
+    }
+
+    #[test]
+    fn live_location_area_change_asks_every_registered_radio_to_register_again() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        radio(&mut mm, 101);
+        let mut queue = MessageQueue::new();
+        let lu_commands = |queue: &mut MessageQueue| {
+            let mut issis = Vec::new();
+            while let Some(m) = queue.pop_front() {
+                if let SapMsgInner::LmmMleUnitdataReq(mut r) = m.msg
+                    && r.sdu.read_field(4, "pdu_type").unwrap()
+                        == tetra_pdus::mm::enums::mm_pdu_type_dl::MmPduTypeDl::DLocationUpdateCommand.into_raw()
+                {
+                    issis.push(r.address.ssi);
+                }
+            }
+            issis
+        };
+        let ts = TdmaTime::default();
+        mm.follow_location_area(&mut queue, ts);
+        assert!(lu_commands(&mut queue).is_empty(), "no reload, no command");
+
+        // A reload that changes something else: nobody is asked.
+        let mut other = (*mm.config.config()).clone();
+        other.cell.presence_check_secs += 1;
+        mm.config.replace_config(other).unwrap();
+        mm.follow_location_area(&mut queue, ts);
+        assert!(lu_commands(&mut queue).is_empty());
+
+        let mut moved = (*mm.config.config()).clone();
+        moved.cell.location_area = (moved.cell.location_area + 1) & 0x3FFF;
+        mm.config.replace_config(moved).unwrap();
+        mm.follow_location_area(&mut queue, ts);
+        mm.follow_location_area(&mut queue, ts);
+        let mut asked = lu_commands(&mut queue);
+        assert_eq!(asked.len(), 1, "one radio per frame");
+        mm.follow_location_area(&mut queue, ts.add_timeslots(4));
+        asked.extend(lu_commands(&mut queue));
+        mm.follow_location_area(&mut queue, ts.add_timeslots(8));
+        asked.extend(lu_commands(&mut queue));
+        asked.sort();
+        assert_eq!(asked, vec![100, 101], "every registered radio is asked once");
+    }
+
+    #[test]
+    fn a_new_cell_identity_deregisters_every_radio_instead_of_commanding_it() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        radio(&mut mm, 101);
+        let mut queue = MessageQueue::new();
+        let mut moved = (*mm.config.config()).clone();
+        moved.cell.colour_code = (moved.cell.colour_code + 1) % 64;
+        moved.cell.location_area = (moved.cell.location_area + 1) & 0x3FFF;
+        mm.config.replace_config(moved).unwrap();
+        mm.follow_location_area(&mut queue, TdmaTime::default());
+        let mut deregistered = Vec::new();
+        let mut commands = 0;
+        while let Some(m) = queue.pop_front() {
+            match m.msg {
+                SapMsgInner::MmSubscriberUpdate(u) if u.action == BrewSubscriberAction::Deregister && m.dest == TetraEntity::Cmce => deregistered.push(u.issi),
+                SapMsgInner::LmmMleUnitdataReq(_) => commands += 1,
+                _ => {}
+            }
+        }
+        deregistered.sort();
+        assert_eq!(deregistered, vec![100, 101]);
+        assert_eq!(commands, 0, "radios lost the cell: nothing to command");
+        assert!(mm.client_mgr.all_known_issis().is_empty());
+        assert!(!mm.config.state_read().subscribers.is_registered(100));
+        mm.follow_location_area(&mut queue, TdmaTime::default().add_timeslots(4));
+        assert!(queue.pop_front().is_none(), "once");
+    }
+
+    fn class2(key: u8) -> tetra_config::bluestation::CfgAie {
+        tetra_config::bluestation::CfgAie {
+            class3: None,
+            enabled: true,
+            ksg: 1,
+            sckn: 4,
+            sck: tetra_config::bluestation::CipherKey([key; 10]),
+            sck_vn: u16::from(key),
+            clear_groups: Vec::new(),
+        }
+    }
+
+    fn ck_change_demands(queue: &mut MessageQueue) -> Vec<(u32, DCkChangeDemand)> {
+        let mut out = Vec::new();
+        while let Some(m) = queue.pop_front() {
+            if let SapMsgInner::LmmMleUnitdataReq(mut req) = m.msg
+                && let Ok(d) = DCkChangeDemand::from_bitbuf(&mut req.sdu)
+            {
+                out.push((req.address.ssi, d));
+            }
+        }
+        out
+    }
+
+    /// A security change saved at run time: every registered radio, clear ones too, is told the
+    /// slot with D-CK CHANGE DEMAND (EN 300 392-7 clauses 4.5.5.6, 4.5.6.0, 4.5.6.2), at least the
+    /// lead time ahead and on a multiframe start; the config follows a few slots after that slot.
+    #[test]
+    fn a_saved_class_change_is_announced_to_every_radio_and_committed_after_its_slot() {
+        let (mut mm, _) = station();
+        radio(&mut mm, 100);
+        radio(&mut mm, 101);
+        mm.config.state_write().air_change = Some(tetra_config::bluestation::AirChange { target: Some(class2(9)), lead_secs: 5, at: None });
+        let ts = TdmaTime { t: 2, f: 3, m: 10, h: 7 };
+        let mut queue = MessageQueue::new();
+        mm.follow_air_change(&mut queue, ts);
+        let demands = ck_change_demands(&mut queue);
+        assert_eq!(demands.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![100, 101]);
+        let d = &demands[0].1;
+        assert_eq!(d.change_of_class, 0b10, "transition to security class 2");
+        assert_eq!(d.key, KeyChange::Sck(vec![(4, 9)]));
+        let at = mm.config.state_read().air_change.as_ref().unwrap().at.expect("announced");
+        assert_eq!(d.time, ChangeTime::AbsoluteIv { t: at.t, f: at.f, m: at.m, h: at.h });
+        assert_eq!((at.t, at.f), (1, 1), "first slot of a multiframe");
+        assert!(at.diff(ts) >= 5 * 18 * 1000 / 255, "at least the lead time ahead");
+
+        mm.follow_air_change(&mut queue, at.add_timeslots(AIR_CHANGE_COMMIT_SLOTS - 1));
+        assert!(queue.pop_front().is_none(), "announced once");
+        assert!(mm.config.config().security.aie.is_none(), "not committed before its slot has passed");
+        mm.follow_air_change(&mut queue, at.add_timeslots(AIR_CHANGE_COMMIT_SLOTS));
+        assert_eq!(mm.config.config().security.aie.as_ref().map(|a| a.sck_vn), Some(9));
+        assert!(mm.config.state_read().air_change.is_none());
+    }
+
+    #[test]
+    fn back_to_class_1_names_no_key_and_keeps_encrypted_radios_registered_in_clear() {
+        let (mut mm, _) = station();
+        let mut cfg = (*mm.config.config()).clone();
+        cfg.security.aie = Some(class2(3));
+        mm.config.replace_config(cfg).unwrap();
+        radio(&mut mm, 100);
+        mm.registration_encryption.insert(100, true);
+        mm.config.state_write().subscribers.set_encrypted(100, true);
+        mm.config.state_write().air_change = Some(tetra_config::bluestation::AirChange { target: None, lead_secs: 5, at: None });
+        let mut queue = MessageQueue::new();
+        let ts = TdmaTime { t: 1, f: 1, m: 1, h: 0 };
+        mm.follow_air_change(&mut queue, ts);
+        let demands = ck_change_demands(&mut queue);
+        assert_eq!(demands.len(), 1);
+        assert_eq!((demands[0].1.change_of_class, demands[0].1.key.clone()), (0b01, KeyChange::NoCipherKey));
+        let at = mm.config.state_read().air_change.as_ref().unwrap().at.unwrap();
+        mm.follow_air_change(&mut queue, at.add_timeslots(AIR_CHANGE_COMMIT_SLOTS));
+        assert!(crate::aie::effective(&mm.config.config()).is_none());
+        assert_eq!(mm.registration_encryption.get(&100), Some(&false));
+        assert_eq!(mm.config.state_read().subscribers.encrypted(100), Some(false));
+        assert!(mm.client_mgr.client_is_known(100), "stays registered (clause 4.5.6.0)");
+    }
+
+    #[test]
+    fn a_retired_cell_drops_its_registrations_only_when_no_other_cell_serves_its_area() {
+        let deregistered = |mm: &mut MmBs| {
+            let mut queue = MessageQueue::new();
+            mm.follow_location_area(&mut queue, TdmaTime::default());
+            let mut issis = Vec::new();
+            while let Some(m) = queue.pop_front() {
+                match m.msg {
+                    SapMsgInner::MmSubscriberUpdate(u) if u.action == BrewSubscriberAction::Deregister => issis.push(u.issi),
+                    SapMsgInner::LmmMleUnitdataReq(_) => panic!("nothing goes on air for a cell that leaves"),
+                    _ => {}
+                }
+            }
+            issis.sort();
+            issis
+        };
+        let (mut kept, _) = station();
+        radio(&mut kept, 100);
+        kept.config.retire(tetra_config::bluestation::Retirement::KeepRegistrations);
+        assert!(deregistered(&mut kept).is_empty(), "radios reselect within the location area");
+
+        let (mut dropped, _) = station();
+        radio(&mut dropped, 100);
+        radio(&mut dropped, 101);
+        dropped.config.retire(tetra_config::bluestation::Retirement::DropRegistrations);
+        assert_eq!(deregistered(&mut dropped), vec![100, 101]);
+        assert!(dropped.client_mgr.all_known_issis().is_empty());
     }
 
     #[test]

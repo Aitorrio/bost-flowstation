@@ -1131,6 +1131,8 @@ fn test_network_group_speaker_change_uses_remote_floor_grant() {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
     test.populate_entities(
@@ -1236,6 +1238,8 @@ fn test_network_group_speaker_change_reports_the_new_speaker() {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     let mut test = ComponentTest::from_config(config, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
     test.populate_entities(vec![], vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew]);
@@ -1479,6 +1483,8 @@ fn test_brew_cfg() -> CfgBrew {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     }
 }
 
@@ -3039,6 +3045,8 @@ fn brew_test_config() -> tetra_config::bluestation::StackConfig {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     config
 }
@@ -5017,4 +5025,32 @@ fn test_group_access_tx_demand_from_listener_is_not_granted() {
     test.run_stack(Some(1));
     let (mut sdu, _) = find_lcmc_req(&test.dump_sinks(), LISTENER, CmcePduTypeDl::DTxGranted).expect("D-TX GRANTED");
     assert_eq!(DTxGranted::from_bitbuf(&mut sdu).unwrap().transmission_grant, TransmissionGrant::Granted.into_raw() as u8);
+}
+
+/// A live reload that gives the cell another colour code: the radios lost the cell, so the call
+/// is released (D-RELEASE to both parties), once.
+#[test]
+fn test_new_cell_identity_releases_the_calls_of_the_old_one() {
+    let (mut test, _call_id, _) = connected_simplex_individual_call(TEST_ISSI, TEST_ISSI + 1);
+    let mut moved = (*test.config.config()).clone();
+    moved.cell.colour_code = (moved.cell.colour_code + 1) % 64;
+    test.config.replace_config(moved).unwrap();
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+    assert!(find_lcmc_req(&msgs, TEST_ISSI, CmcePduTypeDl::DRelease).is_some(), "calling party released");
+    assert!(find_lcmc_req(&msgs, TEST_ISSI + 1, CmcePduTypeDl::DRelease).is_some(), "called party released");
+    test.run_stack(Some(2));
+    let again = test.dump_sinks();
+    assert!(find_lcmc_req(&again, TEST_ISSI, CmcePduTypeDl::DRelease).is_none(), "only once");
+}
+
+/// A cell a live reload removes ends its calls before it leaves the air.
+#[test]
+fn test_retired_cell_releases_its_calls() {
+    let (mut test, _call_id, _) = connected_simplex_individual_call(TEST_ISSI, TEST_ISSI + 1);
+    test.config.retire(tetra_config::bluestation::Retirement::KeepRegistrations);
+    test.run_stack(Some(1));
+    let msgs = test.dump_sinks();
+    assert!(find_lcmc_req(&msgs, TEST_ISSI, CmcePduTypeDl::DRelease).is_some(), "calling party released");
+    assert!(find_lcmc_req(&msgs, TEST_ISSI + 1, CmcePduTypeDl::DRelease).is_some(), "called party released");
 }

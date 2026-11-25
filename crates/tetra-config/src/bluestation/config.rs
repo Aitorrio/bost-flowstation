@@ -48,8 +48,34 @@ impl std::fmt::Display for SecretField {
 
 impl std::fmt::Debug for SecretField {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if secrets_revealed() {
+            return f.debug_struct("SecretField").field("val", &self.val).finish();
+        }
         f.debug_struct("SecretField").field("val", &"********").finish()
     }
+}
+
+thread_local! {
+    static REVEAL_SECRETS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// True only inside [`debug_with_secrets`] on this thread: the redacting `Debug` impls
+/// ([`SecretField`], `CipherKey`) then print their value.
+pub fn secrets_revealed() -> bool {
+    REVEAL_SECRETS.with(|r| r.get())
+}
+
+/// `format!("{v:?}")` with secrets included, for change detection only (a live reload must notice
+/// a changed password or key, which the redacted form hides). Never log the result.
+pub fn debug_with_secrets<T: std::fmt::Debug + ?Sized>(v: &T) -> String {
+    struct Reset(bool);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            REVEAL_SECRETS.with(|r| r.set(self.0));
+        }
+    }
+    let _reset = Reset(REVEAL_SECRETS.with(|r| r.replace(true)));
+    format!("{v:?}")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -200,7 +226,17 @@ pub fn carrier_band_plan(cell: &CfgCellInfo) -> Option<u16> {
 /// cells, so an SC3 cell cannot share its network with another cell (or roam between stations).
 pub const SC3_SINGLE_CELL: &str = "security class 3 (SC3) runs on a cell that is alone in its network: put it on its own network ([networks]) or choose security class 1 or 2";
 
+/// See [`StackConfig::cell_identity`].
+pub type CellIdentity = (u8, u16, u16, u16, Option<u16>);
+
 impl StackConfig {
+    /// The cell's identity on air: colour code, MCC and MNC (together the extended colour code
+    /// of the scrambling, TS 100 392-2 clauses 8.2.5.2 and 23.2.1) and its carriers (main,
+    /// secondary). Radios that camp on the cell lose it when any of these changes.
+    pub fn cell_identity(&self) -> CellIdentity {
+        (self.cell.colour_code, self.net.mcc, self.net.mnc, self.cell.main_carrier, self.cell.secondary_carrier)
+    }
+
     /// Return BS phase-modulated carrier numbers and their DL/UL frequencies.
     pub fn bs_phase_mod_carriers(&self) -> Result<Vec<(u16, u32, u32)>, String> {
         Self::cell_phase_mod_carriers(&self.cell)
@@ -820,8 +856,21 @@ pub struct SharedConfig {
     /// Counts live reloads. Entities that cache values derived from the config compare it with
     /// the generation they last saw and rebuild on a change.
     generation: Arc<std::sync::atomic::AtomicU64>,
+    /// Set when the cell is being taken off the air by a live reload ([`Self::retire`]).
+    retired: Arc<std::sync::atomic::AtomicU8>,
     /// Mutable state guarded with RwLock (write by the stack, read by others).
     state: Arc<RwLock<StackState>>,
+}
+
+/// How a cell that a live reload removes leaves the air ([`SharedConfig::retire`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Retirement {
+    /// Another cell of the same network serves the cell's location area: its radios reselect
+    /// to it without registering (TS 100 392-2 clause 16.4.1.0), so their registrations stay.
+    KeepRegistrations,
+    /// No other cell serves the location area: the radios register anew wherever they go, so
+    /// the cell drops its registrations first.
+    DropRegistrations,
 }
 
 impl SharedConfig {
@@ -843,6 +892,7 @@ impl SharedConfig {
         Ok(Self {
             cfg: Arc::new(RwLock::new(Arc::new(cfg))),
             generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            retired: Arc::new(std::sync::atomic::AtomicU8::new(0)),
             state: Arc::new(RwLock::new(state)),
         })
     }
@@ -883,6 +933,34 @@ impl SharedConfig {
     /// Number of live reloads so far (0 = the configuration the station started with).
     pub fn config_generation(&self) -> u64 {
         self.generation.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Take the cell off the air (a live reload removed it): its entities release their calls
+    /// and, per `how`, drop their registrations on the next tick, before the cell stops.
+    pub fn retire(&self, how: Retirement) {
+        let v = match how {
+            Retirement::KeepRegistrations => 1,
+            Retirement::DropRegistrations => 2,
+        };
+        self.retired.store(v, std::sync::atomic::Ordering::Release);
+        self.generation.fetch_add(1, std::sync::atomic::Ordering::Release);
+    }
+
+    /// See [`Self::retire`]; `None` while the cell is in service.
+    pub fn retirement(&self) -> Option<Retirement> {
+        match self.retired.load(std::sync::atomic::Ordering::Acquire) {
+            1 => Some(Retirement::KeepRegistrations),
+            2 => Some(Retirement::DropRegistrations),
+            _ => None,
+        }
+    }
+
+    /// The cell's identity on air ([`StackConfig::cell_identity`]), `None` once it is retired.
+    pub fn live_identity(&self) -> Option<CellIdentity> {
+        if self.retirement().is_some() {
+            return None;
+        }
+        Some(self.config().cell_identity())
     }
 
     /// Read guard for mutable state.

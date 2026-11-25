@@ -50,6 +50,9 @@ pub fn tch_s_kss_codec_order(kss: &Kss) -> [u8; 274] {
     std::array::from_fn(|i| kss.bit(i))
 }
 
+/// Uplink slots still encrypted with the old SCK after a change (EN 300 392-7 clause 4.5.5.4).
+pub const UPLINK_OLD_KEY_SLOTS: i32 = 2;
+
 /// Class 2 encryption context of one cell.
 pub struct CellCipher {
     /// 1 = TEA1 (this crate's generator), 2 / 3 = TEA2 / TEA3 from `tetra-security`.

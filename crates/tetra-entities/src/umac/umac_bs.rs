@@ -75,6 +75,9 @@ pub struct UmacBs {
     telemetry: Option<TelemetrySink>,
     /// Air interface encryption (class 2), shared with the schedulers; `None` = clear cell.
     cipher: Option<std::sync::Arc<crate::aie::cipher::CellCipher>>,
+    /// A planned security change (`StackState::air_change`): its downlink slot and the cipher from
+    /// then on. The schedulers switch on that slot; the uplink two slots later.
+    next_air: Option<(TdmaTime, Option<std::sync::Arc<crate::aie::cipher::CellCipher>>)>,
     /// Radios already reported to telemetry as encrypting (first encrypted uplink PDU seen).
     encrypting_reported: std::collections::HashSet<u32>,
     /// Config generation the cached broadcast PDUs and cipher were built from.
@@ -140,6 +143,7 @@ impl UmacBs {
             channel_scheduler,
             secondary_channel_schedulers,
             cipher,
+            next_air: None,
             last_ul_voice: HashMap::new(),
             hangtime_ul_watch: HashMap::new(),
             ul_signal_owner: HashMap::new(),
@@ -161,8 +165,8 @@ impl UmacBs {
     }
 
     /// Rebuild what was derived from the configuration at start-up (broadcast PDUs, scrambling
-    /// code, cipher) after a live reload. Carriers and frequencies are restart-only (they retune
-    /// the SDR).
+    /// code, cipher, the secondary carrier's number) after a live reload. The PHY retunes the SDR
+    /// for a carrier change.
     fn refresh_config(&mut self) {
         let generation = self.config.config_generation();
         if generation == self.config_generation {
@@ -177,6 +181,11 @@ impl UmacBs {
         for sched in &mut self.secondary_channel_schedulers {
             sched.set_precomps(precomps.clone());
             sched.set_scrambling_code(scrambling_code);
+            // A live carrier change keeps whether there is a secondary carrier (the reload restarts
+            // otherwise), only its number may move.
+            if let Some(secondary) = c.cell.secondary_carrier {
+                sched.set_carrier_num(secondary);
+            }
         }
         let cipher = crate::aie::effective(&c).map(|aie| {
             let carriers: Vec<u16> = [Some(c.cell.main_carrier), c.cell.secondary_carrier].into_iter().flatten().collect();
@@ -185,7 +194,67 @@ impl UmacBs {
             )
         });
         self.set_cipher(cipher);
+        self.set_next_air(None);
         tracing::info!("UMAC: configuration reloaded (generation {generation})");
+    }
+
+    fn cell_cipher_for(&self, c: &tetra_config::bluestation::StackConfig) -> Option<std::sync::Arc<crate::aie::cipher::CellCipher>> {
+        crate::aie::effective(c).map(|aie| {
+            let carriers: Vec<u16> = [Some(c.cell.main_carrier), c.cell.secondary_carrier].into_iter().flatten().collect();
+            std::sync::Arc::new(
+                crate::aie::cipher::CellCipher::new(aie, &carriers, c.cell.location_area, c.cell.colour_code).with_config(self.config.clone()),
+            )
+        })
+    }
+
+    fn set_next_air(&mut self, next: Option<(TdmaTime, PrecomputedUmacPdus, Option<std::sync::Arc<crate::aie::cipher::CellCipher>>)>) {
+        self.next_air = next.as_ref().map(|(at, _, cipher)| (*at, cipher.clone()));
+        self.channel_scheduler.set_next_air(next.clone());
+        for sched in &mut self.secondary_channel_schedulers {
+            sched.set_next_air(next.clone());
+        }
+    }
+
+    /// A security change announced by MM (`StackState::air_change` with its slot): build the
+    /// broadcast PDUs and cipher of the new settings and hand them to the schedulers, which switch
+    /// on that downlink slot (EN 300 392-7 clause 4.5.5.6).
+    fn follow_air_change(&mut self) {
+        let planned = self.config.state_read().air_change.as_ref().and_then(|c| c.at.map(|at| (at, c.target.clone())));
+        match planned {
+            Some((at, target)) if self.next_air.as_ref().map(|(a, _)| *a) != Some(at) => {
+                let mut c = (*self.config.config()).clone();
+                c.security.aie = target;
+                let precomps = Self::generate_precomps_for(&self.config, &c);
+                let cipher = self.cell_cipher_for(&c);
+                tracing::info!("UMAC: security change prepared for {}/{}/{}/{}", at.h, at.m, at.f, at.t);
+                self.set_next_air(Some((at, precomps, cipher)));
+            }
+            None if self.next_air.is_some() => self.set_next_air(None),
+            _ => {}
+        }
+    }
+
+    /// The cipher of uplink slot `t`: after a planned security change the uplink keeps the old
+    /// settings for two slots after the downlink switched (EN 300 392-7 clause 4.5.5.4).
+    fn ul_cipher(&self, t: TdmaTime) -> Option<&std::sync::Arc<crate::aie::cipher::CellCipher>> {
+        match &self.next_air {
+            Some((at, cipher)) if t.diff(*at) >= crate::aie::cipher::UPLINK_OLD_KEY_SLOTS => cipher.as_ref(),
+            _ => self.cipher.as_ref(),
+        }
+    }
+
+    /// The downlink slot built next is past a planned security change.
+    fn dl_switched(&self) -> bool {
+        let t = self.dltime.add_timeslots(crate::umac::subcomp::bs_sched::MACSCHED_TX_AHEAD as i32);
+        self.next_air.as_ref().is_some_and(|(at, _)| t.diff(*at) >= 0)
+    }
+
+    /// The cipher of the downlink slot built next.
+    fn dl_cipher(&self) -> Option<&std::sync::Arc<crate::aie::cipher::CellCipher>> {
+        match &self.next_air {
+            Some((_, cipher)) if self.dl_switched() => cipher.as_ref(),
+            _ => self.cipher.as_ref(),
+        }
     }
 
     fn main_carrier(&self) -> u16 {
@@ -245,10 +314,15 @@ impl UmacBs {
     /// Precomputed PDUs are passed to scheduler
     /// Needs to be re-invoked if any network parameter changes
     pub fn generate_precomps(config: &SharedConfig) -> PrecomputedUmacPdus {
-        let c = config.config();
+        Self::generate_precomps_for(config, &config.config())
+    }
+
+    /// The broadcast PDUs of config `c` (the cell's config, or the one a planned security change
+    /// switches to); `config` gives the run-time state.
+    fn generate_precomps_for(config: &SharedConfig, c: &tetra_config::bluestation::StackConfig) -> PrecomputedUmacPdus {
 
         // Security part of the broadcast (AIE service bit, extended services element).
-        let (aie_service, mut ext_services) = crate::aie::sysinfo_security(crate::aie::effective(&c));
+        let (aie_service, mut ext_services) = crate::aie::sysinfo_security(crate::aie::effective(c));
         // Advertise the WAP-IP / data-priority service to Openwave terminals when the packet-data
         // gateway is enabled: the MSB of the extended-services section_data (spec §6.3). Driven by
         // the single WAP master switch so the advertisement always matches the running gateway.
@@ -1129,7 +1203,8 @@ impl UmacBs {
         if !encrypted || !matches!(addr.ssi_type, SsiType::Ssi | SsiType::Issi | SsiType::Gssi) {
             return Some(addr);
         }
-        let Some(cipher) = &self.cipher else {
+        let t = self.dltime.add_timeslots(-2);
+        let Some(cipher) = self.ul_cipher(t) else {
             tracing::warn!("UMAC: encrypted uplink PDU from ESI {} but this cell runs no encryption; dropping", addr.ssi);
             return None;
         };
@@ -1141,15 +1216,21 @@ impl UmacBs {
     /// groups are encrypted unless configured as clear groups; the broadcast address stays clear
     /// because class 1 radios share the cell (TS 100 392-7 clause 4.2.3.1 note 3).
     fn dl_encryption_mode(&self, addr: TetraAddress) -> u8 {
-        if self.cipher.is_none() {
+        if self.dl_cipher().is_none() {
             return 0;
         }
         let encrypted = match addr.ssi_type {
             SsiType::Issi | SsiType::Ssi => self.config.state_read().subscribers.encrypted(addr.ssi).unwrap_or(false),
             SsiType::Gssi if addr.ssi == 0xFF_FFFF => false,
             SsiType::Gssi => {
-                let cfg = self.config.config();
-                crate::aie::effective(&cfg).is_some_and(|aie| !aie.is_clear_group(addr.ssi))
+                // The clear groups of the settings in use on the next downlink slot.
+                if self.dl_switched() {
+                    let st = self.config.state_read();
+                    crate::aie::running(st.air_change.as_ref().and_then(|c| c.target.as_ref())).is_some_and(|aie| !aie.is_clear_group(addr.ssi))
+                } else {
+                    let cfg = self.config.config();
+                    crate::aie::effective(&cfg).is_some_and(|aie| !aie.is_clear_group(addr.ssi))
+                }
             }
             _ => false,
         };
@@ -1162,7 +1243,7 @@ impl UmacBs {
     /// A channel allocation sent encrypted (or clear) makes the allocated traffic timeslots carry
     /// an encrypted (or clear) call: on a class 2 cell every party of a call is in the same mode.
     fn note_traffic_encryption(&mut self, address: TetraAddress, chan_alloc: &tetra_saps::lcmc::fields::chan_alloc_req::CmceChanAllocReq, encrypted: bool) {
-        if self.cipher.is_none() {
+        if self.dl_cipher().is_none() {
             return;
         }
         let carrier = chan_alloc.carrier.unwrap_or_else(|| self.main_carrier());
@@ -1184,7 +1265,7 @@ impl UmacBs {
     /// Decrypts the rest of an uplink block (from its position to its end) with the uplink key
     /// stream of timeslot `t`. False when the cell has no cipher.
     fn ul_decrypt(&self, pdu: &mut BitBuffer, carrier_num: u16, t: TdmaTime, kss_offset: usize, issi: u32) -> bool {
-        let Some(cipher) = &self.cipher else {
+        let Some(cipher) = self.ul_cipher(t) else {
             tracing::warn!("UMAC: encrypted uplink PDU but this cell runs no encryption; dropping");
             return false;
         };
@@ -2707,6 +2788,7 @@ impl TetraEntityTrait for UmacBs {
     fn tick_start(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
         self.dltime = ts;
         self.refresh_config();
+        self.follow_air_change();
         self.refresh_system_wide_services();
 
         // Expire stale uplink reassembly contexts. Without this the defrag map only ever
@@ -2787,4 +2869,66 @@ fn pack_ul_acelp_bits(bits: &[u8]) -> Option<Vec<u8>> {
         out.push(byte);
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod live_carrier_tests {
+    use super::*;
+
+    /// A live carrier change: the secondary carrier's scheduler sends on the new number, the main
+    /// carrier comes with the rebuilt broadcast PDUs.
+    #[test]
+    fn the_secondary_scheduler_follows_a_live_carrier_change() {
+        let mut cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        let dual = |cfg: &mut tetra_config::bluestation::StackConfig, main: u16| {
+            cfg.cell.main_carrier = main;
+            cfg.cell.secondary_carrier = Some(main + 1);
+            let carriers = cfg.bs_phase_mod_carriers().unwrap();
+            let s = cfg.phy_io.soapysdr.as_mut().unwrap();
+            s.fs = Some(1_000_000.0);
+            s.dl_freq = carriers[0].1 as f64;
+            s.ul_freq = carriers[0].2 as f64;
+            s.tx_center_freq = Some((carriers[0].1 as f64 + carriers[1].1 as f64) / 2.0);
+            s.rx_center_freq = Some((carriers[0].2 as f64 + carriers[1].2 as f64) / 2.0);
+        };
+        let main = cfg.cell.main_carrier;
+        dual(&mut cfg, main);
+        let shared = SharedConfig::from_parts(cfg.clone(), None);
+        let mut umac = UmacBs::new(shared.clone(), None);
+        dual(&mut cfg, main + 4);
+        shared.replace_config(cfg.clone()).unwrap();
+        umac.refresh_config();
+        assert_eq!(umac.secondary_channel_schedulers[0].carrier_num(), cfg.cell.main_carrier + 1);
+        assert_eq!(umac.main_carrier(), cfg.cell.main_carrier);
+    }
+
+    /// An announced security change: the downlink switches on its slot, the uplink two slots
+    /// later (EN 300 392-7 clause 4.5.5.4); the commit replaces the plan with the config.
+    #[test]
+    fn an_announced_security_change_switches_the_uplink_two_slots_after_the_downlink() {
+        let cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        assert!(crate::aie::effective(&cfg).is_none(), "example config runs class 1");
+        let shared = SharedConfig::from_parts(cfg.clone(), None);
+        let mut umac = UmacBs::new(shared.clone(), None);
+        let aie = tetra_config::bluestation::CfgAie {
+            class3: None, enabled: true, ksg: 1, sckn: 2, sck: tetra_config::bluestation::CipherKey([5; 10]), sck_vn: 6, clear_groups: Vec::new(),
+        };
+        let at = TdmaTime { t: 1, f: 1, m: 20, h: 3 };
+        shared.state_write().air_change = Some(tetra_config::bluestation::AirChange { target: Some(aie.clone()), lead_secs: 5, at: Some(at) });
+        umac.dltime = at.add_timeslots(-100);
+        umac.follow_air_change();
+        assert!(umac.ul_cipher(at.add_timeslots(1)).is_none(), "uplink still class 1 on the slot after the switch");
+        assert!(umac.ul_cipher(at.add_timeslots(2)).is_some(), "uplink class 2 two slots after");
+        assert!(umac.dl_cipher().is_none());
+        umac.dltime = at.add_timeslots(-(crate::umac::subcomp::bs_sched::MACSCHED_TX_AHEAD as i32));
+        assert!(umac.dl_cipher().is_some(), "the downlink slot built next is the announced one");
+
+        let mut committed = cfg;
+        committed.security.aie = Some(aie);
+        shared.state_write().air_change = None;
+        shared.replace_config(committed).unwrap();
+        umac.refresh_config();
+        umac.follow_air_change();
+        assert!(umac.next_air.is_none() && umac.cipher.is_some());
+    }
 }

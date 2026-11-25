@@ -29,6 +29,11 @@ pub const CAP_CONFIG: &str = "config-v1";
 /// Capability: the station keeps a `[networks]` entry no cell uses (inactive) instead of
 /// refusing the config, so the server's editor may save one.
 pub const CAP_UNUSED_NETWORKS: &str = "networks-unused-v1";
+/// Capability: a `SetConfig` the station can apply without a restart (live reload) is applied at
+/// once and answered `ok: true` with code [`code::APPLIED_LIVE`]; the confirmation window runs
+/// from then and the hello (new hash, "pending") follows on the same connection. Servers without
+/// this capability see `ok: true` and confirm on that hello as after a restart.
+pub const CAP_CONFIG_LIVE: &str = "config-live-v1";
 /// Confirmation window after the restart when `SetConfig.confirm_secs` is 0.
 pub const DEFAULT_CONFIRM_SECS: u32 = 180;
 /// Bounds of the confirmation window.
@@ -49,6 +54,8 @@ pub mod code {
     pub const NOT_PENDING: &str = "not_pending";
     /// `ConfirmConfig`: the change was written by this run and the restart has not happened yet.
     pub const NOT_RESTARTED: &str = "not_restarted";
+    /// `SetConfig` (`config-live-v1`): written and applied without a restart (`ok: true`).
+    pub const APPLIED_LIVE: &str = "applied_live";
 }
 
 static CONFIG_PATH: Mutex<Option<String>> = Mutex::new(None);
@@ -650,6 +657,13 @@ pub fn config_command(command: &ControlCommand, now: StationNow, shared: Option<
                     let pending = PendingFile { old_hash: hash_text(&original), new_hash: hash_text(&new), confirm_secs: secs, by: by.clone(), written_unix: now_unix() };
                     match write_with_backup(&config, &original, &new, &pending) {
                         Err(e) => result(handle, false, super::fleet::code::UNAVAILABLE, &e),
+                        Ok(()) if shared.is_some_and(|s| apply_live(&config, s)) => {
+                            // Live: the window runs from now; the hello with the new hash and
+                            // "pending" follows on this connection and the server confirms on it.
+                            tracing::warn!("Fleet Control: config changed by {by:?} ({} -> {}) and applied without a restart; {secs} s to confirm", pending.old_hash, pending.new_hash);
+                            arm(Instant::now() + Duration::from_secs(secs as u64));
+                            result(handle, true, code::APPLIED_LIVE, &format!("Config written ({}) and applied without a restart; confirm within {secs} s", pending.new_hash))
+                        }
                         Ok(()) => {
                             tracing::warn!("Fleet Control: config changed by {by:?} ({} -> {}); restarting, {secs} s to confirm", pending.old_hash, pending.new_hash);
                             // Armed here too, so a restart that does not happen still rolls back.
@@ -675,6 +689,17 @@ pub fn config_command(command: &ControlCommand, now: StationNow, shared: Option<
         },
         _ => unreachable!("matched above"),
     })
+}
+
+/// Apply the config just written through the live reload (the same as the dashboard's "Save and
+/// apply"); `false` when it needs a restart or could not be applied (then the station restarts).
+fn apply_live(config: &str, shared: &SharedConfig) -> bool {
+    let report = crate::net_dashboard::server::reload_saved_config(config, &Some(shared.clone()));
+    let applied = report.get("applied").and_then(|v| v.as_bool()) == Some(true);
+    if !applied {
+        tracing::info!("Fleet Control: the change needs a restart: {report}");
+    }
+    applied
 }
 
 fn get_config(handle: u32, config: &str, shared: Option<&SharedConfig>) -> ControlResponse {
@@ -914,6 +939,25 @@ fleet_control = true
         let v = config_json(path.to_str().unwrap(), None).unwrap();
         assert_eq!(v["home_mode_display"]["text"], "Hello");
         assert_eq!(v["access"], json!({"issi_whitelist": [5], "whitelist_mode": "enforce"}));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_change_the_reload_takes_is_applied_without_a_restart() {
+        let dir = std::env::temp_dir().join(format!("fleet-live-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        let path = path.to_str().unwrap();
+        std::fs::write(path, BASE).unwrap();
+        let shared = SharedConfig::from_parts(tetra_config::bluestation::parsing::from_toml_str(BASE).unwrap(), None);
+        let live = plan_set_config(BASE, &hash_text(BASE), &json!({"cells": [{"id": 0, "location_area": 7}]}), false, now(), false).unwrap();
+        std::fs::write(path, &live).unwrap();
+        assert!(apply_live(path, &shared), "a location area change applies live");
+        assert_eq!(shared.config().cell.location_area, 7);
+        let restart = live.replace("[command]", "[dashboard]\nport = 9999\n\n[command]");
+        std::fs::write(path, &restart).unwrap();
+        assert!(!apply_live(path, &shared), "a new dashboard port needs the restart");
+        assert_eq!(shared.config().cell.location_area, 7, "nothing applied");
         let _ = std::fs::remove_dir_all(dir);
     }
 

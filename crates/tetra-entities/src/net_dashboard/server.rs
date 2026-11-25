@@ -3061,7 +3061,8 @@ fn serve_security_get(stream: PrefixedConn, shared_config: &Option<tetra_config:
     http_json_response(stream, 200, &security::page_json(&running, security::load_saved(config_path), security::runtime_json(shared_config)));
 }
 
-/// POST /api/security — validate and write the settings; they apply on the next restart.
+/// POST /api/security — validate and write the settings; the page then applies them (live
+/// reload, a class or key change announced to the radios first) or restarts.
 fn serve_security_post(stream: PrefixedConn, shared_config: &Option<tetra_config::bluestation::SharedConfig>, config_path: &str, body: &str) {
     use crate::net_dashboard::security;
     let current = match security::load_saved(config_path) {
@@ -3087,7 +3088,7 @@ fn serve_security_post(stream: PrefixedConn, shared_config: &Option<tetra_config
         return;
     }
     tracing::info!(
-        "Dashboard: security settings saved (authentication {:?}, {} subscriber key(s), encryption {}) — restart to apply",
+        "Dashboard: security settings saved (authentication {:?}, {} subscriber key(s), encryption {}) — apply from the Security page",
         edit.authentication,
         edit.subscribers.len(),
         edit.aie.as_ref().map(|a| match &a.class3 {
@@ -4538,7 +4539,7 @@ fn handle_connection(
         }
     } else if req_line.contains("POST /api/roaming") {
         let (inner, body_str) = read_post_body(stream);
-        serve_roaming_save(inner, &config_path, &body_str);
+        serve_roaming_save(inner, &config_path, &shared_config, &body_str);
     } else if is_fleet_banner_request(&req_line) {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -4591,16 +4592,16 @@ fn handle_connection(
         }
     } else if req_line.contains("POST /api/sdrs") {
         let (inner, body_str) = read_post_body(stream);
-        serve_sdrs_save(inner, &config_path, &body_str);
+        serve_sdrs_save(inner, &config_path, &shared_config, &body_str);
     } else if req_line.contains("POST /api/cells/add") {
         let (inner, body_str) = read_post_body(stream);
-        serve_cells_add(inner, &config_path, &body_str);
+        serve_cells_add(inner, &config_path, &shared_config, &body_str);
     } else if req_line.contains("POST /api/cells/update") {
         let (inner, body_str) = read_post_body(stream);
-        serve_cells_update(inner, &config_path, &body_str);
+        serve_cells_update(inner, &config_path, &shared_config, &body_str);
     } else if req_line.contains("POST /api/cells/remove") {
         let (inner, body_str) = read_post_body(stream);
-        serve_cells_remove(inner, &config_path, &body_str);
+        serve_cells_remove(inner, &config_path, &shared_config, &body_str);
     } else if req_line.contains("GET /api/dualcarrier") {
         let mut s = stream;
         drain_http_headers(&mut s);
@@ -6261,11 +6262,23 @@ fn serve_bts_info(mut stream: PrefixedConn, shared_config: &Option<tetra_config:
 }
 
 /// Write a config produced by the cells editor and restart to apply it.
-fn apply_cells_config(stream: PrefixedConn, config_path: &str, text: &str, what: String) {
+fn apply_cells_config(stream: PrefixedConn, config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>, text: &str, what: String) {
     let backup = format!("{config_path}.cells.bak");
     let _ = std::fs::copy(config_path, &backup);
     if let Err(e) = atomic_write(config_path, text) {
         return http_response(stream, 500, &format!("failed to write config: {e}"));
+    }
+    // Live configuration: only what cannot change at run time restarts the station.
+    if shared.is_some() {
+        let result = reload_saved_config(config_path, shared);
+        if result["applied"] == true {
+            tracing::info!("Dashboard: {what}; applied live");
+            return http_response(stream, 200, &format!("{what}; applied without a restart."));
+        }
+        if let Some(reasons) = result["restart"].as_array() {
+            let reasons: Vec<&str> = reasons.iter().filter_map(|r| r.as_str()).collect();
+            tracing::info!("Dashboard: {what}; needs a restart: {}", reasons.join(", "));
+        }
     }
     tracing::info!("Dashboard: {what}; scheduling restart");
     crate::service_control::schedule_service_action(
@@ -6311,7 +6324,7 @@ fn serve_fleet_control(stream: PrefixedConn, config_path: &str, shared: Option<&
 }
 
 /// POST /api/roaming — see `roaming::apply_roaming`; writes the config and restarts.
-fn serve_roaming_save(stream: PrefixedConn, config_path: &str, body: &str) {
+fn serve_roaming_save(stream: PrefixedConn, config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
@@ -6321,13 +6334,13 @@ fn serve_roaming_save(stream: PrefixedConn, config_path: &str, body: &str) {
         Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
     };
     match crate::net_dashboard::roaming::apply_roaming(&original, &req) {
-        Ok(text) => apply_cells_config(stream, config_path, &text, "Infrastructure settings saved".to_string()),
+        Ok(text) => apply_cells_config(stream, config_path, shared, &text, "Infrastructure settings saved".to_string()),
         Err(e) => http_response(stream, 400, &e),
     }
 }
 
 /// POST /api/sdrs — the Cells page (`sdrs::apply_sdrs`); writes the config and restarts.
-fn serve_sdrs_save(stream: PrefixedConn, config_path: &str, body: &str) {
+fn serve_sdrs_save(stream: PrefixedConn, config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
@@ -6337,13 +6350,13 @@ fn serve_sdrs_save(stream: PrefixedConn, config_path: &str, body: &str) {
         Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
     };
     match crate::net_dashboard::sdrs::apply_sdrs(&original, &req) {
-        Ok(text) => apply_cells_config(stream, config_path, &text, "SDRs and cells saved".to_string()),
+        Ok(text) => apply_cells_config(stream, config_path, shared, &text, "SDRs and cells saved".to_string()),
         Err(e) => http_response(stream, 400, &e),
     }
 }
 
 /// POST /api/cells/add — `{"device": "...", "main_carrier": N, "colour_code": N?, "location_area": N?}`.
-fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
+fn serve_cells_add(stream: PrefixedConn, config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
@@ -6365,13 +6378,13 @@ fn serve_cells_add(stream: PrefixedConn, config_path: &str, body: &str) {
         Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
     };
     match crate::net_dashboard::cells::add_cell_toml(&original, device, main_carrier as u16, colour_code, location_area) {
-        Ok((text, id)) => apply_cells_config(stream, config_path, &text, format!("cell {id} added (carrier {main_carrier})")),
+        Ok((text, id)) => apply_cells_config(stream, config_path, shared, &text, format!("cell {id} added (carrier {main_carrier})")),
         Err(e) => http_response(stream, 400, &e),
     }
 }
 
 /// POST /api/cells/update — a cell's settings and security (`cells::update_cell_toml`).
-fn serve_cells_update(stream: PrefixedConn, config_path: &str, body: &str) {
+fn serve_cells_update(stream: PrefixedConn, config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
@@ -6383,14 +6396,14 @@ fn serve_cells_update(stream: PrefixedConn, config_path: &str, body: &str) {
     match crate::net_dashboard::cells::update_cell_toml(&original, &req) {
         Ok(text) => {
             let id = req.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-            apply_cells_config(stream, config_path, &text, format!("cell {id} settings saved"))
+            apply_cells_config(stream, config_path, shared, &text, format!("cell {id} settings saved"))
         }
         Err(e) => http_response(stream, 400, &e),
     }
 }
 
 /// POST /api/cells/remove — `{"id": N}`.
-fn serve_cells_remove(stream: PrefixedConn, config_path: &str, body: &str) {
+fn serve_cells_remove(stream: PrefixedConn, config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
     let req: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
@@ -6403,7 +6416,7 @@ fn serve_cells_remove(stream: PrefixedConn, config_path: &str, body: &str) {
         Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
     };
     match crate::net_dashboard::cells::remove_cell_toml(&original, id) {
-        Ok(text) => apply_cells_config(stream, config_path, &text, format!("cell {id} removed")),
+        Ok(text) => apply_cells_config(stream, config_path, shared, &text, format!("cell {id} removed")),
         Err(e) => http_response(stream, 400, &e),
     }
 }
@@ -8298,7 +8311,7 @@ fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, Str
 }
 
 /// Parse the saved config file and swap it into the running cells (`POST /api/config/reload`).
-fn reload_saved_config(config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>) -> serde_json::Value {
+pub(crate) fn reload_saved_config(config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>) -> serde_json::Value {
     let Some(shared) = shared else {
         return serde_json::json!({"applied": false, "restart": ["configuration not available to the dashboard"]});
     };
@@ -8310,11 +8323,21 @@ fn reload_saved_config(config_path: &str, shared: &Option<tetra_config::bluestat
         return serde_json::json!({"applied": false, "error": format!("config is invalid: {e}")});
     }
     new.add_sibling_neighbours();
-    match crate::config_reload::reload(shared, crate::net_site::extra_cells(), new) {
+    let class3_required = shared.state_read().security_class3_required;
+    if let Some(e) = sc3_reload_refusal(class3_required, &new) {
+        return serde_json::json!({"applied": false, "error": e});
+    }
+    match crate::config_reload::reload(shared, &crate::net_site::extra_cells(), new) {
         Ok(r) if r.restart.is_empty() => serde_json::json!({"applied": true, "cells": r.cells}),
         Ok(r) => serde_json::json!({"applied": false, "restart": r.restart}),
         Err(e) => serde_json::json!({"applied": false, "error": e}),
     }
+}
+
+/// A station started with `--require-sc3` runs class 3 only; a reload must not take it below.
+fn sc3_reload_refusal(class3_required: bool, new: &tetra_config::bluestation::StackConfig) -> Option<String> {
+    let class = new.security.aie.as_ref().map_or(1, |a| a.security_class());
+    (class3_required && class != 3).then(|| format!("this station runs with --require-sc3; the new configuration is security class {class}"))
 }
 
 /// Dry-run validation of a posted `config.toml`: unmask any still-masked secrets against the live
@@ -11358,5 +11381,27 @@ enabled = true
         let resolved = unmask_config_secrets(posted, stored);
         assert!(resolved.contains("password = \"brandNewPw\""), "new password overwrites old");
         assert!(!resolved.contains("old-pw"), "old password gone once retyped");
+    }
+}
+
+#[cfg(test)]
+mod reload_sc3_tests {
+    use super::sc3_reload_refusal;
+
+    #[test]
+    fn require_sc3_refuses_a_lower_class() {
+        let mut cfg = tetra_config::bluestation::from_toml_str(include_str!("../../../../example_config/config.toml")).unwrap();
+        assert!(sc3_reload_refusal(true, &cfg).is_some());
+        assert!(sc3_reload_refusal(false, &cfg).is_none());
+        cfg.security.aie = Some(tetra_config::bluestation::CfgAie {
+            class3: Some(tetra_config::bluestation::CfgClass3 { cck: tetra_config::bluestation::CipherKey([1; 10]), cck_id: 1 }),
+            enabled: true,
+            ksg: 1,
+            sckn: 0,
+            sck: tetra_config::bluestation::CipherKey([1; 10]),
+            sck_vn: 1,
+            clear_groups: Vec::new(),
+        });
+        assert!(sc3_reload_refusal(true, &cfg).is_none());
     }
 }

@@ -207,6 +207,8 @@ fn test_sds_brew_forward() {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
 
@@ -269,6 +271,8 @@ fn brew_lip_test(dest_ssi: u32) -> Vec<u32> {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
     test.populate_entities(vec![TetraEntity::Cmce], vec![TetraEntity::Mle, TetraEntity::Brew]);
@@ -479,6 +483,8 @@ fn test_brew_inbound_allowed_bypasses_whitelist_but_honors_local_ranges() {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     let test = ComponentTest::from_config(config, None);
 
@@ -588,6 +594,8 @@ fn test_u_status_brew_forward() {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     let mut test = ComponentTest::from_config(config, Some(dltime));
 
@@ -1246,6 +1254,8 @@ fn brew_test_config() -> tetra_config::bluestation::StackConfig {
         pbx_gateway_issis: None,
         backhaul_hysteresis_secs: 0,
         reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
     });
     config
 }

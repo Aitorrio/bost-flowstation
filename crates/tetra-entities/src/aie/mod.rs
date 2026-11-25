@@ -53,7 +53,23 @@ pub fn iv(tn: u8, fn_: u8, mn: u8, hn: u16, uplink: bool) -> u32 {
 /// The AIE settings this cell actually runs with: the configured class 2 settings when the KSG
 /// they name is available and the MAC can use it, else `None` (class 1, clear).
 pub fn effective(cfg: &StackConfig) -> Option<&CfgAie> {
-    cfg.security.aie.as_ref().filter(|a| a.enabled && MAC_ENCRYPTION_READY && ksg_available(a.ksg))
+    running(cfg.security.aie.as_ref())
+}
+
+/// The encryption a `[security.aie]` section runs on air: `None` for class 1 (or a key stream
+/// generator this build does not have).
+pub fn running(aie: Option<&CfgAie>) -> Option<&CfgAie> {
+    aie.filter(|a| a.enabled && MAC_ENCRYPTION_READY && ksg_available(a.ksg))
+}
+
+/// What a security class or cipher key change announces (EN 300 392-7 clauses 4.5.5, 4.5.6):
+/// the class on air and its key (class 2: SCKN, SCK-VN and SCK; class 3: CCK-id and CCK).
+/// Compare with `debug_with_secrets` so a new key with the same number counts.
+pub fn on_air(aie: Option<&CfgAie>) -> Option<(u8, u8, u16, tetra_config::bluestation::CipherKey)> {
+    running(aie).map(|a| match &a.class3 {
+        Some(c) => (3, 0, c.cck_id, c.cck.clone()),
+        None => (2, a.sckn, a.sck_vn, a.sck.clone()),
+    })
 }
 
 /// One startup line describing the AIE posture, so an operator sees why a configured key is not

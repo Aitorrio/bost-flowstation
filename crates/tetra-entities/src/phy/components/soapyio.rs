@@ -109,7 +109,51 @@ macro_rules! soapycheck {
     };
 }
 
+/// RX and TX centre frequencies to tune for `soapy_cfg`, ppm-corrected.
+fn tuning(soapy_cfg: &CfgSoapySdr, mode: StackMode) -> (Option<f64>, Option<f64>) {
+    let (ul_corrected, _) = soapy_cfg.ul_freq_corrected();
+    let (rx_center_corrected, _) = soapy_cfg.effective_rx_center_freq_corrected();
+    let (tx_center_corrected, _) = soapy_cfg.effective_tx_center_freq_corrected();
+    match mode {
+        StackMode::Bs => (Some(rx_center_corrected - SOAPY_FREQ_OFFSET), Some(tx_center_corrected)),
+        StackMode::Ms => (Some(rx_center_corrected - SOAPY_FREQ_OFFSET), Some(ul_corrected)),
+        StackMode::Mon => {
+            unimplemented!("Monitor mode not implemented yet");
+        }
+    }
+}
+
 impl SoapyIo {
+    /// Live configuration: tune the running streams to the frequencies of `soapy_cfg` (a new ppm
+    /// correction). Must run on the PHY thread.
+    pub fn retune(&mut self, soapy_cfg: &CfgSoapySdr, mode: StackMode) -> Result<(), String> {
+        let (rx_freq, tx_freq) = tuning(soapy_cfg, mode);
+        if let (true, Some(f)) = (self.rx_enabled(), rx_freq) {
+            self.dev
+                .set_frequency(soapysdr::Direction::Rx, self.rx_ch, f, soapysdr::Args::new())
+                .map_err(|e| format!("set RX center frequency: {e}"))?;
+        }
+        if let (true, Some(f)) = (self.tx_enabled(), tx_freq) {
+            self.dev
+                .set_frequency(soapysdr::Direction::Tx, self.tx_ch, f, soapysdr::Args::new())
+                .map_err(|e| format!("set TX center frequency: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// Live configuration: select another RX (`rx = true`) or TX antenna. PHY thread only.
+    pub fn set_antenna(&mut self, rx: bool, antenna: &str) -> Result<(), String> {
+        let (dir, ch, on) = if rx {
+            (soapysdr::Direction::Rx, self.rx_ch, self.rx_enabled())
+        } else {
+            (soapysdr::Direction::Tx, self.tx_ch, self.tx_enabled())
+        };
+        if !on {
+            return Ok(());
+        }
+        self.dev.set_antenna(dir, ch, antenna).map_err(|e| format!("set antenna '{antenna}': {e}"))
+    }
+
     pub fn new(cfg: &SharedConfig) -> Result<Self, soapysdr::Error> {
         let binding = cfg.config();
         let soapy_cfg = binding
@@ -125,18 +169,7 @@ impl SoapyIo {
         let rx_ch = sdr_settings.rx_ch;
         let tx_ch = sdr_settings.tx_ch;
 
-        // Get PPM-corrected carrier and SDR center frequencies.
-        let (ul_corrected, _) = soapy_cfg.ul_freq_corrected();
-        let (rx_center_corrected, _) = soapy_cfg.effective_rx_center_freq_corrected();
-        let (tx_center_corrected, _) = soapy_cfg.effective_tx_center_freq_corrected();
-
-        let (rx_freq, tx_freq) = match mode {
-            StackMode::Bs => (Some(rx_center_corrected - SOAPY_FREQ_OFFSET), Some(tx_center_corrected)),
-            StackMode::Ms => (Some(rx_center_corrected - SOAPY_FREQ_OFFSET), Some(ul_corrected)),
-            StackMode::Mon => {
-                unimplemented!("Monitor mode not implemented yet");
-            }
-        };
+        let (rx_freq, tx_freq) = tuning(soapy_cfg, mode);
 
         let rx_enabled = rx_freq.is_some();
         let tx_enabled = tx_freq.is_some();
