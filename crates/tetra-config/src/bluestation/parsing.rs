@@ -91,6 +91,7 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         Some(Value::Table(t)) => t.clone(),
         _ => toml::Table::new(),
     };
+    let disabled_cells = super::sec_cells::parse_disabled_cells(raw_cells.as_ref());
     let extra_cells = parse_extra_cells(raw_cells, &primary_cell_info_raw, &primary_security_raw)?;
     // `[networks]` is a table of free-form names, parsed by hand like the cells.
     let raw_networks = raw.remove("networks");
@@ -263,6 +264,7 @@ pub fn from_toml_str(toml_str: &str) -> Result<StackConfig, Box<dyn std::error::
         net: net_dto_to_cfg(root.net_info),
         cell: cell_cfg,
         extra_cells,
+        disabled_cells,
         networks: Vec::new(),
         networks_explicit: false,
         network: DEFAULT_NETWORK.to_owned(),

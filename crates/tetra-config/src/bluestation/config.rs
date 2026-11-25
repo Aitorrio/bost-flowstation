@@ -115,6 +115,10 @@ pub struct StackConfig {
     /// configs. The primary cell (id 0) is always `cell` + `phy_io.soapysdr`.
     pub extra_cells: Vec<CfgExtraCell>,
 
+    /// `[[cells]]` entries switched off (`enabled = false`): off the air, SDR closed, settings
+    /// kept for when they are switched on again. Empty on a derived per-cell config.
+    pub disabled_cells: Vec<super::CfgDisabledCell>,
+
     /// Set on an additional cell's derived config when its network traffic goes through the
     /// site switch (see [`StackConfig::is_site_linked`]). Always false in parsed configs.
     pub site_linked: bool,
@@ -301,6 +305,7 @@ impl StackConfig {
             self.cells().iter().filter(|(cid, _, _)| same_net.contains(cid)).map(|(_, c, _)| c.main_carrier).collect();
         cfg.cell_id = id;
         cfg.extra_cells = Vec::new();
+        cfg.disabled_cells = Vec::new();
         // The cell serves its own network: its identity on air and its core (or none).
         cfg.network = network.name.clone();
         cfg.net = network.net.clone();
@@ -480,9 +485,18 @@ impl StackConfig {
     /// cell, and either a core to share or an explicit `[networks]` section (a local network of
     /// several cells is switched inside the station). A classic station without `[networks]`
     /// keeps its cells independent unless Brew or LST is configured, as before.
+    ///
+    /// Switched-off cells of the primary's network count: switching a cell off or on (live, see
+    /// `config_reload`) then never changes how the primary is wired to its core, so the primary
+    /// keeps its site switch, with no cell behind it while the others are off.
     pub fn network_is_linked(&self, name: &str) -> bool {
         let cells = self.network_cells(name);
-        if cells.len() < 2 {
+        let parked = if name == self.network && self.cell_id.is_primary() {
+            self.disabled_cells.iter().filter(|c| c.network.as_deref().is_none_or(|n| n == name)).count()
+        } else {
+            0
+        };
+        if cells.len() + parked < 2 {
             return false;
         }
         let has_brew = match self.network(name) {

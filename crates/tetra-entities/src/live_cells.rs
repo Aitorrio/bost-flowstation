@@ -14,6 +14,8 @@ use tetra_core::CellId;
 pub enum CellChange {
     /// Start a new cell with this (validated) config.
     Add { id: CellId, cfg: SharedConfig },
+    /// Start every cell of one shared SDR (same `device`) on that SDR, opened once for them.
+    AddShared { cells: Vec<(CellId, SharedConfig)> },
     /// Take a cell off the air: it releases its calls and, per `how`, its registrations, then
     /// stops and closes its SDR.
     Remove { id: CellId, how: Retirement },

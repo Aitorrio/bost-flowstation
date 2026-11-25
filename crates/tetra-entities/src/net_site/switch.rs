@@ -581,7 +581,7 @@ impl SiteSwitch {
         self.sibling_handoffs.retain(|(c, _), (a, _, _)| *c != id && *a != id);
         self.restore_requests.retain(|_, c| *c != id);
         for issi in moved {
-            self.refresh_area_members(queue, issi);
+            self.refresh_area_members_moved(queue, issi);
         }
     }
 
@@ -631,12 +631,27 @@ impl SiteSwitch {
     /// of its registered cell's location area count it as a listener of its groups and accept
     /// its individual calls.
     fn refresh_area_members(&mut self, queue: &mut MessageQueue, issi: u32) {
-        let (siblings, groups) = match self.location(issi) {
+        self.refresh_area_members_with(queue, issi, false);
+    }
+
+    /// [`Self::refresh_area_members`] for a radio whose cell left the site (switched off): it is
+    /// now counted on a cell of its location area whose MM never registered it (TS 100 392-2
+    /// clause 16.4.1.0: it reselects there without registering). That cell keeps listening for
+    /// the radio's groups as it did for an area member, so its calls go on for the radio, until
+    /// the radio registers somewhere.
+    fn refresh_area_members_moved(&mut self, queue: &mut MessageQueue, issi: u32) {
+        self.refresh_area_members_with(queue, issi, true);
+    }
+
+    fn refresh_area_members_with(&mut self, queue: &mut MessageQueue, issi: u32, keep_home: bool) {
+        let home = self.location(issi);
+        let (siblings, groups) = match home {
             Some(home) => (self.area_siblings(home), self.groups_of(home, issi)),
             None => (Vec::new(), Vec::new()),
         };
         for cell in self.all_cells.clone() {
-            let want = siblings.contains(&cell).then(|| groups.clone());
+            let listens = siblings.contains(&cell) || (keep_home && home == Some(cell));
+            let want = listens.then(|| groups.clone());
             let had = self.area_sent.get(&(cell, issi)).cloned();
             if want == had {
                 continue;
@@ -2097,6 +2112,52 @@ main_carrier = 1525
         link2.rx_prim(&mut q2, SapMsg::new(Sap::Control, TetraEntity::Cmce, TetraEntity::Brew, register(200)));
         site.tick();
         assert_eq!(site.switch.location(200), Some(CellId(2)));
+    }
+
+    #[test]
+    fn a_switch_whose_only_other_cell_is_switched_off_passes_everything_through_until_it_is_back() {
+        let mut site = Site::new();
+        let handle = site.switch.ports.handle();
+        // Cell 1 switched off: the primary alone behind its switch.
+        handle.remove_cell(CellId(1));
+        site.tick();
+        site.member(0, 100, 91);
+        site.from_cell(0, register(100));
+        site.tick();
+        assert!(site.net_got().iter().any(|m| matches!(m, SapMsgInner::MmSubscriberUpdate(u) if u.issi == 100)), "registrations reach the network");
+        let uuid = Uuid::from_u128(5);
+        site.from_net(cc(CallControl::NetworkCallStart { brew_uuid: uuid, source_issi: 9000, dest_gssi: 91, priority: 0 }));
+        let (c0, _) = site.tick();
+        assert!(start_uuid(&c0).is_some(), "a network call reaches the primary");
+        site.from_cell(0, cc(CallControl::NetworkCallReady { brew_uuid: uuid, call_id: 3, carrier_num: C0, ts: 2, usage: 4 }));
+        site.tick();
+        assert!(site.net_got().iter().any(|m| matches!(m, SapMsgInner::CmceCallControl(CallControl::NetworkCallReady { carrier_num: C0, .. }))));
+        site.from_net(cc(CallControl::NetworkCallEnd { brew_uuid: uuid }));
+        let (c0, _) = site.tick();
+        assert!(has_end(&c0));
+
+        // Switched on again: the cell rejoins with the same id and carrier and calls fan out to it.
+        let mut link = handle.add_cell(CellId(1), site.cell1.clone());
+        site.tick();
+        assert_eq!(site.switch.cell_of_carrier(C1), CellId(1));
+        let mut q1 = MessageQueue::new();
+        link.rx_prim(
+            &mut q1,
+            SapMsg::new(
+                Sap::Control,
+                TetraEntity::Cmce,
+                TetraEntity::Brew,
+                SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate { issi: 200, groups: vec![91], action: BrewSubscriberAction::Affiliate }),
+            ),
+        );
+        site.tick();
+        site.net_got();
+        let uuid = Uuid::from_u128(6);
+        site.from_net(cc(CallControl::NetworkCallStart { brew_uuid: uuid, source_issi: 9000, dest_gssi: 91, priority: 0 }));
+        site.tick();
+        link.tick_start(&mut q1, TdmaTime { h: 0, m: 1, f: 1, t: 2 });
+        let c1: Vec<SapMsgInner> = std::iter::from_fn(|| q1.pop_front()).map(|m| m.msg).collect();
+        assert!(start_uuid(&c1).is_some(), "the cell switched on again gets the call");
     }
 
     #[test]

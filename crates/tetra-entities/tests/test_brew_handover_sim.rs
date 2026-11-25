@@ -1004,6 +1004,8 @@ struct Sim {
     relay: Relay,
     /// TDMA ticks run so far
     ticks: usize,
+    /// Station 0's site switch in a multi-cell sim: cells leave and join it live.
+    site: Option<tetra_entities::net_site::SiteHandle>,
 }
 
 impl Sim {
@@ -1025,6 +1027,7 @@ impl Sim {
             wires,
             relay: Relay::default(),
             ticks: 0,
+            site: None,
         };
         sim.run_until("every station announced its cell", |s| s.relay.cells.len() == location_areas.len());
         sim
@@ -2489,6 +2492,7 @@ fn multi_cell_sim_with(
     sibling.populate_entities(entities(), vec![TetraEntity::Llc, TetraEntity::Umac]);
 
     let (ports, mut links) = site_links(&[CellId(1)]);
+    let site = ports.handle();
     sibling.register_entity(links.remove(&CellId(1)).unwrap());
     let wire = Arc::new(Mutex::new(Wire::default()));
     let transport = ChannelTransport {
@@ -2531,6 +2535,7 @@ fn multi_cell_sim_with(
         wires,
         relay: Relay::default(),
         ticks: 0,
+        site: Some(site),
     };
     sim.run_until("every station announced its cells", |s| s.relay.cells.len() == STATIONS);
     sim
@@ -3306,4 +3311,117 @@ fn sim_speaker_changes_within_hang_time_reach_every_dashboard() {
         sim.submit(st, u_tx_ceased(talker, call_ids[&(st, gssi)]));
     }
     sim.run_until("every over ended on the network", |s| s.relay.calls.is_empty());
+}
+
+/// Switching the second SDR of station 0 off and on again from the Cells page, live (no restart):
+/// ten stations, 25 radios. The second cell is taken off the air the way `bluestation-bs` does it
+/// (`CellManager`): the cell is retired, so its CMCE releases its calls and its MM keeps or drops
+/// its registrations, then it leaves the running site switch; the primary cell and the other
+/// stations keep running. Its radios reselect (unannounced, TS 100 392-2 clause 18.3.4.7) and are
+/// served elsewhere. Switched on again, a fresh cell stack joins the same switch and serves radios
+/// and group calls like a cell from boot.
+fn switching_the_second_sdr_off_and_on(cell1_la: u16) {
+    use tetra_config::bluestation::{Retirement, SharedConfig};
+    let extensions = ["bts-info", "handover-v1", "ms-cell", BREW_EXT_MS_MOVED];
+    let mut sim = multi_cell_sim(cell1_la, &extensions);
+    let same_la = cell1_la == 1;
+    let site = sim.site.clone().expect("multi-cell sim has a switch");
+    // 25 radios: every second one on the second cell, the others on stations 1..9.
+    let radios: Vec<(u32, usize, u32)> = (0..25u32).map(|n| (FIRST_ISSI + 1200 + n, if n % 2 == 0 { SIBLING } else { 1 + n as usize % 9 }, GROUPS[n as usize % 5])).collect();
+    for &(issi, cell, gssi) in &radios {
+        register_on_cell(&mut sim, cell, issi, LocationUpdateType::RoamingLocationUpdating, &[gssi]);
+    }
+    // A group call from station 2 runs on the second cell too (members there).
+    let gssi = GROUPS[0];
+    let talker = FIRST_ISSI + 1300;
+    sim.register(2, talker, LocationUpdateType::RoamingLocationUpdating, &[gssi]);
+    sim.clear_air();
+    let session = sim.start_call(2, talker, gssi);
+    sim.run_until("the second cell sets up the call", |s| group_setups(&s.stations[SIBLING].air, gssi) > 0);
+
+    sim.steps(40);
+    // Off: retire, then leave the switch after the grace time (`CELL_RETIRE_GRACE`).
+    let how = if same_la { Retirement::KeepRegistrations } else { Retirement::DropRegistrations };
+    sim.stations[SIBLING].test.get_shared_config().retire(how);
+    sim.run_until("the second cell releases its call", |s| group_release_sent(&s.stations[SIBLING].air, gssi));
+    sim.steps(20);
+    site.remove_cell(CellId(1));
+    let off = sim.stations.pop().expect("second cell");
+    drop(off);
+    sim.steps(20);
+    if same_la {
+        // Its radios now count on the primary, which keeps the call running for them.
+        assert!(!group_release_sent(&sim.stations[0].air, gssi), "the primary keeps the call for the second cell's radios");
+    }
+    assert!(sim.relay.calls.contains_key(&session), "the call goes on for the other stations");
+    let on_second: Vec<(u32, u32)> = radios.iter().filter(|(_, c, _)| *c == SIBLING).map(|(i, _, g)| (*i, *g)).collect();
+    for &(issi, _) in &on_second {
+        // Same location area: the radios stay registered at the station, counted on the primary;
+        // an own one: the station lets them go on the network.
+        assert_eq!(sim.relay.location.get(&issi) == Some(&0), same_la, "ISSI {issi} after the cell went off");
+    }
+    // The radios of the switched-off cell reselect: to the primary (same LA, no registration
+    // needed, it restores the call there) or to another station (registration).
+    for (n, &(issi, g)) in on_second.iter().enumerate() {
+        if same_la && n % 2 == 0 {
+            if g == gssi {
+                sim.run_until("the primary cell has the call", |s| s.local_call_id(0, gssi).is_some());
+                let call_id = sim.local_call_id(0, gssi).unwrap();
+                sim.submit(0, u_restore(issi, call_id, gssi, None));
+                sim.run_until(&format!("ISSI {issi} is restored on the primary cell"), |s| restore_ack(&s.stations[0].air, issi).is_some());
+            }
+            continue;
+        }
+        let to = 1 + n % 9;
+        sim.register(to, issi, LocationUpdateType::RoamingLocationUpdating, &[g]);
+    }
+    sim.end_call(2, talker, gssi, session);
+    for &(issi, _, _) in &radios {
+        assert!(sim.relay.location.contains_key(&issi), "ISSI {issi} is still served");
+    }
+
+    // On again: a new cell stack joins the running switch with the same id and carrier.
+    let cell_cfg = {
+        let primary = sim.stations[0].test.get_shared_config().config();
+        let mut c = (*primary).clone();
+        let mut cell1 = c.cell.clone();
+        cell1.main_carrier = SIBLING_CARRIER;
+        cell1.location_area = cell1_la;
+        c.extra_cells = vec![CfgExtraCell { id: CellId(1), cell: cell1, soapysdr: None, network: None, security: None }];
+        c.for_extra_cell(CellId(1)).unwrap()
+    };
+    let mut sibling = ComponentTest::from_config(cell_cfg, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    sibling.populate_entities(vec![TetraEntity::Mle, TetraEntity::Mm, TetraEntity::Cmce], vec![TetraEntity::Llc, TetraEntity::Umac]);
+    let link = site.add_cell(CellId(1), SharedConfig::from_parts((*sibling.get_shared_config().config()).clone(), None));
+    sibling.register_entity(link);
+    sim.stations.push(Station {
+        test: sibling,
+        wire: Arc::new(Mutex::new(Wire::default())),
+        carrier: SIBLING_CARRIER,
+        air: Vec::new(),
+        voice_down: Vec::new(),
+        telemetry: telemetry_channel().1,
+        dashboard: DashboardServer::new(std::env::temp_dir().join(format!("bost-sim-dashboard-{}-off", std::process::id())).join("config.toml").to_string_lossy().into_owned()),
+    });
+    // Radios come back to it and a group call reaches them there.
+    for &(issi, g) in on_second.iter().take(6) {
+        register_on_cell(&mut sim, SIBLING, issi, LocationUpdateType::RoamingLocationUpdating, &[g]);
+    }
+    let back = on_second[0].1;
+    sim.clear_air();
+    let talker2 = FIRST_ISSI + 1301;
+    sim.register(3, talker2, LocationUpdateType::RoamingLocationUpdating, &[back]);
+    let session = sim.start_call(3, talker2, back);
+    sim.run_until("the second cell, switched on again, sets up the call", |s| group_setups(&s.stations[SIBLING].air, back) > 0);
+    sim.end_call(3, talker2, back, session);
+}
+
+#[test]
+fn sim_ten_stations_25_radios_second_sdr_switched_off_and_on_in_one_location_area() {
+    switching_the_second_sdr_off_and_on(1);
+}
+
+#[test]
+fn sim_ten_stations_25_radios_second_sdr_switched_off_and_on_with_own_location_areas() {
+    switching_the_second_sdr_off_and_on(11);
 }

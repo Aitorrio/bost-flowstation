@@ -226,6 +226,62 @@ pub fn add_cell_toml(
     Ok((text, id))
 }
 
+/// Switch `[[cells]]` entries on or off (`enabled = false`; switching on removes the key, on is
+/// the default). Every other line is kept. Not validated: see [`set_cells_enabled_toml`].
+pub fn set_cells_enabled_text(original: &str, ids: &[u8], enabled: bool) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = original.parse().map_err(|e| format!("config does not parse: {e}"))?;
+    let arr = doc.get_mut("cells").and_then(|c| c.as_array_of_tables_mut()).ok_or("the config has no [[cells]]")?;
+    for &id in ids {
+        if id == 0 {
+            return Err("cell 0 is the primary cell; it cannot be switched off".into());
+        }
+        let entry = arr
+            .iter_mut()
+            .find(|t| t.get("id").and_then(|v| v.as_integer()) == Some(id as i64))
+            .ok_or_else(|| format!("no [[cells]] entry with id {id}"))?;
+        if enabled {
+            entry.remove("enabled");
+        } else {
+            entry["enabled"] = toml_edit::value(false);
+        }
+    }
+    Ok(doc.to_string())
+}
+
+/// [`set_cells_enabled_text`], with the result validated. A cell switched on again must still fit
+/// the station (its carrier not taken meanwhile, its SDR settings complete); a cell sharing an SDR
+/// switches with all the cells of that SDR, so the SDR opens or closes as a whole.
+pub fn set_cells_enabled_toml(original: &str, ids: &[u8], enabled: bool) -> Result<String, String> {
+    if ids.is_empty() {
+        return Err("ids is required".into());
+    }
+    let text = set_cells_enabled_text(original, ids, enabled)?;
+    // Every cell on the same SDR as a switched one must switch too (the SDR opens once for all).
+    let all_on = set_cells_enabled_text(&text, &used_ids(&text)?, true)?;
+    let cfg = parsing::from_toml_str(&all_on).map_err(|e| format!("resulting config does not parse: {e}"))?;
+    let device = |id: u8| -> Option<String> {
+        let soapy = if id == 0 { cfg.phy_io.soapysdr.as_ref() } else { cfg.extra_cells.iter().find(|c| c.id.0 == id)?.soapysdr.as_ref() };
+        soapy?.device.as_deref().map(|d| d.trim().to_string()).filter(|d| !d.is_empty())
+    };
+    let off: Vec<u8> = toml::from_str::<toml::Table>(&text)
+        .map(|t| tetra_config::bluestation::parse_disabled_cells(t.get("cells")).iter().map(|c| c.id.0).collect())
+        .unwrap_or_default();
+    // Cells of the same SDR that end up in the other state.
+    let all: Vec<u8> = std::iter::once(0).chain(cfg.extra_cells.iter().map(|c| c.id.0)).filter(|o| off.contains(o) == enabled).collect();
+    for &id in ids {
+        let Some(dev) = device(id) else { continue };
+        if let Some(other) = all.iter().find(|o| !ids.contains(o) && device(**o).as_deref() == Some(dev.as_str())) {
+            return Err(if *other == 0 {
+                format!("cell {id} shares its SDR with the primary cell; it cannot be switched on or off on its own")
+            } else {
+                format!("cell {id} shares its SDR with cell {other}; switch the whole SDR")
+            });
+        }
+    }
+    validated(&text)?;
+    Ok(text)
+}
+
 /// Remove the `[[cells]]` entry with `id` (with its `[cells.*]` sub-tables), keeping every other
 /// line — comments included — untouched.
 pub fn remove_cell_toml(original: &str, id: u8) -> Result<String, String> {
@@ -517,6 +573,41 @@ location_area = 1
         let staged = format!("{BASE}[security.aie]\nclass = 1\nksg = 2\nsckn = 1\nsck = \"00112233445566778899\"\n");
         assert_eq!(security_summary(&shared(&staged)), json!({"class": 1}), "a staged key keeps the cell clear");
         assert!(cells_json(&shared(&sc2))["cells"][0]["security"] == json!({"class": 2, "ksg": 4}));
+    }
+
+    #[test]
+    fn switching_a_cell_off_keeps_its_settings_and_on_again_restores_it() {
+        let (one, _) = add_cell_toml(BASE, "driver=plutosdr,uri=ip:192.168.3.1", 1525, Some(2), None).unwrap();
+        let off = set_cells_enabled_toml(&one, &[1], false).unwrap();
+        assert!(off.contains("enabled = false"), "{off}");
+        let cfg = parsing::from_toml_str(&off).unwrap();
+        assert!(cfg.extra_cells.is_empty());
+        assert_eq!(cfg.disabled_cells.iter().map(|c| c.id).collect::<Vec<_>>(), vec![CellId(1)]);
+        assert!(off.contains("main_carrier = 1525"), "the settings stay");
+        let on = set_cells_enabled_toml(&off, &[1], true).unwrap();
+        assert_eq!(on, one, "switched on again it is the same file");
+        assert!(set_cells_enabled_toml(&one, &[0], false).is_err(), "the primary cannot be switched off");
+        assert!(set_cells_enabled_toml(&one, &[4], false).is_err());
+        assert!(set_cells_enabled_toml(&one, &[], false).is_err());
+    }
+
+    #[test]
+    fn a_shared_sdr_switches_as_a_whole_and_never_with_the_primary() {
+        let dev = "driver=plutosdr,uri=ip:192.168.3.1";
+        let (one, _) = add_cell_toml(BASE, dev, 1525, Some(2), None).unwrap();
+        let (two, _) = add_cell_toml(&one, dev, 1526, Some(3), None).unwrap();
+        let shared = two.replace("tx_freq", "tx_center_freq = 438137500\nsample_rate = 1000000\ntx_freq").replace("rx_freq", "rx_center_freq = 433137500\nrx_freq");
+        parsing::from_toml_str(&shared).unwrap().validate().unwrap();
+        let e = set_cells_enabled_toml(&shared, &[2], false).unwrap_err();
+        assert!(e.contains("cell 1") && e.contains("whole SDR"), "{e}");
+        let off = set_cells_enabled_toml(&shared, &[1, 2], false).unwrap();
+        assert_eq!(parsing::from_toml_str(&off).unwrap().disabled_cells.len(), 2);
+        assert!(set_cells_enabled_toml(&off, &[1, 2], true).is_ok());
+        // A cell on the primary's SDR never switches on its own.
+        let with_primary = format!("{BASE}\n[phy_io.soapysdr]\ndevice = \"{dev}\"\ntx_freq = 438025000\nrx_freq = 433025000\n");
+        let (p1, _) = add_cell_toml(&with_primary, dev, 1525, Some(2), None).unwrap();
+        let e = set_cells_enabled_toml(&p1, &[1], false).unwrap_err();
+        assert!(e.contains("primary"), "{e}");
     }
 
     #[test]

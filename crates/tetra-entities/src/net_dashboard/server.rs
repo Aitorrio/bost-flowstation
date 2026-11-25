@@ -4599,6 +4599,9 @@ fn handle_connection(
     } else if req_line.contains("POST /api/cells/update") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_update(inner, &config_path, &shared_config, &body_str);
+    } else if req_line.contains("POST /api/cells/enable") {
+        let (inner, body_str) = read_post_body(stream);
+        serve_cells_enable(inner, &config_path, &shared_config, &body_str);
     } else if req_line.contains("POST /api/cells/remove") {
         let (inner, body_str) = read_post_body(stream);
         serve_cells_remove(inner, &config_path, &shared_config, &body_str);
@@ -6400,6 +6403,43 @@ fn serve_cells_update(stream: PrefixedConn, config_path: &str, shared: &Option<t
         }
         Err(e) => http_response(stream, 400, &e),
     }
+}
+
+/// POST /api/cells/enable — `{"ids": [N, ...], "enabled": bool, "allow_restart": bool}`: switch
+/// additional cells (the cells of one SDR) off or on again. Applied live when it can be: only the
+/// SDR of those cells closes or opens, the station and its other cells keep running. When it
+/// cannot (and `allow_restart` is not set) nothing is written and the answer is 409 with the
+/// reasons, so the page can ask first.
+fn serve_cells_enable(stream: PrefixedConn, config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>, body: &str) {
+    let req: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(e) => return http_response(stream, 400, &format!("invalid JSON: {e}")),
+    };
+    let ids: Vec<u8> = req.get("ids").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|i| i.as_u64().and_then(|i| u8::try_from(i).ok())).collect()).unwrap_or_default();
+    let Some(enabled) = req.get("enabled").and_then(|v| v.as_bool()) else {
+        return http_response(stream, 400, "enabled (true/false) is required");
+    };
+    let allow_restart = req.get("allow_restart").and_then(|v| v.as_bool()).unwrap_or(false);
+    let original = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) => return http_response(stream, 500, &format!("cannot read config: {e}")),
+    };
+    let text = match crate::net_dashboard::cells::set_cells_enabled_toml(&original, &ids, enabled) {
+        Ok(t) => t,
+        Err(e) => return http_response(stream, 400, &e),
+    };
+    if !allow_restart && let Some(cfg) = shared {
+        match live_restart_reasons(&text, config_path, cfg) {
+            Ok(reasons) if !reasons.is_empty() => {
+                return http_json_response(stream, 409, &serde_json::json!({"ok": false, "restart": reasons}).to_string());
+            }
+            Ok(_) => {}
+            Err(e) => return http_response(stream, 400, &e),
+        }
+    }
+    let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ");
+    let what = format!("cell(s) {list} switched {}", if enabled { "on" } else { "off" });
+    apply_cells_config(stream, config_path, shared, &text, what)
 }
 
 /// POST /api/cells/remove — `{"id": N}`.
@@ -8310,23 +8350,39 @@ fn write_config_validated(config_path: &str, body: &str) -> Result<(), (u16, Str
     atomic_write(config_path, body).map_err(|e| (500, e.to_string()))
 }
 
+/// The config text `text` as a live reload would apply it to the running station: parsed,
+/// validated and with its sibling neighbours (see [`reload_saved_config`]).
+fn prepared_config(text: &str, shared: &tetra_config::bluestation::SharedConfig) -> Result<tetra_config::bluestation::StackConfig, String> {
+    let mut new = tetra_config::bluestation::parsing::from_toml_str(text).map_err(|e| format!("config does not parse: {e}"))?;
+    new.validate().map_err(|e| format!("config is invalid: {e}"))?;
+    new.add_sibling_neighbours();
+    let class3_required = shared.state_read().security_class3_required;
+    if let Some(e) = sc3_reload_refusal(class3_required, &new) {
+        return Err(e);
+    }
+    Ok(new)
+}
+
+/// Why config text `text` would restart the running station instead of applying live (empty =
+/// it applies live). Nothing is written.
+fn live_restart_reasons(text: &str, _config_path: &str, shared: &tetra_config::bluestation::SharedConfig) -> Result<Vec<String>, String> {
+    let new = prepared_config(text, shared)?;
+    Ok(crate::config_reload::restart_reasons(&shared.config(), &new))
+}
+
 /// Parse the saved config file and swap it into the running cells (`POST /api/config/reload`).
 pub(crate) fn reload_saved_config(config_path: &str, shared: &Option<tetra_config::bluestation::SharedConfig>) -> serde_json::Value {
     let Some(shared) = shared else {
         return serde_json::json!({"applied": false, "restart": ["configuration not available to the dashboard"]});
     };
-    let mut new = match tetra_config::bluestation::parsing::from_file(config_path) {
-        Ok(c) => c,
+    let text = match std::fs::read_to_string(config_path) {
+        Ok(t) => t,
         Err(e) => return serde_json::json!({"applied": false, "error": format!("config does not parse: {e}")}),
     };
-    if let Err(e) = new.validate() {
-        return serde_json::json!({"applied": false, "error": format!("config is invalid: {e}")});
-    }
-    new.add_sibling_neighbours();
-    let class3_required = shared.state_read().security_class3_required;
-    if let Some(e) = sc3_reload_refusal(class3_required, &new) {
-        return serde_json::json!({"applied": false, "error": e});
-    }
+    let new = match prepared_config(&text, shared) {
+        Ok(v) => v,
+        Err(e) => return serde_json::json!({"applied": false, "error": e}),
+    };
     match crate::config_reload::reload(shared, &crate::net_site::extra_cells(), new) {
         Ok(r) if r.restart.is_empty() => serde_json::json!({"applied": true, "cells": r.cells}),
         Ok(r) => serde_json::json!({"applied": false, "restart": r.restart}),
