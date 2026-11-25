@@ -129,7 +129,56 @@ pub fn sdrs_json(text: &str) -> Result<JsonValue, String> {
         "max_cells": CellId::MAX as usize + 1,
         "soapysdr": cfg.phy_io.backend == tetra_config::bluestation::PhyBackend::SoapySdr,
         "sdrs": out,
+        "disabled_sdrs": disabled_sdrs(text),
     }))
+}
+
+/// The switched-off cells (`enabled = false`), grouped by SDR like `sdrs`: what each runs with when
+/// it is switched on again. Read from the file with those cells switched on; a cell whose settings
+/// would not parse is still listed, with only its id and device.
+fn disabled_sdrs(text: &str) -> Vec<JsonValue> {
+    let Ok(raw) = toml::from_str::<toml::Table>(text) else { return Vec::new() };
+    let off = tetra_config::bluestation::parse_disabled_cells(raw.get("cells"));
+    if off.is_empty() {
+        return Vec::new();
+    }
+    let ids: Vec<u8> = off.iter().map(|c| c.id.0).collect();
+    let on = crate::net_dashboard::cells::set_cells_enabled_text(text, &ids, true).ok().and_then(|t| parsing::from_toml_str(&t).ok());
+    let raw_device = |id: u8| {
+        raw.get("cells")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.iter().find(|t| t.get("id").and_then(|v| v.as_integer()) == Some(id as i64)))
+            .and_then(|t| t.get("soapysdr"))
+            .and_then(|s| s.get("device"))
+            .and_then(|d| d.as_str())
+            .map(|d| d.trim().to_string())
+            .unwrap_or_default()
+    };
+    let mut groups: Vec<(String, Vec<JsonValue>)> = Vec::new();
+    for id in ids {
+        let cell = on.as_ref().and_then(|cfg| cfg.extra_cells.iter().find(|c| c.id.0 == id).map(|c| (cfg, c)));
+        let device = cell.and_then(|(_, c)| c.soapysdr.as_ref().and_then(|s| s.device.clone())).map(|d| d.trim().to_string()).unwrap_or_else(|| raw_device(id));
+        let member = match cell {
+            Some((cfg, c)) => {
+                let sec = cfg.for_extra_cell(c.id).map(|e| e.security).unwrap_or_else(|| cfg.security.clone());
+                json!({
+                    "id": id,
+                    "main_carrier": c.cell.main_carrier,
+                    "secondary_carrier": c.cell.secondary_carrier,
+                    "colour_code": c.cell.colour_code,
+                    "location_area": c.cell.location_area,
+                    "network": cfg.network_of_cell(c.id).name,
+                    "security": crate::net_dashboard::cells::security_json(&sec),
+                })
+            }
+            None => json!({"id": id}),
+        };
+        match groups.iter_mut().find(|(d, _)| !device.is_empty() && *d == device) {
+            Some((_, m)) => m.push(member),
+            None => groups.push((device, vec![member])),
+        }
+    }
+    groups.into_iter().map(|(device, cells)| json!({"device": device, "cells": cells})).collect()
 }
 
 /// True when `[[cells]]` entry `id` sets its own location area (else it inherits cell 0's).
@@ -580,6 +629,21 @@ colour_code = 1
         assert_eq!((s["device"].clone(), s["mode"].clone()), (json!("driver=plutosdr"), json!("single")));
         assert_eq!(s["rx_gains"]["PGA"], 30.0, "gain names keep their case");
         assert_eq!(s["cells"][0]["main_carrier"], 1528);
+    }
+
+    #[test]
+    fn switched_off_cells_are_listed_apart_with_their_settings_and_kept_by_a_save() {
+        let cell = "\n[[cells]]\nid = 1\nenabled = false\n\n[cells.cell_info]\nmain_carrier = 1532\ncolour_code = 4\n\n[cells.soapysdr]\ndevice = \"driver=sx1255\"\ntx_freq = 438300000\nrx_freq = 430700000\n";
+        let text = format!("{BASE}{cell}");
+        let v = sdrs_json(&text).unwrap();
+        assert_eq!(v["sdrs"].as_array().unwrap().len(), 1, "only the running SDR");
+        let off = &v["disabled_sdrs"][0];
+        assert_eq!(off["device"], "driver=sx1255");
+        assert_eq!((off["cells"][0]["id"].clone(), off["cells"][0]["main_carrier"].clone(), off["cells"][0]["colour_code"].clone()), (json!(1), json!(1532), json!(4)));
+        // Saving the page (which lists only running cells) keeps the switched-off one.
+        let saved = apply_sdrs(&text, &pluto("single", json!([{"id": 0, "main_carrier": 1528}]))).unwrap();
+        assert!(saved.contains("enabled = false") && saved.contains("main_carrier = 1532"), "{saved}");
+        assert!(sdrs_json(BASE).unwrap()["disabled_sdrs"].as_array().unwrap().is_empty());
     }
 
     #[test]

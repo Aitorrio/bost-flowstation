@@ -21,6 +21,7 @@ pub fn default_test_config_bs() -> StackConfig {
         net: net_info,
         cell: cell_info,
         extra_cells: Vec::new(),
+        disabled_cells: Vec::new(),
         networks: Vec::new(),
         networks_explicit: false,
         network: tetra_config::bluestation::DEFAULT_NETWORK.to_owned(),

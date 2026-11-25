@@ -48,6 +48,31 @@ pub struct CfgExtraCell {
     pub security: Option<CfgSecurity>,
 }
 
+/// A `[[cells]]` entry switched off (`enabled = false`): only what the station needs to know
+/// while it is off (see [`crate::bluestation::StackConfig::network_is_linked`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CfgDisabledCell {
+    pub id: CellId,
+    /// The `[networks]` entry it serves when on; `None` = the primary cell's network.
+    pub network: Option<String>,
+}
+
+/// The `[[cells]]` entries with `enabled = false`. Their other settings are not checked here:
+/// they are checked when the cell is switched on again.
+pub fn parse_disabled_cells(raw_cells: Option<&Value>) -> Vec<CfgDisabledCell> {
+    let Some(Value::Array(entries)) = raw_cells else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter(|e| e.get("enabled").and_then(|v| v.as_bool()) == Some(false))
+        .filter_map(|e| {
+            let id = e.get("id").and_then(|v| v.as_integer()).and_then(|i| u8::try_from(i).ok())?;
+            Some(CfgDisabledCell { id: CellId(id), network: e.get("network").and_then(|v| v.as_str()).map(str::to_string) })
+        })
+        .collect()
+}
+
 #[derive(Deserialize)]
 struct ExtraCellDto {
     id: u8,
@@ -326,6 +351,20 @@ colour_code = 2
     fn disabled_cell_is_dropped() {
         let cfg = parse("[[cells]]\nid = 1\nenabled = false\n[cells.cell_info]\nmain_carrier = 1525\n").unwrap();
         assert!(cfg.extra_cells.is_empty());
+        assert_eq!(cfg.disabled_cells, vec![super::CfgDisabledCell { id: CellId(1), network: None }]);
+        assert!(!cfg.is_multi_cell());
+        // Settings of a switched-off cell are not checked until it is switched on again.
+        assert!(parse("[[cells]]\nid = 2\nenabled = false\n[cells.cell_info]\nmain_carrier = \"x\"\n").is_ok());
+    }
+
+    #[test]
+    fn a_switched_off_cell_keeps_the_primary_site_linked_with_a_core() {
+        let brew = "[brew]\nhost = \"h\"\nport = 3000\ntls = false\nusername = 1\npassword = \"x\"\n";
+        let on = parse(&format!("{brew}[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\n")).unwrap();
+        let off = parse(&format!("{brew}[[cells]]\nid = 1\nenabled = false\n[cells.cell_info]\nmain_carrier = 1525\n")).unwrap();
+        assert!(on.is_site_linked() && off.is_site_linked(), "switching the cell off does not change the wiring");
+        assert!(!parse(brew).unwrap().is_site_linked(), "one cell with no switched-off sibling stays plain");
+        assert!(!parse("[[cells]]\nid = 1\nenabled = false\n").unwrap().is_site_linked(), "without a core nothing is shared");
     }
 
     #[test]

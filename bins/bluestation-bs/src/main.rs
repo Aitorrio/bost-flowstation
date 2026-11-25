@@ -250,27 +250,37 @@ fn open_shared_sdrs(
             }
         }
     }
-    for (device, members) in groups.into_iter().filter(|(_, m)| m.len() > 1) {
-        let ids: Vec<CellId> = members.iter().map(|&i| cells[i].0).collect();
-        let carriers_of = |i: usize| cells[i].1.config().bs_phase_mod_carriers().unwrap_or_default();
-        let owner = members[0];
-        let cell_carriers: Vec<Vec<u16>> = members.iter().map(|&i| carriers_of(i).iter().map(|(c, _, _)| *c).collect()).collect();
-        let device_carriers: Vec<u16> = cell_carriers.iter().flatten().copied().collect();
-        let extra_carriers: Vec<(u16, u32, u32)> = members.iter().skip(1).flat_map(|&i| carriers_of(i)).collect();
-        let sink = if owner == 0 { primary_sink.clone() } else { cell_sink.map(|s| s.for_cell(cells[owner].0 .0)) };
-        eprintln!(" -> Opening shared SDR '{device}' for cells {ids:?}…");
+    for (_, members) in groups.into_iter().filter(|(_, m)| m.len() > 1) {
+        let group: Vec<(CellId, SharedConfig)> = members.iter().map(|&i| cells[i].clone()).collect();
+        let sink = if group[0].0.is_primary() { primary_sink.clone() } else { cell_sink.map(|s| s.for_cell(group[0].0 .0)) };
         tetra_entities::rf_status::set_starting("SoapySdr");
-        match RxTxDevSoapySdr::with_shared_carriers(&cells[owner].1, sink, &extra_carriers) {
-            Ok(dev) => {
-                let hub_views = SdrHub::new(dev, cell_carriers, device_carriers, DEFAULT_STEP_TIMEOUT);
-                for (id, view) in ids.into_iter().zip(hub_views) {
-                    views.insert(id, Ok(view));
-                }
+        views.extend(open_shared_group(&group, sink));
+    }
+    views
+}
+
+/// Open one SDR for the cells of `group` (same device, first = the cell that owns the device) and
+/// give each its view. Used at start-up and when a whole shared SDR is switched on live.
+fn open_shared_group(group: &[(CellId, SharedConfig)], sink: Option<TelemetrySink>) -> HashMap<CellId, SharedSdrView> {
+    let mut views = HashMap::new();
+    let Some((_, owner_cfg)) = group.first() else { return views };
+    let device = owner_cfg.config().phy_io.soapysdr.as_ref().and_then(|s| s.device.clone()).unwrap_or_default();
+    let ids: Vec<CellId> = group.iter().map(|(id, _)| *id).collect();
+    let carriers_of = |c: &SharedConfig| c.config().bs_phase_mod_carriers().unwrap_or_default();
+    let cell_carriers: Vec<Vec<u16>> = group.iter().map(|(_, c)| carriers_of(c).iter().map(|(n, _, _)| *n).collect()).collect();
+    let device_carriers: Vec<u16> = cell_carriers.iter().flatten().copied().collect();
+    let extra_carriers: Vec<(u16, u32, u32)> = group.iter().skip(1).flat_map(|(_, c)| carriers_of(c)).collect();
+    eprintln!(" -> Opening shared SDR '{}' for cells {ids:?}…", device.trim());
+    match RxTxDevSoapySdr::with_shared_carriers(owner_cfg, sink, &extra_carriers) {
+        Ok(dev) => {
+            let hub_views = SdrHub::new(dev, cell_carriers, device_carriers, DEFAULT_STEP_TIMEOUT);
+            for (id, view) in ids.into_iter().zip(hub_views) {
+                views.insert(id, Ok(view));
             }
-            Err(e) => {
-                for id in ids {
-                    views.insert(id, Err(e.clone()));
-                }
+        }
+        Err(e) => {
+            for id in ids {
+                views.insert(id, Err(e.clone()));
             }
         }
     }
@@ -442,18 +452,8 @@ impl CellManager {
             return;
         }
         match change {
-            CellChange::Add { id, cfg } => {
-                let mut cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
-                if cells.contains_key(&id) {
-                    tracing::warn!("{id}: already running, not started again");
-                    return;
-                }
-                let link = if cfg.config().is_site_linked() { self.site.as_ref().map(|h| h.add_cell(id, cfg.clone())) } else { None };
-                tetra_entities::net_site::add_extra_cell(id, cfg.clone());
-                let running = Arc::new(AtomicBool::new(true));
-                let handle = spawn_cell(id, cfg, None, link, None, self.tsink.as_ref(), running.clone());
-                cells.insert(id, RunningCell { running, handle });
-            }
+            CellChange::Add { id, cfg } => self.start(vec![(id, cfg)], false),
+            CellChange::AddShared { cells } => self.start(cells, true),
             CellChange::Remove { id, how } => {
                 let Some(cell) = self.cells.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) else {
                     return;
@@ -481,6 +481,37 @@ impl CellManager {
                     Err(e) => tracing::error!("{id}: failed to stop the cell: {e}"),
                 }
             }
+        }
+    }
+
+    /// Start cells added live: each on an SDR of its own, or (`shared`) all of them on one SDR,
+    /// opened here once for the group. Only these SDRs open; the running cells are untouched.
+    fn start(&self, group: Vec<(CellId, SharedConfig)>, shared: bool) {
+        let mut cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
+        let group: Vec<(CellId, SharedConfig)> = group
+            .into_iter()
+            .filter(|(id, _)| {
+                let running = cells.contains_key(id);
+                if running {
+                    tracing::warn!("{id}: already running, not started again");
+                }
+                !running
+            })
+            .collect();
+        let mut views = if shared && group.len() > 1 {
+            let sink = self.tsink.as_ref().map(|s| s.for_cell(group[0].0 .0));
+            // One open at a time (see `SDR_OPEN_CLOSE`).
+            let _sdr = SDR_OPEN_CLOSE.lock().unwrap_or_else(|e| e.into_inner());
+            open_shared_group(&group, sink)
+        } else {
+            HashMap::new()
+        };
+        for (id, cfg) in group {
+            let link = if cfg.config().is_site_linked() { self.site.as_ref().map(|h| h.add_cell(id, cfg.clone())) } else { None };
+            tetra_entities::net_site::add_extra_cell(id, cfg.clone());
+            let running = Arc::new(AtomicBool::new(true));
+            let handle = spawn_cell(id, cfg, views.remove(&id), link, None, self.tsink.as_ref(), running.clone());
+            cells.insert(id, RunningCell { running, handle });
         }
     }
 
@@ -616,7 +647,7 @@ fn build_bs_stack(
     let (tsink, tsource) = if needs_telemetry(cfg) {
         let (a, b) = telemetry_channel();
         // Multi-cell: tag the primary's events with its cell (registrations get an MsCell).
-        let a = if cfg.config().extra_cells.is_empty() { a } else { a.for_cell(0) };
+        let a = if cfg.config().extra_cells.is_empty() && cfg.config().disabled_cells.is_empty() { a } else { a.for_cell(0) };
         (Some(a), Some(b))
     } else {
         (None, None)
@@ -998,7 +1029,7 @@ fn main() {
         build_bs_stack(&mut cfg, &args.config, lst_handle.clone(), site);
     // A station of one cell can gain or lose its core link at run time: the reload sends the Brew
     // entity to the router between two ticks.
-    if cfg.config().extra_cells.is_empty() && lst_handle.is_none() {
+    if cfg.config().extra_cells.is_empty() && cfg.config().disabled_cells.is_empty() && lst_handle.is_none() {
         let swap_sink = dapnet_telemetry_sink.clone();
         tetra_entities::network_swap::register(router.mailbox(), Box::new(move |c| network_entity(c, None, swap_sink.as_ref())));
     }

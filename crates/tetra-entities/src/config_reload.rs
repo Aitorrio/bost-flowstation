@@ -88,6 +88,33 @@ fn shared_sdr_cells(c: &StackConfig) -> std::collections::HashSet<CellId> {
         .collect()
 }
 
+/// Groups of cells sharing one SDR (same `device`), as `open_shared_sdrs` opens them.
+fn shared_sdr_groups(c: &StackConfig) -> Vec<Vec<CellId>> {
+    let device = |s: Option<&tetra_config::bluestation::sec_phy_soapy::CfgSoapySdr>| {
+        s.and_then(|s| s.device.as_deref()).map(|d| d.trim().to_string()).filter(|d| !d.is_empty())
+    };
+    let mut groups: Vec<(String, Vec<CellId>)> = Vec::new();
+    let cells = std::iter::once((CellId::PRIMARY, device(c.phy_io.soapysdr.as_ref()))).chain(c.extra_cells.iter().map(|x| (x.id, device(x.soapysdr.as_ref()))));
+    for (id, dev) in cells {
+        let Some(dev) = dev else { continue };
+        match groups.iter_mut().find(|(d, _)| *d == dev) {
+            Some((_, m)) => m.push(id),
+            None => groups.push((dev, vec![id])),
+        }
+    }
+    groups.into_iter().map(|(_, m)| m).filter(|m| m.len() > 1).collect()
+}
+
+/// True when every cell `changed` lists that shares an SDR in `c` comes or goes together with
+/// the whole group of that SDR, and the group is not the primary's: the SDR then opens or closes
+/// as a whole (the SDR of a whole multi-cell group switched on or off), the other SDRs untouched.
+fn whole_shared_groups(c: &StackConfig, changed: &[CellId]) -> bool {
+    shared_sdr_groups(c)
+        .iter()
+        .filter(|g| g.iter().any(|id| changed.contains(id)))
+        .all(|g| !g.contains(&CellId::PRIMARY) && g.iter().all(|id| changed.contains(id)))
+}
+
 /// Additional cells `new` adds and removes compared with `old`.
 fn cell_set_change(old: &StackConfig, new: &StackConfig) -> (Vec<CellId>, Vec<CellId>) {
     let ids = |c: &StackConfig| c.extra_cells.iter().map(|x| x.id).collect::<Vec<_>>();
@@ -107,8 +134,10 @@ fn cell_set_refusal(old: &StackConfig, new: &StackConfig, own: &dyn Fn(CellId) -
     if !crate::live_cells::available() {
         return Some("additional cells added or removed (not available on this station)");
     }
-    if added.iter().chain(&removed).any(|id| !own(*id)) {
-        return Some("a cell on a shared SDR added or removed");
+    let partial = added.iter().any(|id| !own(*id)) && !whole_shared_groups(new, &added)
+        || removed.iter().any(|id| !own(*id)) && !whole_shared_groups(old, &removed);
+    if partial {
+        return Some("a cell on a shared SDR added or removed (only all cells of a shared SDR together)");
     }
     if added.iter().any(|id| new.network_of_cell(*id).name != new.network) || removed.iter().any(|id| old.network_of_cell(*id).name != old.network) {
         return Some("a cell of another network than the primary's added or removed");
@@ -222,7 +251,9 @@ pub fn restart_reasons(old: &StackConfig, new: &StackConfig) -> Vec<String> {
     // through the router. With several cells the links between them (site switch, cell links) are
     // built once at start-up, so any change of layout restarts.
     let lst_on = |c: &StackConfig| c.lst_dispatch.as_ref().is_some_and(|l| l.enabled);
-    let single = old.extra_cells.is_empty() && new.extra_cells.is_empty();
+    // A switched-off cell keeps the station's multi-cell wiring (see `network_is_linked`).
+    let single = old.extra_cells.is_empty() && new.extra_cells.is_empty() && old.disabled_cells.is_empty() && new.disabled_cells.is_empty();
+    check(old.is_site_linked() != new.is_site_linked(), "the primary cell starts or stops sharing its network link with other cells");
     let link_change = old.brew.is_some() != new.brew.is_some();
     let layout = |c: &StackConfig| (c.networks_explicit, c.network.clone(), c.networks.iter().map(|n| (n.name.clone(), n.brew.is_some(), n.via.clone())).collect::<Vec<_>>(), c.extra_cells.iter().filter(|x| common(x.id)).map(|x| (x.id, x.network.clone())).collect::<Vec<_>>());
     if single {
@@ -333,7 +364,7 @@ pub fn reload_with(
     prepare_cell: &dyn Fn(&mut StackConfig),
 ) -> Result<ReloadReport, String> {
     let old = primary.config();
-    let single_cell = old.extra_cells.is_empty() && new.extra_cells.is_empty();
+    let single_cell = old.extra_cells.is_empty() && new.extra_cells.is_empty() && old.disabled_cells.is_empty() && new.disabled_cells.is_empty();
     let restart = restart_reasons(&old, &new);
     if !restart.is_empty() {
         return Ok(ReloadReport { cells: 0, restart });
@@ -403,9 +434,23 @@ pub fn reload_with(
         tracing::info!("Live reload: cell {id:?} removed, taking it off the air ({how:?})");
         crate::live_cells::apply(crate::live_cells::CellChange::Remove { id, how });
     }
-    for (id, cfg) in started {
-        tracing::info!("Live reload: cell {id:?} added, starting it");
-        crate::live_cells::apply(crate::live_cells::CellChange::Add { id, cfg });
+    // Cells of one shared SDR start together on the SDR opened once for them.
+    let groups = shared_sdr_groups(primary.config().as_ref());
+    let mut started = started;
+    while let Some((id, cfg)) = started.first().cloned() {
+        match groups.iter().find(|g| g.contains(&id)) {
+            Some(group) => {
+                let cells: Vec<(CellId, SharedConfig)> = started.iter().filter(|(c, _)| group.contains(c)).cloned().collect();
+                started.retain(|(c, _)| !group.contains(c));
+                tracing::info!("Live reload: cells {:?} added on one shared SDR, starting them", cells.iter().map(|(c, _)| *c).collect::<Vec<_>>());
+                crate::live_cells::apply(crate::live_cells::CellChange::AddShared { cells });
+            }
+            None => {
+                started.remove(0);
+                tracing::info!("Live reload: cell {id:?} added, starting it");
+                crate::live_cells::apply(crate::live_cells::CellChange::Add { id, cfg });
+            }
+        }
     }
     tracing::info!("Configuration reloaded live ({cells} cell(s))");
     Ok(ReloadReport { cells, restart: Vec::new() })
@@ -443,6 +488,7 @@ mod tests {
             let line = match change {
                 crate::live_cells::CellChange::Add { id, cfg } => format!("add {id:?} carrier {}", cfg.config().cell.main_carrier),
                 crate::live_cells::CellChange::Remove { id, how } => format!("remove {id:?} {how:?}"),
+                crate::live_cells::CellChange::AddShared { cells } => format!("add shared {:?}", cells.iter().map(|(id, _)| *id).collect::<Vec<_>>()),
             };
             LOG.with(|l| l.borrow().as_ref().expect("log").borrow_mut().push(line));
         })));
@@ -473,6 +519,70 @@ mod tests {
         let report = reload(&primary, &[(CellId(1), cell1), (CellId(2), cell2)], one).unwrap();
         assert!(report.restart.is_empty(), "{:?}", report.restart);
         assert_eq!(*seen.borrow(), vec!["remove CellId(2) DropRegistrations".to_string()]);
+        crate::live_cells::set_test_handler(None);
+    }
+
+    /// `with_cells` text with `enabled = false` on the cells `off`.
+    fn switched_off(cells: &str, off: &[u8]) -> StackConfig {
+        let mut text = cells.to_string();
+        for id in off {
+            text = text.replace(&format!("id = {id}\n"), &format!("id = {id}\nenabled = false\n"));
+        }
+        with_cells(&text)
+    }
+
+    #[test]
+    fn switching_the_only_linked_cell_off_and_on_is_live_and_keeps_the_site_switch() {
+        let seen = record_cell_changes();
+        let mut on = with_cells(CELL_1);
+        on.networks_explicit = true;
+        let mut off = switched_off(CELL_1, &[1]);
+        off.networks_explicit = true;
+        assert!(off.extra_cells.is_empty() && off.disabled_cells.len() == 1);
+        assert!(off.is_site_linked(), "a switched-off cell keeps the primary's site switch");
+        // Deleting the cell instead still changes the wiring and restarts.
+        let mut deleted = base();
+        deleted.networks_explicit = true;
+        assert!(restart_reasons(&on, &deleted).iter().any(|r| r.contains("sharing the network link")), "{:?}", restart_reasons(&on, &deleted));
+
+        assert!(restart_reasons(&on, &off).is_empty(), "{:?}", restart_reasons(&on, &off));
+        let primary = SharedConfig::from_parts(on.clone(), None);
+        let cell1 = SharedConfig::from_parts(on.for_extra_cell(CellId(1)).unwrap(), None);
+        let report = reload(&primary, &[(CellId(1), cell1)], off.clone()).unwrap();
+        assert!(report.restart.is_empty(), "{:?}", report.restart);
+        // Same location area as the primary on a linked site: its radios stay registered there.
+        assert_eq!(*seen.borrow(), vec!["remove CellId(1) KeepRegistrations".to_string()]);
+
+        seen.borrow_mut().clear();
+        assert!(restart_reasons(&off, &on).is_empty(), "{:?}", restart_reasons(&off, &on));
+        let report = reload(&primary, &[], on).unwrap();
+        assert!(report.restart.is_empty(), "{:?}", report.restart);
+        assert_eq!(*seen.borrow(), vec!["add CellId(1) carrier 1525".to_string()]);
+        crate::live_cells::set_test_handler(None);
+    }
+
+    #[test]
+    fn a_whole_shared_sdr_switches_off_and_on_live_but_not_one_cell_of_it() {
+        let seen = record_cell_changes();
+        const SHARED_1: &str = "[[cells]]\nid = 1\n[cells.cell_info]\nmain_carrier = 1525\ncolour_code = 2\n[cells.soapysdr]\ntx_freq = 438125000.0\nrx_freq = 433125000.0\ntx_center_freq = 438137500.0\nrx_center_freq = 433137500.0\nsample_rate = 1000000.0\ndevice = \"driver=hub\"\n";
+        const SHARED_2: &str = "[[cells]]\nid = 2\n[cells.cell_info]\nmain_carrier = 1526\ncolour_code = 3\n[cells.soapysdr]\ntx_freq = 438150000.0\nrx_freq = 433150000.0\ntx_center_freq = 438137500.0\nrx_center_freq = 433137500.0\nsample_rate = 1000000.0\ndevice = \"driver=hub\"\n";
+        let cells = format!("{SHARED_1}{SHARED_2}");
+        let on = with_cells(&cells);
+        on.validate().unwrap();
+        let off = switched_off(&cells, &[1, 2]);
+        let half = switched_off(&cells, &[2]);
+        assert!(restart_reasons(&on, &half).iter().any(|r| r.contains("shared SDR")), "{:?}", restart_reasons(&on, &half));
+        assert!(restart_reasons(&on, &off).is_empty(), "{:?}", restart_reasons(&on, &off));
+
+        let primary = SharedConfig::from_parts(on.clone(), None);
+        let extra: Vec<(CellId, SharedConfig)> = [1, 2].iter().map(|i| (CellId(*i), SharedConfig::from_parts(on.for_extra_cell(CellId(*i)).unwrap(), None))).collect();
+        assert!(reload(&primary, &extra, off.clone()).unwrap().restart.is_empty());
+        assert_eq!(*seen.borrow(), vec!["remove CellId(1) DropRegistrations".to_string(), "remove CellId(2) DropRegistrations".to_string()]);
+
+        seen.borrow_mut().clear();
+        assert!(restart_reasons(&off, &on).is_empty(), "{:?}", restart_reasons(&off, &on));
+        assert!(reload(&primary, &[], on).unwrap().restart.is_empty());
+        assert_eq!(*seen.borrow(), vec!["add shared [CellId(1), CellId(2)]".to_string()], "both cells start on the SDR opened once");
         crate::live_cells::set_test_handler(None);
     }
 
