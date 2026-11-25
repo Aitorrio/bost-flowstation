@@ -1308,6 +1308,8 @@ fn test_plain_roaming_registration_is_reported_as_without_call() {
                 pbx_gateway_issis: None,
                 backhaul_hysteresis_secs: 0,
                 reregister_minutes: 0,
+                live_wait_secs: 60,
+                live_apply_immediately: false,
             });
         }
         let mut test = ComponentTest::from_config(config, Some(TdmaTime::default()));

@@ -675,6 +675,20 @@ impl Default for Sc3Status {
     fn default() -> Self { Self { phase: "not_authenticated", cck: "not_sent" } }
 }
 
+/// A security class or cipher key change saved at run time (live reload), announced to the
+/// registered radios with D-CK CHANGE DEMAND and taking effect on one slot (EN 300 392-7 clauses
+/// 4.5.5.6, 4.5.6). Until it is committed the cell's config keeps the settings in use; `target`
+/// replaces `[security.aie]` on commit.
+#[derive(Debug, Clone)]
+pub struct AirChange {
+    /// The air interface encryption the cell changes to (`None` = security class 1).
+    pub target: Option<super::CfgAie>,
+    /// How far ahead the change is announced.
+    pub lead_secs: u64,
+    /// The slot the downlink changes on, once announced (the first slot of a multiframe).
+    pub at: Option<tetra_core::TdmaTime>,
+}
+
 /// Fleet Control state shared by the control worker and the dashboard.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FleetControlState {
@@ -721,6 +735,8 @@ pub struct StackState {
     /// Volatile SC3 DCKs. Never persisted; Debug redacts every key.
     pub sc3_dcks: HashMap<u32, super::sec_security::CipherKey>,
     pub sc3_status: HashMap<u32, Sc3Status>,
+    /// A security class or key change saved at run time, until it takes effect.
+    pub air_change: Option<AirChange>,
     /// Startup CLI guard, not persisted by dashboard edits.
     pub security_class3_required: bool,
     /// Queue of live SDS messages injected at runtime via the dashboard.
@@ -972,6 +988,7 @@ impl Default for StackState {
             multi_network: Default::default(),
             subscribers: SubscriberRegistry::new(),
             sc3_dcks: HashMap::new(),
+            air_change: None,
             sc3_status: HashMap::new(),
             security_class3_required: false,
             live_sds_queue: VecDeque::new(),

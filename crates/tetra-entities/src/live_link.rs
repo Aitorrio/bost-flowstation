@@ -7,9 +7,17 @@ use tetra_config::bluestation::{SharedConfig, StackConfig};
 pub struct LiveLink<T> {
     cfg: SharedConfig,
     seen: u64,
-    last: String,
+    /// Hash of the last key: the key may hold passwords, so only its hash is kept.
+    last: u64,
     key: fn(&StackConfig) -> String,
     build: Box<dyn Fn(&StackConfig) -> Option<T> + Send>,
+}
+
+fn digest(key: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut h);
+    h.finish()
 }
 
 impl<T> LiveLink<T> {
@@ -17,7 +25,7 @@ impl<T> LiveLink<T> {
     /// `build` makes the transport for them, `None` when the link is not configured.
     pub fn new(cfg: SharedConfig, key: fn(&StackConfig) -> String, build: Box<dyn Fn(&StackConfig) -> Option<T> + Send>) -> Self {
         let seen = cfg.config_generation();
-        let last = key(&cfg.config());
+        let last = digest(&key(&cfg.config()));
         Self { cfg, seen, last, key, build }
     }
 
@@ -30,7 +38,7 @@ impl<T> LiveLink<T> {
         }
         self.seen = generation;
         let config = self.cfg.config();
-        let key = (self.key)(&config);
+        let key = digest(&(self.key)(&config));
         if key == self.last {
             return None;
         }
@@ -62,5 +70,19 @@ mod tests {
         shared.replace_config(named).unwrap();
         assert_eq!(link.poll(), Some(Some(Some("x".to_string()))));
         assert!(link.poll().is_none());
+    }
+
+    #[test]
+    fn a_changed_password_rebuilds_the_link() {
+        let shared = SharedConfig::from_parts(base(), None);
+        let mut link = LiveLink::new(
+            shared.clone(),
+            |c| tetra_config::bluestation::debug_with_secrets(&c.asterisk),
+            Box::new(|c| Some(c.asterisk.password.val.clone())),
+        );
+        let mut other = base();
+        other.asterisk.password = tetra_config::bluestation::SecretField::from("new-secret".to_string());
+        shared.replace_config(other).unwrap();
+        assert_eq!(link.poll(), Some(Some("new-secret".to_string())));
     }
 }

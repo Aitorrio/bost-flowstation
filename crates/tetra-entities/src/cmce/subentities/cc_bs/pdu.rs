@@ -3,6 +3,8 @@ use super::*;
 impl CcBsSubentity {
     pub fn new(config: SharedConfig) -> Self {
         CcBsSubentity {
+            identity_generation: config.config_generation(),
+            cell_identity: config.live_identity(),
             config,
             dltime: TdmaTime::default(),
             cached_setups: HashMap::new(),

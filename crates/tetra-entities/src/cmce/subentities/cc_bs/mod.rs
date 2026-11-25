@@ -65,6 +65,10 @@ use state::{
 pub struct CcBsSubentity {
     config: SharedConfig,
     dltime: TdmaTime,
+    /// Config generation and cell identity (colour code, MCC, MNC) the calls belong to.
+    identity_generation: u64,
+    /// `None` once the cell is retired by a live reload.
+    cell_identity: Option<tetra_config::bluestation::CellIdentity>,
     /// Cached D-SETUP PDUs for late-entry re-sends: call_id -> cached setup
     cached_setups: HashMap<u16, CachedSetup>,
     circuits: CircuitMgr,

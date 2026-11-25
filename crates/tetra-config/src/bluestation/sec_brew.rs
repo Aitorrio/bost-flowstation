@@ -46,7 +46,16 @@ pub struct CfgBrew {
     /// every this many minutes (REREGISTER + AFFILIATE, as for a radio registering again), only
     /// while no call runs over the link. 0 = off (default). Range when on: 10..=600.
     pub reregister_minutes: u32,
+    /// A live configuration change of this link (server, credentials, timers) waits until no
+    /// call has crossed the link for a few seconds, at most this long; then it reconnects even
+    /// during a call. Range 0..=600 s, default 60.
+    pub live_wait_secs: u64,
+    /// Apply a live change of this link at once, also during calls (default false).
+    pub live_apply_immediately: bool,
 }
+
+/// Longest wait of [`CfgBrew::live_wait_secs`].
+pub const LIVE_WAIT_SECS_MAX: u64 = 600;
 
 /// Shortest and longest interval for [`CfgBrew::reregister_minutes`].
 pub const REREGISTER_MINUTES_MIN: u32 = 10;
@@ -104,6 +113,14 @@ pub struct CfgBrewDto {
     #[serde(default)]
     pub reregister_minutes: u32,
 
+    /// Longest wait for calls to end before a live change reconnects the link. Default: 60.
+    #[serde(default = "default_brew_live_wait_secs")]
+    pub live_wait_secs: u64,
+
+    /// Reconnect at once on a live change, also during calls. Default: false.
+    #[serde(default)]
+    pub live_apply_immediately: bool,
+
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
 }
@@ -122,6 +139,10 @@ fn default_brew_feature_sds_enabled() -> bool {
 
 fn default_brew_backhaul_hysteresis_secs() -> u64 {
     3
+}
+
+fn default_brew_live_wait_secs() -> u64 {
+    60
 }
 
 /// Convert a CfgBrewDto (from TOML) into a CfgBrew (used in the stack config)
@@ -145,6 +166,8 @@ pub fn apply_brew_patch(src: CfgBrewDto) -> CfgBrew {
             0 => 0,
             m => m.clamp(REREGISTER_MINUTES_MIN, REREGISTER_MINUTES_MAX),
         },
+        live_wait_secs: src.live_wait_secs.min(LIVE_WAIT_SECS_MAX),
+        live_apply_immediately: src.live_apply_immediately,
     }
 }
 
@@ -177,6 +200,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(apply_brew_patch(dto).backhaul_hysteresis_secs, 60);
+    }
+
+    #[test]
+    fn live_wait_defaults_to_a_minute_and_is_capped() {
+        let parse = |extra: &str| {
+            let dto: CfgBrewDto = toml::from_str(&format!("host = \"x\"\ntls = false\nusername = 1\npassword = \"p\"\n{extra}")).unwrap();
+            let c = apply_brew_patch(dto);
+            (c.live_wait_secs, c.live_apply_immediately)
+        };
+        assert_eq!(parse(""), (60, false));
+        assert_eq!(parse("live_wait_secs = 0\nlive_apply_immediately = true"), (0, true));
+        assert_eq!(parse("live_wait_secs = 99999"), (600, false));
     }
 
     #[test]

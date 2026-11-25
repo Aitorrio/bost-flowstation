@@ -63,7 +63,7 @@ pub fn cell_infos(primary: &SharedConfig) -> Vec<CellInfo> {
     let rf = crate::rf_status::get_all();
     let rf_of = |id: CellId| rf.iter().find(|(c, _)| *c == id).map(|(_, s)| s);
     let mut cells = vec![cell_info(CellId::PRIMARY, primary, rf_of(CellId::PRIMARY))];
-    for (id, cfg) in crate::net_site::extra_cells() {
+    for (id, cfg) in &crate::net_site::extra_cells() {
         cells.push(cell_info(*id, cfg, rf_of(*id)));
     }
     // Cells naming the same SDR device share it.
@@ -86,7 +86,7 @@ fn security_summary(cfg: &SharedConfig) -> JsonValue {
 /// GET /api/cells payload: every running cell, primary first, each with its `security`.
 pub fn cells_json(primary: &SharedConfig) -> JsonValue {
     let mut security = vec![(CellId::PRIMARY.0, security_summary(primary))];
-    for (id, cfg) in crate::net_site::extra_cells() {
+    for (id, cfg) in &crate::net_site::extra_cells() {
         security.push((id.0, security_summary(cfg)));
     }
     let cells: Vec<JsonValue> = cell_infos(primary)

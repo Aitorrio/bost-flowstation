@@ -323,7 +323,7 @@ impl AsteriskEntity {
             return;
         }
         let new = self.config.config().asterisk.clone();
-        if format!("{:?}", new) == format!("{:?}", self.asterisk_config) {
+        if tetra_config::bluestation::debug_with_secrets(&new) == tetra_config::bluestation::debug_with_secrets(&self.asterisk_config) {
             self.config_generation = generation;
             return;
         }

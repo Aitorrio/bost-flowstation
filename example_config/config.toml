@@ -483,6 +483,11 @@ voice_service = true
 # issi = 2260571
 # k = "00112233445566778899aabbccddeeff"
 #
+# A security class or cipher key change saved while the station runs is announced to every
+# registered radio with D-CK CHANGE DEMAND this many seconds ahead (5-300, default 30) and then
+# takes effect live at the start of a multiframe (clauses 4.5.5.6, 4.5.6). Station-wide.
+# change_lead_secs = 30
+#
 # Air-interface encryption (class 2, clause 6): one static cipher key shared by the encrypted
 # radios; radios without AIE still register in clear and use only the clear_groups. NOT permitted
 # under amateur licences — licensed private networks only. With class = 1 and a key the key is

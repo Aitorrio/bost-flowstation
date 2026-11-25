@@ -453,6 +453,13 @@ pub struct BrewWorker<T: NetworkTransport> {
     reregister_due: Option<Instant>,
     /// Last call signalling or voice over the link, either way.
     last_call_activity: Option<Instant>,
+    /// Config generation last checked for a changed cell announcement, and the BTS info last
+    /// sent on this connection.
+    cells_generation: u64,
+    cells_announced: Option<Vec<u8>>,
+    /// A live change of the `[brew]` section waiting for the calls on the link to end: the new
+    /// transport and when the change came in.
+    live_pending: Option<(T, Instant)>,
 }
 
 /// A re-registration waits until no call signalling or voice crossed the link for this long,
@@ -489,6 +496,7 @@ const MNI_MAX_CALLS: usize = 4096;
 impl<T: NetworkTransport> BrewWorker<T> {
     pub fn new(config: SharedConfig, event_sender: Sender<BrewEvent>, command_receiver: Receiver<BrewCommand>, transport: T) -> Self {
         let brew_config = config.config().brew.clone().unwrap(); // Never fails
+        let cells_generation = config.config_generation();
         Self {
             live: None,
             config,
@@ -506,6 +514,9 @@ impl<T: NetworkTransport> BrewWorker<T> {
             mni_local_calls: HashSet::new(),
             reregister_due: None,
             last_call_activity: None,
+            cells_generation,
+            cells_announced: None,
+            live_pending: None,
         }
     }
 
@@ -520,8 +531,39 @@ impl<T: NetworkTransport> BrewWorker<T> {
     /// `run` reconnects. A removed section cannot be followed (there is nothing to connect to);
     /// the restart check of the reload keeps that case from getting here.
     fn follow_config(&mut self) -> Result<(), String> {
-        let Some(Some(transport)) = self.live.as_mut().and_then(|l| l.poll()) else { return Ok(()) };
-        if let Some(brew) = self.config.config().brew.clone() {
+        self.follow_config_at(Instant::now())
+    }
+
+    /// The change waits while calls cross the link (no call traffic for [`REREGISTER_QUIET`]),
+    /// at most `live_wait_secs`; `live_apply_immediately` reconnects at once. A newer change
+    /// replaces a waiting one and keeps its start time.
+    fn follow_config_at(&mut self, now: Instant) -> Result<(), String> {
+        self.follow_cells();
+        let busy = self.last_call_activity.is_some_and(|t| now.saturating_duration_since(t) < REREGISTER_QUIET);
+        let brew = self.config.config().brew.clone();
+        let (wait, immediately) = brew.as_ref().map_or((0, true), |b| (b.live_wait_secs, b.live_apply_immediately));
+        if let Some(Some(transport)) = self.live.as_mut().and_then(|l| l.poll()) {
+            let since = match self.live_pending.take() {
+                Some((_, since)) => since,
+                None => {
+                    if busy && !immediately {
+                        tracing::info!("BrewWorker: configuration changed; reconnecting once the calls on the link have ended (at most {wait} s)");
+                    }
+                    now
+                }
+            };
+            self.live_pending = Some((transport, since));
+        }
+        let Some((_, since)) = &self.live_pending else { return Ok(()) };
+        let overdue = now.saturating_duration_since(*since) >= Duration::from_secs(wait);
+        if busy && !immediately && !overdue {
+            return Ok(());
+        }
+        let Some((transport, _)) = self.live_pending.take() else { return Ok(()) };
+        if busy {
+            tracing::warn!("BrewWorker: configuration changed, reconnecting during a call ({})", if immediately { "apply immediately" } else { "waited long enough" });
+        }
+        if let Some(brew) = brew {
             self.brew_config = brew;
         }
         self.transport.disconnect();
@@ -832,6 +874,7 @@ impl<T: NetworkTransport> BrewWorker<T> {
     /// Tell the server which cells this station serves, if it understands that (see
     /// [`bts_info_message`]).
     fn announce_cells(&mut self) {
+        self.cells_announced = None;
         let Some(msg) = bts_info_message(&self.config.config(), self.transport.server_brew_extensions()) else {
             return;
         };
@@ -839,6 +882,26 @@ impl<T: NetworkTransport> BrewWorker<T> {
             tracing::error!("BrewWorker: failed to send BTS info: {}", e);
         } else {
             tracing::info!("BrewWorker: announced cells to the server (BTS info)");
+            self.cells_announced = Some(msg);
+        }
+    }
+
+    /// A live reload that changes what the cells announce (location area, neighbours, broadcast
+    /// values): send the BTS info again on the same connection, so the server's radio locations
+    /// and cell directory follow without a reconnect. The server takes a repeated BTS info as the
+    /// station's new cell list.
+    fn follow_cells(&mut self) {
+        let generation = self.config.config_generation();
+        if generation == self.cells_generation {
+            return;
+        }
+        self.cells_generation = generation;
+        if self.cells_announced.is_none() {
+            return; // not announced on this connection (server without `bts-info`)
+        }
+        let msg = bts_info_message(&self.config.config(), self.transport.server_brew_extensions());
+        if msg.is_some() && msg != self.cells_announced {
+            self.announce_cells();
         }
     }
 
@@ -2426,6 +2489,34 @@ password = "x"
         assert!(plain.transport.sent_payloads().is_empty(), "nothing new towards a plain Brew server");
     }
 
+    #[test]
+    fn a_live_change_of_the_location_area_announces_the_cells_again() {
+        let mut w = worker(MockTransport::new().with_brew_extensions(&["bts-info"]));
+        w.transport.connect().unwrap();
+        w.announce_cells();
+        let mut same = (*w.config.config()).clone();
+        same.cell.presence_check_secs += 1;
+        w.config.replace_config(same).unwrap();
+        w.follow_cells();
+        assert_eq!(w.transport.sent_payloads().len(), 1, "nothing the server sees changed");
+        let mut moved = (*w.config.config()).clone();
+        moved.cell.location_area += 1;
+        let la = moved.cell.location_area;
+        w.config.replace_config(moved).unwrap();
+        w.follow_cells();
+        assert_eq!(w.transport.sent_payloads().len(), 2);
+        assert_eq!(json_of(&w.transport.sent_payloads()[1])["cells"][0]["location_area"], la);
+
+        let mut plain = worker(MockTransport::new());
+        plain.transport.connect().unwrap();
+        plain.announce_cells();
+        let mut moved = (*plain.config.config()).clone();
+        moved.cell.location_area += 1;
+        plain.config.replace_config(moved).unwrap();
+        plain.follow_cells();
+        assert!(plain.transport.sent_payloads().is_empty(), "nothing new towards a plain Brew server");
+    }
+
     // ── Cell directory (cell-directory) ──
 
     const NEIGHBOUR: &str = "ms_txpwr_max_cell = 4\nrxlev_access_min_dbm = -100\n\n[[cell_info.neighbor_cells_ca]]\ncell_identifier_ca = 1\ncell_reselection_types_supported = 2\nneighbor_cell_synchronized = false\ncell_load_ca = 0\nmain_carrier_number = 1530\nlocation_area = 1\n\n[[cell_info.neighbor_cells_ca]]\ncell_identifier_ca = 2\ncell_reselection_types_supported = 2\nneighbor_cell_synchronized = false\ncell_load_ca = 0\nmain_carrier_number = 1600\nmain_carrier_number_extension = 280\nmcc = 901\nmnc = 9\n";
@@ -3008,6 +3099,58 @@ password = "x"
         assert_eq!(w.reregister_due, Some(start + Duration::from_secs(3)), "tried again shortly");
         w.drive_reregistration(start + Duration::from_secs(6));
         assert_eq!(kinds(w.transport.sent_payloads()).len(), 2);
+    }
+
+    fn live_worker(extra: &str) -> BrewWorker<MockTransport> {
+        let mut w = rereg_worker(extra);
+        let live = LiveLink::new(
+            w.config.clone(),
+            |c| tetra_config::bluestation::debug_with_secrets(&c.brew),
+            Box::new(|_| Some(MockTransport::new())),
+        );
+        w = w.with_live(live);
+        w
+    }
+
+    fn change_brew_host(w: &BrewWorker<MockTransport>, host: &str) {
+        let mut c = (*w.config.config()).clone();
+        c.brew.as_mut().unwrap().host = host.to_string();
+        w.config.replace_config(c).unwrap();
+    }
+
+    #[test]
+    fn a_live_brew_change_waits_for_the_calls_on_the_link_at_most_the_set_time() {
+        let mut w = live_worker("live_wait_secs = 60\n");
+        let start = Instant::now();
+        assert!(w.follow_config_at(start).is_ok(), "nothing changed");
+        w.last_call_activity = Some(start);
+        change_brew_host(&w, "other.example");
+        assert!(w.follow_config_at(start + Duration::from_secs(1)).is_ok(), "a call runs: wait");
+        assert!(w.live_pending.is_some());
+        w.last_call_activity = Some(start + Duration::from_secs(30));
+        assert!(w.follow_config_at(start + Duration::from_secs(31)).is_ok(), "still calls");
+        w.last_call_activity = Some(start + Duration::from_secs(59));
+        assert!(w.follow_config_at(start + Duration::from_secs(62)).is_err(), "waited the minute: reconnect even in a call");
+        assert_eq!(w.brew_config.host, "other.example");
+
+        // Calls end before the time is up: reconnect then.
+        let mut w = live_worker("live_wait_secs = 60\n");
+        w.last_call_activity = Some(start);
+        change_brew_host(&w, "third.example");
+        assert!(w.follow_config_at(start + Duration::from_secs(1)).is_ok());
+        assert!(w.follow_config_at(start + Duration::from_secs(7)).is_err(), "link quiet for 5 s");
+    }
+
+    #[test]
+    fn a_live_brew_change_is_applied_at_once_when_set_or_when_idle() {
+        let start = Instant::now();
+        let mut w = live_worker("live_apply_immediately = true\n");
+        w.last_call_activity = Some(start);
+        change_brew_host(&w, "other.example");
+        assert!(w.follow_config_at(start + Duration::from_secs(1)).is_err(), "apply immediately");
+        let mut idle = live_worker("");
+        change_brew_host(&idle, "other.example");
+        assert!(idle.follow_config_at(start).is_err(), "no call: at once");
     }
 
     #[test]

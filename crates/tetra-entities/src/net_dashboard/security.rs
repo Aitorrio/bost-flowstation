@@ -1,9 +1,10 @@
 //! Dashboard-editable air-interface security: authentication posture, subscriber keys and
 //! class 2 / class 3 encryption (EN 300 392-7).
 //!
-//! Unlike the whitelist, these settings are read by the MM and MAC layers when the stack
-//! starts, so a change is written to the TOML and takes effect on the next restart. The
-//! page therefore shows both what is *running* and what is *saved*, and offers a restart.
+//! A change is written to the TOML first; the page shows what is *running* and what is
+//! *saved* and applies it through the live reload: a security class or cipher key change is
+//! announced to the radios with D-CK CHANGE DEMAND and takes effect on one slot
+//! (`config_reload`, `AirChange`), the key source and the TEA of an encrypted cell restart.
 //!
 //! The TOML writer is surgical: it rewrites only the `authentication` /
 //! `mutual_authentication` keys inside `[security]`, and regenerates the `[security.aie]`
@@ -19,6 +20,8 @@ pub struct SecurityEdit {
     pub mutual_authentication: bool,
     pub subscribers: Vec<(u32, [u8; 16])>,
     pub aie: Option<AieEdit>,
+    /// `change_lead_secs`: how far ahead a class or key change is announced to the radios.
+    pub change_lead_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +113,7 @@ pub fn posture_json(sec: &CfgSecurity) -> serde_json::Value {
         "class": sec.aie.as_ref().map_or(1, |a| a.security_class()),
         "authentication": auth_str(sec.authentication),
         "mutual_authentication": sec.mutual_authentication,
+        "change_lead_secs": sec.change_lead_secs,
         "subscribers": sec.subscribers.iter().map(|s| serde_json::json!({
             "issi": s.issi, "k_masked": mask_key(&s.k),
         })).collect::<Vec<_>>(),
@@ -140,10 +144,12 @@ pub fn ksg_catalogue() -> serde_json::Value {
 /// Everything the Security page needs: the running posture, the saved one, whether they
 /// differ, and the algorithm catalogue.
 pub fn page_json(running: &CfgSecurity, saved: Result<CfgSecurity, String>, runtime: serde_json::Value) -> String {
+    // A class or key change being announced is not waiting for a restart: it takes effect live.
+    let announcing = !runtime.get("air_change").is_none_or(|v| v.is_null());
     let (saved_json, parse_error, restart_required) = match saved {
         Ok(s) => {
             let sj = posture_json(&s);
-            let differs = !settings_equal(&s, running);
+            let differs = !settings_equal(&s, running) && !announcing;
             (sj, serde_json::Value::Null, differs)
         }
         Err(e) => (serde_json::Value::Null, serde_json::Value::String(e), false),
@@ -179,7 +185,21 @@ pub fn runtime_json(shared: &Option<tetra_config::bluestation::SharedConfig>) ->
     }).collect() } else { vec![] };
     serde_json::json!({"class": cfg.security.aie.as_ref().map_or(1, |a| a.security_class()),
         "require_sc3": state.security_class3_required, "revision": tetra_core::SC3_REVISION,
-        "cck_id": sc3.map(|c| c.cck_id), "radios": radios})
+        "cck_id": sc3.map(|c| c.cck_id), "radios": radios,
+        "air_change": air_change_json(state.air_change.as_ref())})
+}
+
+/// A security class or key change saved at run time and not yet in effect (never a key value).
+fn air_change_json(change: Option<&tetra_config::bluestation::AirChange>) -> serde_json::Value {
+    let Some(change) = change else { return serde_json::Value::Null };
+    let on_air = crate::aie::on_air(change.target.as_ref());
+    serde_json::json!({
+        "class": on_air.as_ref().map_or(1, |a| a.0),
+        "sckn": on_air.as_ref().filter(|a| a.0 == 2).map(|a| a.1),
+        "vn": on_air.as_ref().map(|a| a.2),
+        "lead_secs": change.lead_secs,
+        "announced": change.at.is_some(),
+    })
 }
 
 pub fn validate_startup_guard(edit: &SecurityEdit, shared: &Option<tetra_config::bluestation::SharedConfig>) -> Result<(), &'static str> {
@@ -216,6 +236,14 @@ pub fn parse_edit(body: &str, current: &CfgSecurity) -> Result<SecurityEdit, Str
         .get("mutual_authentication")
         .and_then(|v| v.as_bool())
         .unwrap_or(current.mutual_authentication);
+    use tetra_config::bluestation::sec_security::{CHANGE_LEAD_SECS_MAX, CHANGE_LEAD_SECS_MIN};
+    let change_lead_secs = match json.get("change_lead_secs") {
+        None => current.change_lead_secs,
+        Some(v) => v
+            .as_u64()
+            .filter(|n| (CHANGE_LEAD_SECS_MIN..=CHANGE_LEAD_SECS_MAX).contains(n))
+            .ok_or_else(|| format!("change_lead_secs must be {CHANGE_LEAD_SECS_MIN}-{CHANGE_LEAD_SECS_MAX} seconds"))?,
+    };
 
     let mut subscribers = Vec::new();
     if let Some(arr) = json.get("subscribers").and_then(|v| v.as_array()) {
@@ -321,7 +349,7 @@ pub fn parse_edit(body: &str, current: &CfgSecurity) -> Result<SecurityEdit, Str
         if subscribers.is_empty() { return Err("SC3 requires at least one subscriber with a matching K".into()); }
     }
 
-    Ok(SecurityEdit { authentication, mutual_authentication, subscribers, aie })
+    Ok(SecurityEdit { authentication, mutual_authentication, subscribers, aie, change_lead_secs })
 }
 
 /// A fresh random key as hex, from the kernel's generator.
@@ -362,6 +390,9 @@ pub fn render_toml(original: &str, edit: &SecurityEdit) -> String {
 
     let auth_line = format!("authentication = \"{}\"", auth_str(edit.authentication));
     let mutual_line = format!("mutual_authentication = {}", edit.mutual_authentication);
+    // Written only when not the default (30 s).
+    let lead_line = (edit.change_lead_secs != tetra_config::bluestation::sec_security::CHANGE_LEAD_SECS_DEFAULT)
+        .then(|| format!("change_lead_secs = {}", edit.change_lead_secs));
 
     // The regenerated sub-tables, appended at the end of the [security] block.
     let mut tail: Vec<String> = Vec::new();
@@ -369,7 +400,7 @@ pub fn render_toml(original: &str, edit: &SecurityEdit) -> String {
         tail.extend([
             String::new(),
             format!("{AIE_COMMENT_MARK} class 1 = clear, class 2 = SCK, class 3 = DCK/CCK."),
-            format!("{AIE_COMMENT_MARK} Changes apply after station restart."),
+            format!("{AIE_COMMENT_MARK} A changed class or key is announced to the radios first and then applies live."),
             "[security.aie]".to_string(),
             format!("class = {}", if a.class3.is_some() { 3 } else if a.enabled { 2 } else { 1 }),
             format!("ksg = {}", a.ksg),
@@ -400,12 +431,16 @@ pub fn render_toml(original: &str, edit: &SecurityEdit) -> String {
     let mut security_seen = false;
     let mut wrote_auth = false;
     let mut wrote_mutual = false;
-    let close_security = |out: &mut Vec<String>, wrote_auth: bool, wrote_mutual: bool| {
+    let mut wrote_lead = false;
+    let close_security = |out: &mut Vec<String>, wrote_auth: bool, wrote_mutual: bool, wrote_lead: bool| {
         if !wrote_auth {
             out.push(auth_line.clone());
         }
         if !wrote_mutual {
             out.push(mutual_line.clone());
+        }
+        if let Some(l) = lead_line.as_ref().filter(|_| !wrote_lead) {
+            out.push(l.clone());
         }
         // Trim blank lines so the tail sits snugly, then add it.
         while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
@@ -418,7 +453,7 @@ pub fn render_toml(original: &str, edit: &SecurityEdit) -> String {
         let t = line.trim_start();
         if is_header(t) {
             if in_security {
-                close_security(&mut out, wrote_auth, wrote_mutual);
+                close_security(&mut out, wrote_auth, wrote_mutual, wrote_lead);
             }
             in_security = header_name(t) == "security";
             if in_security {
@@ -439,18 +474,25 @@ pub fn render_toml(original: &str, edit: &SecurityEdit) -> String {
                 wrote_mutual = true;
                 continue;
             }
+            if key == "change_lead_secs" {
+                if let Some(l) = &lead_line {
+                    out.push(l.clone());
+                }
+                wrote_lead = true;
+                continue;
+            }
         }
         out.push(line);
     }
     if in_security {
-        close_security(&mut out, wrote_auth, wrote_mutual);
+        close_security(&mut out, wrote_auth, wrote_mutual, wrote_lead);
     }
     if !security_seen {
         if !out.last().map(|l| l.is_empty()).unwrap_or(true) {
             out.push(String::new());
         }
         out.push("[security]".to_string());
-        close_security(&mut out, false, false);
+        close_security(&mut out, false, false, false);
     }
     let mut text = out.join("\n");
     if !text.ends_with('\n') {
@@ -489,7 +531,18 @@ mod tests {
             mutual_authentication: true,
             subscribers: vec![(2358245, [0x11; 16])],
             aie: Some(AieEdit { class3: None, enabled: true, ksg: 3, sck: [0x22; 10], sckn: 3, sck_vn: 4, clear_groups: vec![900] }),
+            change_lead_secs: 30,
         }
+    }
+
+    #[test]
+    fn the_change_lead_time_is_written_only_when_not_the_default() {
+        let out = render_toml(BASE, &SecurityEdit { change_lead_secs: 90, ..edit() });
+        assert!(out.contains("change_lead_secs = 90"));
+        assert_eq!(tetra_config::bluestation::from_toml_str(&out).unwrap().security.change_lead_secs, 90);
+        let back = render_toml(&out, &edit());
+        assert!(!back.contains("change_lead_secs"), "{back}");
+        assert!(parse_edit(r#"{"change_lead_secs": 4}"#, &tetra_config::bluestation::from_toml_str(BASE).unwrap().security).is_err());
     }
 
     #[test]

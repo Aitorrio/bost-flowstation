@@ -588,6 +588,13 @@ pub fn write_visual_config(config_path: &str, body: &JsonValue) -> Result<(), St
             if brew_toml.get("reregister_minutes").and_then(|v| v.as_integer()) == Some(0) {
                 brew_toml.remove("reregister_minutes");
             }
+            // Live-change settings at their defaults are not written.
+            if brew_toml.get("live_wait_secs").and_then(|v| v.as_integer()) == Some(60) {
+                brew_toml.remove("live_wait_secs");
+            }
+            if brew_toml.get("live_apply_immediately").and_then(|v| v.as_bool()) == Some(false) {
+                brew_toml.remove("live_apply_immediately");
+            }
             table.insert("brew".into(), TomlValue::Table(brew_toml));
         } else {
             table.remove("brew");
@@ -1512,6 +1519,29 @@ password = "secret"
             !txt.contains("tx_gain_pad"),
             "apply must drop omitted pad: {txt}"
         );
+    }
+
+    #[test]
+    fn write_visual_writes_the_live_change_settings_only_when_not_default() {
+        let dir = tempfile_dir();
+        let cfg = dir.join("config.toml");
+        fs::write(&cfg, minimal_toml()).unwrap();
+        let mut visual = serde_json::json!({
+            "net_info": { "mcc": 204, "mnc": 1337 },
+            "brew": { "enabled": true, "host": "core.example", "port": 3003, "tls": true, "username": 12345, "password": "••••••••",
+                      "reconnect_delay_secs": 15, "live_wait_secs": 60, "live_apply_immediately": false }
+        });
+        write_visual_config(cfg.to_str().unwrap(), &visual).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(!txt.contains("live_wait_secs") && !txt.contains("live_apply_immediately"), "{txt}");
+        visual["brew"]["live_wait_secs"] = serde_json::json!(120);
+        visual["brew"]["live_apply_immediately"] = serde_json::json!(true);
+        write_visual_config(cfg.to_str().unwrap(), &visual).unwrap();
+        let txt = fs::read_to_string(&cfg).unwrap();
+        assert!(txt.contains("live_wait_secs = 120") && txt.contains("live_apply_immediately = true"), "{txt}");
+        let parsed = tetra_config::bluestation::parsing::from_file(cfg.to_str().unwrap()).unwrap();
+        let brew = parsed.brew.unwrap();
+        assert_eq!((brew.live_wait_secs, brew.live_apply_immediately), (120, true));
     }
 
     #[test]

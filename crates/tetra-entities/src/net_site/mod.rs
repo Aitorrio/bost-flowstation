@@ -29,7 +29,7 @@ mod local;
 mod relay;
 mod switch;
 
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use tetra_config::bluestation::SharedConfig;
 use tetra_core::CellId;
@@ -37,17 +37,30 @@ use tetra_core::CellId;
 pub use directory::{SharedDirectory, SiteDirectory};
 pub use local::LocalNetwork;
 pub use relay::SiteRelay;
-pub use switch::{CellLink, RelayPorts, SitePorts, SiteSwitch, site_links};
+pub use switch::{CellLink, RelayPorts, SiteHandle, SitePorts, SiteSwitch, site_links};
 
-static EXTRA_CELLS: OnceLock<Vec<(CellId, SharedConfig)>> = OnceLock::new();
+static EXTRA_CELLS: RwLock<Vec<(CellId, SharedConfig)>> = RwLock::new(Vec::new());
 
-/// Record the running additional cells' configs (set once at startup) so the dashboard can show
+/// Record the running additional cells' configs (set at startup) so the dashboard can show
 /// every cell's registrations and settings.
 pub fn register_extra_cells(cells: Vec<(CellId, SharedConfig)>) {
-    let _ = EXTRA_CELLS.set(cells);
+    *EXTRA_CELLS.write().unwrap_or_else(|e| e.into_inner()) = cells;
+}
+
+/// A cell a live reload started.
+pub fn add_extra_cell(id: CellId, cfg: SharedConfig) {
+    let mut cells = EXTRA_CELLS.write().unwrap_or_else(|e| e.into_inner());
+    cells.retain(|(c, _)| *c != id);
+    cells.push((id, cfg));
+    cells.sort_by_key(|(c, _)| c.0);
+}
+
+/// A cell a live reload removed.
+pub fn remove_extra_cell(id: CellId) {
+    EXTRA_CELLS.write().unwrap_or_else(|e| e.into_inner()).retain(|(c, _)| *c != id);
 }
 
 /// The running additional cells (empty for a single-cell station).
-pub fn extra_cells() -> &'static [(CellId, SharedConfig)] {
-    EXTRA_CELLS.get().map(|v| v.as_slice()).unwrap_or(&[])
+pub fn extra_cells() -> Vec<(CellId, SharedConfig)> {
+    EXTRA_CELLS.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
