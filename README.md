@@ -40,6 +40,7 @@ Based on FlowStation by **Razvan Zeces / YO6RZV** (itself built on [tetra-bluest
 | **Group access from the Brew server** *(new in v0.5.6)* | Allow / block list and RX only per group, set on the brew-server and enforced on air: refused attachment, no floor for listeners, emergency always passes |
 | **Multi Network** *(new in v0.5.6)* | One network per cell, migration (ETSI 16.4.1.1 b) and radios of other networks through the Brew server; the cell a radio uses decides the network it talks in (e.g. own Brew network or TetraPack / Brandmeister); switch on the **Infrastructure** page (off removes the extra networks again; with several networks the Brew profile select shows "Multi Network active") |
 | **Fleet Control** *(new in v0.5.11)* | Manage many stations from the Brew server: software and state at a glance, remote and live update, maintenance banner and restart, read and change the config, graphs and alarms; each station opts in |
+| **SDR On/Off switch** *(unreleased)* | Take an additional SDR off the air and back on from the Cells page, live, with its settings kept in `config.toml` |
 | **Ambience Listening (SS-AL)** *(new in v0.5.4)* | Dispatcher-invoked receive-only call: a supporting radio connects and keys its mic on its own (indicated on the radio, not covert) |
 | **Request for Location (LIP)** *(new in v0.5.4)* | Dispatcher asks a radio for its position (once or polled); the LIP report reaches the console that requested it |
 
@@ -254,7 +255,7 @@ The multi-cell engine for this (`SdrHub`, shared SDR opening, per-cell security 
 
 ### Setting it up
 
-- **Dashboard:** the **Cells** page (menu *Cells*, since v0.6.7) shows every cell grouped by the SDR that carries it and adds, edits and removes cells: SDR and mode, carriers, colour code, location area (empty = the primary's), network, encryption and neighbours; saving checks the whole config and restarts the station. The **Cells** card on the **Infrastructure** page lists the cells with a link to it.
+- **Dashboard:** the **Cells** page (menu *Cells*, since v0.6.7) shows every cell grouped by the SDR that carries it and adds, edits and removes cells: SDR and mode, carriers, colour code, location area (empty = the primary's), network, encryption and neighbours; saving checks the whole config and applies it live where it can (a cell on an SDR of its own that serves the primary's network starts or stops without a restart), otherwise restarts the station. The **Cells** card on the **Infrastructure** page lists the cells with a link to it.
 - **By hand:** add a `[[cells]]` entry per extra SDR. It inherits everything from `[cell_info]` except what you override:
 
   ```toml
@@ -275,6 +276,14 @@ The multi-cell engine for this (`SdrHub`, shared SDR opening, per-cell security 
   ```
 
   Rules: up to 8 cells (ids 1-7 plus the primary), every carrier unique, same `freq_band` and `custom_duplex_spacing`, and every cell (the primary too) names its own SDR `device`. See the commented example at the end of [`example_config/config.toml`](example_config/config.toml).
+
+### Switching an SDR off and on *(unreleased)*
+
+Every SDR that does not carry the primary cell has an **On/Off** switch on the Cells page. **Off** takes its cell(s) off the air and closes only that SDR; the station, its other cells, the dashboard and the network links keep running. **On** opens only that SDR again. No restart, no driver reload.
+
+- Off writes `enabled = false` into the cell's `[[cells]]` entry; every other setting stays, so the state survives a restart. A config without the key behaves as before (on).
+- The cell is retired like a cell removed live: its calls are released, radios reselect to the remaining cells (TS 100 392-2 clause 18.3.4.7) and register or restore there. A switched-off cell still counts for the site link, so switching it never changes how the station is wired.
+- An SDR with several cells switches as a whole. Switched-off SDRs are listed in their own "Switched off" section. When a change cannot apply live (e.g. the Asterisk bridge serves several cells), the page asks before restarting. API: `POST /api/cells/enable`.
 
 ### What linking gives you
 
