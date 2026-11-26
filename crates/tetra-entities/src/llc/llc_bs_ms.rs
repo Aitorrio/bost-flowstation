@@ -182,7 +182,10 @@ impl Llc {
     fn process_incoming_ack(&mut self, addr: TetraAddress, carrier_num: u16, nr: u8) {
         // Get the expected ACK entry
         let Some(expected_ack) = self.take_expected_ack_for_ssi(addr.ssi, carrier_num) else {
-            tracing::warn!("received unexpected ACK for SSI {} carrier {} N(R) {}", addr.ssi, carrier_num, nr);
+            // Nothing waits for an acknowledgement on this link: a repeated or late BL-ACK, or the
+            // N(R) of a BL-ADATA. Clause 22.3.2.3 j) treats that as normal (deliver any contained
+            // TL-SDU, nothing else), so it is no warning.
+            tracing::debug!("received ACK for SSI {} carrier {} N(R) {} with no TL-SDU awaiting acknowledgement", addr.ssi, carrier_num, nr);
             return;
         };
 
