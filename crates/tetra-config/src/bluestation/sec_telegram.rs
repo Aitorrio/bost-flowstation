@@ -36,6 +36,10 @@ pub struct CfgTelegram {
     pub alert_critical_logs: bool,
     /// Alert when the overall station-health level changes (Ok/Degraded/Critical transitions).
     pub alert_health: bool,
+    /// "System IP info": once the station is online after a start, and whenever the host's
+    /// addresses change, send its host name, LAN address and interface, public (WAN) address and
+    /// Wi-Fi network. Off by default: the WAN address is only looked up while this is on.
+    pub alert_system_ip: bool,
 }
 
 impl Default for CfgTelegram {
@@ -51,6 +55,7 @@ impl Default for CfgTelegram {
             alert_backhaul: true,
             alert_critical_logs: true,
             alert_health: true,
+            alert_system_ip: false,
         }
     }
 }
@@ -86,6 +91,8 @@ pub struct CfgTelegramDto {
     pub alert_critical_logs: bool,
     #[serde(default = "default_true")]
     pub alert_health: bool,
+    #[serde(default)]
+    pub alert_system_ip: bool,
 
     #[serde(flatten)]
     pub extra: std::collections::HashMap<String, toml::Value>,
@@ -107,5 +114,6 @@ pub fn apply_telegram_patch(dto: CfgTelegramDto) -> CfgTelegram {
         alert_backhaul: dto.alert_backhaul,
         alert_critical_logs: dto.alert_critical_logs,
         alert_health: dto.alert_health,
+        alert_system_ip: dto.alert_system_ip,
     }
 }

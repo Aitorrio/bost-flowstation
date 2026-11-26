@@ -3,7 +3,8 @@
 //! Sends professionally-formatted notifications to the BTS owner's Telegram bot when notable
 //! things happen on the station: a radio attaches or detaches, a radio is dropped for not
 //! answering the periodic registration (T351), the Brew/TetraPack backhaul goes up or down, a
-//! radio beacons its position over LIP/APRS, or the stack logs a WARN/ERROR.
+//! radio beacons its position over LIP/APRS, the stack logs a WARN/ERROR, or the host comes
+//! online or changes its addresses ("System IP info", see [`crate::system_ip`]).
 //!
 //! Design:
 //! - The owner configures everything from the dashboard "Telegram Alerts" menu (bot token,
@@ -37,6 +38,8 @@ pub enum TelegramAlertMsg {
     Meshcom { prefix: String, src: String, text: String },
     /// A GeoAlarm geofence event forwarded through the existing Telegram alert delivery path.
     Geoalarm { prefix: String, source: String, text: String },
+    /// "System IP info": the host's addresses after a start (`changed` false) or after a change.
+    SystemIp { info: crate::system_ip::SystemIpInfo, changed: bool },
 }
 
 /// Cloneable, push-only handle. Cloned into the telemetry-tee and dashboard-log threads.
@@ -75,6 +78,12 @@ impl TelegramAlertSink {
     #[inline]
     pub fn send_geoalarm(&self, prefix: String, source: String, text: String) {
         let _ = self.tx.send(TelegramAlertMsg::Geoalarm { prefix, source, text });
+    }
+
+    /// Forward the host's addresses ("System IP info") to the alerter.
+    #[inline]
+    pub fn send_system_ip(&self, info: crate::system_ip::SystemIpInfo, changed: bool) {
+        let _ = self.tx.send(TelegramAlertMsg::SystemIp { info, changed });
     }
 }
 

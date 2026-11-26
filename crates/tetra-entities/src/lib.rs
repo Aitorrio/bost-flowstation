@@ -40,6 +40,7 @@ pub mod host_network;
 pub mod rf_status;
 pub mod service_control;
 pub mod sys_telemetry;
+pub mod system_ip;
 pub mod tpg2200;
 pub mod wifi;
 pub mod wireguard;

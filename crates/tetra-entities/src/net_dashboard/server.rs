@@ -7486,7 +7486,7 @@ fn serve_telegram_get(stream: PrefixedConn, shared_config: &Option<tetra_config:
     let token_set = !tg.bot_token.as_ref().trim().is_empty();
     let chat_ids = tg.chat_ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
     let body = format!(
-        "{{\"enabled\":{},\"bot_token_masked\":\"{}\",\"token_set\":{},\"chat_ids\":[{}],\"alert_connect\":{},\"alert_disconnect\":{},\"alert_t351\":{},\"alert_lip\":{},\"alert_backhaul\":{},\"alert_critical_logs\":{}}}",
+        "{{\"enabled\":{},\"bot_token_masked\":\"{}\",\"token_set\":{},\"chat_ids\":[{}],\"alert_connect\":{},\"alert_disconnect\":{},\"alert_t351\":{},\"alert_lip\":{},\"alert_backhaul\":{},\"alert_critical_logs\":{},\"alert_system_ip\":{}}}",
         tg.enabled,
         crate::net_dashboard::telegram::json_escape(&masked),
         token_set,
@@ -7497,6 +7497,7 @@ fn serve_telegram_get(stream: PrefixedConn, shared_config: &Option<tetra_config:
         tg.alert_lip,
         tg.alert_backhaul,
         tg.alert_critical_logs,
+        tg.alert_system_ip,
     );
     http_json_response(stream, 200, &body);
 }
@@ -7541,6 +7542,7 @@ fn serve_telegram_post(stream: PrefixedConn, shared_config: &Option<tetra_config
         alert_lip: as_bool("alert_lip", cur.alert_lip),
         alert_backhaul: as_bool("alert_backhaul", cur.alert_backhaul),
         alert_critical_logs: as_bool("alert_critical_logs", cur.alert_critical_logs),
+        alert_system_ip: as_bool("alert_system_ip", cur.alert_system_ip),
     };
 
     {

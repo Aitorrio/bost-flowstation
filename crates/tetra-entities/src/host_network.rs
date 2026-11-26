@@ -205,7 +205,7 @@ fn iface_is_lan(name: &str) -> bool {
 
 /// Fast IPv4 enumeration via `getifaddrs` — no subprocesses.
 /// Returns `(ifname, ipv4)` pairs, skipping loopback / unspecified.
-fn list_ipv4_ifaces_fast() -> Vec<(String, String)> {
+pub(crate) fn list_ipv4_ifaces_fast() -> Vec<(String, String)> {
     #[cfg(unix)]
     {
         use std::ffi::CStr;

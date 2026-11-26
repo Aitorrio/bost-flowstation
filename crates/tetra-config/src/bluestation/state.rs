@@ -356,6 +356,7 @@ pub struct TelegramRuntimeOverride {
     pub alert_lip: bool,
     pub alert_backhaul: bool,
     pub alert_critical_logs: bool,
+    pub alert_system_ip: bool,
 }
 
 /// Runtime override for DAPNET receive/send/forwarding settings, edited from the dashboard.

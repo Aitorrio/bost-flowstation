@@ -114,6 +114,7 @@ impl TelegramAlerter {
                 Ok(TelegramAlertMsg::Dapnet { prefix, callsign, text }) => self.handle_dapnet(prefix, callsign, text),
                 Ok(TelegramAlertMsg::Meshcom { prefix, src, text }) => self.handle_dapnet(prefix, src, text),
                 Ok(TelegramAlertMsg::Geoalarm { prefix, source, text }) => self.handle_dapnet(prefix, source, text),
+                Ok(TelegramAlertMsg::SystemIp { info, changed }) => self.handle_system_ip(&info, changed),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
@@ -226,6 +227,14 @@ impl TelegramAlerter {
         let tg = self.cfg.effective_telegram();
         if tg.is_deliverable() {
             let html = format::dapnet(&self.station, &prefix, &callsign, &text);
+            self.send_all(&tg, &html);
+        }
+    }
+
+    fn handle_system_ip(&self, info: &crate::system_ip::SystemIpInfo, changed: bool) {
+        let tg = self.cfg.effective_telegram();
+        if tg.alert_system_ip && tg.is_deliverable() {
+            let html = format::system_ip(&self.station, info, changed);
             self.send_all(&tg, &html);
         }
     }
