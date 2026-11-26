@@ -1044,6 +1044,7 @@ impl SharedConfig {
                 alert_lip: o.alert_lip,
                 alert_backhaul: o.alert_backhaul,
                 alert_critical_logs: o.alert_critical_logs,
+                alert_system_ip: o.alert_system_ip,
                 // Health alerts aren't part of the dashboard live-edit override yet — take the
                 // base config value so the field is always populated.
                 alert_health: base.alert_health,

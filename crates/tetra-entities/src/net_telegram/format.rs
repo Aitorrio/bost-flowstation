@@ -186,6 +186,31 @@ pub fn dapnet(station: &StationInfo, prefix: &str, callsign: &str, text: &str) -
     )
 }
 
+/// "System IP info": the host's addresses, after a start (`changed` false) or when one of them
+/// changed (`changed` true). Missing values read "n/a" (e.g. no WAN lookup answered, no Wi-Fi).
+pub fn system_ip(station: &StationInfo, info: &crate::system_ip::SystemIpInfo, changed: bool) -> String {
+    let host = truncate_chars(info.hostname.trim(), 64);
+    let host = if host.is_empty() { "FlowStation".to_string() } else { host };
+    let (emoji, title) = if changed {
+        ("🔄", format!("{host}: network changed"))
+    } else {
+        ("🌐", format!("{host} is online"))
+    };
+    let code = |v: &Option<String>| match v.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        Some(v) => format!("<code>{}</code>", escape_html(&truncate_chars(v, 64))),
+        None => "n/a".to_string(),
+    };
+    let lan = match info.iface.as_deref().filter(|i| !i.is_empty()) {
+        Some(i) if info.lan_ip.is_some() => format!("{} ({})", code(&info.lan_ip), escape_html(&truncate_chars(i, 32))),
+        _ => code(&info.lan_ip),
+    };
+    let mut lines = vec![format!("🏠 LAN: {lan}"), format!("🌍 WAN: {}", code(&info.wan_ip))];
+    if info.ssid.is_some() {
+        lines.push(format!("📶 Wi-Fi: {}", code(&info.ssid)));
+    }
+    frame(emoji, &title, &lines, station)
+}
+
 /// Station health changed level. Lists the domains that are not Ok, plus the last action taken.
 pub fn health(station: &StationInfo, snap: &crate::health::HealthSnapshot) -> String {
     use crate::health::HealthLevel;
@@ -265,6 +290,39 @@ mod tests {
         assert!(m.contains("<b>DAPNET</b>"));
         assert!(m.contains("<code>DL1ABC</code>"));
         assert!(m.contains("Test &lt;msg&gt;"));
+    }
+
+    #[test]
+    fn system_ip_lists_host_lan_wan_and_wifi() {
+        let info = crate::system_ip::SystemIpInfo {
+            hostname: "flowstationpi".to_string(),
+            lan_ip: Some("192.168.1.20".to_string()),
+            iface: Some("wlan0".to_string()),
+            wan_ip: Some("203.0.113.7".to_string()),
+            ssid: Some("Home <5G>".to_string()),
+        };
+        let m = system_ip(&station(), &info, false);
+        assert!(m.starts_with("🌐 <b>flowstationpi is online</b>"));
+        assert!(m.contains("LAN: <code>192.168.1.20</code> (wlan0)"));
+        assert!(m.contains("WAN: <code>203.0.113.7</code>"));
+        assert!(m.contains("Wi-Fi: <code>Home &lt;5G&gt;</code>"));
+        assert!(m.contains("MCC 901"));
+        let changed = system_ip(&station(), &info, true);
+        assert!(changed.starts_with("🔄 <b>flowstationpi: network changed</b>"));
+    }
+
+    #[test]
+    fn system_ip_without_wan_or_wifi() {
+        let info = crate::system_ip::SystemIpInfo {
+            hostname: "bs1".to_string(),
+            lan_ip: Some("10.0.0.5".to_string()),
+            iface: Some("eth0".to_string()),
+            wan_ip: None,
+            ssid: None,
+        };
+        let m = system_ip(&station(), &info, false);
+        assert!(m.contains("WAN: n/a"));
+        assert!(!m.contains("Wi-Fi"));
     }
 
     #[test]

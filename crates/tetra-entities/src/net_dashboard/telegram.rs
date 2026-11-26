@@ -63,7 +63,8 @@ pub fn write_telegram_to_toml(config_path: &str, ov: &TelegramRuntimeOverride) -
          alert_t351 = {}\n\
          alert_lip = {}\n\
          alert_backhaul = {}\n\
-         alert_critical_logs = {}",
+         alert_critical_logs = {}\n\
+         alert_system_ip = {}",
         ov.enabled,
         token_escaped,
         chat_ids,
@@ -73,6 +74,7 @@ pub fn write_telegram_to_toml(config_path: &str, ov: &TelegramRuntimeOverride) -
         ov.alert_lip,
         ov.alert_backhaul,
         ov.alert_critical_logs,
+        ov.alert_system_ip,
     );
 
     let lines: Vec<&str> = original.lines().collect();
@@ -133,6 +135,7 @@ mod tests {
             alert_lip: true,
             alert_backhaul: false,
             alert_critical_logs: true,
+            alert_system_ip: true,
         }
     }
 
@@ -201,6 +204,7 @@ mod tests {
         assert!(tg.enabled);
         assert_eq!(tg.chat_ids, vec![987654321, -1001234567890]);
         assert!(!tg.alert_disconnect);
+        assert!(tg.alert_system_ip);
         let _ = std::fs::remove_file(&path);
     }
 }

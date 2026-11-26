@@ -1079,6 +1079,8 @@ fn main() {
             None
         };
         dapnet_telegram_sink = alert_sink.clone();
+        // "System IP info": host addresses for Telegram (idles while the category is off).
+        tetra_entities::system_ip::spawn_monitor(cfg.clone(), alert_sink.clone());
         // GeoAlarm worker — fed TETRA LIP positions from the telemetry fan-out below.
         geoalarm_sink = spawn_geoalarm_worker(cfg.clone(), dapnet_cmd_tx.clone(), alert_sink.clone(), snom_notify_sink.clone());
 
