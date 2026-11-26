@@ -390,7 +390,9 @@ impl CcBsSubentity {
                 call.origin = CallOrigin::Network { brew_uuid };
             }
             CallOrigin::Network { brew_uuid: old_uuid } if *old_uuid != brew_uuid => {
-                tracing::warn!("CMCE FSM: network call start changed brew_uuid call_id={}", call_id);
+                // Every over of a network call has its own Brew UUID: a new over on a circuit kept
+                // through hangtime is the normal case, not a fault.
+                tracing::debug!("CMCE FSM: next network over on call_id={} (new brew_uuid)", call_id);
                 call.origin = CallOrigin::Network { brew_uuid };
             }
             CallOrigin::Network { .. } => {}
