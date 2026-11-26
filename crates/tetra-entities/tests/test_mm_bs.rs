@@ -1401,6 +1401,32 @@ fn subscriber_updates(msgs: &[SapMsg]) -> Vec<(BrewSubscriberAction, Vec<u32>)> 
         .collect()
 }
 
+/// Station on a Brew server, every SSI routed to it.
+fn brew_config() -> tetra_config::bluestation::StackConfig {
+    let mut config = ComponentTest::get_default_test_config(StackMode::Bs);
+    config.cell.local_ssi_ranges = tetra_core::ranges::SortedDisjointSsiRanges::from_vec_ssirange(vec![]);
+    config.brew = Some(tetra_config::bluestation::CfgBrew {
+        host: "brew.example".into(),
+        port: 3000,
+        tls: false,
+        username: None,
+        password: None,
+        reconnect_delay: std::time::Duration::from_secs(1),
+        jitter_initial_latency_frames: 0,
+        feature_sds_enabled: true,
+        whitelisted_ssis: None,
+        feature_rssi_export: false,
+        feature_lip_forward: false,
+        lip_forward_issi: None,
+        pbx_gateway_issis: None,
+        backhaul_hysteresis_secs: 0,
+        reregister_minutes: 0,
+        live_wait_secs: 60,
+        live_apply_immediately: false,
+    });
+    config
+}
+
 fn mm_with_cmce_sink() -> ComponentTest {
     let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime::default()));
     test.populate_entities(vec![TetraEntity::Mm], vec![TetraEntity::Mle, TetraEntity::Cmce]);
@@ -1448,6 +1474,92 @@ fn test_location_update_detach_all_keeps_reattached_group_affiliated() {
         "re-attached group must not be deaffiliated, got {updates:?}"
     );
     assert!(test.config.state_read().subscribers.attached_groups_of(ISSI).contains(&9));
+}
+
+/// A group the radio attaches again in its group report is no change for the network, but CMCE
+/// must hear of it: it repeats the late-entry D-SETUP of a running call on that report
+/// (TS 100 392-2 clause 16.4.1.1 a), field test 2026-11-26: without it the radio stayed out of
+/// the call until the periodic D-SETUP, 5 s later).
+#[test]
+fn test_reattached_group_is_reported_to_cmce_only() {
+    debug::setup_logging_verbose();
+    const ISSI: u32 = 2320972;
+    let mut test = ComponentTest::from_config(brew_config(), Some(TdmaTime::default()));
+    test.populate_entities(vec![TetraEntity::Mm], vec![TetraEntity::Mle, TetraEntity::Cmce, TetraEntity::Brew]);
+    submit_location_update_with_groups(&mut test, ISSI, LocationUpdateType::DemandLocationUpdating, true, &[91]);
+    test.dump_sinks();
+
+    submit_attach_detach_all(&mut test, ISSI, &[91]);
+    let msgs = test.dump_sinks();
+    assert_eq!(
+        subscriber_updates(&msgs),
+        vec![(BrewSubscriberAction::Affiliate, vec![91])],
+        "the re-attached group goes to CMCE as an affiliation, nothing else"
+    );
+    assert!(
+        !msgs.iter().any(|m| m.dest == TetraEntity::Brew && matches!(m.msg, SapMsgInner::MmSubscriberUpdate(_))),
+        "a re-attach is no change for the Brew server"
+    );
+}
+
+/// The whole chain of a listener's station change during a group call: the station registers the
+/// radio (answer to its D-LOCATION UPDATE COMMAND) and the call starts on the cell; the radio then
+/// reports its group again, and the late-entry D-SETUP must go out at once on that report.
+#[test]
+fn test_group_report_after_registration_repeats_late_entry_d_setup() {
+    use tetra_saps::control::call_control::CallControl;
+    debug::setup_logging_verbose();
+    const ISSI: u32 = 2320972;
+    const GSSI: u32 = 91;
+    let count_d_setups = |msgs: &[SapMsg]| {
+        msgs.iter()
+            .filter(|m| {
+                m.dest == TetraEntity::Mle
+                    && matches!(&m.msg, SapMsgInner::LcmcMleUnitdataReq(prim)
+                        if CmcePduTypeDl::try_from(prim.sdu.peek_bits(5).unwrap_or(u64::MAX)).ok() == Some(CmcePduTypeDl::DSetup))
+            })
+            .count()
+    };
+
+    let mut test = ComponentTest::from_config(brew_config(), Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(
+        vec![TetraEntity::Mm, TetraEntity::Cmce],
+        vec![TetraEntity::Mle, TetraEntity::Umac, TetraEntity::Brew],
+    );
+    submit_location_update_with_groups(&mut test, ISSI, LocationUpdateType::DemandLocationUpdating, true, &[GSSI]);
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Brew,
+        dest: TetraEntity::Cmce,
+        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallStart {
+            brew_uuid: uuid::Uuid::parse_str("653a495d-a1c7-4b6e-ad24-698c9f8b6170").unwrap(),
+            source_issi: 2310161,
+            dest_gssi: GSSI,
+            priority: 1,
+        }),
+    });
+    test.run_stack(Some(2));
+    let mut started = test.dump_sinks();
+    assert!(count_d_setups(&started) > 0, "the call starts on the cell");
+    for m in started.iter_mut() {
+        if let SapMsgInner::LcmcMleUnitdataReq(prim) = &mut m.msg {
+            if let Some(r) = prim.tx_reporter.take() {
+                r.mark_transmitted();
+            }
+        }
+    }
+
+    // The setup repeats of the call start are out; nothing more comes by itself for now.
+    test.run_stack(Some(8));
+    test.dump_sinks();
+    test.run_stack(Some(4));
+    assert_eq!(count_d_setups(&test.dump_sinks()), 0, "no D-SETUP without a reason");
+
+    submit_attach_detach_all(&mut test, ISSI, &[GSSI]);
+    assert!(
+        count_d_setups(&test.dump_sinks()) > 0,
+        "the group report must repeat the late-entry D-SETUP at once"
+    );
 }
 
 /// A clean radio power-off need not wait for either presence or periodic timers.
