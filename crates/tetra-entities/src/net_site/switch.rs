@@ -2203,6 +2203,7 @@ main_carrier = 1525
             carrier_num,
             ts: 2,
             data: vec![9; 4],
+            rssi_dbfs: f32::NEG_INFINITY,
         })
     }
 

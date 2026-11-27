@@ -63,6 +63,9 @@ pub struct UmacBs {
     /// Timestamp of last received UL voice frame per carrier/timeslot.
     /// Used to detect UL inactivity when a radio disappears mid-transmission.
     last_ul_voice: HashMap<(u16, u8), TdmaTime>,
+    /// Level of the radio talking on a traffic timeslot, summed up to the next report:
+    /// (ISSI, sum in dBFS, frames). See `note_talker_rssi`.
+    talker_rssi: HashMap<(u16, u8), (u32, f64, u32)>,
     /// After FloorReleased (e.g. network hard-preempt), report UL presence to CMCE until
     /// RemoteFloorGranted / FloorGranted / CallEnded clears the watch.
     hangtime_ul_watch: HashMap<(u16, u8), HangtimeUlWatch>,
@@ -94,6 +97,10 @@ struct HangtimeUlWatch {
 
 /// Slots without UL voice after seen voice before declaring quiet (~400 ms).
 const HANGTIME_UL_QUIET_TS: i32 = 28;
+
+/// Speech frames averaged into one level report of the talking radio: 17 of the 18 frames of a
+/// multiframe carry speech, so this is one report a second (1.02 s).
+const TALKER_RSSI_FRAMES: u32 = 17;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PendingCircuitClose {
@@ -145,6 +152,7 @@ impl UmacBs {
             cipher,
             next_air: None,
             last_ul_voice: HashMap::new(),
+            talker_rssi: HashMap::new(),
             hangtime_ul_watch: HashMap::new(),
             ul_signal_owner: HashMap::new(),
             pending_circuit_closes: HashMap::new(),
@@ -2083,6 +2091,38 @@ impl UmacBs {
         return;
     }
 
+    /// A speech frame of the radio talking on `ts` decoded at `rssi_dbfs`. The level a radio is
+    /// received at was reported to MM only from its random access, that is at the PTT press;
+    /// while it talks there is none. The frames of about one second (`TALKER_RSSI_FRAMES`) are
+    /// averaged and reported like a random access reading.
+    fn note_talker_rssi(&mut self, queue: &mut MessageQueue, carrier_num: u16, ts: u8, rssi_dbfs: f32) {
+        let key = (carrier_num, ts);
+        let Some(issi) = self.scheduler_for(carrier_num).tch_speaker(ts) else {
+            self.talker_rssi.remove(&key);
+            return;
+        };
+        if !rssi_dbfs.is_finite() {
+            return;
+        }
+        let acc = self.talker_rssi.entry(key).or_insert((issi, 0.0, 0));
+        if acc.0 != issi {
+            *acc = (issi, 0.0, 0);
+        }
+        acc.1 += rssi_dbfs as f64;
+        acc.2 += 1;
+        if acc.2 < TALKER_RSSI_FRAMES {
+            return;
+        }
+        let mean = (acc.1 / acc.2 as f64) as f32;
+        self.talker_rssi.remove(&key);
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Umac,
+            dest: TetraEntity::Mm,
+            msg: SapMsgInner::MsRssiUpdate { issi, rssi_dbfs: mean },
+        });
+    }
+
     fn rx_tmd_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
         tracing::trace!("rx_tmd_prim");
 
@@ -2112,6 +2152,7 @@ impl UmacBs {
             SapMsgInner::TmdCircuitDataInd(prim) => {
                 let carrier_num = prim.carrier_num;
                 let ts = prim.ts;
+                self.note_talker_rssi(queue, carrier_num, ts, prim.rssi_dbfs);
                 let mut data = prim.data;
 
                 if self.scheduler_for(carrier_num).tch_is_encrypted(ts)
@@ -2176,6 +2217,7 @@ impl UmacBs {
                                 carrier_num,
                                 ts,
                                 data: data.clone(),
+                                rssi_dbfs: f32::NEG_INFINITY,
                             }),
                         };
                         queue.push_back(msg);
@@ -2198,6 +2240,7 @@ impl UmacBs {
                                 carrier_num,
                                 ts,
                                 data: data.clone(),
+                                rssi_dbfs: f32::NEG_INFINITY,
                             }),
                         };
                         queue.push_back(msg);

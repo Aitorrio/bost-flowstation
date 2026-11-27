@@ -2310,6 +2310,7 @@ fn sim_individual_calls_follow_their_radios_to_another_station() {
                     carrier_num: carrier,
                     ts,
                     data: vec![0u8; 35],
+                    rssi_dbfs: f32::NEG_INFINITY,
                 }),
             },
         );
@@ -2346,6 +2347,7 @@ fn uplink_voice(carrier_num: u16, ts: u8) -> SapMsg {
             carrier_num,
             ts,
             data: vec![0u8; 35],
+            rssi_dbfs: f32::NEG_INFINITY,
         }),
     }
 }
@@ -2640,6 +2642,7 @@ fn individual_calls_follow_their_radios_between_cells(cell1_la: u16) {
                     carrier_num: carrier,
                     ts,
                     data: vec![0u8; 35],
+                    rssi_dbfs: f32::NEG_INFINITY,
                 }),
             },
         );
@@ -2996,6 +2999,7 @@ fn sim_multi_cell_station_roams_with_other_stations() {
                     carrier_num: SIBLING_CARRIER,
                     ts,
                     data: vec![0u8; 35],
+                    rssi_dbfs: f32::NEG_INFINITY,
                 }),
             },
         );
