@@ -807,7 +807,9 @@ impl BrewEntity {
     }
 
     /// Handle RSSI update from MM. Forwards to Brew server if feature_rssi_export is enabled,
-    /// applying rate limiting (one update per MS every 5 seconds) to avoid flooding the server.
+    /// applying rate limiting (one update per MS every 2 seconds) to avoid flooding the server.
+    /// A talking radio is measured once a second (UMAC `note_talker_rssi`), so a call's first
+    /// 10 s, which the server averages for its call log, carry about five readings.
     fn handle_rssi_update(&mut self, issi: u32, rssi_dbfs: f32) {
         let brew_cfg = self.config.config();
         let Some(ref brew) = brew_cfg.brew else {
@@ -820,7 +822,7 @@ impl BrewEntity {
             return;
         }
 
-        const RSSI_EXPORT_INTERVAL: Duration = Duration::from_secs(5);
+        const RSSI_EXPORT_INTERVAL: Duration = Duration::from_secs(2);
 
         let now = Instant::now();
         let should_send = match self.rssi_last_sent.get(&issi) {

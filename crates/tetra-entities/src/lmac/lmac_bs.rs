@@ -203,6 +203,7 @@ impl LmacBs {
             return;
         }
 
+        let rssi_dbfs = blk.rssi_dbfs;
         let (decoded, crc_ok) = errorcontrol::decode_tp(lchan, blk.block, self.scrambling_code);
         let Some(acelp_bits) = decoded else {
             tracing::warn!("rx_blk_traffic: decode_tp returned None");
@@ -227,6 +228,7 @@ impl LmacBs {
                 carrier_num: blk.carrier_num,
                 ts: ul_time.t,
                 data,
+                rssi_dbfs: if crc_ok { rssi_dbfs } else { f32::NEG_INFINITY },
             }),
         };
         queue.push_back(msg);

@@ -446,6 +446,11 @@ impl BsChannelScheduler {
         if (1..=4).contains(&ts) { self.tch_ul_issi[ts as usize - 1] = issi; }
     }
 
+    /// The radio transmitting on traffic timeslot `ts`, if a local one is.
+    pub fn tch_speaker(&self, ts: u8) -> Option<u32> {
+        if (1..=4).contains(&ts) { self.tch_ul_issi[ts as usize - 1] } else { None }
+    }
+
     pub fn tch_is_encrypted(&self, ts: u8) -> bool {
         (1..=4).contains(&ts) && self.tch_encrypted[ts as usize - 1]
     }

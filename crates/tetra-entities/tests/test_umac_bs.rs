@@ -2355,3 +2355,88 @@ fn test_capacity_request_in_own_reserved_slot_is_not_flagged() {
         "an access in a subslot reserved for the radio is reserved access, not random access"
     );
 }
+
+fn ul_speech_frame(ts: u8, rssi_dbfs: f32) -> SapMsg {
+    SapMsg {
+        sap: Sap::TmdSap,
+        src: TetraEntity::Lmac,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmdCircuitDataInd(tetra_saps::tmd::TmdCircuitDataInd {
+            carrier_num: MAIN_CARRIER,
+            ts,
+            data: vec![0u8; 274],
+            rssi_dbfs,
+        }),
+    }
+}
+
+fn talker_rssi_reports(test: &mut ComponentTest) -> Vec<(u32, f32)> {
+    test.deliver_all_messages();
+    test.dump_sinks()
+        .into_iter()
+        .filter_map(|m| match m.msg {
+            SapMsgInner::MsRssiUpdate { issi, rssi_dbfs } if m.dest == TetraEntity::Mm => Some((issi, rssi_dbfs)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// While a radio talks its level is reported about once a second, as the mean of the speech
+/// frames that decoded. Before, a level was reported only from the random access (PTT press).
+#[test]
+fn test_talking_radio_level_is_reported_once_a_second() {
+    let mut test = ComponentTest::new(StackMode::Bs, Some(TdmaTime { h: 0, m: 1, f: 1, t: 1 }));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Cmce, TetraEntity::Mm, TetraEntity::Brew]);
+    test.submit_message(open_shared_voice_circuit(2));
+    let floor = |granted: bool| SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Cmce,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::CmceCallControl(if granted {
+            CallControl::FloorGranted { call_id: 1, source_issi: 1000001, dest_gssi: 1000002, carrier_num: MAIN_CARRIER, ts: 2 }
+        } else {
+            CallControl::RemoteFloorGranted { call_id: 1, carrier_num: MAIN_CARRIER, ts: 2 }
+        }),
+    };
+    test.submit_message(floor(true));
+    assert!(talker_rssi_reports(&mut test).is_empty());
+
+    // 17 speech frames (one multiframe): one report with their mean.
+    for i in 0..17 {
+        test.submit_message(ul_speech_frame(2, if i % 2 == 0 { -30.0 } else { -32.0 }));
+    }
+    let reports = talker_rssi_reports(&mut test);
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert_eq!(reports[0].0, 1000001);
+    assert!((reports[0].1 - (-30.0 * 9.0 - 32.0 * 8.0) / 17.0).abs() < 0.01, "{reports:?}");
+
+    // Frames that did not decode carry no level and do not count.
+    for _ in 0..16 {
+        test.submit_message(ul_speech_frame(2, -40.0));
+    }
+    for _ in 0..10 {
+        test.submit_message(ul_speech_frame(2, f32::NEG_INFINITY));
+    }
+    assert!(talker_rssi_reports(&mut test).is_empty());
+    test.submit_message(ul_speech_frame(2, -40.0));
+    assert_eq!(talker_rssi_reports(&mut test), vec![(1000001, -40.0)]);
+
+    // A network speaker: the uplink carries no local radio, nothing is reported.
+    for _ in 0..5 {
+        test.submit_message(ul_speech_frame(2, -20.0));
+    }
+    test.submit_message(floor(false));
+    for _ in 0..40 {
+        test.submit_message(ul_speech_frame(2, -20.0));
+    }
+    assert!(talker_rssi_reports(&mut test).is_empty());
+
+    // The floor comes back to a local radio: counting starts again from zero.
+    test.submit_message(floor(true));
+    for _ in 0..16 {
+        test.submit_message(ul_speech_frame(2, -50.0));
+    }
+    assert!(talker_rssi_reports(&mut test).is_empty());
+    test.submit_message(ul_speech_frame(2, -50.0));
+    assert_eq!(talker_rssi_reports(&mut test), vec![(1000001, -50.0)]);
+}
