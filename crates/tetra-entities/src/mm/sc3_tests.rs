@@ -74,7 +74,11 @@ fn r2_group_replacement_preserves_unchanged_affiliations_and_removes_only_missin
         mm.rx_u_attach_detach_group_identity(&mut q, group_report(&[268, 270], true));
         while let Some(m) = q.pop_front() {
             if let SapMsgInner::MmSubscriberUpdate(u) = m.msg {
-                assert!(!u.groups.contains(&268), "unchanged group must never flap");
+                // The unchanged group never flaps: no deaffiliation, nothing towards the network.
+                // CMCE alone hears that it was attached again (late-entry D-SETUP repeat).
+                if u.groups.contains(&268) {
+                    assert_eq!((m.dest, u.action), (TetraEntity::Cmce, BrewSubscriberAction::Affiliate), "unchanged group must never flap");
+                }
                 if u.action == BrewSubscriberAction::Deaffiliate { assert_eq!(u.groups, vec![269]); }
             }
         }

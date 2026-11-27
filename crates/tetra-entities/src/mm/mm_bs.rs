@@ -2453,6 +2453,7 @@ impl MmBs {
         let mut accepted_groups = Vec::new();
         let mut aff_groups = Vec::new();
         let mut deaff_groups = Vec::new();
+        let mut reattached_groups = Vec::new();
 
         for giu in giu_vec.iter() {
             // Currently only address_type=0 (plain GSSI) is implemented. Anything else
@@ -2499,6 +2500,8 @@ impl MmBs {
                         if changed || !self.config.state_read().subscribers.attached_groups_of(issi).contains(&gssi) {
                             self.config.state_write().subscribers.affiliate(issi, gssi);
                             aff_groups.push(gssi);
+                        } else {
+                            reattached_groups.push(gssi);
                         }
                         // We have added the client to this group. Add an entry to the downlink response.
                         //
@@ -2549,6 +2552,23 @@ impl MmBs {
         }
         if !deaff_groups.is_empty() {
             self.emit_subscriber_update(queue, issi, deaff_groups, BrewSubscriberAction::Deaffiliate);
+        }
+        if !reattached_groups.is_empty() {
+            // A group the radio attaches again while it is still attached here (its group report
+            // after a cell change, TS 100 392-2 clause 16.4.1.1 a)) is no change for the network,
+            // so Brew hears nothing. CMCE must hear it: the radio ignored the late-entry D-SETUP
+            // sent before its own registration, and CMCE repeats it at once on this report instead
+            // of leaving the radio out of a running call until the periodic one.
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Mm,
+                dest: TetraEntity::Cmce,
+                msg: SapMsgInner::MmSubscriberUpdate(MmSubscriberUpdate {
+                    issi,
+                    groups: reattached_groups,
+                    action: BrewSubscriberAction::Affiliate,
+                }),
+            });
         }
 
         // Emit a full snapshot so the dashboard can render both current affiliations and the

@@ -204,10 +204,11 @@ pub enum DlSchedElem {
     /// A received MAC-ACCESS PDU still has to be acknowledged
     RandomAccessAck(TetraAddress),
 
-    /// Acknowledgement of a random access on an assigned channel that is answered by a grant
-    /// (TS 100 392-2 clause 23.5.1.4.8). It goes out in the MAC-RESOURCE that carries the grant;
-    /// when the grant is dropped (downlink back in traffic mode) it is dropped with it, so it can
-    /// never end up on a later, unrelated PDU to the same radio.
+    /// Acknowledgement of a random access on an assigned channel (TS 100 392-2 clauses 23.5.1.4.8
+    /// and 23.5.1.4.12). It goes out in the MAC-RESOURCE that carries the grant, or in a MAC-RESOURCE
+    /// of its own when the access asked for no capacity (queued in hangtime only); when it is
+    /// dropped as the downlink goes back to traffic mode it is dropped for good, so it can never
+    /// end up on a later, unrelated stolen PDU to the same radio.
     GrantRandomAccessAck(TetraAddress),
 
     /// A slotgrant response, which has to be transmitted with high priority or the delay numbers will be off.
@@ -1019,11 +1020,12 @@ impl BsChannelScheduler {
         self.dltx_queues[ts as usize - 1].push(elem);
     }
 
-    /// Acknowledges a random access on an assigned channel together with the grant that answers
-    /// it. Enqueue it after `dl_enqueue_grant` for the same address and timeslot.
+    /// Acknowledges a random access on an assigned channel, together with the grant that answers
+    /// it (enqueue it after `dl_enqueue_grant` for the same address and timeslot) or on its own
+    /// when the access carried no capacity request.
     pub fn dl_enqueue_grant_random_access_ack(&mut self, ts: u8, addr: TetraAddress) {
         tracing::debug!(
-            "dl_enqueue_grant_random_access_ack: ts {} acknowledging random access of {} with its grant",
+            "dl_enqueue_grant_random_access_ack: ts {} acknowledging random access of {} on the assigned channel",
             ts,
             addr
         );

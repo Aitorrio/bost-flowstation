@@ -2355,3 +2355,179 @@ fn test_capacity_request_in_own_reserved_slot_is_not_flagged() {
         "an access in a subslot reserved for the radio is reserved access, not random access"
     );
 }
+
+// Field case 2026-11-26: in hangtime a listener acknowledged a downlink message with a stand-alone
+// BL-ACK in a MAC-ACCESS without a capacity request. Only accesses with a capacity request were
+// acknowledged on an assigned channel, so the radio repeated the access five times (clause
+// 23.5.1.4.8) and every copy was logged as an unexpected ACK.
+
+/// MAC-ACCESS as the radio sent it: a stand-alone BL-ACK (N(R) = 1), no capacity request.
+fn listener_bl_ack_access() -> SapMsg {
+    let mut uplink = BitBuffer::new_autoexpand(92);
+    MacAccess {
+        fill_bits: true,
+        encrypted: false,
+        addr: Some(listener_addr()),
+        event_label: None,
+        length_ind: Some(6),
+        frag_flag: None,
+        reservation_req: None,
+    }
+    .to_bitbuf(&mut uplink);
+    // BL-ACK without FCS, N(R) = 1, then fill bits up to the 6-octet length.
+    let sdu = BitBuffer::from_bitstr("00111100");
+    for i in 0..sdu.get_len() {
+        uplink.write_bits(sdu.peek_bits_startoffset(i, 1).unwrap(), 1);
+    }
+    uplink.seek(0);
+
+    SapMsg {
+        sap: Sap::TmvSap,
+        src: TetraEntity::Lmac,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmvUnitdataInd(TmvUnitdataInd {
+            carrier_num: MAIN_CARRIER,
+            pdu: uplink,
+            block_num: PhyBlockNum::Block1,
+            logical_channel: LogicalChannel::SchHu,
+            crc_pass: true,
+            scrambling_code: 864282631,
+            rssi_dbfs: f32::NEG_INFINITY,
+        }),
+    }
+}
+
+#[test]
+fn test_listener_access_without_capacity_request_in_hangtime_is_acknowledged() {
+    debug::setup_logging_verbose();
+    let mut test = call_in_hangtime();
+
+    test.submit_message(listener_bl_ack_access());
+    test.run_stack(Some(12));
+    let slots = downlink_slots(test.dump_sinks());
+    let resources = resources_for_listener(&slots, 2);
+
+    assert!(
+        resources.iter().any(|pdu| pdu.random_access_flag),
+        "a random access on the assigned channel must be answered with the random access flag \
+         even without a capacity request (clauses 23.5.1.4.8, 23.5.1.4.12), otherwise the radio repeats it"
+    );
+    assert!(
+        resources.iter().all(|pdu| pdu.slot_granting_element.is_none()),
+        "no capacity was asked for, so nothing is granted"
+    );
+}
+
+#[test]
+fn test_access_without_capacity_request_in_own_reserved_slot_is_not_flagged() {
+    // Reserved access (clause 23.5.2) is not a random access: no acknowledgement flag.
+    debug::setup_logging_verbose();
+    let mut test = call_in_hangtime();
+
+    {
+        let umac = umac_of(&mut test);
+        let mut t = TdmaTime { h: 0, m: 1, f: 1, t: 2 };
+        for _ in 0..(18 * 60) {
+            if umac.channel_scheduler.ul_get_slot_owner(t, PhyBlockNum::Block1).is_none() {
+                umac.channel_scheduler.ul_reserve_grant(LISTENER_ISSI, vec![t], true, None);
+            }
+            t = t.add_timeslots(4);
+        }
+    }
+
+    test.submit_message(listener_bl_ack_access());
+    test.run_stack(Some(12));
+    let slots = downlink_slots(test.dump_sinks());
+    let resources = resources_for_listener(&slots, 2);
+    assert!(
+        resources.iter().all(|pdu| !pdu.random_access_flag),
+        "an access in a subslot reserved for the radio is reserved access, not random access"
+    );
+}
+
+#[test]
+fn test_unsent_ack_without_capacity_request_does_not_flag_a_later_facch() {
+    // As test_unsent_grant_does_not_leave_random_access_flag_for_later_facch, for the
+    // acknowledgement that has no grant: when a new talker ends hangtime before it went out, it
+    // is dropped and must not turn up on a later FACCH to that radio.
+    debug::setup_logging_verbose();
+    let mut test = call_in_hangtime();
+
+    test.submit_message(listener_bl_ack_access());
+    test.submit_message(SapMsg {
+        sap: Sap::Control,
+        src: TetraEntity::Cmce,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::CmceCallControl(CallControl::RemoteFloorGranted {
+            call_id: 1,
+            carrier_num: MAIN_CARRIER,
+            ts: 2,
+        }),
+    });
+    test.run_stack(Some(2));
+    let early = downlink_slots(test.dump_sinks());
+    assert!(
+        resources_for_listener(&early, 2).is_empty(),
+        "test premise: the acknowledgement is dropped before it goes out"
+    );
+
+    test.submit_message(SapMsg {
+        sap: Sap::TmaSap,
+        src: TetraEntity::Llc,
+        dest: TetraEntity::Umac,
+        msg: SapMsgInner::TmaUnitdataReq(TmaUnitdataReq {
+            req_handle: 0,
+            pdu: BitBuffer::from_bitstr("1010101010101010"),
+            main_address: listener_addr(),
+            link_id: 2,
+            endpoint_id: 0,
+            stealing_permission: true,
+            subscriber_class: 0,
+            air_interface_encryption: None,
+            stealing_repeats_flag: None,
+            data_category: None,
+            carrier_num: Some(MAIN_CARRIER),
+            chan_alloc: Some(CmceChanAllocReq {
+                usage: Some(4),
+                carrier: Some(MAIN_CARRIER),
+                timeslots: [false, true, false, false],
+                alloc_type: ChanAllocType::Replace,
+                ul_dl_assigned: UlDlAssignment::Both,
+                cell_change: false,
+            }),
+            stealing_slot: None,
+            tx_reporter: None,
+        }),
+    });
+    test.run_stack(Some(8));
+    let slots = downlink_slots(test.dump_sinks());
+    let resources = resources_for_listener(&slots, 2);
+    assert!(!resources.is_empty(), "expected the FACCH to the listener on ts 2");
+    assert!(
+        resources.iter().all(|pdu| !pdu.random_access_flag),
+        "a later FACCH must not carry the flag of a dropped acknowledgement"
+    );
+}
+
+#[test]
+fn test_access_without_capacity_request_with_downlink_traffic_queues_no_acknowledgement() {
+    // With downlink traffic a MAC-RESOURCE of its own cannot go out in time. Nothing is queued,
+    // so no stale acknowledgement reaches the radio later (after the call, or many frames on).
+    debug::setup_logging_verbose();
+    let dltime = TdmaTime { h: 0, m: 1, f: 1, t: 4 };
+    let mut test = ComponentTest::new(StackMode::Bs, Some(dltime));
+    test.populate_entities(vec![TetraEntity::Umac], vec![TetraEntity::Lmac, TetraEntity::Cmce]);
+    test.submit_message(open_shared_voice_circuit(2));
+    test.run_stack(Some(4));
+    test.dump_sinks();
+
+    test.submit_message(listener_bl_ack_access());
+    test.run_stack(Some(4));
+    test.submit_message(floor_released(2));
+    test.run_stack(Some(4 * 18 * 2));
+    let slots = downlink_slots(test.dump_sinks());
+    assert!(
+        resources_for_listener(&slots, 2).iter().all(|pdu| !pdu.random_access_flag),
+        "an access during downlink traffic must not be acknowledged later, out of context"
+    );
+}
